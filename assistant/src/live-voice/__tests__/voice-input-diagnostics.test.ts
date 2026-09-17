@@ -32,6 +32,29 @@ function sample(
 }
 
 describe("voice input diagnostics", () => {
+  test("distinguishes arriving audio from gaps in submission to STT", () => {
+    const diagnostics = new VoiceInputDiagnostics();
+    diagnostics.observe(sample(0));
+    diagnostics.recordSttSubmission(0, 50);
+    diagnostics.observe(sample(50));
+    diagnostics.observe(sample(100));
+    diagnostics.recordSttSubmission(100, 50);
+    expect(diagnostics.flush()).toMatchObject({
+      chunks: 3,
+      audioMs: 150,
+      maxArrivalGapMs: 50,
+      sttSubmittedChunks: 2,
+      sttSubmittedAudioMs: 100,
+      sttMaxSubmissionGapMs: 100,
+    });
+    diagnostics.observe(sample(150));
+    diagnostics.recordSttSubmission(150, 50);
+    expect(diagnostics.flush()).toMatchObject({
+      sttSubmittedChunks: 1,
+      sttSubmittedAudioMs: 50,
+      sttMaxSubmissionGapMs: 50,
+    });
+  });
   test("bounds traces by count and age, including burst arrivals", () => {
     const diagnostics = new VoiceInputDiagnostics();
     for (let index = 0; index < 100; index++) {

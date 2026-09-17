@@ -26,7 +26,20 @@ const MAX_TRACE_SAMPLES = 40;
 export class VoiceInputDiagnostics {
   private recent: VoiceInputSample[] = [];
   private lastArrivalAtMs: number | null = null;
+  private lastSttSubmissionAtMs: number | null = null;
   private window = this.emptyWindow();
+
+  recordSttSubmission(atMs: number, audioMs: number): void {
+    this.window.sttSubmittedChunks += 1;
+    this.window.sttSubmittedAudioMs += audioMs;
+    if (this.lastSttSubmissionAtMs !== null) {
+      this.window.sttMaxSubmissionGapMs = Math.max(
+        this.window.sttMaxSubmissionGapMs,
+        atMs - this.lastSttSubmissionAtMs,
+      );
+    }
+    this.lastSttSubmissionAtMs = atMs;
+  }
 
   observe(sample: VoiceInputSample): Record<string, number> | null {
     this.recent.push(sample);
@@ -96,6 +109,9 @@ export class VoiceInputDiagnostics {
       silenceMs: 0,
       echoMs: 0,
       maxArrivalGapMs: 0,
+      sttSubmittedChunks: 0,
+      sttSubmittedAudioMs: 0,
+      sttMaxSubmissionGapMs: 0,
     };
   }
 }

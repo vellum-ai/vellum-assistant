@@ -436,6 +436,10 @@ export interface SttStreamServerTurnEndEvent {
    * provider does not surface a score.
    */
   readonly confidence?: number;
+  /** Provider-reported cause of the turn boundary, when available. */
+  readonly trigger?: "model" | "manual" | "timeout";
+  /** End of the decoded audio window, in seconds from stream start. */
+  readonly audioWindowEndSeconds?: number;
   /**
    * Provider's index for the turn being closed, matching the
    * {@link SttStreamServerTurnStartEvent} that opened it. A consumer can

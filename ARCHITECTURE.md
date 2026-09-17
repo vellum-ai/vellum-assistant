@@ -772,6 +772,8 @@ Hands-free voice records applied browser microphone settings and playback transi
 
 See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
 
+With Flux turn detection enabled, the transcription stream receives quiet microphone frames through pauses and idle periods. Confirmed playback echo becomes equal-duration silence; local VAD continues to own barge-in independently. Submission cadence and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.

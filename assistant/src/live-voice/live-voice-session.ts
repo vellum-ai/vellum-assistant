@@ -511,12 +511,8 @@ interface UtteranceCycle {
   // server_vad has the turn detector for the same question, and never sets
   // this — its ingress is handleServerVadAudio.
   manualAudioCaptured: boolean;
-  // server_vad capture routed speech (not just pre-roll silence) into this
-  // cycle. Distinguishes an eagerly re-armed cycle holding only leading
-  // silence from one already carrying the user's utterance: the
-  // stale-language interception in handleServerVadAudio may retire the
-  // former, never the latter. turnId cannot answer this, because a
-  // silence-only pre-roll flush assigns it too.
+  // Local VAD or the provider detected speech. A language change may retire
+  // only a silence-only cycle; pre-roll can assign turnId before speech.
   speechRouted: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
@@ -2489,7 +2485,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     detector: MediaTurnDetector,
     classified: VadClassifiedChunk,
   ): Promise<void> {
-    const { chunk, classification: energyClassification } = classified;
+    const { classification: energyClassification } = classified;
+    let { chunk } = classified;
     const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(energyClassification, chunk);
@@ -2497,11 +2494,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.localSpeechStopAtMs = Date.now();
     }
 
-    // Playback echo is neither user audio nor useful pre-roll. Dropping it
-    // prevents the assistant's reply from reaching transcription as a ghost
-    // follow-up turn.
+    // Flux needs elapsed audio through pauses. Confirmed playback echo keeps
+    // its duration but carries no speaker content into transcription.
     if (energyClassification === "echo") {
-      return;
+      if (!this.providerTurnEndActive) {
+        return;
+      }
+      chunk = Buffer.alloc(chunk.byteLength);
     }
     // Measured past the echo gate, so a greeting heard through the speaker
     // cannot stand in for the user on a silent close.
@@ -2510,10 +2509,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.peakChunkAmplitude = meanAmplitude;
     }
 
-    // Idle mic: hold silent chunks in the bounded pre-roll instead of
-    // collecting or streaming them; flushed on speech onset so the
-    // transcriber still gets leading context ahead of the first syllable.
-    if (!hasSpeech && !detector.isActive) {
+    // Locally endpointed streams keep idle audio in pre-roll. Provider-owned
+    // endpointing receives quiet audio too, including speech below our gate.
+    if (!hasSpeech && !detector.isActive && !this.providerTurnEndActive) {
       this.pushVadPreRoll(chunk, false);
       return;
     }
@@ -2545,7 +2543,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // keeps its old-language stream and the language change applies from
       // the following utterance.
       utterance.finalTranscriptSegments.length === 0 &&
-      utterance.latestPartialText === null &&
+      (utterance.latestPartialText?.trim() ?? "").length === 0 &&
       this.sharedStreamLanguageIsStale()
     ) {
       this.retireSharedTranscriberForRedial(sharedForLanguage);
@@ -2556,7 +2554,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance.released || utterance.completed) {
       // Parked speech makes silent chunks arm-worthy too: the parked
       // utterance must flush without requiring more speech.
-      if (!hasSpeech && !this.vadPreRollHasSpeech) {
+      if (
+        !hasSpeech &&
+        !this.vadPreRollHasSpeech &&
+        !this.providerTurnEndActive
+      ) {
         return;
       }
       if (!this.canArmNextUtterance(utterance)) {
@@ -2815,7 +2817,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     chunk: Buffer,
   ): Promise<void> {
-    this.collectUserAudio(utterance, chunk);
+    // Continuous idle input belongs to the STT stream, not an unbounded
+    // recording of the room before the caller starts a request.
+    if (utterance.speechRouted) {
+      this.collectUserAudio(utterance, chunk);
+    }
     if (this.vadSpeechStartPending) {
       this.vadSpeechStartPending = false;
       this.markSpeechStart(utterance);
@@ -2894,10 +2900,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     chunk: Buffer,
   ): Promise<void> {
     try {
-      utterance.transcriber?.sendAudio(
-        chunk,
-        this.context.startFrame.audio.mimeType,
-      );
+      if (utterance.transcriber) {
+        utterance.transcriber.sendAudio(
+          chunk,
+          this.context.startFrame.audio.mimeType,
+        );
+        this.inputDiagnostics.recordSttSubmission(
+          Date.now(),
+          pcm16DurationMs(
+            chunk.byteLength,
+            this.context.startFrame.audio.sampleRate,
+          ),
+        );
+      }
       await this.drainOutboundFrames();
     } catch (err) {
       await this.sendFrame({
@@ -4582,6 +4597,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     turnIndex: number | undefined,
   ): void {
+    this.logInputDiagnostic("voice_input_provider_turn_start", {
+      inputTurnId: this.ensureTurnId(utterance),
+      turnIndex: turnIndex ?? null,
+      sttProvider: utterance.dialedSttProvider,
+      localDetectorActive: this.turnDetector?.isActive ?? false,
+    });
+    if (
+      this.providerTurnEndActive &&
+      !utterance.released &&
+      !utterance.completed
+    ) {
+      utterance.speechRouted = true;
+      this.detectedSpeech = true;
+    }
     if (turnIndex === undefined) {
       return;
     }
@@ -4653,8 +4682,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   private async handleProviderTurnEnd(
     utterance: UtteranceCycle,
-    turnIndex: number | undefined,
+    event: Extract<SttStreamServerEvent, { type: "turn-end" }>,
   ): Promise<void> {
+    const { turnIndex } = event;
+    this.logInputDiagnostic("voice_input_provider_turn_end", {
+      inputTurnId: utterance.turnId,
+      sttProvider: utterance.dialedSttProvider,
+      turnIndex: turnIndex ?? null,
+      confidence: event.confidence ?? null,
+      trigger: event.trigger ?? null,
+      audioWindowEndSeconds: event.audioWindowEndSeconds ?? null,
+      transcriptChars: event.text.length,
+      localDetectorActive: this.turnDetector?.isActive ?? false,
+      msSinceLocalSpeechStop:
+        this.localSpeechStopAtMs === null
+          ? null
+          : this.msSinceLocalSpeechStop(),
+      providerTurnEndActive: this.providerTurnEndActive,
+      providerTurnEndTimedOut: utterance.providerTurnEndTimedOut,
+    });
     if (
       !this.providerTurnEndActive ||
       this.currentUtterance !== utterance ||
@@ -5185,7 +5231,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // follow-up.
         return;
       case "turn-end":
-        await this.handleProviderTurnEnd(utterance, event.turnIndex);
+        await this.handleProviderTurnEnd(utterance, event);
         return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
@@ -5339,7 +5385,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // transcript owns the turn the provider just closed.
         const target = this.pendingTranscriptCycle();
         if (target) {
-          await this.handleProviderTurnEnd(target, event.turnIndex);
+          await this.handleProviderTurnEnd(target, event);
         }
         return;
       }
@@ -7092,6 +7138,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private markFirstPartial(utterance: UtteranceCycle): void {
+    if ((utterance.latestPartialText?.trim() ?? "").length === 0) {
+      return;
+    }
     this.markUtteranceMetric(utterance, "firstPartialAtMs", (turnId) =>
       this.metrics.markFirstPartial(turnId),
     );

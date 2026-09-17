@@ -129,6 +129,30 @@ describe("parseFluxFrame", () => {
     ]);
   });
 
+  test.each(["model", "timeout", "manual"])(
+    "retains the %s turn-end trigger and decoded audio position",
+    (trigger) => {
+      expect(
+        parseFluxFrame({ ...END_OF_TURN, trigger, audio_window_end: 12.5 })[1],
+      ).toMatchObject({
+        type: "turn-end",
+        confidence: 0.88,
+        trigger,
+        audioWindowEndSeconds: 12.5,
+      });
+    },
+  );
+
+  test("omits unknown triggers and malformed audio positions", () => {
+    expect(
+      parseFluxFrame({
+        ...END_OF_TURN,
+        trigger: "future-trigger",
+        audio_window_end: "invalid",
+      }),
+    ).toEqual(parseFluxFrame(END_OF_TURN));
+  });
+
   test("flat frames without a nested event field are accepted", () => {
     expect(parseFluxFrame({ type: "StartOfTurn" })).toEqual([
       { type: "turn-start" },
