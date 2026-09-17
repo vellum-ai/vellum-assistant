@@ -21,6 +21,7 @@ interface ChatInfoFileGridProps {
   assistantId: string;
   /** Whether the category holds more than the loaded page. */
   hasMore: boolean;
+  loading?: boolean;
   onLoadMore: () => void;
   /** Opens a document, or previews an attachment or camera frame. */
   onOpen: (file: ConversationFileAsset) => void;
@@ -30,6 +31,7 @@ export function ChatInfoFileGrid({
   items,
   assistantId,
   hasMore,
+  loading,
   onLoadMore,
   onOpen,
 }: ChatInfoFileGridProps) {
@@ -50,7 +52,12 @@ export function ChatInfoFileGrid({
         </div>
       )}
       {hasMore && (
-        <Button variant="outlined" onClick={onLoadMore} className="self-start">
+        <Button
+          variant="outlined"
+          disabled={loading}
+          onClick={onLoadMore}
+          className="self-start"
+        >
           {t("chatInfoPanel.loadMore")}
         </Button>
       )}

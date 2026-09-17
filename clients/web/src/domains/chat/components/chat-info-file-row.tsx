@@ -8,6 +8,8 @@
  * does.
  */
 
+import type { ReactNode } from "react";
+
 import {
   CHAT_INFO_FILE_TILE_WIDTH_PX,
   ChatInfoFileTile,
@@ -21,7 +23,8 @@ interface ChatInfoFileRowProps {
   category: ChatInfoFileCategory;
   title: string;
   /** The category's exact total, which may exceed `items.length` when paged. */
-  count: number;
+  count: number | null;
+  notice?: ReactNode;
   items: ConversationFileAsset[];
   seeAllAriaLabel: string;
   onSeeAll: (category: ChatInfoFileCategory) => void;
@@ -34,6 +37,7 @@ export function ChatInfoFileRow({
   category,
   title,
   count,
+  notice,
   items,
   seeAllAriaLabel,
   onSeeAll,
@@ -44,6 +48,7 @@ export function ChatInfoFileRow({
     <ChatInfoSection
       title={title}
       count={count}
+      notice={notice}
       items={items}
       tileWidth={CHAT_INFO_FILE_TILE_WIDTH_PX}
       seeAllAriaLabel={seeAllAriaLabel}

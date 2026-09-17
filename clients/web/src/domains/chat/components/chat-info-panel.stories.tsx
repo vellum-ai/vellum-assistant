@@ -41,6 +41,8 @@ import {
   CHAT_INFO_CONVERSATION_ID,
   type ChatInfoStoryConversation,
   failChatInfoDocuments,
+  failChatInfoFrames,
+  failChatInfoDocumentRefresh,
   inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
@@ -200,11 +202,7 @@ export const WithCameraFramesMobile: Story = {
   globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
-/**
- * The sources have not answered yet. The transcript's own files are on screen
- * from the first paint, and the panel says nothing about what it is missing:
- * a notice here reads as an answer the loaded panel then replaces.
- */
+/** Loaded transcript files remain visible beside source loading notices. */
 export const Loading: Story = {
   parameters: { chatInfo: { pendingSources: true } },
 };
@@ -216,10 +214,7 @@ export const Empty: Story = {
   },
 };
 
-/**
- * The documents source is down with nothing cached under it. The notice heads
- * the body, above the categories that did load.
- */
+/** The documents failure appears within Files, leaving Apps usable. */
 export const LoadFailed: Story = {
   parameters: {
     chatInfo: {
@@ -256,5 +251,20 @@ export const LevelTwoInteraction: Story = {
     await userEvent.click(await canvas.findByLabelText("See all apps"));
     // Finding the back control is the assertion: the second level is up.
     await canvas.findByLabelText("Back to chat info");
+  },
+};
+
+export const FramesUnavailable: Story = {
+  parameters: { chatInfo: { ...WITH_FRAMES, afterSeed: failChatInfoFrames } },
+};
+
+export const FramesUnavailableMobile: Story = {
+  ...FramesUnavailable,
+  globals: { viewport: { value: "sbNarrowPhone", isRotated: false } },
+};
+
+export const CachedRefreshFailed: Story = {
+  parameters: {
+    chatInfo: { ...WITH_FRAMES, afterSeed: failChatInfoDocumentRefresh },
   },
 };

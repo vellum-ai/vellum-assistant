@@ -442,7 +442,17 @@
     "seeAllAppsAria": "查看全部应用",
     "seeAllFilesAria": "查看全部文档与图片",
     "seeAllFramesAria": "查看全部相机帧",
-    "title": "聊天信息"
+    "title": "聊天信息",
+    "retry": "重试",
+    "retrySourceAria": "重试加载{source}",
+    "documentsSource": "文档",
+    "attachmentsSource": "附件",
+    "sourceLoading": "正在加载{source}…",
+    "sourceLoadFailed": "无法加载{source}。",
+    "sourceRefreshFailed": "无法刷新{source}。正在显示已保存的结果。",
+    "sourcePageFailed": "无法加载更多{source}。",
+    "framesUnsupported": "此助手版本不支持摄像头画面分类。",
+    "loadedHistory": "附件仅来自已加载的聊天记录。"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -684,7 +694,12 @@
     "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
     "label": "{count, plural, one {# 个资产} other {# 个资产}}",
-    "labelUnavailable": "无法加载资产"
+    "labelUnavailable": "无法加载资产",
+    "labelPartial": "部分资源无法加载",
+    "ariaLabelPartial": "对话资源，部分无法加载",
+    "labelLoaded": "{count, plural, other {已加载 # 个资源}}",
+    "ariaLabelLoaded": "对话资源，{count, plural, other {已加载 # 项}}",
+    "ariaLabelLoadedUnseen": "对话资源，{count, plural, other {已加载 # 项}}（有未查看的更改）"
   },
   "conversationStarterDock": {
     "caption": "尝试以下建议："

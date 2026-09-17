@@ -450,7 +450,17 @@
     "seeAllAppsAria": "See all apps",
     "seeAllFilesAria": "See all documents and images",
     "seeAllFramesAria": "See all camera frames",
-    "title": "Chat Info"
+    "title": "Chat Info",
+    "retry": "Retry",
+    "retrySourceAria": "Retry {source}",
+    "documentsSource": "Documents",
+    "attachmentsSource": "Attachments",
+    "sourceLoading": "Loading {source}…",
+    "sourceLoadFailed": "{source} could not be loaded.",
+    "sourceRefreshFailed": "{source} could not be refreshed. Showing saved results.",
+    "sourcePageFailed": "More {source} could not be loaded.",
+    "framesUnsupported": "Camera frame classification is unavailable on this assistant version.",
+    "loadedHistory": "Attachments are from the loaded chat history only."
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -695,7 +705,12 @@
     "ariaLabelUnavailable": "Conversation assets, could not be loaded",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
     "label": "{count, plural, one {# asset} other {# assets}}",
-    "labelUnavailable": "Assets could not be loaded"
+    "labelUnavailable": "Assets could not be loaded",
+    "labelPartial": "Some assets could not be loaded",
+    "ariaLabelPartial": "Conversation assets, some could not be loaded",
+    "labelLoaded": "{count, plural, one {# loaded asset} other {# loaded assets}}",
+    "ariaLabelLoaded": "Conversation assets, {count, plural, one {# loaded item} other {# loaded items}}",
+    "ariaLabelLoadedUnseen": "Conversation assets, {count, plural, one {# loaded item} other {# loaded items}} (unseen changes)"
   },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
