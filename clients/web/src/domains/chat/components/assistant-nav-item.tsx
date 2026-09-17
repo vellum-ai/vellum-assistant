@@ -513,7 +513,9 @@ export function AssistantNavItem({
               active={active}
               onSelect={onSelect}
               trailingAction={pillTrailingAction}
-              className={cn(DISC_PILL_CLASSES, pillGapClass)}
+              /* `min-w-0` for the same reason the tinted pill's wrapper
+                 carries it: here the pill is the row's flex item itself. */
+              className={cn("min-w-0", DISC_PILL_CLASSES, pillGapClass)}
               style={DISC_PILL_STYLE}
               data-tour-id="assistant-page"
             />,
@@ -679,7 +681,12 @@ export function AssistantNavItem({
       )}
     </button>
   ) : (
-    <span style={tintStyle}>
+    /* `min-w-0`: as a flex item on the companions' row the wrapper would
+       otherwise hold its min-content width, which is the whole name (the
+       label is `nowrap`), and push the discs beside it past the rail's edge
+       where they clip. With it the wrapper shrinks, the pill's `max-w-full`
+       becomes definite against it, and the name truncates instead. */
+    <span className="min-w-0" style={tintStyle}>
       <PanelItem
         shape="pill"
         leadingSlot={eyesDisc}

@@ -89,8 +89,10 @@ export function TourNavFlood({
   const eyesHeight = baseHeight * scale;
   /** Bottom-edge sink scales with the shape's (unscaled) height so flatter
    *  variants keep the same visible fraction above the fold, and with the
-   *  disc's cap on the sprite's growth for the same reason: a sink sized
-   *  for the resting scale would swallow a capped sprite. */
+   *  applied scale so a capped sprite keeps it too: the fraction above the
+   *  fold is then `1 - EDGE_SINK * min(1, baseHeight / SINK_REFERENCE_HEIGHT)
+   *  / (baseHeight * REST_SCALE)`, in which the scale cancels, so it holds
+   *  for every eye style at any disc size without re-measuring. */
   const edgeSink =
     EDGE_SINK *
     Math.min(1, baseHeight / SINK_REFERENCE_HEIGHT) *

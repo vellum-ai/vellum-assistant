@@ -272,6 +272,18 @@ export const UnnamedAssistant: Story = {
 };
 
 /**
+ * A name wider than the row can hold: the pill gives way and truncates it,
+ * so the section toggle and the New Chat button beside it stay on the rail
+ * rather than being pushed past its edge and clipped.
+ */
+export const LongName: Story = {
+  args: {
+    assistantThreads: ASSISTANT_THREADS,
+    assistantName: "Persephone Winterbottom",
+  },
+};
+
+/**
  * Nothing yet. The section still renders — its empty state is what explains
  * it to someone who has no threads — and Chats keeps the leftover height.
  */
