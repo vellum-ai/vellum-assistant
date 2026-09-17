@@ -147,8 +147,8 @@
     "close": "Cerrar",
     "done": "Entendido",
     "draw": {
-      "body": "Rodea o señala cualquier cosa de tu pantalla mientras miro.",
-      "title": "Dibuja sobre lo que veo"
+      "body": "Señala cualquier cosa de tu pantalla y la veré",
+      "title": "Dibuja"
     },
     "idle": {
       "body": "Pasa el cursor por encima y saldré.",

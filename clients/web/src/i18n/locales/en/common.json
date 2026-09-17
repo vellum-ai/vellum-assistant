@@ -147,8 +147,8 @@
     "close": "Close",
     "done": "Got it",
     "draw": {
-      "body": "Circle or point at anything on your screen while I’m looking.",
-      "title": "Draw on what I see"
+      "body": "Point at anything on your screen and I’ll see it",
+      "title": "Draw"
     },
     "idle": {
       "body": "Hover me and I’ll come out.",
