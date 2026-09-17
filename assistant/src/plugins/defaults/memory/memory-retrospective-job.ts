@@ -47,7 +47,7 @@ import {
   deleteConversation,
   getConversation,
   getConversationProcessingStartedAt,
-  getConversationToolSurface,
+  getRecordedConversationToolSurface,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
@@ -769,9 +769,9 @@ function enqueueFollowUpJobs(): string[] {
  */
 async function readSourceToolSurface(
   sourceConversationId: string,
-): ReturnType<typeof getConversationToolSurface> {
+): ReturnType<typeof getRecordedConversationToolSurface> {
   try {
-    return await getConversationToolSurface(sourceConversationId);
+    return await getRecordedConversationToolSurface(sourceConversationId);
   } catch (err) {
     log.warn(
       { err, sourceConversationId },

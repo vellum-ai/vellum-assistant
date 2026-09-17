@@ -12,6 +12,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import {
+  getConversationToolSurface as getConversationToolSurfaceViaPluginApi,
+  getRecordedConversationToolSurface,
+} from "../persistence/conversation-plugin-facade.js";
+import {
   type ConversationToolSurface,
   getConversationToolSurface,
   hashConversationToolSurface,
@@ -198,5 +202,20 @@ describe("getConversationToolSurface", () => {
     sqlite.query(`DELETE FROM conversations WHERE id = ?`).run("conv-1");
 
     expect(getConversationToolSurface("conv-1")).toBeNull();
+  });
+});
+
+describe("plugin facade", () => {
+  test("the array accessor is a projection of the recorded surface", async () => {
+    expect(await getConversationToolSurfaceViaPluginApi("conv-1")).toBeNull();
+    expect(await getRecordedConversationToolSurface("conv-1")).toBeNull();
+
+    recordConversationToolSurface("conv-1", SURFACE);
+
+    expect(await getRecordedConversationToolSurface("conv-1")).toEqual(SURFACE);
+    // The array shape the public `@vellumai/plugin-api` accessor returns.
+    expect(await getConversationToolSurfaceViaPluginApi("conv-1")).toEqual(
+      TOOLS,
+    );
   });
 });

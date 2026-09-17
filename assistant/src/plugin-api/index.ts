@@ -379,6 +379,7 @@ export {
   getConversationProcessingStartedAt,
   getConversationToolSurface,
   getMessages,
+  getRecordedConversationToolSurface,
   hasLexicalTokens,
   isConversationProcessing,
   listConversations,

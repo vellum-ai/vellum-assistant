@@ -355,7 +355,7 @@ export interface WakeOptions {
    * Tool definitions to send verbatim as the wake's wire tool array, in place
    * of the ones the conversation would resolve for itself. Used by fork-based
    * memory retrospectives to replay the SOURCE conversation's recorded surface
-   * (`getConversationToolSurface`) so the provider prompt-cache prefix matches
+   * (`getRecordedConversationToolSurface`) so the provider prompt-cache prefix matches
    * the source's live turns byte for byte. Definitions only: what may execute
    * is still decided by `allowedTools` and the turn's own active set. Applied
    * and restored alongside `allowedTools`; ignored when `allowedTools` is
