@@ -766,6 +766,25 @@ graph TB
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
+## Live Voice Task Outcomes
+
+Subagent updates for a conversation with an active live-voice call are claimed by
+the session manager before generic parent-turn injection. The voice session queues
+updates per task and delivers them through hidden voice turns once user speech,
+the current response and queued playback have yielded the floor. Interrupted
+announcements stay pending; hang-up returns undelivered outcomes to the conversation.
+See [live voice task outcomes](assistant/docs/live-voice-task-outcomes.md) for routing,
+attribution and playback semantics.
+
+```mermaid
+flowchart LR
+    Worker[Subagent update] --> Router[Parent notification router]
+    Router -->|Matching live call| Queue[Per-task voice queue]
+    Router -->|No matching call| Parent[Conversation turn]
+    Queue -->|Floor available| Voice[Hidden voice turn and TTS]
+    Queue -->|Hang-up| Parent
+```
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.

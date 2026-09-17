@@ -111,11 +111,14 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
+import { setLiveVoiceSessionManagerForTesting } from "../live-voice/live-voice-manager.js";
+import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import type { SubagentRecord } from "../persistence/subagent-store.js";
 import {
   injectMessageIntoParent,
   notifyParentFromChild,
 } from "../subagent/notify.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import {
   executeSubagentNotifyParent,
   notifyParentTool,
@@ -188,6 +191,87 @@ function clearCaptured(): void {
 }
 
 // ── Tool definition ────────────────────────────────────────────────
+
+describe("voice parent notification routing", () => {
+  test("only the matching active call claims task updates, without starting a generic parent turn", async () => {
+    clearCaptured();
+    const received: SubagentParentNotification[] = [];
+    const manager = new LiveVoiceSessionManager({
+      createSession: (context) => ({
+        start: async () => {
+          await context.sendFrame({
+            type: "ready",
+            sessionId: context.sessionId,
+            conversationId: "parent-voice",
+          });
+        },
+        handleClientFrame: () => {},
+        handleBinaryAudio: () => {},
+        close: () => {},
+        receiveSubagentNotification: (notification) => {
+          received.push(notification);
+          return true;
+        },
+      }),
+    });
+    setLiveVoiceSessionManagerForTesting(manager);
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        status: "completed",
+        conversationId: "child-1",
+      },
+    };
+    try {
+      await manager.startSession(
+        {
+          type: "start",
+          audio: { mimeType: "audio/pcm", sampleRate: 24_000, channels: 1 },
+        },
+        { sendFrame: () => {} },
+      );
+      injectMessageIntoParent("parent-voice", "Task completed", metadata, {
+        cronRunId: "run-123",
+      });
+      expect(received).toEqual([
+        {
+          taskId: "child-1",
+          message: "Task completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      ]);
+      expect(capturedMessages).toEqual([]);
+      expect(capturedLoopCronRunIds).toEqual([]);
+
+      injectMessageIntoParent("parent-other", "Other task completed", metadata);
+      injectMessageIntoParent("parent-voice", "Generic event");
+      injectMessageIntoParent("parent-voice", "Hang-up fallback", metadata, {
+        bypassLiveVoice: true,
+        cronRunId: "run-123",
+      });
+      expect(received).toHaveLength(1);
+      expect(capturedMessages).toEqual([
+        "Other task completed",
+        "Generic event",
+        "Hang-up fallback",
+      ]);
+      expect(capturedEnqueueCronRunIds.at(-1)).toBe("run-123");
+
+      await manager.endActiveSession("manager_shutdown");
+      injectMessageIntoParent(
+        "parent-voice",
+        "Finished after hang-up",
+        metadata,
+      );
+      expect(capturedMessages.at(-1)).toBe("Finished after hang-up");
+    } finally {
+      await manager.endActiveSession("manager_shutdown");
+      setLiveVoiceSessionManagerForTesting(null);
+      clearCaptured();
+    }
+  });
+});
 
 describe("notify_parent tool definition", () => {
   test("has correct core tool definition", () => {
