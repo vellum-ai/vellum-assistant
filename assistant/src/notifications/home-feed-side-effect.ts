@@ -38,6 +38,7 @@ import {
   isGuardianRequestSignalEvent,
   receiptGuardianFeedItemIfRequestTerminal,
 } from "./guardian-feed-projection.js";
+import { readChannelAllowlist } from "./channel-allowlist.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -556,7 +557,10 @@ function resolveHomeFeedMirror(
     signal.sourceChannel === "assistant_tool" ||
     signal.sourceEventName === "chat.assistant_reply"
   ) {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
+    const allowlist = readChannelAllowlist(signal.contextPayload);
+    if (!allowlist || allowlist.includes("vellum")) {
+      return { mirror: true, sourceConversationId, sourceScheduleJobId };
+    }
   }
   if (signal.attentionHints.isAsyncBackground) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };

@@ -235,6 +235,31 @@ describe("notifications send", () => {
     expect(payload.preferredChannels).toEqual(["telegram", "slack"]);
   });
 
+  test("send passes exclusive channel allowlist", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "send",
+      "--source-channel",
+      "assistant_tool",
+      "--source-event-name",
+      "user.send_notification",
+      "--message",
+      "Alarm",
+      "--channels",
+      "telegram",
+      "--urgent",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.selectedChannels).toEqual([]);
+    expect(parsed.deliveryResults).toEqual([]);
+    expect(parsed.receiptClass).toBe("unknown");
+
+    const payload = lastSendBody().contextPayload as Record<string, unknown>;
+    expect(payload.channelAllowlist).toEqual(["telegram"]);
+    expect(payload.preferredChannels).toBeUndefined();
+  });
+
   test("send rejects invalid urgency", async () => {
     const { parsed, exitCode } = await runCommand([
       "send",

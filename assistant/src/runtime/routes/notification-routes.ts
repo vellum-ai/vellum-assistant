@@ -14,6 +14,10 @@ import {
   NotificationSourceChannelSchema,
   RoutingIntentSchema,
 } from "../../notifications/signal.js";
+import {
+  NotificationDeliveryResultSchema,
+  NotificationReceiptClassSchema,
+} from "../../notifications/types.js";
 import { UrgencySchema } from "../../notifications/urgency.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { notificationDeliveries } from "../../persistence/schema/index.js";
@@ -78,6 +82,9 @@ const EmitSignalResponse = z.object({
   dispatched: z.boolean(),
   deduplicated: z.boolean(),
   reason: z.string(),
+  selectedChannels: z.array(z.string()),
+  deliveryResults: z.array(NotificationDeliveryResultSchema),
+  receiptClass: NotificationReceiptClassSchema,
 });
 
 async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
@@ -94,6 +101,9 @@ async function handleEmitSignal({ body = {} }: RouteHandlerArgs) {
     dispatched: result.dispatched,
     deduplicated: result.deduplicated,
     reason: result.reason,
+    selectedChannels: result.selectedChannels,
+    deliveryResults: result.deliveryResults,
+    receiptClass: result.receiptClass,
   };
 }
 

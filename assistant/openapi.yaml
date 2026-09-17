@@ -24704,11 +24704,58 @@ paths:
                     type: boolean
                   reason:
                     type: string
+                  selectedChannels:
+                    type: array
+                    items:
+                      type: string
+                  deliveryResults:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        destination:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - pending
+                            - sent
+                            - failed
+                            - skipped
+                        errorCode:
+                          type: string
+                        errorMessage:
+                          type: string
+                        sentAt:
+                          type: number
+                        conversationId:
+                          type: string
+                        messageId:
+                          type: string
+                        conversationStrategy:
+                          type: string
+                      required:
+                        - channel
+                        - destination
+                        - status
+                      additionalProperties: false
+                  receiptClass:
+                    type: string
+                    enum:
+                      - provider_accepted
+                      - gateway_accepted
+                      - client_os_posted
+                      - unknown
                 required:
                   - signalId
                   - dispatched
                   - deduplicated
                   - reason
+                  - selectedChannels
+                  - deliveryResults
+                  - receiptClass
                 additionalProperties: false
   /v1/notifications/events:
     post:
