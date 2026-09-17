@@ -16,7 +16,7 @@
  */
 
 import { repairHistory } from "../agent/history-repair/history-repair.js";
-import type { AgentLoopConfig, PreparedModelCall } from "../agent/loop.js";
+import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
@@ -1262,7 +1262,8 @@ export class Conversation {
 
     const systemPrompt =
       options?.systemPrompt ?? this.buildCurrentSystemPrompt();
-    const tools = options?.tools ?? getAllToolDefinitions();
+    const tools =
+      options?.tools ?? this.agentLoop.getResolvedTools(this.messages);
     const callSite = options?.callSite ?? "mainAgent";
     const providerConfig = {
       ...(options?.overrideProfile !== undefined
@@ -3466,10 +3467,8 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
-      /** Observe the first model call after pre-model routing settles. */
-      onFirstModelCallPrepared?: (
-        prepared: PreparedModelCall,
-      ) => void | Promise<void>;
+      /** Start best-effort work after turn admission and before context assembly. */
+      onTurnReady?: () => void;
       /**
        * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.

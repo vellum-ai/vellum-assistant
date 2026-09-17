@@ -130,13 +130,13 @@ function conversationProfileForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
 ): { profile: string; modelProfile: string } | null {
   const overrideProfile = resolveOverrideProfile(conversation);
-  let chosenArm: string | undefined;
+  let chosenMix: { mixProfile: string; chosenProfile: string } | undefined;
   const selection = selectWinningProfile("mainAgent", getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
     isResolvableProvider: dispatchProviderResolvable,
-    onMixSelected: ({ chosenProfile }) => {
-      chosenArm = chosenProfile;
+    onMixSelected: ({ mixProfile, chosenProfile }) => {
+      chosenMix = { mixProfile, chosenProfile };
     },
   });
   if (selection.source === "default" || selection.profileName == null) {
@@ -144,7 +144,10 @@ function conversationProfileForEscalation(
   }
   return {
     profile: selection.profileName,
-    modelProfile: chosenArm ?? selection.profileName,
+    modelProfile:
+      chosenMix?.mixProfile === selection.profileName
+        ? chosenMix.chosenProfile
+        : selection.profileName,
   };
 }
 
@@ -2152,26 +2155,21 @@ export async function startVoiceTurn(
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
-        // Warm the cache only after pre-model routing finalizes the profile,
-        // prompt, and provider-native tool surface.
+        // Start a speculative warm before memory/context assembly. The warm is
+        // deliberately not awaited: a cache miss must never add a second model
+        // round trip to the live voice response.
         ...(opts.routingLeg === "escalated"
           ? {
-              onFirstModelCallPrepared: async (prepared) => {
-                await conversation.warmPromptCache({
-                  ...(prepared.callSite !== undefined
-                    ? { callSite: prepared.callSite }
-                    : {}),
-                  ...(prepared.overrideProfile !== undefined
-                    ? { overrideProfile: prepared.overrideProfile }
-                    : {}),
-                  ...(prepared.forceOverrideProfile
-                    ? { forceOverrideProfile: true }
+              onTurnReady: () => {
+                void conversation.warmPromptCache({
+                  callSite: "callAgent",
+                  ...(profilePin != null
+                    ? {
+                        overrideProfile: profilePin,
+                        forceOverrideProfile: true,
+                      }
                     : {}),
                   signal: opts.signal,
-                  ...(prepared.systemPrompt !== undefined
-                    ? { systemPrompt: prepared.systemPrompt }
-                    : {}),
-                  tools: prepared.tools,
                 });
               },
             }

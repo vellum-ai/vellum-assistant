@@ -2166,37 +2166,17 @@ describe("session-agent-loop", () => {
       expect(call[5]).toBe("callAgent");
     });
 
-    test("reports only the first finalized model call", async () => {
-      const tool: ToolDefinition = {
-        name: "echo",
-        description: "Echo",
-        input_schema: { type: "object" },
-      };
-      const onFirstModelCallPrepared = mock(() => {});
+    test("starts admitted turn work once before the model call", async () => {
+      const onTurnReady = mock(() => {});
       const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("tool-1", "echo", {}),
-          textResponse("done"),
-        ],
-        loopTools: [tool],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
+        providerResponses: [textResponse("done")],
       });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
-        callSite: "callAgent",
-        overrideProfile: "quality-optimized",
-        forceOverrideProfile: true,
-        onFirstModelCallPrepared,
+        onTurnReady,
       });
 
-      expect(onFirstModelCallPrepared).toHaveBeenCalledTimes(1);
-      expect(onFirstModelCallPrepared).toHaveBeenCalledWith({
-        callSite: "callAgent",
-        overrideProfile: "quality-optimized",
-        forceOverrideProfile: true,
-        systemPrompt: "system prompt",
-        tools: [tool],
-      });
+      expect(onTurnReady).toHaveBeenCalledTimes(1);
     });
   });
 

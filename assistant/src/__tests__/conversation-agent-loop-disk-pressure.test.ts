@@ -169,7 +169,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     const events: AssistantEvent[] = [];
     const activityStates: unknown[][] = [];
     const drainQueue = mock(async (_reason: unknown) => {});
-    const onFirstModelCallPrepared = mock(() => {});
+    const onTurnReady = mock(() => {});
     const ctx = makeCtx({
       emitActivityState: (...args: unknown[]) => {
         activityStates.push(args);
@@ -182,7 +182,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
       "background task",
       "msg-1",
       (event) => events.push(event),
-      { onFirstModelCallPrepared },
+      { onTurnReady },
     );
 
     expect(events.find((event) => event.type === "error")).toMatchObject({
@@ -200,6 +200,6 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     expect(ctx.abortController).toBeNull();
     expect(ctx.currentRequestId).toBeUndefined();
     expect(drainQueue).toHaveBeenCalledWith("loop_complete");
-    expect(onFirstModelCallPrepared).not.toHaveBeenCalled();
+    expect(onTurnReady).not.toHaveBeenCalled();
   });
 });
