@@ -16,7 +16,10 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
-import { onCompanionSurface } from "@/components/companion-layout";
+import {
+  containsPoint,
+  onCompanionSurface,
+} from "@/components/companion-layout";
 import {
   CompanionSurface,
   type CompanionSurfacePhase,
@@ -26,6 +29,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import {
   COMPANION_INTRO_BEATS,
   COMPANION_SIZES,
+  DEFAULT_COMPANION_SIZE,
   companionBoxFor,
   type CompanionIntroBeat,
   type CompanionSizeAxis,
@@ -114,6 +118,14 @@ type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
    * beat goes unreviewed.
    */
   introBeat?: CompanionIntroBeat;
+  /**
+   * Whether the Talk beat is drawn as though its creature had been clicked.
+   *
+   * A control for the same reason `introBeat` is: that state is behind a click
+   * and then walks on by itself after a couple of seconds, which is not long
+   * enough to look at it properly, let alone screenshot it.
+   */
+  introGreeted?: boolean;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -156,6 +168,7 @@ const meta: Meta<StoryArgs> = {
       control: "inline-radio",
       options: COMPANION_INTRO_BEATS,
     },
+    introGreeted: { control: "boolean" },
   },
   args: {
     phase: "resting",
@@ -1217,7 +1230,7 @@ function DemoReelPlayer(args: StoryArgs) {
  * that it has been seen and there is no way back into it from the app; this is
  * a story, and a story that could only be watched once would be useless.
  */
-function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
+function IntroWalkthrough({ introBeat, introGreeted, ...args }: StoryArgs) {
   const [beat, setBeat] = useState<CompanionIntroBeat | null>(
     introBeat ?? COMPANION_INTRO_BEATS[0],
   );
@@ -1228,60 +1241,117 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
     setBeat(introBeat ?? COMPANION_INTRO_BEATS[0]);
   }, [introBeat]);
 
-  // The call beats are drawn around a call that is not happening, with every
+  // The call beat is drawn around a call that is not happening, with every
   // handler withheld, exactly as the surface's own page does it.
   const demo = introDemoState(beat, "Listening");
-  // The permission the share beat asks for. A story has no desktop to ask, so
-  // pressing Allow simply answers it.
-  const [screenGranted, setScreenGranted] = useState(false);
+  // The click the Talk beat asks for, which starts nothing here for the same
+  // reason it starts nothing in the product: it is a rehearsal.
+  const [greeted, setGreeted] = useState(introGreeted ?? false);
+  useEffect(() => {
+    setGreeted(introGreeted ?? false);
+  }, [beat, introGreeted]);
   // The pill's element, which the card measures its beak against.
   const pillRef = useRef<HTMLDivElement | null>(null);
+  // The creature's own element, so the story can tell a pointer on the creature
+  // from a pointer on the card, which is the distinction the first beat turns
+  // on. The real page does the same hit test against the same rect.
+  const avatarRef = useRef<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState(false);
   const demoing = demo !== null;
 
   return (
-    <CompanionSurface
-      {...args}
-      rootRef={pillRef}
-      phase={introPhase(beat) ?? args.phase}
-      spotlight={introSpotlight(beat)}
-      call={demo?.call ?? args.call}
-      sharing={demo?.sharing ?? args.sharing}
-      shareEnabled={demoing || args.shareEnabled}
-      shortcuts={demoing ? INTRO_DEMO_SHORTCUTS : args.shortcuts}
-      intro={
-        beat === null ? null : (
-          <CompanionIntro
-            beat={beat}
-            // Missing until the story's own Allow is pressed, so the share
-            // beat can be reviewed in both states without a desktop.
-            screenGranted={screenGranted}
-            onGrantScreen={() => setScreenGranted(true)}
-            growth={args.growth}
-            cardGrowth={args.cardGrowth}
-            // The same pair the surface is drawn at, so a mixed one shows the
-            // card clearing the pill rather than landing inside it.
-            avatarBox={args.avatarBox}
-            optionsBox={args.optionsBox}
-            accentHex={args.accentHex}
-            onAdvance={(action) => {
-              const next =
-                action === "dismiss"
-                  ? null
-                  : (COMPANION_INTRO_BEATS[
-                      COMPANION_INTRO_BEATS.indexOf(beat) + 1
-                    ] ?? null);
-              // Back to the top rather than gone, so the run can be watched
-              // again without reloading the story.
-              setBeat(next ?? COMPANION_INTRO_BEATS[0]);
-            }}
-          />
-        )
-      }
-    />
+    <div
+      // The canvas, where the pointer is tracked: only the creature arms the
+      // hover, exactly as in the real window.
+      className="absolute inset-0"
+      onMouseMove={(event) => {
+        const avatar = avatarRef.current;
+        const on =
+          avatar !== null &&
+          containsPoint(
+            avatar.getBoundingClientRect(),
+            event.clientX,
+            event.clientY,
+          );
+        setHovered(on);
+        // The first beat asks for a hover and is finished by one, the way the
+        // page does it.
+        if (on && beat === "idle") {
+          setBeat("meet");
+        }
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+      }}
+    >
+      <CompanionSurface
+        {...args}
+        hovered={hovered}
+        avatarRef={avatarRef}
+        rootRef={pillRef}
+        phase={introPhase(beat) ?? args.phase}
+        spotlight={introSpotlight(beat)}
+        avatarStaged={beat === "talk" || beat === "try"}
+        avatarTucked={beat === "idle"}
+        onAvatarClick={() => {
+          if (beat === "talk") {
+            setGreeted(true);
+          }
+        }}
+        call={demo?.call ?? args.call}
+        sharing={demo?.sharing ?? args.sharing}
+        shareEnabled={demoing || args.shareEnabled}
+        shortcuts={demoing ? INTRO_DEMO_SHORTCUTS : args.shortcuts}
+        intro={
+          beat === null ? null : (
+            <CompanionIntro
+              beat={beat}
+              // Ungranted, so the Talk beat's line about the real thing asking
+              // for the microphone is reviewable without a desktop.
+              micGranted={false}
+              greeted={greeted}
+              growth={args.growth}
+              cardGrowth={args.cardGrowth}
+              // The same pair the surface is drawn at, so a mixed one shows the
+              // card clearing the pill rather than landing inside it.
+              avatarBox={args.avatarBox}
+              optionsBox={args.optionsBox}
+              accentHex={args.accentHex}
+              onAdvance={(action) => {
+                // `try` starts a real session, which a story has none of: it
+                // holds the beat, the way main does.
+                if (action === "try") {
+                  return;
+                }
+                const at = COMPANION_INTRO_BEATS.indexOf(beat);
+                const next =
+                  action === "dismiss"
+                    ? null
+                    : action === "back"
+                      ? (COMPANION_INTRO_BEATS[Math.max(0, at - 1)] ?? null)
+                      : (COMPANION_INTRO_BEATS[at + 1] ?? null);
+                // Back to the top rather than gone, so the run can be watched
+                // again without reloading the story.
+                setBeat(next ?? COMPANION_INTRO_BEATS[0]);
+              }}
+            />
+          )
+        }
+      />
+    </div>
   );
 }
 
 export const Introduction: Story = {
-  args: { phase: "resting", introBeat: COMPANION_INTRO_BEATS[0] },
+  args: {
+    phase: "resting",
+    introBeat: COMPANION_INTRO_BEATS[0],
+    // The sizes a real user actually has: `DEFAULT_COMPANION_SIZE` is medium on
+    // both tables, which is a creature half again as big as the one this layout
+    // is authored at. Reviewing the run at the authored size was reviewing a
+    // surface nobody is given.
+    avatarBox: companionBoxFor("avatar", DEFAULT_COMPANION_SIZE),
+    optionsBox: companionBoxFor("options", DEFAULT_COMPANION_SIZE),
+  },
   render: (args) => <IntroWalkthrough {...args} />,
 };

@@ -1,20 +1,23 @@
 import {
   COMPANION_BASE_AVATAR_BOX,
+  COMPANION_INTRO_BEAT_GROUPS,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_GROUPS,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
   CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
-import type { CSSProperties, Ref } from "react";
+import { useEffect, useState } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 
-import { X } from "lucide-react";
+import { Globe, Mic, Pencil, ScreenShare, X } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 
 import { companionLayoutFor } from "@/components/companion-layout";
-import { useAvatarPerch } from "@/components/companion-surface";
+import { COMPANION_PERCH_HOP } from "@/components/companion-surface";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -58,24 +61,65 @@ import type {
 const CARD_WIDTH = 244;
 
 /**
- * Where each beat's two lines live, by beat.
+ * The card's height, fixed like its width rather than grown to each beat.
  *
- * Two short lines and no more. This is a panel floating over the app the user
- * was actually using, so every extra sentence is a sentence read at the expense
- * of the thing being pointed at, and the controls being introduced already
- * carry their own labels.
+ * **One box for the whole run.** The beats say different amounts: one names
+ * three controls in a list, another offers a press and warns what it will
+ * raise. A card sized to each of them would resize under the reader between
+ * every Next, which turns four cards about the surface into four differently
+ * shaped panels appearing on the desktop, and moves the controls at the bottom
+ * to a new place on each beat. So the tallest beat sets the box and the rest
+ * keep it: the dots and the way on hold one position for the entire run.
+ *
+ * Sized to fit the canvas main already reserves on the card's side
+ * (`COMPANION_BASE_CARD_HEIGHT`) after the card has stepped off whatever the
+ * creature and the pill leave standing there.
+ */
+const CARD_HEIGHT = 192;
+
+/**
+ * How long the card holds its answer to a pointer pressing the drawn key.
+ *
+ * Long enough to be read and to land as a joke, short enough that the card goes
+ * back to saying what to actually do while the hand is still hovering over it.
+ */
+const SCOLD_MS = 3_000;
+
+/**
+ * The room left between a perched creature's head and the card above it, in the
+ * units this layout is authored in.
+ *
+ * Flat rather than scaled, and smaller than the surface's own gap: what it is
+ * protecting is the sight of the creature standing on the control, and the
+ * canvas above the pill is not deep enough to spend a full gap on it at the
+ * larger sizes (see `companionCardSideFor`).
+ */
+const PERCH_CARD_GAP = 6;
+
+/**
+ * Where each beat's lines live, by beat.
+ *
+ * Short lines and few. This is a panel floating over the app the user was
+ * actually using, so every extra sentence is a sentence read at the expense of
+ * the thing being pointed at, and the controls being introduced already carry
+ * their own labels.
  *
  * A literal key per beat rather than a template built from the beat name: the
  * catalogs type `t()`, and a key assembled at runtime types as `string` and
  * checks against nothing, which is how a renamed beat becomes a card printing
  * its own key path at someone.
  *
- * **`talk` quotes the pill.** Its title is the label on the control the beat
- * spotlights, so it is not free copy: it moves with that label, in the same
- * edit and to the same words. A card reading "Hablar" beside a button reading
- * "Talk" points at nothing.
+ * `key` repeats Talk's title on purpose. It is the same subject, split because
+ * one card holding both ways in plus the permission ran to four lines, and a
+ * second title would make the split read as a new topic rather than as the rest
+ * of the one before it. It carries no body: what it has to say is a picture of
+ * a key and the line above it.
  */
 const INTRO_COPY_KEYS = {
+  idle: {
+    title: "companionIntro.idle.title",
+    body: "companionIntro.idle.body",
+  },
   meet: {
     title: "companionIntro.meet.title",
     body: "companionIntro.meet.body",
@@ -83,6 +127,9 @@ const INTRO_COPY_KEYS = {
   talk: {
     title: "companionIntro.talk.title",
     body: "companionIntro.talk.body",
+  },
+  key: {
+    title: "companionIntro.talk.title",
   },
   share: {
     title: "companionIntro.share.title",
@@ -96,36 +143,32 @@ const INTRO_COPY_KEYS = {
     title: "companionIntro.mute.title",
     body: "companionIntro.mute.body",
   },
-  menu: {
-    title: "companionIntro.menu.title",
-    body: "companionIntro.menu.body",
+  try: {
+    title: "companionIntro.try.title",
+    body: "companionIntro.try.body",
   },
 } as const satisfies Record<
   CompanionIntroBeat,
-  { title: string; body: string }
+  { title: string; body?: string }
 >;
 
 /**
- * Which control the pill should draw as though the pointer were on it.
+ * Which control on the pill the beat is about, drawn as though the pointer were
+ * on it: its name and its key are revealed and the rest of the bar dims, so the
+ * sentence on the card has the one thing it names lit beside it.
  *
- * Only the beats that name a control on the pill have one. `meet` is about the
- * creature, and `menu` is about a right-click on it, which no control on the
- * pill stands for. Shared with the page and the stories so a beat cannot be
- * introduced in one place and spotlighted in another.
- */
-/**
- * Which control on the pill the beat is about, drawn as though the pointer
- * were on it: its name and its key are revealed, so the sentence on the card
- * has the thing it names lit beside it.
+ * One beat, one control, which is why each of the call's three has a beat. The
+ * rest have none: `idle` and `meet` are the surface itself, and the Talk beats
+ * and the closing offer point at the creature by walking it into the card
+ * instead.
  *
- * One beat, one control. A beat that lit two would be a beat about two things,
- * and the run exists to take them one at a time.
+ * Shared with the page and the stories so a beat cannot be introduced in one
+ * place and spotlighted in another.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
 ): CompanionSurfaceSpotlight | undefined => {
   switch (beat) {
-    case "talk":
     case "share":
     case "draw":
     case "mute":
@@ -136,7 +179,7 @@ export const introSpotlight = (
 };
 
 /**
- * The session the `controls` beat draws the pill around: a call that is not
+ * The session the `call` beat draws the pill around: a call that is not
  * happening.
  *
  * The controls worth pointing out are the call's, and they exist nowhere else
@@ -163,7 +206,7 @@ export const introDemoCall = (label: string): VoiceActivityState => ({
   assistantName: "",
 });
 
-/** The keys the call beats name, as the host arms them. */
+/** The keys the call beat names, as the host arms them. */
 export const INTRO_DEMO_SHORTCUTS = {
   share: "⌥S",
   draw: "⌥D",
@@ -172,46 +215,54 @@ export const INTRO_DEMO_SHORTCUTS = {
 } as const;
 
 /**
- * The key the beat's own control answers, or undefined for a beat about
- * something no key reaches.
+ * The control a beat is about, drawn on the card: its own icon and the key that
+ * reaches it.
  *
- * On the card rather than in a caption beside the control: the card is already
- * naming that control and pointing at it, and a caption in between would be
- * the same word again with the beak running through it.
+ * The icon is the pill's own, which is what lets the card be matched to the
+ * button it is describing without reading either: the beat lights that button
+ * on the bar, and the same mark is on the card pointing at it.
+ *
+ * The key is here rather than in a caption on the control itself, because the
+ * card is already naming that control and a caption in between would be the
+ * same word again with a beak through it.
  */
-const BEAT_SHORTCUTS: Partial<Record<CompanionIntroBeat, string>> = {
-  share: INTRO_DEMO_SHORTCUTS.share,
-  draw: INTRO_DEMO_SHORTCUTS.draw,
-  mute: INTRO_DEMO_SHORTCUTS.muteMicrophone,
-};
+const BEAT_CONTROLS = {
+  share: {
+    icon: <ScreenShare className="size-5" />,
+    shortcut: INTRO_DEMO_SHORTCUTS.share,
+  },
+  draw: {
+    icon: <Pencil className="size-5" />,
+    shortcut: INTRO_DEMO_SHORTCUTS.draw,
+  },
+  mute: {
+    icon: <Mic className="size-5" />,
+    shortcut: INTRO_DEMO_SHORTCUTS.muteMicrophone,
+  },
+} as const satisfies Partial<
+  Record<CompanionIntroBeat, { icon: ReactNode; shortcut: string }>
+>;
 
 /**
  * The phase the surface holds while a beat is on screen, or `null` to leave the
  * phase to whatever the surface would otherwise be in.
  *
- * The control beats hold the pill open regardless of the pointer, the way a
- * call does, because a beat describing Talk with the pill shut is a beat
- * pointing at nothing. `meet` deliberately does not: the first thing the user is
- * shown is the resting circle, which is what the surface looks like for almost
- * all of its life, and the pill opening on the next beat is then something they
- * watch happen rather than a state they arrived in.
+ * The beats about the call's controls are drawn as a call, which is the only
+ * state those controls exist in.
+ *
+ * The rest leave the surface as it is, which at rest is the creature and
+ * nothing else. That is what the surface looks like for almost all of its life,
+ * and it is what the Talk beats want: they call the creature into the card and
+ * ask for a click on it, and a pill unfurled beside an empty spot the creature
+ * has just left would be the one thing on screen pointing nowhere.
  */
 export const introPhase = (
   beat: CompanionIntroBeat | null,
-): CompanionSurfacePhase | null => {
-  if (beat === null || beat === "meet") {
-    return null;
-  }
-  // The beats about the call's controls are drawn as a call, which is the only
-  // state those controls exist in. See {@link introDemoCall}.
-  if (beat === "share" || beat === "draw" || beat === "mute") {
-    return "call";
-  }
-  return "hover";
-};
+): CompanionSurfacePhase | null =>
+  introSpotlight(beat) === undefined ? null : "call";
 
 /**
- * The session the call beats draw the pill around, and how much of one each
+ * The session the call's beats draw the pill around, and how much of one each
  * needs, or `null` on a beat that is not about a call.
  *
  * Share is offered on any call, so the first of the three is a call with
@@ -227,12 +278,10 @@ export const introPhase = (
 export const introDemoState = (
   beat: CompanionIntroBeat | null,
   label: string,
-): { call: VoiceActivityState; sharing: boolean } | null => {
-  if (beat !== "share" && beat !== "draw" && beat !== "mute") {
-    return null;
-  }
-  return { call: introDemoCall(label), sharing: beat !== "share" };
-};
+): { call: VoiceActivityState; sharing: boolean } | null =>
+  introSpotlight(beat) === undefined
+    ? null
+    : { call: introDemoCall(label), sharing: beat !== "share" };
 
 export interface CompanionIntroProps {
   /** The beat being shown. The caller renders nothing when there is none. */
@@ -275,15 +324,22 @@ export interface CompanionIntroProps {
    *  Storybook wants. */
   onAdvance?: (action: CompanionIntroAction) => void;
   /**
-   * Whether the desktop may already be shown to a call, which decides whether
-   * the share beat asks for the permission or moves on. Undefined where the
-   * answer is not known, which reads as nothing to ask for: a card that
-   * offered to fix a permission it cannot see is worse than one that stays
-   * quiet.
+   * Whether a call may already use the microphone, which is what decides
+   * whether the Talk beat warns that its offer raises a prompt. Undefined while
+   * the answer is unknown, which the card reads as nothing to warn about: a
+   * warning about a prompt that will not appear is worse than no warning.
    */
-  screenGranted?: boolean;
-  /** Raise the system's screen-recording prompt. Absent offers no Allow. */
-  onGrantScreen?: () => void;
+  micGranted?: boolean;
+  /**
+   * Whether the creature staged in this card has been clicked.
+   *
+   * The Talk beat asks for a click and the click is taken by the creature,
+   * which belongs to the surface, so the card cannot see it happen: the caller
+   * says it did. A click here starts no session on purpose (the user is being
+   * shown how, not put in a call they did not ask for), so the answer has to be
+   * on the card or the press reads as having done nothing.
+   */
+  greeted?: boolean;
 }
 
 export function CompanionIntro({
@@ -296,75 +352,92 @@ export function CompanionIntro({
   assistantName,
   cardRef,
   onAdvance,
-  screenGranted,
-  onGrantScreen,
+  micGranted,
+  greeted = false,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
+  const isFirst = index <= 0;
   const copy = INTRO_COPY_KEYS[beat];
+  /** Which subject the run is in, which is what the dots draw. */
+  const group = COMPANION_INTRO_BEAT_GROUPS[beat];
+  /** The control on the pill this beat is about, where it is about one. */
+  const control: { icon: ReactNode; shortcut: string } | undefined =
+    beat === "share" || beat === "draw" || beat === "mute"
+      ? BEAT_CONTROLS[beat]
+      : undefined;
   /**
-   * What this beat offers to do for real, or `null` where it offers nothing.
+   * Whether the drawn keycap has been clicked with the pointer, which is the
+   * one thing on that beat the user can do that the beat is not asking for.
    *
-   * Only the beats with something a press can actually do outside a session:
-   * Talk can start one, and Share can ask for the permission a session will
-   * need. Draw and the mutes act on a running call, so an offer there would be
-   * a button that could only fail.
+   * Local, because nothing outside this card needs to know: no session starts,
+   * no permission is asked for, and main's position in the run does not move.
+   * It clears itself after a moment, so the card goes back to saying what to do
+   * rather than holding a joke at somebody who has already got the point, and
+   * it clears at once on a change of beat.
    */
-  const offer: { label: string; take: () => void } | null =
-    beat === "talk" && onAdvance !== undefined
-      ? {
-          label: t("companionIntro.talk.try"),
-          take: () => onAdvance("try"),
-        }
-      : beat === "share" &&
-          screenGranted === false &&
-          onGrantScreen !== undefined
-        ? { label: t("companionIntro.share.try"), take: onGrantScreen }
-        : null;
-
-  // Where the creature is standing, when a beat has walked it over a control.
-  // The card hangs off the creature, so this is all it needs to travel with
-  // it. See `AvatarPerchContext`.
-  const perch = useAvatarPerch();
+  const [scolded, setScolded] = useState(false);
+  useEffect(() => {
+    setScolded(false);
+  }, [beat]);
+  useEffect(() => {
+    if (!scolded) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      setScolded(false);
+    }, SCOLD_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [scolded]);
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
-  const { inUnits, avatarHalf, lineAt, edgeAt, introStepOff } =
+  const { inUnits, avatarHalf, gap, lineAt, edgeAt, introStepOff } =
     companionLayoutFor(avatarBox, optionsBox);
   // Clears whichever of the creature and the pill reaches further on this side,
   // and then the gap. Stepping off the creature alone would put the card inside
   // a pill taller than it, since the pill stands on the creature's baseline
   // rather than being centred on it and every beat but `meet` holds it open.
-  const stepOff = inUnits(introStepOff(cardGrowth));
+  //
+  // **On the beats that walk it, the creature itself stands on this side.** It
+  // hops up onto the control the beat is about, which puts its whole box above
+  // the pill, and a card placed for the pill alone lands on top of it. So those
+  // beats clear where it stands and leave a gap over it: the walk is worth
+  // watching, which it is not from under a panel.
+  //
+  // Only those beats. The distance is another 28 units at the authored size and
+  // more at every size above it, and holding the opening cards that far off a
+  // creature with nothing between them is what made them look stranded up the
+  // canvas, reserving room for a beat three presses away.
+  const stepOff =
+    cardGrowth === "down" || introSpotlight(beat) === undefined
+      ? inUnits(introStepOff(cardGrowth))
+      : inUnits(avatarHalf + gap) +
+        COMPANION_PERCH_HOP +
+        inUnits(avatarHalf) +
+        PERCH_CARD_GAP;
 
   // Hung off the avatar's own edge, which is the point the host positioned this
-  // window around and the point the pill is measured from too. Not off the
-  // pill: that box changes width from beat to beat as controls are spotlighted,
-  // and a card pinned to it would slide about while being read.
-  const placement: CSSProperties =
-    perch === null
-      ? edgeAt(growth, -avatarHalf)
-      : // Centred over the creature rather than hung off its side: it is
-        // standing on the control the beat is about, so the card belongs
-        // above that control too.
-        { left: perch };
+  // window around and the point the pill is measured from too.
+  //
+  // **Not off whatever the creature is doing.** The creature walks to the
+  // control a beat is about and into the card on the Talk beat, and the pill
+  // changes width as controls are spotlighted; a card pinned to either would
+  // slide about while it was being read. One position for the whole run, which
+  // is the only way a reader keeps their place in it.
+  const placement: CSSProperties = edgeAt(growth, -avatarHalf);
 
   // The vertical half: sit on the avatar's own line, then step off it far
   // enough to clear what is drawn there.
   const anchor: CSSProperties = {
-    top:
-      perch === null
-        ? lineAt(cardGrowth, 0)
-        : `calc(${lineAt(cardGrowth, 0)} - ${stepOff}px)`,
-    transform: [
-      perch === null ? null : "translateX(-50%)",
+    top: lineAt(cardGrowth, 0),
+    transform:
       cardGrowth === "up"
         ? `translateY(calc(-100% - ${stepOff}px))`
         : `translateY(${stepOff}px)`,
-    ]
-      .filter((part) => part !== null)
-      .join(" "),
   };
 
   return (
@@ -376,8 +449,13 @@ export function CompanionIntro({
       // behaviour this panel cannot deliver.
       role="group"
       aria-label={t("companionIntro.ariaLabel")}
-      className="absolute flex flex-col gap-2 rounded-2xl border border-white/10 bg-[#17181b]/95 px-3.5 py-3 shadow-lg shadow-black/40"
-      style={{ width: CARD_WIDTH, ...placement, ...anchor }}
+      className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 px-3.5 py-3 shadow-lg shadow-black/40"
+      style={{
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
+        ...placement,
+        ...anchor,
+      }}
       // The card is not a drag handle. Everything else on this surface is, and
       // a press that both read a sentence and flung the pill across the desktop
       // would be the one interaction here nobody could undo.
@@ -396,73 +474,316 @@ export function CompanionIntro({
       >
         <X className="size-3.5" />
       </button>
-      {/* Clamped, because the only variable in this card is a name the user
-          chose and there is no length it has to be. The card's width is fixed
-          and its height is borrowed from the canvas main reserves for it, so a
-          title free to wrap is a title free to grow the card past what it was
-          drawn into. Two lines holds every name worth reading. */}
-      <p className="flex items-center gap-1.5 pr-6 text-[13px] leading-tight font-medium text-white">
-        {/* The first beat is the introduction proper, so it is the one that
-            says the name. Two keys rather than one with an empty argument: a
-            sentence built around a name that is not there reads as a bug, and
-            the unnamed version is a different sentence rather than the same one
-            with a hole in it. */}
-        <span className="line-clamp-2">
-          {beat === "meet" && assistantName !== undefined
-            ? t("companionIntro.meet.titleNamed", { name: assistantName })
-            : t(copy.title)}
-        </span>
-        {BEAT_SHORTCUTS[beat] === undefined ? null : (
-          <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-normal text-white/70">
-            {BEAT_SHORTCUTS[beat]}
+      {/* What the beat says, in the room left over once the footer has taken
+          its row. Top aligned rather than spread, so the title holds one line
+          on every beat while the shortest beat simply leaves canvas empty
+          underneath: a card that centred its contents would move every line in
+          it on every press. */}
+      <div className="flex flex-1 flex-col gap-2">
+        {/* Clamped, because the only variable in this card is a name the user
+            chose and there is no length it has to be. The card's box is fixed,
+            so a title free to wrap is a title free to push the rest of the beat
+            out of it. Two lines holds every name worth reading. */}
+        <p className="pr-6 text-[13px] leading-tight font-medium text-white">
+          {/* The first beat is the greeting, so it is the one that says the
+              name: it is the only card the user meets before they know there is
+              a creature in there at all. Two keys rather than one with an empty
+              argument: a sentence built around a name that is not there reads
+              as a bug, and the unnamed version is a different sentence rather
+              than the same one with a hole in it. */}
+          <span className="line-clamp-2">
+            {beat === "idle" && assistantName !== undefined
+              ? t("companionIntro.idle.titleNamed", { name: assistantName })
+              : t(copy.title)}
           </span>
+        </p>
+        {"body" in copy ? (
+          <p className="text-[12px] leading-[1.45] text-white/70">
+            {/* The click landing is worth more than the instruction to make
+                it: the user has just pressed the thing this whole run is
+                about, and a card that carried on asking would be a card that
+                did not notice. */}
+            {beat === "talk" && greeted
+              ? t("companionIntro.talk.greeted")
+              : t(copy.body)}
+          </p>
+        ) : null}
+        {/* **Where the creature stands while the card asks to be clicked.**
+            An empty box, because the creature is not drawn here: it belongs to
+            the surface, which walks the real one into this spot and holds it
+            over the card (`avatarStaged`). What is here is the room for it and
+            the mark saying where the middle is, so the card keeps deciding its
+            own layout and the surface only has to find the spot.
+
+            The reservation is why the click works at all. A creature drawn over
+            prose would be a creature drawn over prose. */}
+        {beat === "talk" && (
+          <>
+            <div className="flex flex-1 items-center justify-center">
+              <span data-avatar-stage className="block size-11" aria-hidden />
+            </div>
+            {/* **What the real thing will ask for, said once the rehearsal is
+                over.** Under the creature, and only after the click: before it,
+                a line about a system prompt is a warning attached to a card
+                that raises none, and every beat of this run is trying to be two
+                lines. Here it is the answer to "so what happens when I mean
+                it", asked at the one moment the user has just found out how to
+                mean it. Dropped where the grant is already given, which is a
+                second install or a user who has talked to Vellum before. */}
+            {greeted && micGranted === false ? (
+              <p className="text-center text-[11px] leading-tight text-white/45">
+                {t("companionIntro.talk.prompt")}
+              </p>
+            ) : null}
+          </>
         )}
-      </p>
-      <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
-      {/* **The beat's offer to do the thing for real, where there is one.**
-          Reading that a key starts a conversation is not the same as having
-          started one, so the beat that describes a gesture offers to take it:
-          Talk starts a session, and Share asks for the permission it needs,
-          which is the one moment the user has a reason to grant it.
-          Beside the sentence and not in place of Next, because an offer in the
-          primary control's spot made the first press there do something other
-          than move on, which reads as a Next that did not work. The label says
-          what will happen, prompt included: a press that raises a system
-          dialog nobody was expecting is a press nobody makes twice. */}
-      {offer !== null && (
-        <button
-          type="button"
-          className="self-start rounded-full bg-white/15 px-2.5 py-1 text-[12px] text-white transition-colors hover:bg-white/25"
-          onClick={offer.take}
-        >
-          {offer.label}
-        </button>
-      )}
-      <div className="flex items-center justify-between pt-0.5">
-        {/* Where the run is, as dots rather than "2 of 3". The count is not
-            information anyone acts on; that it is nearly over is. */}
+        {/* **The gesture, drawn as the key rather than spelled as one, and
+            pressable.** The beat before says what pressing the creature does;
+            this is the other way in, the one that does not need the pointer to
+            travel. A picture of the keycap, because that is how the user will
+            find it: they are looking for a key on a keyboard, and on a Mac that
+            key is the one with the globe on it.
+
+            It is the offer as well as the picture. A separate "Try it now"
+            button beside a picture of the key made two controls for one
+            gesture, and the one the user should learn is the key. So the cap
+            takes the press, and it is also what answers the real key: it lights
+            on the first tap, fills on the second, and goes green once the
+            microphone is granted, which is the only feedback in this run that
+            comes from something the user did off the card. */}
+        {beat === "key" && (
+          <>
+            {/* **The pointer's own press is answered, not ignored.** The cap is
+                a picture of a key, and a picture of a key on a card that says
+                "double tap this" will be clicked: it is the only thing on the
+                beat that looks pressable. Answering the press is what tells the
+                user their hand is in the wrong place, and it costs one line
+                they were already reading. Silence would read as a broken
+                button, and a cap that started a conversation would teach the
+                click instead of the key. */}
+            <p className="text-[12px] leading-[1.45] text-white/70">
+              {scolded
+                ? t("companionIntro.key.scolded")
+                : t("companionIntro.talk.gesture")}
+            </p>
+            {/* Centred in the room the card has left, the way the creature is
+                on the beat before: these two cards are the two ways in, and
+                each one puts the thing to press in the middle of itself. */}
+            <div className="flex flex-1 items-center justify-center">
+              <Keycap
+                label="fn"
+                granted={micGranted === true}
+                scolded={scolded}
+                take={() => {
+                  setScolded(true);
+                }}
+              />
+            </div>
+          </>
+        )}
+        {/* **The finish, which is the only press here that does the thing for
+            real.** Eight cards about talking to something would otherwise end
+            with the user never having said a word to it: the rehearsal on the
+            Talk beat starts nothing on purpose, and this is where that is made
+            good.
+
+            **The two ways in, not a button.** A "Start a conversation" chip
+            would be a third way that exists only on this card and only once,
+            and the run has just spent two cards teaching the two that last: the
+            creature, which is called into this card so it can be clicked where
+            the sentence is, and the key beside it. What the user does here is
+            what they will do tomorrow.
+
+            Done stays in the footer for anyone who would rather not be put in a
+            call by an introduction. */}
+        {beat === "try" && (
+          <>
+            <div className="flex flex-1 items-center justify-center gap-3">
+              <span data-avatar-stage className="block size-11" aria-hidden />
+              <Keycap
+                label="fn"
+                granted={micGranted === true}
+                scolded={scolded}
+                take={() => {
+                  setScolded(true);
+                }}
+              />
+            </div>
+            <p className="text-center text-[11px] leading-tight text-white/45">
+              {scolded
+                ? t("companionIntro.key.scolded")
+                : t("companionIntro.try.how")}
+            </p>
+          </>
+        )}
+        {/* **The control this beat is about, as the mark and the key.** The
+            same icon the pill draws, beside the key that reaches it: the beat
+            lights that button on the bar, and the card carries its mark so the
+            two are matched without reading either. Centred in the room the card
+            has left, like the creature and the cap on the beats before, so
+            every card in the run has one thing in the middle of it. */}
+        {control !== undefined && (
+          <div className="flex flex-1 items-center justify-center gap-4">
+            {/* **Each mark says what kind of thing it is.** Two marks side by
+                side are otherwise two pictures the reader has to work out: one
+                is a button on the pill and the other is a key on the keyboard,
+                and which is which is the whole point of showing both. The word
+                under each is what turns a pair of glyphs into "here are the two
+                ways to do this". */}
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="flex size-10 items-center justify-center rounded-xl bg-white/10 text-white/85">
+                {control.icon}
+              </span>
+              <span className="text-[10px] leading-none text-white/40">
+                {t("companionIntro.call.click")}
+              </span>
+            </div>
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="flex h-10 items-center rounded-xl border border-white/15 bg-white/10 px-3 text-[13px] font-medium text-white/85">
+                {control.shortcut}
+              </span>
+              <span className="text-[10px] leading-none text-white/40">
+                {t("companionIntro.call.shortcut")}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-2">
+        {/* Where the run is, as dots rather than "4 of 7". The count is not
+            information anyone acts on; that it is nearly over is.
+
+            One dot per subject, not per card (see `COMPANION_INTRO_GROUPS`).
+            The three cards about a running call are one idea from three angles,
+            and a dot crawling through them would tell the user this is long
+            while telling them nothing about where they are. */}
         <div className="flex items-center gap-1" aria-hidden>
-          {COMPANION_INTRO_BEATS.map((each, at) => (
+          {COMPANION_INTRO_GROUPS.map((each) => (
             <span
               key={each}
               className="size-1.5 rounded-full transition-colors"
               style={{
                 backgroundColor:
-                  at === index
+                  each === group
                     ? (accentHex ?? "#5eead4")
                     : "rgba(255,255,255,.2)",
               }}
             />
           ))}
         </div>
-        <button
-          type="button"
-          className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-          onClick={() => onAdvance?.("next")}
-        >
-          {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-        </button>
+        <div className="flex items-center gap-1">
+          {/* **The way back, because prose gets reread.** Quieter than the way
+              on and to its left, so the pair reads as one direction with a
+              correction beside it rather than as two choices. Held out of the
+              first beat, where there is nothing behind it: a control that could
+              only be pressed to do nothing is worse than no control. The row
+              keeps its height either way, since the card's box does. */}
+          {isFirst ? null : (
+            <button
+              type="button"
+              className="h-7 rounded-full px-3 text-[12px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              onClick={() => onAdvance?.("back")}
+            >
+              {t("companionIntro.back")}
+            </button>
+          )}
+          <button
+            type="button"
+            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+            onClick={() => onAdvance?.("next")}
+          >
+            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A key, drawn as the key: a square cap with the glyph the user will actually
+ * find on the keyboard, which is also the control that takes the gesture.
+ *
+ * **Square, and the size of a key.** A pill-shaped chip beside a sentence reads
+ * as a badge about a key; a square cap with a glyph in the middle and a small
+ * mark in the corner reads as the key, because that is the shape of the thing
+ * the hand is about to go and find. The corner mark and the centred glyph are
+ * the real key's own arrangement.
+ *
+ * **The globe, not the word.** On every Mac keyboard shipped since 2021 this
+ * key carries a globe, and the ones before it carry `fn`; the key is the same
+ * key and the app arms it as Fn. So the cap carries both marks, which is what
+ * the keyboard itself does, and a user with either keyboard is looking at their
+ * own key rather than at a word for it.
+ *
+ * Drawn rather than described because the alternative is prose about a key
+ * ("double tap the Fn key, bottom left") that the reader has to hold in their
+ * head while they go and look. The glyph is hidden from a reader and the cap
+ * carries a name instead: a screen reader saying "globe f n" names nothing.
+ *
+ * `granted` holds it green once the microphone is the assistant's, which is the
+ * one thing this cap knows about the world beyond the card.
+ *
+ * It does not yet answer the real key. The gesture is classified in the window
+ * that owns the voice key rather than in this one, and a single tap is
+ * deliberately nothing anywhere in that stack, so lighting the cap on the first
+ * tap needs a signal published for it. Worth having: a first tap that lit
+ * nothing reads as a key that does not work.
+ */
+function Keycap({
+  label,
+  granted = false,
+  scolded = false,
+  take,
+}: {
+  label: string;
+  /** Whether the microphone a conversation needs is already granted. */
+  granted?: boolean;
+  /**
+   * Whether this cap has just been clicked by the pointer, which the card has
+   * answered in words. The cap leans away from the press rather than lighting
+   * up: it is the one press here that is not what was asked for.
+   */
+  scolded?: boolean;
+  /** Take the press. Absent draws the cap as a picture and nothing more. */
+  take?: () => void;
+}) {
+  const look = granted
+    ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-100"
+    : "border-white/20 bg-white/10 text-white/85";
+  const body = (
+    <>
+      <Globe className="size-4" aria-hidden />
+      {/* Bottom left, small, the way the key itself prints it under the
+          globe rather than beside it. */}
+      <span
+        className="absolute bottom-1 left-1.5 text-[9px] leading-none opacity-70"
+        aria-hidden
+      >
+        {label}
+      </span>
+    </>
+  );
+  // A key's proportions: square, softly rounded, with the pressed edge drawn as
+  // an inner shadow along the bottom so it reads as a cap standing off the card
+  // rather than as a swatch printed on it.
+  const shape = `relative inline-flex size-11 items-center justify-center rounded-lg border font-medium shadow-[inset_0_-2px_0_rgba(0,0,0,.4)] transition-[color,background-color,border-color,transform] ${look} ${
+    // Shrunk back under the pointer that just pressed it, which is a cap
+    // declining rather than a cap that did nothing. The card says the words.
+    scolded ? "scale-90 opacity-70" : ""
+  }`;
+  return take === undefined ? (
+    <span className={shape} aria-label={label}>
+      {body}
+    </span>
+  ) : (
+    <button
+      type="button"
+      className={`${shape} hover:border-white/40 hover:bg-white/20`}
+      aria-label={label}
+      onClick={take}
+    >
+      {body}
+    </button>
   );
 }

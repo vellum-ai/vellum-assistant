@@ -486,7 +486,10 @@ const cancelIntroLanding = (): void => {
  * The introduction after a press, which is `null` once it is over.
  *
  * `dismiss` ends it wherever it is; `next` walks to the following beat and
- * falls off the end into `null`; `try` leaves it exactly where it is. Resolved against the beat main is actually on
+ * falls off the end into `null`; `back` walks the other way and holds at the
+ * first beat rather than falling off that end, since a step back that ended the
+ * run would be the one press here nobody could undo; `try` leaves it exactly
+ * where it is. Resolved against the beat main is actually on
  * rather than one the renderer names, so a press from a renderer a beat behind
  * lands where the user could see that it would.
  *
@@ -498,15 +501,27 @@ export const introOnAdvance = (
 ): CompanionIntroBeat | null => {
   // `try` is an offer taken up, not a step: the beat stays, so the card comes
   // back on it when the session it started is over.
+  //
+  // Except on the last beat, which *is* the offer: a user who has taken it has
+  // done the one thing the run was for, and a card waiting for them when the
+  // call ends would be the introduction asking for another press after the
+  // finish. So it ends the run, and main records it as seen.
   if (action === "try") {
-    return current;
+    return current === COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.length - 1]
+      ? null
+      : current;
   }
   if (current === null || action === "dismiss") {
     return null;
   }
-  const next =
-    COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
-  return next ?? null;
+  const at = COMPANION_INTRO_BEATS.indexOf(current);
+  // Held at the first beat rather than walked off it: `back` is the one control
+  // here that reads as recoverable, and ending the run on it would be the press
+  // that proves otherwise.
+  if (action === "back") {
+    return COMPANION_INTRO_BEATS[Math.max(0, at - 1)] ?? current;
+  }
+  return COMPANION_INTRO_BEATS[at + 1] ?? null;
 };
 
 /**

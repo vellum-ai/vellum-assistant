@@ -138,21 +138,50 @@
   },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
+    "back": "Atrás",
+    "call": {
+      "click": "Clic",
+      "line": "Escuchando",
+      "shortcut": "Atajo"
+    },
+    "close": "Cerrar",
     "done": "Entendido",
+    "draw": {
+      "body": "Rodea o señala cualquier cosa de tu pantalla mientras miro.",
+      "title": "Dibuja sobre lo que veo"
+    },
+    "idle": {
+      "body": "Pasa el cursor por encima y saldré.",
+      "title": "Hola, soy yo",
+      "titleNamed": "Hola, soy yo, {name}"
+    },
+    "key": {
+      "scolded": "No, la tecla de tu teclado"
+    },
     "meet": {
       "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista.",
-      "title": "Este soy yo",
-      "titleNamed": "Soy {name}"
+      "title": "Este soy yo"
     },
-    "menu": {
-      "body": "Ahí puedes ocultarme o cambiar mi tamaño.",
-      "title": "Haz clic derecho sobre mí"
+    "mute": {
+      "body": "Silénciate aquí, o silénciame con el altavoz de al lado.",
+      "title": "Silencia a cualquiera de los dos"
     },
     "next": "Siguiente",
-    "skip": "Omitir",
+    "share": {
+      "body": "Muéstrame una pestaña, una ventana o toda la pantalla",
+      "title": "Comparte tu pantalla"
+    },
     "talk": {
-      "body": "Inicia una conversación por voz.",
-      "title": "Talk"
+      "body": "Haz clic en mí para empezar una conversación.",
+      "gesture": "O pulsa dos veces esta tecla:",
+      "greeted": "¡Lo lograste! Así de simple.",
+      "prompt": "Te pediré permiso para usar tu micrófono",
+      "title": "Habla conmigo"
+    },
+    "try": {
+      "body": "Dime hola y te responderé en voz alta.",
+      "how": "Haz clic en mí, o pulsa dos veces la tecla",
+      "title": "Pruébalo"
     }
   },
   "companionSurface": {

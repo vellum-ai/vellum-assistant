@@ -1,9 +1,13 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_INTRO_BEATS,
+  type CompanionIntroBeat,
+} from "@vellumai/ipc-contract";
 
-import { CompanionIntro } from "./companion-intro";
+import { CompanionIntro, introSpotlight } from "./companion-intro";
 import { CompanionSurface } from "./companion-surface";
 
 afterEach(cleanup);
@@ -93,5 +97,105 @@ describe("the companion introduction's clearance", () => {
     // baseline, so its half box plus the gap: 22 + 12 points, over the 2.5
     // scale the options box leaves the canvas at.
     expect(cardOf(container).style.transform).toBe("translateY(13.6px)");
+  });
+
+  /**
+   * On the beats about one control the creature hops up onto that control,
+   * which puts its whole box above the pill. A card placed for the pill alone
+   * was drawn on top of it, and the walk is the part worth watching.
+   *
+   * Only those beats: the extra distance is most of a creature, and spending it
+   * on the opening cards, which have nothing between them and the creature,
+   * strands them up the canvas for a beat three presses away.
+   */
+  test("clears the perched creature on the beats that walk it", () => {
+    const stepFor = (beat: CompanionIntroBeat): number => {
+      const { container } = render(
+        <CompanionIntro beat={beat} avatarBox={44} optionsBox={44} />,
+      );
+      const found = /translateY\(calc\(-100% - ([\d.]+)px\)\)/.exec(
+        cardOf(container).style.transform,
+      );
+      if (!found?.[1]) {
+        throw new Error(`Expected a step up on ${beat}`);
+      }
+      return Number(found[1]);
+    };
+
+    // A beat with nothing between the card and the creature clears the pill and
+    // the gap, which is `companionLayoutFor`'s own answer: 30 + 12 here.
+    expect(
+      COMPANION_INTRO_BEATS.filter(
+        (beat) => introSpotlight(beat) === undefined,
+      ).map(stepFor),
+    ).toEqual([42, 42, 42, 42, 42]);
+
+    // A beat that walks the creature clears where it stands: its own step off
+    // the line (22 + 12), the hop over the bar (22), its half box (22), and
+    // then the room left over its head (6).
+    expect(
+      COMPANION_INTRO_BEATS.filter(
+        (beat) => introSpotlight(beat) !== undefined,
+      ).map(stepFor),
+    ).toEqual([84, 84, 84]);
+  });
+});
+
+/**
+ * The card is one box for the whole run.
+ *
+ * The beats say different amounts, and a card sized to each of them would
+ * resize under the reader on every press and move the way on to a new place
+ * each time. This is one run about one surface, not five panels.
+ */
+describe("the introduction's card box", () => {
+  test("holds one size on every beat", () => {
+    const boxes = COMPANION_INTRO_BEATS.map((beat) => {
+      const { container } = render(<CompanionIntro beat={beat} />);
+      const { width, height } = cardOf(container).style;
+      return `${width}x${height}`;
+    });
+
+    expect(new Set(boxes).size).toBe(1);
+  });
+
+  /**
+   * Back exists because prose gets reread, and it is held out of the first
+   * beat, where a press on it could only do nothing.
+   */
+  test("offers a way back on every beat but the first", () => {
+    const backOn = (beat: CompanionIntroBeat): boolean => {
+      const { container } = render(
+        <CompanionIntro beat={beat} onAdvance={() => undefined} />,
+      );
+      return [...container.querySelectorAll("button")].some(
+        (button) => button.textContent === "Back",
+      );
+    };
+
+    expect(backOn("idle")).toBe(false);
+    expect(backOn("meet")).toBe(true);
+    expect(backOn("try")).toBe(true);
+  });
+
+  test("a press on it asks main to walk the run back", () => {
+    const asked: string[] = [];
+    const { container } = render(
+      <CompanionIntro
+        beat="share"
+        onAdvance={(action) => {
+          asked.push(action);
+        }}
+      />,
+    );
+    const back = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Back",
+    );
+    if (!back) {
+      throw new Error("Expected a way back");
+    }
+    back.click();
+
+    expect(asked).toEqual(["back"]);
   });
 });

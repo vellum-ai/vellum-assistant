@@ -2219,17 +2219,34 @@ describe("the session main holds", () => {
  */
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
+    expect(introOnAdvance("idle", "next")).toBe("meet");
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("share");
+    expect(introOnAdvance("talk", "next")).toBe("key");
+    expect(introOnAdvance("key", "next")).toBe("share");
     expect(introOnAdvance("share", "next")).toBe("draw");
     expect(introOnAdvance("draw", "next")).toBe("mute");
-    expect(introOnAdvance("mute", "next")).toBe("menu");
+    expect(introOnAdvance("mute", "next")).toBe("try");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
   // the run being over and worth recording.
   test("falls off the end of the last beat", () => {
-    expect(introOnAdvance("menu", "next")).toBe(null);
+    expect(introOnAdvance("try", "next")).toBe(null);
+  });
+
+  test("walks back to the beat before", () => {
+    expect(introOnAdvance("try", "back")).toBe("mute");
+    expect(introOnAdvance("share", "back")).toBe("key");
+    expect(introOnAdvance("key", "back")).toBe("talk");
+    expect(introOnAdvance("talk", "back")).toBe("meet");
+    expect(introOnAdvance("meet", "back")).toBe("idle");
+  });
+
+  // Back is the one control in the run that reads as recoverable, so the far
+  // end of it holds rather than ending the run: a first beat that vanished on
+  // a press for the previous one would be the press that proves otherwise.
+  test("holds at the first beat rather than ending the run", () => {
+    expect(introOnAdvance("idle", "back")).toBe("idle");
   });
 
   // The offer a beat makes to do the thing for real. The session withdraws the
@@ -2239,8 +2256,14 @@ describe("introOnAdvance", () => {
     expect(introOnAdvance("share", "try")).toBe("share");
   });
 
+  // Except on the last beat, which is itself the offer: taking it is the finish
+  // of the run, not a session to come back from.
+  test("the last beat's offer ends the run", () => {
+    expect(introOnAdvance("try", "try")).toBe(null);
+  });
+
   test("dismiss ends the run from any beat", () => {
-    expect(introOnAdvance("meet", "dismiss")).toBe(null);
+    expect(introOnAdvance("idle", "dismiss")).toBe(null);
     expect(introOnAdvance("talk", "dismiss")).toBe(null);
   });
 
@@ -2249,6 +2272,7 @@ describe("introOnAdvance", () => {
   // beat rather than only in theory.
   test("stays over once it is over", () => {
     expect(introOnAdvance(null, "next")).toBe(null);
+    expect(introOnAdvance(null, "back")).toBe(null);
     expect(introOnAdvance(null, "dismiss")).toBe(null);
   });
 });

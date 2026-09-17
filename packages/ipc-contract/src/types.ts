@@ -260,7 +260,11 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  "function" | "control" | "shift" | "option" | "command";
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -333,7 +337,8 @@ export interface HotkeyEvent {
 
 /** Whether a helper took a binding, or why it did not. */
 export type HotkeyRegistrationResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
@@ -342,7 +347,8 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  | { kind: "off" }
+  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -444,7 +450,11 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  "suspend" | "resume" | "lock" | "unlock" | "active";
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -522,7 +532,8 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  { ok: true; enabled: boolean } | { ok: false; reason: string };
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -544,7 +555,8 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  DictationOverlayState | { kind: "dismiss" };
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -961,7 +973,12 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -1025,7 +1042,8 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -1577,7 +1595,8 @@ export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
  * so by the time a target exists the tab has become a window.
  */
 export type WatchCaptureTarget =
-  { kind: "display"; displayId: number } | { kind: "window"; windowId: number };
+  | { kind: "display"; displayId: number }
+  | { kind: "window"; windowId: number };
 
 /**
  * Which edge of a drawing an `annotateShare` command is: the hand still on
@@ -1720,7 +1739,8 @@ export interface CompanionCoachmarkPoint {
  * place.
  */
 export type CompanionCoachmark =
-  CompanionCoachmarkRegion | CompanionCoachmarkPoint;
+  | CompanionCoachmarkRegion
+  | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1748,7 +1768,10 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * many words that it must not reach into the windows for anything.
  */
 export type CoachmarkRefusal =
-  "unshared" | "not-this-call" | "stale-surface" | "superseded";
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
 
 /**
  * One thing to point at: a control named, or a rectangle given.
@@ -2087,26 +2110,79 @@ export const WATCH_FLAG = "teach";
  * is: the alternative was describing it in the app window, which is the one
  * place the user is not looking when the surface matters.
  *
- * A list rather than a count, because each beat names the control it sits over
- * and the renderer spotlights that control by name. Two of them have no
- * control to spotlight: `meet` is the avatar itself, and `menu` is about a
- * press rather than a control drawn on the pill.
+ * **One card, one thing.** Every beat here is a single control, gesture or
+ * press, because a card that carried two ran to four lines of prose over
+ * somebody's desktop: `idle` and `meet` are the two things the surface looks
+ * like, `talk` and `key` are the two ways into a conversation, and `share`,
+ * `draw` and `mute` are the three controls a call puts on the pill, each with a
+ * key of its own to name.
  *
- * `menu` is last and is the answer to "how do I make this go away" and "how do
- * I make it a different size". A surface that sits above every other window has
- * to say where its own off switch is, and the right-click menu it points at is
- * the only part of this the user cannot find by looking at the pill.
+ * `idle` opens the run because it is what the user is actually looking at: a
+ * lit sliver on their desktop that they did not put there. The creature is not
+ * out yet, and the beat's whole job is to say whose sliver it is and that a
+ * hover brings the rest of it out, which the user can then do while the card is
+ * still on screen.
+ *
+ * `try` is last, and it is the only beat whose press does the thing for real:
+ * it starts a session. The run is eight cards about talking to something, and
+ * ending it on a description would leave a user who has read all of them still
+ * never having said a word to the assistant. The rehearsal on `talk` starts
+ * nothing on purpose; this is where that is made good.
+ *
+ * How far along the run is reads off {@link COMPANION_INTRO_GROUPS} rather than
+ * off this list.
  */
 export const COMPANION_INTRO_BEATS = [
+  "idle",
   "meet",
   "talk",
+  "key",
   "share",
   "draw",
   "mute",
-  "menu",
+  "try",
 ] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
+
+/**
+ * The subjects the beats belong to, in order, which is what the run's progress
+ * is drawn from.
+ *
+ * **Cards are one thing each; progress is by subject.** Seven dots under a card
+ * make an introduction look like a form, and they punish the two subjects that
+ * happen to take three cards to say: a user watching the dot crawl through
+ * `share`, `draw` and `mute` is being told this is long, when what they are
+ * being shown is one idea (what a running call can do) from three angles.
+ *
+ * So the dots count subjects and hold still while a subject takes its cards.
+ * Four of them, which is short enough to read as "nearly done" at a glance,
+ * which is the only thing progress here has to say.
+ */
+export const COMPANION_INTRO_GROUPS = ["meet", "talk", "call", "try"] as const;
+
+export type CompanionIntroGroup = (typeof COMPANION_INTRO_GROUPS)[number];
+
+/**
+ * Which subject a beat belongs to.
+ *
+ * A table rather than a rule read off the beat's name, because the grouping is
+ * editorial: `key` belongs with `talk` because both are ways into a
+ * conversation, and nothing about either word says so.
+ */
+export const COMPANION_INTRO_BEAT_GROUPS: Record<
+  CompanionIntroBeat,
+  CompanionIntroGroup
+> = {
+  idle: "meet",
+  meet: "meet",
+  talk: "talk",
+  key: "talk",
+  share: "call",
+  draw: "call",
+  mute: "call",
+  try: "try",
+};
 
 /**
  * What a press on the introduction asks for.
@@ -2117,15 +2193,27 @@ export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
  * renderer a beat behind then lands where the user could see it would.
  *
  * `try` is a beat's own offer to do the thing it is describing for real: it
- * starts a session, which only main can do. It does not move the run, which is
- * the point. A session withdraws the card while it lasts and main still holds
- * the beat, so the run picks up where it left off once the call is over.
+ * starts a session, which only main can do. Mid-run it does not move the run: a
+ * session withdraws the card while it lasts and main still holds the beat, so
+ * the run picks up where it left off once the call is over. Taken on the last
+ * beat it ends the run, because that beat is the offer and nothing is left to
+ * come back to.
+ *
+ * `back` walks the run the other way and stops at the first beat rather than
+ * falling off into `null`: a press that ended the introduction would be the one
+ * control here that cannot be undone, and this is prose being read, which
+ * people reread.
  *
  * A permission ask is not among them: the surface's own renderer holds the
- * permissions bridge, so the share beat's offer goes straight out through that
- * and never reaches main at all.
+ * permissions bridge, so a beat's offer to arm one goes straight out through
+ * that and never reaches main at all.
  */
-export const COMPANION_INTRO_ACTIONS = ["next", "dismiss", "try"] as const;
+export const COMPANION_INTRO_ACTIONS = [
+  "next",
+  "back",
+  "dismiss",
+  "try",
+] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 

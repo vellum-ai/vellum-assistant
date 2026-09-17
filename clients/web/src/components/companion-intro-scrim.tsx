@@ -1,5 +1,3 @@
-import { useEffect } from "react";
-
 import { useCompanionIntroStaged } from "@/runtime/companion-intro-stage";
 
 /**
@@ -19,18 +17,11 @@ import { useCompanionIntroStaged } from "@/runtime/companion-intro-stage";
  * is lit while it travels is the desktop it is travelling to.
  *
  * Presentational and inert: no copy, no focus, and no way to answer the run
- * from here. The run is answered on the surface, which carries its own Skip
- * and Next, and every way out of it goes through main.
+ * from here. The run is answered on the surface, which carries its own way out
+ * and its own way on, and every path out of it goes through main.
  */
 export function CompanionIntroScrim() {
   const staged = useCompanionIntroStaged();
-  // TEMPORARY, remove once the dimming is confirmed on a real desktop: the
-  // Electron shell's renderer console lands in vellum.log, so this is how we
-  // tell a scrim that never heard from main apart from one that did and drew
-  // nothing.
-  useEffect(() => {
-    console.log(`[companion-intro-scrim] staged=${staged}`);
-  }, [staged]);
   return (
     <div
       // Not `hidden`: the fade is the point. A scrim that appeared and

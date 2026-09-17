@@ -81,6 +81,17 @@ import type {
 const DRAG_SLOP = 3;
 
 /**
+ * How long the introduction holds on the answer to the click it asked for
+ * before walking on.
+ *
+ * Long enough to read the answer and the line under it about what the real
+ * thing will ask for, short enough that it still reads as the press having
+ * moved the run rather than as a card that stalled. See the Talk beat in
+ * `companion-intro.tsx`.
+ */
+const GREETED_MS = 2_400;
+
+/**
  * The companion surface inside its Electron canvas
  * (`clients/macos/src/main/companion-window.ts`).
  *
@@ -536,33 +547,106 @@ export function CompanionSurfacePage() {
   // user's own business and this is a caption.
   const introHeld = introPhase(intro);
   /**
-   * The call the `controls` beat borrows the pill's shape from, or null.
+   * The call the `call` beat borrows the pill's shape from, or null.
    *
    * Only while the card is actually on screen: a beat main still holds behind
    * a real call must not put a second, fictional bar over the real one.
    */
   const demo = introShown
-    ? introDemoState(intro, t("companionIntro.share.line"))
+    ? introDemoState(intro, t("companionIntro.call.line"))
     : null;
   /**
-   * Whether the desktop can be shown to a call, for the share beat's Allow.
+   * Whether a call may already use the microphone, which is what the Talk beat
+   * reads to decide whether to mention the prompt the real thing will raise.
    *
    * Read while that beat is up and then polled, because the grant can be made
-   * in System Settings, which reports nothing back: without the poll the card
-   * would keep offering to ask for something the user has just granted. Null
-   * until the first read lands and on every shell without a permission to
-   * check, which the card draws as nothing to ask for.
+   * in System Settings, which reports nothing back. Null until the first read
+   * lands and on every shell without a permission to check, which the card
+   * draws as nothing to mention.
    */
-  const [screenGranted, setScreenGranted] = useState<boolean | null>(null);
-  const asking = intro === "share" && introShown;
+  const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  /**
+   * Whether the creature is standing in the introduction's card rather than in
+   * its own spot, which is a beat asking to be clicked: the Talk beat, for the
+   * rehearsal, and the last beat, where the click starts a real session.
+   */
+  const staging = introShown && (intro === "talk" || intro === "try");
+  /**
+   * **The first beat is finished by doing the thing it describes.** It says a
+   * hover brings the creature out, and a hover does: the creature stands up on
+   * its own, and the run walks straight on to the card about the creature. A
+   * beat that asked for a hover and then waited for Next would be a beat that
+   * did not notice the user had done it.
+   *
+   * Real hover only, which is the pointer on the creature rather than on the
+   * card (see the hit test in `onSurfacePointerMove`), so reading the card
+   * cannot advance it.
+   */
+  const revealing = introShown && intro === "idle" && hovered;
+  useEffect(() => {
+    if (!revealing) {
+      return;
+    }
+    advanceCompanionIntro("next");
+  }, [revealing]);
+  /**
+   * Whether that click has happened, so the card can answer it.
+   *
+   * Cleared as the run moves, so a user who walks back to the beat is asked
+   * again rather than arriving at the answer to a press they have not made.
+   */
+  const [greeted, setGreeted] = useState(false);
+  useEffect(() => {
+    setGreeted(false);
+  }, [intro]);
+  /**
+   * Take the run's offer to start a conversation for real.
+   *
+   * **The mic is asked for before the call, not during it.** A session that
+   * opens by raising a system prompt is a session the user spends talking to a
+   * dialog. Electron's own ask is a prompt inside this app rather than a trip
+   * to System Settings, so the one press covers both and the call starts on the
+   * answer.
+   */
+  const takeIntroOffer = useCallback((): void => {
+    if (micGranted !== false) {
+      advanceCompanionIntro("try");
+      return;
+    }
+    void requestSystemPermission("microphone").then((item) => {
+      setMicGranted(item?.status === "granted");
+      advanceCompanionIntro("try");
+    });
+  }, [micGranted]);
+  /**
+   * The run carries on by itself once the click has landed.
+   *
+   * The card is answering a press the user just made, so the beat is over the
+   * moment they have read the answer: leaving them to find Next after being
+   * told they did it would be a card congratulating them and then waiting. Long
+   * enough to read six words, and cancelled if anything else moves the run
+   * first.
+   */
+  useEffect(() => {
+    if (!greeted) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      advanceCompanionIntro("next");
+    }, GREETED_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [greeted]);
+  const asking = introShown && intro === "talk";
   useEffect(() => {
     if (!asking) {
       return;
     }
     const read = (): void => {
       void getSystemPermissionsState().then((state) => {
-        setScreenGranted(
-          state === null ? null : state.screen.status === "granted",
+        setMicGranted(
+          state === null ? null : state.microphone.status === "granted",
         );
       });
     };
@@ -860,7 +944,18 @@ export function CompanionSurfacePage() {
         // it. The pill is open on those beats but the pointer is wherever the
         // user's hand happens to be, so without this the beat names a control
         // the user then has to hunt for among the others.
+        // Draws the control the beat is about as though the pointer were on
+        // it, and dims the rest of the bar. The pill is open on those beats but
+        // the pointer is wherever the user's hand happens to be, so without
+        // this the beat names a control the user then has to hunt for.
         spotlight={introSpotlight(intro)}
+        // The Talk beat calls the creature into the middle of its card, where
+        // the sentence asking for a click is.
+        avatarStaged={staging}
+        // The first beat is the surface as the user found it: the lit marker
+        // with the creature still inside. Their own hover brings it out, which
+        // is what that card is for.
+        avatarTucked={introShown && intro === "idle"}
         // Beside the pill rather than inside it, on the canvas main reserves
         // for a card. Null between runs, which is every launch after the
         // first.
@@ -885,17 +980,22 @@ export function CompanionSurfacePage() {
               // one there is no name to introduce it by.
               assistantName={assistantName === "" ? undefined : assistantName}
               cardRef={introRef}
-              // The permission the beat pointing at Share is about. Undefined
-              // rather than false while the first read is out, so the card
-              // does not flash an Allow for a permission that is already
-              // granted.
-              screenGranted={screenGranted ?? undefined}
-              onGrantScreen={() => {
-                void requestSystemPermission("screen").then((item) => {
-                  setScreenGranted(item?.status === "granted");
-                });
+              // Whether the microphone is already granted, which decides
+              // whether the Talk beat says the real thing will ask for it.
+              // Undefined rather than false while the first read is out, so the
+              // card does not promise a prompt that will not appear.
+              micGranted={micGranted ?? undefined}
+              // Whether the click the Talk beat asks for has landed, since the
+              // creature that takes it belongs to the surface rather than to
+              // the card.
+              greeted={greeted}
+              onAdvance={(action) => {
+                if (action === "try") {
+                  takeIntroOffer();
+                  return;
+                }
+                advanceCompanionIntro(action);
               }}
-              onAdvance={advanceCompanionIntro}
             />
           )
         }
@@ -953,6 +1053,24 @@ export function CompanionSurfacePage() {
         // and the transcript are; main decides what that means.
         onAvatarClick={() => {
           if (draggedRef.current || demoing) {
+            return;
+          }
+          // **The rehearsal starts nothing.** The Talk beat calls the creature
+          // into the card and asks to be clicked, and the press is the user
+          // proving to themselves that they know how. Putting them into a live
+          // call for it would answer a rehearsal with the real thing, on the one
+          // surface where the real thing is a microphone switching on. So the
+          // card says it landed and the run moves on.
+          //
+          // The last beat is the opposite: the creature is in its card for the
+          // same reason, and the press is the finish. It goes out as the run's
+          // own `try`, which arms the microphone first and starts a session.
+          if (introShown && intro === "talk") {
+            setGreeted(true);
+            return;
+          }
+          if (introShown && intro === "try") {
+            takeIntroOffer();
             return;
           }
           if (call !== null || dialing) {
