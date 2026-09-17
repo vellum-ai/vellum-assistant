@@ -2237,7 +2237,7 @@
   "webSearchCard": {
     "apiBaseHint": "Пустое поле: облачное значение по умолчанию ({defaultBase}).",
     "apiBaseLabel": "Ссылка на API",
-    "apiBasePlaceholder": "https://api.fastcrw.com",
+    "apiBasePlaceholder": "http://127.0.0.1:8888",
     "apiKeyLabel": "API-ключ",
     "apiKeyPlaceholder": "API-ключ",
     "configUpdateFailedToast": "Не удалось обновить конфигурацию ассистента. Повторите попытку.",

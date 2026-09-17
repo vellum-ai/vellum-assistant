@@ -2234,7 +2234,7 @@
   "webSearchCard": {
     "apiBaseHint": "留空以使用雲端預設值 ({defaultBase})。",
     "apiBaseLabel": "API 基礎網址",
-    "apiBasePlaceholder": "https://api.fastcrw.com",
+    "apiBasePlaceholder": "http://127.0.0.1:8888",
     "apiKeyLabel": "API 金鑰",
     "apiKeyPlaceholder": "輸入您的 API 金鑰",
     "configUpdateFailedToast": "更新助理設定失敗。請再試一次。",

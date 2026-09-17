@@ -2348,7 +2348,7 @@
   "webSearchCard": {
     "apiBaseHint": "Leave empty for the cloud default ({defaultBase}).",
     "apiBaseLabel": "API Base",
-    "apiBasePlaceholder": "https://api.fastcrw.com",
+    "apiBasePlaceholder": "http://127.0.0.1:8888",
     "apiKeyLabel": "API Key",
     "apiKeyPlaceholder": "Enter your API key",
     "configUpdateFailedToast": "Failed to update assistant configuration. Please try again.",

@@ -2234,7 +2234,7 @@
   "webSearchCard": {
     "apiBaseHint": "留空则使用云端默认值 ({defaultBase})。",
     "apiBaseLabel": "API 基地址",
-    "apiBasePlaceholder": "https://api.fastcrw.com",
+    "apiBasePlaceholder": "http://127.0.0.1:8888",
     "apiKeyLabel": "API 密钥",
     "apiKeyPlaceholder": "输入您的 API 密钥",
     "configUpdateFailedToast": "更新助手配置失败。请重试。",

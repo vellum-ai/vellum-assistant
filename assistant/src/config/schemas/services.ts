@@ -76,8 +76,9 @@ const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
-  // Origin for providers that support a custom API base (e.g. fastCRW).
-  // Empty / omitted uses the provider's cloud default.
+  // Origin for providers that support a custom API base (e.g. fastCRW,
+  // SearXNG). Empty / omitted uses the provider's cloud default when one
+  // exists. SearXNG has no cloud default and requires a user-supplied URL.
   apiBase: z.string().optional(),
 });
 

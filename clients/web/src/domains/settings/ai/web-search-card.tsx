@@ -137,8 +137,13 @@ export function WebSearchCard() {
     !hasCustomApiBase &&
     !webSearchHasStoredKey &&
     !hasNewApiKey;
+  const needsApiBaseBeforeSave =
+    showsApiBase && defaultApiBase.length === 0 && !trimmedApiBase;
   const saveDisabled =
-    saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
+    saving ||
+    needsKeyBeforeSave ||
+    needsApiBaseBeforeSave ||
+    (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
     WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ??
       t("webSearchCard.apiKeyPlaceholder"),

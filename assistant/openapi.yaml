@@ -21120,6 +21120,7 @@ paths:
                                           - keenable
                                           - firecrawl
                                           - fastcrw
+                                          - searxng
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -21637,6 +21638,7 @@ paths:
                                                   - keenable
                                                   - firecrawl
                                                   - fastcrw
+                                                  - searxng
                                               resultCount:
                                                 type: number
                                               durationMs:
