@@ -197,6 +197,7 @@ import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
@@ -2681,12 +2682,15 @@ export class Conversation {
 
   setHostCuProxy(proxy: HostCuProxy | undefined): void {
     if (this.hostCuProxy && this.hostCuProxy !== proxy) {
-      this.computerUseModeSessions.endTask({
-        turnId: this.currentRequestId,
-        source: {
-          sourceId: this.hostCuProxy.sourceId,
-          generation: this.hostCuProxy.resetGeneration,
-        },
+      const previousProxy = this.hostCuProxy;
+      bestEffortModeSessionTracking("computer use proxy replacement", () => {
+        this.computerUseModeSessions.endTask({
+          turnId: this.currentRequestId,
+          source: {
+            sourceId: previousProxy.sourceId,
+            generation: previousProxy.resetGeneration,
+          },
+        });
       });
       this.hostCuProxy.dispose();
     }
