@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { MCP_GLOBAL_MAX_TOOLS } from "../mcp.js";
-import {
-  MCP_GLOBAL_MAX_TOOLS_OVERRIDE_MAX,
-  ToolsConfigSchema,
-} from "../tools.js";
+import { ToolsConfigSchema } from "../tools.js";
 
 describe("ToolsConfigSchema.mcpGlobalMaxTools", () => {
   test("omits the override so the shipped MCP cap remains in force", () => {
@@ -13,7 +10,7 @@ describe("ToolsConfigSchema.mcpGlobalMaxTools", () => {
     expect(parsed.exclude).toEqual([]);
   });
 
-  test("accepts a workspace override in the allowed range", () => {
+  test("accepts a workspace override", () => {
     expect(
       ToolsConfigSchema.parse({ mcpGlobalMaxTools: 80 }).mcpGlobalMaxTools,
     ).toBe(80);
@@ -22,15 +19,13 @@ describe("ToolsConfigSchema.mcpGlobalMaxTools", () => {
         mcpGlobalMaxTools: MCP_GLOBAL_MAX_TOOLS,
       }).mcpGlobalMaxTools,
     ).toBe(MCP_GLOBAL_MAX_TOOLS);
+    expect(
+      ToolsConfigSchema.parse({ mcpGlobalMaxTools: 1000 }).mcpGlobalMaxTools,
+    ).toBe(1000);
   });
 
-  test("rejects zero, fractions, and values above the ceiling", () => {
+  test("rejects zero and fractions", () => {
     expect(() => ToolsConfigSchema.parse({ mcpGlobalMaxTools: 0 })).toThrow();
     expect(() => ToolsConfigSchema.parse({ mcpGlobalMaxTools: 1.5 })).toThrow();
-    expect(() =>
-      ToolsConfigSchema.parse({
-        mcpGlobalMaxTools: MCP_GLOBAL_MAX_TOOLS_OVERRIDE_MAX + 1,
-      }),
-    ).toThrow();
   });
 });

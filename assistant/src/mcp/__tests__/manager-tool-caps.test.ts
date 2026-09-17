@@ -11,6 +11,13 @@ import type { ResolvedMcpConfig } from "../../config/schemas/mcp.js";
 
 const toolsByServer = new Map<string, Array<{ name: string }>>();
 const connectDelays = new Map<string, number>();
+let mcpGlobalMaxTools: number | undefined;
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({
+    tools: { exclude: [], mcpGlobalMaxTools },
+  }),
+}));
 
 mock.module("../client.js", () => ({
   McpClient: class {
@@ -60,6 +67,7 @@ describe("McpServerManager tool selection", () => {
   beforeEach(() => {
     toolsByServer.clear();
     connectDelays.clear();
+    mcpGlobalMaxTools = undefined;
   });
 
   test("later servers keep tools when eight servers exceed the global cap", async () => {
@@ -121,8 +129,9 @@ describe("McpServerManager tool selection", () => {
       );
     }
 
+    mcpGlobalMaxTools = 80;
     const manager = new McpServerManager();
-    const started = await manager.start(configWith(ids), { globalMax: 80 });
+    const started = await manager.start(configWith(ids));
 
     expect(started.discoveredToolCount).toBe(80);
     expect(started.keptToolCount).toBe(80);
