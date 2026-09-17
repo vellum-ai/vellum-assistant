@@ -2,40 +2,21 @@
  * The input-modalities table inside the profile editor for a free-text model:
  * one row per modality (image, audio) with an Enabled toggle, a Supported
  * toggle that unlocks once the row is enabled, and a line under the label
- * saying whether the modality reaches the wire. The toggles are live here, so
- * the render keeps the value in local state and reports each change through
- * the `onChange` arg. The stories cover the free-text defaults with every row
+ * saying whether the modality reaches the wire. The toggles are live here: the
+ * render draws the value and the disclosure from the args and writes each
+ * change back through `useArgs`, so the canvas and the Controls panel stay in
+ * step. The stories cover the free-text defaults with every row
  * off, a mixed configuration, the read-only rendering a managed profile gets,
  * and the collapsible layout the modal uses, closed and open.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 import { fn } from "storybook/test";
 
 import {
   ProfileModalitiesSection,
   type ProfileModalitiesSectionProps,
 } from "@/domains/settings/ai/profile-modalities-section";
-
-function ModalitiesPreview(args: ProfileModalitiesSectionProps) {
-  const [value, setValue] = useState(args.value);
-  const [expanded, setExpanded] = useState(args.expanded);
-  return (
-    <ProfileModalitiesSection
-      {...args}
-      value={value}
-      expanded={expanded}
-      onChange={(next) => {
-        setValue(next);
-        args.onChange(next);
-      }}
-      onExpandedChange={(open) => {
-        setExpanded(open);
-        args.onExpandedChange?.(open);
-      }}
-    />
-  );
-}
 
 const meta = {
   title: "Settings/AI/ProfileModalitiesSection",
@@ -51,7 +32,25 @@ const meta = {
     expanded: true,
     collapsible: false,
   },
-  render: (args) => <ModalitiesPreview {...args} />,
+  render: function Render(args) {
+    const [{ value, expanded }, updateArgs] =
+      useArgs<ProfileModalitiesSectionProps>();
+    return (
+      <ProfileModalitiesSection
+        {...args}
+        value={value}
+        expanded={expanded}
+        onChange={(next) => {
+          updateArgs({ value: next });
+          args.onChange(next);
+        }}
+        onExpandedChange={(open) => {
+          updateArgs({ expanded: open });
+          args.onExpandedChange?.(open);
+        }}
+      />
+    );
+  },
   decorators: [
     (Story) => (
       <div className="w-[420px]">
