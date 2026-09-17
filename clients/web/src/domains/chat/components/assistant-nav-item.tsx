@@ -33,13 +33,7 @@ import { useTranslation } from "@/i18n";
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import {
@@ -47,10 +41,10 @@ import {
   PanelItem,
   panelItemWashStyle,
   SIDE_MENU_TILE_SIZE,
-  Tooltip,
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
+import { SidebarIconTile } from "@/components/sidebar-icon-tile";
 import {
   SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
@@ -134,38 +128,12 @@ const sleep = (ms: number): Promise<void> =>
 const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
 
-function NewChatTooltip({
-  children,
-  side,
-}: {
-  children: ReactElement;
-  side: "right" | "top";
-}) {
-  const { t } = useTranslation("chat");
-  const hint = useCommandShortcutHint("newConversation");
-  return (
-    <Tooltip
-      content={
-        <span className="inline-flex items-center gap-1.5">
-          {t("assistantNavItem.newChat")}
-          <span className="opacity-80">{hint}</span>
-        </span>
-      }
-      side={side}
-    >
-      {children}
-    </Tooltip>
-  );
-}
-
 /**
- * The New Chat button: a round tile on the wash the pinned apps wear, with
- * the plus glyph in the assistant's own accent. One drawing at two sizes:
- * the eyes' disc size on the assistant row, where it stands after the
- * section toggle as a third disc of the row's family, and the rail's tile
- * size on the collapsed rail, where it is a circle in the column of circles.
- * Named by its tooltip rather than a label, so the accessible name is the
- * one string in the catalog and no native `title` doubles the tooltip.
+ * The New Chat button: the sidebar's icon tile with the plus in the
+ * assistant's accent, at two sizes. The eyes' disc size on the assistant
+ * row, where it stands after the section toggle as a third disc of the
+ * row's family, and the rail's tile size on the collapsed rail, where it is
+ * a circle in the column of circles. Its tooltip carries the shortcut.
  */
 function NewChatButton({
   size,
@@ -177,42 +145,27 @@ function NewChatButton({
   tooltipSide: "right" | "top";
   onSelect: () => void;
   /** The wash and the plus's accent, or nothing for the plain surface. */
-  style: CustomPropertyStyle | undefined;
+  style?: CustomPropertyStyle;
 }) {
   const { t } = useTranslation("chat");
+  const hint = useCommandShortcutHint("newConversation");
+  const label = t("assistantNavItem.newChat");
   return (
-    <NewChatTooltip side={tooltipSide}>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-label={t("assistantNavItem.newChat")}
-        data-tour-id="new-chat"
-        className={cn(
-          "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
-          "rounded-full",
-          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-          "transition-colors duration-150 active:scale-[0.98]",
-          "bg-[var(--panel-item-bg,var(--surface-lift))]",
-          "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
-        )}
-        style={{ ...style, width: size, height: size }}
-      >
-        {/* 14px, not the section headers' 12px - the plus glyph carries less
-            ink than the pin/chat icons, so it needs the extra 2px to read at
-            the same weight beside them; 16px on a phone, as the section
-            toggle beside it draws its glyph. Color: the assistant's own
-            accent via `--panel-item-icon-fg` (declared in this button's
-            `style` by `newConversationTint`), falling back to the usual
-            tertiary gray with no character avatar to draw a hue from. */}
-        <Plus
-          aria-hidden="true"
-          className="size-3.5 max-md:size-4"
-          style={{
-            color: "var(--panel-item-icon-fg, var(--content-tertiary))",
-          }}
-        />
-      </button>
-    </NewChatTooltip>
+    <SidebarIconTile
+      icon={Plus}
+      label={label}
+      tooltip={
+        <span className="inline-flex items-center gap-1.5">
+          {label}
+          <span className="opacity-80">{hint}</span>
+        </span>
+      }
+      tooltipSide={tooltipSide}
+      size={size}
+      onSelect={onSelect}
+      style={style}
+      data-tour-id="new-chat"
+    />
   );
 }
 
@@ -387,11 +340,7 @@ export function AssistantNavItem({
      depth the pinned apps below it wear, so the column's tinted surfaces
      agree. Without an avatar colour there is no hue to mix and nothing is
      declared, leaving the plain surface the button falls back to; while the
-     tour owns the nav the wash drains with the identity pill's fill.
-
-     The button is drawn at the disc size on the row and at the tile size on
-     the rail: on the row it is a third disc beside the eyes' and the section
-     toggle's, and on the rail it is a circle in a column of circles. */
+     tour owns the nav the wash drains with the identity pill's fill. */
   const newConversationTint: CustomPropertyStyle | undefined =
     !navTourActive && hex
       ? {
