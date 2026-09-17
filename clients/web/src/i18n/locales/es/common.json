@@ -147,7 +147,7 @@
     "close": "Cerrar",
     "done": "Entendido",
     "draw": {
-      "body": "Señala cualquier cosa de tu pantalla y la veré",
+      "body": "Señala cualquier cosa de tu pantalla",
       "title": "Dibuja"
     },
     "idle": {
