@@ -66,6 +66,26 @@ describe("resolveSubagentStepDetail", () => {
     expect(resolved?.detail.result).toBe("event-output");
   });
 
+  test("keeps the event-built detail when the canonical copy finished without its result", () => {
+    const resolved = resolveSubagentStepDetail(
+      { ...runningCall, completedAt: 1 },
+      eventDetail("completed"),
+      SUBAGENT,
+    );
+    expect(resolved?.source).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
+    expect(resolved?.detail.result).toBe("event-output");
+  });
+
+  test("returns to the canonical call once it catches up", () => {
+    const event = eventDetail("completed");
+    expect(
+      resolveSubagentStepDetail(runningCall, event, SUBAGENT)?.source,
+    ).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
+    expect(
+      resolveSubagentStepDetail(finishedCall, event, SUBAGENT)?.source,
+    ).toBe(SUBAGENT);
+  });
+
   test("keeps the canonical call while both are still running", () => {
     expect(
       resolveSubagentStepDetail(runningCall, eventDetail("running"), SUBAGENT)

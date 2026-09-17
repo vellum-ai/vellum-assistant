@@ -6,9 +6,13 @@
  * subagent's history, or the payload built from those same events. The
  * canonical call carries more (risk, streamed output, structured metadata), so
  * it is preferred. The event-built payload is the floor, so a pill that renders
- * always opens something, and it wins when it knows the call finished while
- * the canonical copy still reads as running (a history seeded from a snapshot
- * older than the result the timeline already has).
+ * always opens something, and it wins whenever it knows more about how the
+ * call ended than the canonical copy does: the canonical copy still runs while
+ * the events show it finished, or it is marked finished without the result the
+ * events carry (a history seeded from a snapshot older than the timeline).
+ *
+ * The choice is made on every render from the live canonical call, so once the
+ * canonical copy catches up the drawer reads it live again.
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -26,14 +30,30 @@ export interface SubagentStepDetail {
   source: ToolCallSource;
 }
 
+/**
+ * How much a copy knows about how the call ended: still running, finished
+ * without its result, or finished with its result.
+ */
+function outcomeKnown(running: boolean, result: string | undefined): number {
+  if (running) {
+    return 0;
+  }
+  return result === undefined ? 1 : 2;
+}
+
 export function resolveSubagentStepDetail(
   canonicalCall: ChatMessageToolCall | null,
   eventDetail: ToolDetailPayload | undefined,
   subagentSource: ToolCallSource,
 ): SubagentStepDetail | undefined {
-  const eventSettled =
-    eventDetail !== undefined && eventDetail.status !== "running";
-  if (canonicalCall && !(eventSettled && isToolCallRunning(canonicalCall))) {
+  const eventKnown = eventDetail
+    ? outcomeKnown(eventDetail.status === "running", eventDetail.result)
+    : -1;
+  if (
+    canonicalCall &&
+    outcomeKnown(isToolCallRunning(canonicalCall), canonicalCall.result) >=
+      eventKnown
+  ) {
     return {
       detail: toolDetailPayloadFromToolCall(canonicalCall),
       source: subagentSource,
