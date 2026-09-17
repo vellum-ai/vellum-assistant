@@ -271,6 +271,8 @@ export interface ChatMarkdownMessageProps extends Omit<
   attachments?: DisplayAttachment[];
   /** Active assistant ID for fetching attachment content from the daemon. */
   assistantId?: string | null;
+  /** File actions use product copy; user-authored links keep their captions. */
+  fileLinkLabels?: "action" | "markdown";
   /**
    * Streamed-text reveal sweep (see `rehypeStreamWordFade`): each word is
    * wrapped in a fade span, and while `"revealing"` the words nearest the
@@ -314,6 +316,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   onVellumLinkClick,
   attachments,
   assistantId,
+  fileLinkLabels = "action",
   streamWordFade,
   redactedCredentialChips,
   workspacePathLinks,
@@ -360,7 +363,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
             href={href}
             workspacePath={workspacePath}
             assistantId={assistantId ?? undefined}
-            onActivate={
+            labelMode={fileLinkLabels}
+            onOpenFileOptions={
               onVellumLinkClick && !drawerCanOpen
                 ? () => onVellumLinkClick(href, markdownChildrenText(children))
                 : undefined
@@ -382,7 +386,8 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
             href={href}
             workspacePath={workspacePath}
             assistantId={assistantId ?? undefined}
-            onActivate={
+            labelMode={fileLinkLabels}
+            onOpenFileOptions={
               onVellumLinkClick && workspacePath !== null && !assistantId
                 ? () =>
                     onVellumLinkClick(
@@ -399,7 +404,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
 
       return <OAuthAwareLink href={href}>{children}</OAuthAwareLink>;
     },
-    [onVellumLinkClick, assistantId],
+    [onVellumLinkClick, assistantId, fileLinkLabels],
   );
 
   const extraRehypePlugins = useMemo(

@@ -1005,7 +1005,13 @@
     "pictureInPictureUnavailable": "Picture in Picture isn't available"
   },
   "localFileLink": {
-    "unavailable": "This file isn't available here"
+    "closePreview": "Close preview: {filename}",
+    "fileOptions": "File options: {filename}",
+    "openInWorkspace": "Open in workspace: {filename}",
+    "openPreview": "Open preview: {filename}",
+    "unavailable": "This file isn't available here",
+    "unavailableLabel": "File unavailable: {filename}",
+    "viewImage": "View image: {filename}"
   },
   "localFileMenu": {
     "download": "Download",

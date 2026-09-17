@@ -549,7 +549,13 @@
     "pictureInPictureUnavailable": "Картинка в картинке недоступна"
   },
   "localFileLink": {
-    "unavailable": "Этот файл здесь недоступен"
+    "closePreview": "Закрыть предпросмотр: {filename}",
+    "fileOptions": "Действия с файлом: {filename}",
+    "openInWorkspace": "Открыть в рабочем пространстве: {filename}",
+    "openPreview": "Открыть предпросмотр: {filename}",
+    "unavailable": "Этот файл здесь недоступен",
+    "unavailableLabel": "Файл недоступен: {filename}",
+    "viewImage": "Просмотреть изображение: {filename}"
   },
   "memoryRouterPlaygroundPage": {
     "addOlderPairButton": "+ Добавить более старую пару",

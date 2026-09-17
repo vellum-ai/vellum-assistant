@@ -8,6 +8,7 @@ import {
   test,
 } from "bun:test";
 import type { ReactNode } from "react";
+import type { ChatMarkdownMessageProps } from "@/domains/chat/components/chat-markdown-message";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   act,
@@ -166,17 +167,14 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
     hardLineBreaks,
     onVellumLinkClick,
     redactedCredentialChips,
-  }: {
-    content: string;
-    hardLineBreaks?: boolean;
-    onVellumLinkClick?: (href: string, linkText: string) => void;
-    redactedCredentialChips?: boolean;
-  }) => {
+    fileLinkLabels,
+  }: ChatMarkdownMessageProps) => {
     lastVellumLinkClick = onVellumLinkClick;
     return (
       <div
         data-testid="markdown"
         data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-file-link-labels={fileLinkLabels}
         data-redacted-credential-chips={
           redactedCredentialChips ? "true" : "false"
         }
@@ -3648,7 +3646,33 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
   });
 });
 
-describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+describe("TranscriptMessageBody: file link captions", () => {
+  test.each(["assistant", "user"] as const)(
+    "%s messages choose the appropriate file link captions",
+    (role) => {
+      const { getByTestId } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "m-file-link",
+            role,
+            contentBlocks: [
+              textBlock("[my chart](vellum://workspace/chart.png)"),
+            ],
+            timestamp: 1_000,
+          }}
+          assistantId="asst-1"
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(
+        getByTestId("markdown").getAttribute("data-file-link-labels"),
+      ).toBe(role === "user" ? "markdown" : "action");
+    },
+  );
+});
+
+describe("TranscriptMessageBody: redacted-credential chip version gate", () => {
   const GATE_ASSISTANT_ID = "asst-gate";
 
   function chipFlag(

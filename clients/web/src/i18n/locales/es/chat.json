@@ -956,7 +956,13 @@
     "pictureInPictureUnavailable": "Imagen sobre imagen no está disponible"
   },
   "localFileLink": {
-    "unavailable": "Este archivo no está disponible aquí"
+    "closePreview": "Cerrar vista previa: {filename}",
+    "fileOptions": "Opciones del archivo: {filename}",
+    "openInWorkspace": "Abrir en el espacio de trabajo: {filename}",
+    "openPreview": "Abrir vista previa: {filename}",
+    "unavailable": "Este archivo no está disponible aquí",
+    "unavailableLabel": "Archivo no disponible: {filename}",
+    "viewImage": "Ver imagen: {filename}"
   },
   "localFileMenu": {
     "download": "Descargar",

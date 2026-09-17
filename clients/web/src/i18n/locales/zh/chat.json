@@ -994,7 +994,13 @@
     "pictureInPictureUnavailable": "画中画不可用"
   },
   "localFileLink": {
-    "unavailable": "此文件在此处不可用"
+    "closePreview": "关闭预览：{filename}",
+    "fileOptions": "文件选项：{filename}",
+    "openInWorkspace": "在工作区中打开：{filename}",
+    "openPreview": "打开预览：{filename}",
+    "unavailable": "此文件在此处不可用",
+    "unavailableLabel": "文件不可用：{filename}",
+    "viewImage": "查看图片：{filename}"
   },
   "localFileMenu": {
     "download": "下载",

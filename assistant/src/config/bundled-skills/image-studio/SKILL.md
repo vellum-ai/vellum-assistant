@@ -37,13 +37,27 @@ Pass a concrete model ID only if the user names one explicitly. If the tool reje
 Generate (no model parameter, default is correct):
 
 ```json
-{ "tool": "media_generate_image", "input": { "prompt": "A sunset over the ocean, golden hour, soft haze, 35mm photo style", "variants": 2 } }
+{
+  "tool": "media_generate_image",
+  "input": {
+    "prompt": "A sunset over the ocean, golden hour, soft haze, 35mm photo style",
+    "variants": 2
+  }
+}
 ```
 
 Edit:
 
 ```json
-{ "tool": "media_generate_image", "input": { "prompt": "Remove the watermark text from the background. Keep the subject, framing, lighting, and colors exactly identical. Change nothing else.", "mode": "edit", "source_paths": ["conversations/<conv-id>/attachments/photo.jpeg"], "model": "openai" } }
+{
+  "tool": "media_generate_image",
+  "input": {
+    "prompt": "Remove the watermark text from the background. Keep the subject, framing, lighting, and colors exactly identical. Change nothing else.",
+    "mode": "edit",
+    "source_paths": ["conversations/<conv-id>/attachments/photo.jpeg"],
+    "model": "openai"
+  }
+}
 ```
 
 `source_paths` is a flat array of file path strings. Do NOT pass objects:
@@ -72,6 +86,7 @@ Edits on large photos are slow (1 to 2 minutes). If the tool reports a timeout (
 Each generated image is saved into the workspace under `media/generated/` and the tool result lists the saved paths. The images also come back as inline content blocks so you can judge the result before presenting it.
 
 - Present an image to the user by embedding its saved path in your reply: `![short description](vellum://workspace/media/generated/<file>.png)`. The app renders it inline where your text refers to it, and chat channels (Slack, Telegram, WhatsApp) deliver it as a native image upload.
+- Label a plain image link "View image", for example `[View image](vellum://workspace/media/generated/<file>.png)`. The link opens a preview; do not call it "Download" or promise a download in the surrounding text. To save the image, the user can choose Download in the preview.
 - If you do not embed it, the image is still auto-attached to your reply as a file, so it is never lost. Prefer embedding: an attachment chip at the end of the message is a worse presentation than the image inline.
 - To iterate on a result, pass its saved path via `source_paths` with `mode: "edit"`.
 

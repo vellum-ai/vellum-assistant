@@ -994,7 +994,13 @@
     "pictureInPictureUnavailable": "子母畫面無法使用"
   },
   "localFileLink": {
-    "unavailable": "此檔案在此處無法使用"
+    "closePreview": "關閉預覽：{filename}",
+    "fileOptions": "檔案選項：{filename}",
+    "openInWorkspace": "在工作區中開啟：{filename}",
+    "openPreview": "開啟預覽：{filename}",
+    "unavailable": "此檔案在此處無法使用",
+    "unavailableLabel": "檔案無法使用：{filename}",
+    "viewImage": "檢視圖片：{filename}"
   },
   "localFileMenu": {
     "download": "下載",

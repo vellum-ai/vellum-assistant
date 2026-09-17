@@ -671,6 +671,7 @@ export function TranscriptMessageBody({
                     !isUser && supportsRedactedCredentialChips
                   }
                   workspacePathLinks={!isUser}
+                  fileLinkLabels={isUser ? "markdown" : "action"}
                 />
               </div>
             );
@@ -690,6 +691,7 @@ export function TranscriptMessageBody({
           streamWordFade={streamWordFade}
           redactedCredentialChips={!isUser && supportsRedactedCredentialChips}
           workspacePathLinks={!isUser}
+          fileLinkLabels={isUser ? "markdown" : "action"}
         />
       </div>
     );
