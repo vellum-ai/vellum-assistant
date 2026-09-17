@@ -90,7 +90,7 @@ export function NotificationsBellPanel({
             checked={unreadOnly}
             onChange={onUnreadOnlyChange}
             aria-label={t("notificationsBell.unread")}
-            className="flex items-center [&_[role=switch][aria-checked=true]>span]:bg-[var(--avatar-accent-glyph,var(--aux-white))] [&_[role=switch][aria-checked=true]]:bg-[var(--avatar-accent,var(--system-positive-strong))]"
+            className="flex items-center [&_[role=switch][aria-checked=true]]:bg-[var(--avatar-accent,var(--system-positive-strong))]"
           />
           {showsBulkActions ? (
             <ActionMenu.Root>
