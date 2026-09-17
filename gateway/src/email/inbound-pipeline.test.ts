@@ -43,6 +43,7 @@ mock.module("./attachments.js", () => ({
   ingestEmailAttachments: async () => ({
     attachmentIds: [],
     failedAttachmentNames: [],
+    oversizedAttachments: [],
   }),
   appendFailedEmailAttachmentNotice: (content: string) => content,
 }));

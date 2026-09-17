@@ -1,7 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import sharp from "sharp";
 
@@ -13,6 +19,11 @@ import {
   renderCurrentDesktopWallpaper,
   renderDesktopWallpaper,
 } from "./desktop-wallpaper.js";
+
+// Native resvg renders scan the system font database per instance, and on a
+// loaded CI runner the file's first render runs past bun's 5s default. Each
+// test file runs in its own process, so this doesn't leak.
+setDefaultTimeout(15_000);
 
 let workspace: string;
 let previousWorkspace: string | undefined;

@@ -163,7 +163,7 @@ export function createEmailWebhookHandler(
       }
       event.message.content = appendFailedEmailAttachmentNotice(
         event.message.content,
-        ingested.failedAttachmentNames,
+        ingested,
       );
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(

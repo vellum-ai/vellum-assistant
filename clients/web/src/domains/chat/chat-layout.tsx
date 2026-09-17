@@ -1154,11 +1154,7 @@ export function ChatLayout({
             })}
           </aside>
         }
-        desktopPreview={
-          !isPopout && !documentHeaderVisible ? (
-            <AssistantDesktopPreview />
-          ) : null
-        }
+        desktopPreview={<AssistantDesktopPreview />}
         sleepStage={<AssistantSleepStage />}
         popoutVoiceSession={
           <VoiceSessionPillHost variant="standalone" />

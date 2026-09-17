@@ -38,6 +38,7 @@ import {
   refreshProvidersAfterSecretChange,
   refreshProvidersForRotatedCredential,
 } from "../../providers/inference/credential-rotation.js";
+import { validateJevApiKey } from "../../providers/jev/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
@@ -302,6 +303,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "jev") {
+        const validation = await validateJevApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -447,8 +457,7 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
   try {
     let accountKey: string;
     let prefetchedResult:
-      | Awaited<ReturnType<typeof getSecureKeyResultAsync>>
-      | undefined;
+      Awaited<ReturnType<typeof getSecureKeyResultAsync>> | undefined;
 
     if (type === "api_key") {
       if (

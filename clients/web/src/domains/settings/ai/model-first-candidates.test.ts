@@ -155,9 +155,9 @@ describe("resolveModelFirstOptions", () => {
     const platformHosted = resolveModelFirstOptions(
       input([], { activeAssistantIsSelfHosted: false }),
     );
-    expect(
-      platformHosted.map((option) => option.displayName),
-    ).not.toContain("Llama 3.2");
+    expect(platformHosted.map((option) => option.displayName)).not.toContain(
+      "Llama 3.2",
+    );
 
     const selfHosted = optionFor([], "Llama 3.2");
     expect(providersOf(selfHosted.candidates)).toEqual(["ollama"]);
@@ -193,14 +193,22 @@ describe("resolveModelFirstOptions", () => {
   });
 
   test("holds a flagged catalog entry back until hosted inference is on", () => {
-    const hidden = resolveModelFirstOptions(
-      input([VELLUM_CONNECTION]),
-    ).map((option) => option.displayName);
+    const hidden = resolveModelFirstOptions(input([VELLUM_CONNECTION])).map(
+      (option) => option.displayName,
+    );
     const shown = resolveModelFirstOptions(
       input([VELLUM_CONNECTION], { hostedInference: true }),
     ).map((option) => option.displayName);
     expect(hidden).not.toContain("Qwen3 8B");
     expect(shown).toContain("Qwen3 8B");
+  });
+
+  test("omits structured-decision models from the conversation list", () => {
+    const options = resolveModelFirstOptions(
+      input([connection("jev-key", "jev")]),
+    );
+    expect(options.map((option) => option.displayName)).not.toContain("Jev");
+    expect(options.some((option) => option.owner === "jev")).toBe(false);
   });
 
   test("surfaces the managed route as one entry rather than its upstreams", () => {

@@ -21,7 +21,7 @@
 
 import {
   catalogEnabledFlags,
-  getVisibleModelsForProvider,
+  getTextGenerationModelsForProvider,
   MODELS_BY_PROVIDER,
   vendorDisplayName,
   type LlmCatalogModel,
@@ -292,7 +292,7 @@ export function resolveModelFirstOptions(
       continue;
     }
 
-    const models = getVisibleModelsForProvider(
+    const models = getTextGenerationModelsForProvider(
       kind,
       catalogEnabledFlags({
         hostedInference: input.hostedInference,
@@ -443,9 +443,10 @@ const SECTION_ROW_LIMIT = 3;
  * section follows behind its "see more" row, in catalog order, so revealing it
  * reads as the section carrying on.
  */
-export function collapseSectionRows(
-  options: readonly ModelFirstOption[],
-): { shown: ModelFirstOption[]; hidden: ModelFirstOption[] } {
+export function collapseSectionRows(options: readonly ModelFirstOption[]): {
+  shown: ModelFirstOption[];
+  hidden: ModelFirstOption[];
+} {
   const leads: ModelFirstOption[] = [];
   const led = new Set<string>();
   for (const option of options) {

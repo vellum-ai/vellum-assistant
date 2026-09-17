@@ -79,6 +79,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
+  getPendingInteractions: async () => ({}),
 }));
 
 const { useAttentionTracking } =

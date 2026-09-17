@@ -46,7 +46,7 @@ export function AssistantDesktopAffordance({
         fullscreenOnly ? "assistant-desktop-modal" : "assistant-desktop-preview"
       }
       onClick={() => {
-        useDesktopPreviewStore.getState().toggle(assistantId);
+        useDesktopPreviewStore.getState().toggle(assistantId, fullscreenOnly);
         onToggle?.();
       }}
     />

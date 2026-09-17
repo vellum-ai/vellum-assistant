@@ -33,7 +33,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
-import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
 import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
 import {
   activationProgressGetQueryKey,

@@ -39,6 +39,7 @@ import {
   resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
+import { readValidatedPluginIcon } from "../plugin-icon-file.js";
 
 const CANON_REPO = "vellum-ai/vellum-assistant";
 /** Synthetic host the fixtures use for Contents API `download_url`s. */
@@ -316,6 +317,46 @@ describe("installPlugin — install lifecycle", () => {
       expect.objectContaining({
         pluginName: "fathom",
         serverKey: "fathom",
+      }),
+    ]);
+  });
+
+  test("installs the reviewed Fathom package from the generated bundle", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.2",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      ref: "1.0.2",
+      commit: null,
+    });
+    expect(readValidatedPluginIcon(result.target).hasIcon).toBe(true);
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+        config: expect.objectContaining({
+          transport: expect.objectContaining({
+            url: "https://api.fathom.ai/mcp",
+          }),
+        }),
       }),
     ]);
   });

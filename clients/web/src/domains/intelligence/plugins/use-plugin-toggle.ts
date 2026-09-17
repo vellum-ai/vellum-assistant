@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { PLUGIN_TOGGLE_ERROR } from "@/domains/intelligence/plugins/constants";
-import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
 import { pluginsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   pluginsByNameDisablePost,
@@ -102,8 +102,6 @@ export function usePluginToggle(assistantId: string): UsePluginToggleResult {
 
   return {
     toggle,
-    togglingName: mutation.isPending
-      ? (mutation.variables?.name ?? null)
-      : null,
+    togglingName: mutation.isPending ? mutation.variables?.name ?? null : null,
   };
 }

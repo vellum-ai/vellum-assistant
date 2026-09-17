@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "Cuando está activado, el personal de Vellum podrá acceder a tu asistente y a sus datos con fines de depuración. Se recomienda dejarlo desactivado y activarlo solo temporalmente si necesitas ayuda de Soporte de Vellum para investigar un problema.",
+    "expiresAt": "El acceso del personal termina {when}.",
+    "extend": "Extender 24 horas",
     "loadError": "No se pudo cargar la configuración de consentimiento.",
     "loginNotice": "Inicia sesión en la plataforma de Vellum para gestionar el acceso de administración a los datos.",
     "title": "Permitir acceso del personal",
     "toastDisabled": "Acceso de administración a los datos desactivado.",
     "toastEnabled": "Acceso de administración a los datos activado.",
+    "toastExtended": "Acceso de administración a los datos extendido.",
     "toastUpdateFailed": "No se pudo actualizar el consentimiento de acceso a los registros."
   },
   "adjustPlanModal": {
@@ -906,6 +909,20 @@
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",
     "needsAttention": "Requiere atención"
   },
+  "pluginIntegration": {
+    "actionFailed": "No se pudo actualizar el plugin. Inténtalo de nuevo.",
+    "chooseMethod": "Elige cómo conectar esta integración.",
+    "localServer": "Servidor MCP local",
+    "noServers": "El plugin está instalado, pero no proporcionó ningún servidor MCP.",
+    "openDocumentation": "Abrir guía de configuración",
+    "providerAccount": "Cuenta de {name}",
+    "remoteServer": "Servidor MCP remoto",
+    "serverLoadFailed": "El plugin está instalado, pero no se pudieron cargar sus servidores MCP.",
+    "removeMessage": "¿Eliminar {name}? Esto elimina el plugin, sus skills y {count, plural, one {su # servidor MCP} other {sus # servidores MCP}}.",
+    "removePlugin": "Eliminar plugin",
+    "removeTitle": "¿Eliminar {name}?",
+    "setUp": "Configurar"
+  },
   "integrationsPage": {
     "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",
     "accountConnectedToastGeneric": "Cuenta conectada correctamente.",
@@ -922,6 +939,7 @@
     "oauthErrorStateExpired": "La autorización expiró. Inténtalo de nuevo.",
     "oauthErrorStateInvalid": "El estado de autorización no era válido. Inténtalo de nuevo.",
     "oauthUnavailable": "No se pudieron cargar algunas integraciones OAuth. Las conexiones MCP siguen disponibles.",
+    "pluginCatalogUnavailable": "No se pudieron cargar las integraciones de plugins. Tus integraciones existentes siguen disponibles.",
     "searchAriaLabel": "Buscar integraciones",
     "searchPlaceholder": "Buscar integraciones",
     "sectionAvailable": "Disponibles",
@@ -1066,7 +1084,6 @@
     "moreActions": "Más acciones para {serverId}",
     "reconnect": "Reconectar",
     "removeServer": "Eliminar",
-    "statusConnected": "Conectado",
     "statusNeedsAttention": "Requiere atención",
     "viewDetails": "Ver detalles"
   },

@@ -77,6 +77,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
+  jev: "Jev",
 };
 
 // litellm and opencode are deliberately excluded: they have no fixed default
@@ -245,6 +246,9 @@ export function inferProviderFromModel(model: string): string | undefined {
   }
   if (model.startsWith("poolside/")) {
     return "poolside";
+  }
+  if (model === "jev-latest" || model.startsWith("jev-")) {
+    return "jev";
   }
   if (model === "qwen/qwen3-8b") {
     // The only qwen/* ID the Vellum hosted provider carries; the rest are

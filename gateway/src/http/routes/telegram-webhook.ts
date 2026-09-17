@@ -10,7 +10,6 @@ import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
 import {
   appendFailedAttachmentNotice,
-  AttachmentTooLargeError,
   ingestAttachments,
 } from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -660,15 +659,14 @@ export function createTelegramWebhookHandler(
               mode: "rethrow-unless-skippable",
               isSkippableError: (error) =>
                 error instanceof AttachmentValidationError ||
-                error instanceof ContentMismatchError ||
-                error instanceof AttachmentTooLargeError,
+                error instanceof ContentMismatchError,
             },
           },
         );
         attachmentIds = result.attachmentIds;
         normalized.message.content = appendFailedAttachmentNotice(
           normalized.message.content,
-          result.failedAttachmentNames,
+          result,
         );
       } catch (err) {
         // Transient attachment failure — return 500 so Telegram retries.

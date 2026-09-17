@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -11,17 +11,27 @@ import type { ReactNode } from "react";
 import { MemoryRouter, useNavigate } from "react-router";
 
 import type { OAuthConnection } from "@/generated/api/types.gen";
-import type { OauthProvidersGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  OauthProvidersGetResponse,
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
 import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import type { McpServerEntry } from "../mcp/mcp-api";
 
 type OAuthProvider = OauthProvidersGetResponse["providers"][number];
+type CatalogMatch = PluginsSearchGetResponse["matches"][number];
+type InstalledPlugin = PluginsGetResponse["plugins"][number];
 
 let seededProviders: OAuthProvider[] = [];
 let seededConnections: OAuthConnection[] = [];
 let seededServers: McpServerEntry[] = [];
+let seededCatalog: CatalogMatch[] = [];
+let seededPlugins: InstalledPlugin[] = [];
 let oauthFails = false;
 let mcpFails = false;
+let pluginCatalogFails = false;
+let pluginListFails = false;
 let assistantAvailable = true;
 let platformGate = "full";
 let allowAdd = true;
@@ -52,7 +62,11 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
     },
   },
 }));
+const daemonReactQueryActual = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  ...daemonReactQueryActual,
   oauthProvidersGetOptions: () => ({
     queryKey: ["oauth-providers"],
     queryFn: async () => {
@@ -63,7 +77,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     },
   }),
 }));
+const apiReactQueryActual = await import(
+  "@/generated/api/@tanstack/react-query.gen"
+);
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
+  ...apiReactQueryActual,
   assistantsOauthConnectionsListOptions: () => ({
     queryKey: ["oauth-connections"],
     queryFn: async () => seededConnections,
@@ -78,6 +96,16 @@ mock.module("@/hooks/use-platform-assistant-id", () => ({
 }));
 mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => platformGate,
+}));
+mock.module("@/hooks/use-plugins-list", () => ({
+  usePluginsList: () => ({
+    isLoading: false,
+    isError: pluginListFails,
+    installedLoaded: !pluginListFails || seededPlugins.length > 0,
+    catalogError: pluginCatalogFails,
+    catalogMatches: seededCatalog,
+    installedPlugins: seededPlugins,
+  }),
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 mock.module("@/runtime/browser", () => ({
@@ -101,6 +129,19 @@ mock.module("@/domains/settings/components/integration-detail-modal", () => ({
       </div>
     );
   },
+}));
+mock.module("@/domains/settings/components/integration-methods-modal", () => ({
+  IntegrationMethodsModal: (props: {
+    item: { name: string };
+    onClose: () => void;
+  }) => (
+    <div>
+      Methods for {props.item.name}
+      <button type="button" onClick={props.onClose}>
+        Close methods
+      </button>
+    </div>
+  ),
 }));
 mock.module("@/domains/settings/mcp/mcp-api", () => ({
   fetchMcpServers: async () => {
@@ -144,7 +185,9 @@ function ProviderNavigationButton() {
   return (
     <button
       type="button"
-      onClick={() => navigate("/assistant/settings/integrations?provider=notion")}
+      onClick={() =>
+        navigate("/assistant/settings/integrations?provider=notion")
+      }
     >
       Open provider deep link
     </button>
@@ -197,13 +240,52 @@ function server(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
   };
 }
 
+function catalogMatch(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
+  return {
+    name: "example-mcp",
+    path: "local:example-mcp@1.0.0",
+    description: "Example tools",
+    category: "productivity",
+    source: { kind: "local", path: "example-mcp", version: "1.0.0" },
+    integration: {
+      kind: "mcp",
+      displayName: "Example",
+      documentationUrl: "https://example.com/docs",
+      verifiedAt: "2026-09-15",
+      verification: "documentation-only",
+      setup: { mode: "oauth", instructions: "Sign in to Example." },
+      logo: "example.png",
+    },
+    ...overrides,
+  };
+}
+
+function installedPlugin(
+  overrides: Partial<InstalledPlugin> = {},
+): InstalledPlugin {
+  return {
+    id: "plugin-example-mcp",
+    name: "example-mcp",
+    enabled: true,
+    description: "Example tools",
+    version: "1.0.0",
+    category: "productivity",
+    hasIcon: false,
+    ...overrides,
+  };
+}
+
 afterEach(() => {
   cleanup();
   seededProviders = [];
   seededConnections = [];
   seededServers = [];
+  seededCatalog = [];
+  seededPlugins = [];
   oauthFails = false;
   mcpFails = false;
+  pluginCatalogFails = false;
+  pluginListFails = false;
   assistantAvailable = true;
   platformGate = "full";
   allowAdd = true;
@@ -213,6 +295,8 @@ afterEach(() => {
   setupConversation.mockClear();
   getAssistant.mockClear();
 });
+
+afterAll(() => mock.restore());
 
 describe("IntegrationsPage", () => {
   test("legacy tab=mcp links show one list without tabs", async () => {
@@ -283,6 +367,56 @@ describe("IntegrationsPage", () => {
     render(<IntegrationsPage />, { wrapper: Wrapper });
     await screen.findByText("Notion");
     await screen.findByText(/MCP connections could not be loaded/);
+  });
+
+  test("plugin catalog failures do not hide existing integrations", async () => {
+    pluginCatalogFails = true;
+    seededProviders = [provider()];
+    seededServers = [server()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    screen.getByText("example-integration");
+    screen.getByText(/Plugin integrations could not be loaded/);
+  });
+
+  test("shows explicit catalog metadata as an available plugin integration", async () => {
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await screen.findByText("Methods for Example");
+  });
+
+  test("groups an installed plugin with its mapped provider", async () => {
+    seededProviders = [provider()];
+    seededCatalog = [
+      catalogMatch({
+        name: "notion-mcp",
+        integration: {
+          ...catalogMatch().integration!,
+          displayName: "Notion",
+          oauthProvider: "notion",
+          logo: "notion.png",
+        },
+      }),
+    ];
+    seededPlugins = [installedPlugin({ name: "notion-mcp" })];
+    seededServers = [
+      server({
+        id: "notion-tools",
+        source: "plugin",
+        pluginName: "notion-mcp",
+        status: "needs-auth",
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    expect(screen.getAllByText("Notion")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    await screen.findByText("Methods for Notion");
   });
 
   test("MCP connections remain available without platform login", async () => {

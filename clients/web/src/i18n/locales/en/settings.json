@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "When enabled, Vellum Staff will be able to access your assistant and its data for debugging purposes. It's suggested that you leave this off and only turn it on temporarily if you need Vellum Support's help in investigating an issue.",
+    "expiresAt": "Staff access ends {when}.",
+    "extend": "Extend 24 hours",
     "loadError": "Failed to load consent setting.",
     "loginNotice": "Log in to the Vellum platform to manage admin data access.",
     "title": "Allow Staff Access",
     "toastDisabled": "Admin data access disabled.",
     "toastEnabled": "Admin data access enabled.",
+    "toastExtended": "Admin data access extended.",
     "toastUpdateFailed": "Failed to update log access consent."
   },
   "adjustPlanModal": {
@@ -906,6 +909,20 @@
     "connectedAccounts": "{count, plural, one {# connected account} other {# connected accounts}}",
     "needsAttention": "Needs attention"
   },
+  "pluginIntegration": {
+    "actionFailed": "The plugin could not be updated. Try again.",
+    "chooseMethod": "Choose how to connect this integration.",
+    "localServer": "Local MCP server",
+    "noServers": "The plugin is installed, but it did not provide any MCP servers.",
+    "openDocumentation": "Open setup guide",
+    "providerAccount": "{name} account",
+    "remoteServer": "Remote MCP server",
+    "serverLoadFailed": "The plugin is installed, but its MCP servers could not be loaded.",
+    "removeMessage": "Remove {name}? This removes the plugin, its skills, and {count, plural, one {its # MCP server} other {all # MCP servers}}.",
+    "removePlugin": "Remove plugin",
+    "removeTitle": "Remove {name}?",
+    "setUp": "Set up"
+  },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} account connected successfully.",
     "accountConnectedToastGeneric": "Account connected successfully.",
@@ -922,6 +939,7 @@
     "oauthErrorStateExpired": "Authorization expired. Please try again.",
     "oauthErrorStateInvalid": "Authorization state was invalid. Please try again.",
     "oauthUnavailable": "Some OAuth integrations could not be loaded. MCP connections are still available.",
+    "pluginCatalogUnavailable": "Plugin integrations could not be loaded. Your existing integrations are still available.",
     "searchAriaLabel": "Search integrations",
     "searchPlaceholder": "Search Integrations",
     "sectionAvailable": "Available",
@@ -1066,7 +1084,6 @@
     "moreActions": "More actions for {serverId}",
     "reconnect": "Reconnect",
     "removeServer": "Remove",
-    "statusConnected": "Connected",
     "statusNeedsAttention": "Needs attention",
     "viewDetails": "View details"
   },

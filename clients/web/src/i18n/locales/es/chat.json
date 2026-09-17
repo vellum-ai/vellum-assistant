@@ -1942,5 +1942,14 @@
     "savedTime": "Guardado: {time}",
     "pendingAria": "Fotograma de cámara, la imagen aún se está cargando. {time}",
     "timeUnavailable": "Hora no disponible"
+  },
+  "desktopHelpCard": {
+    "showPreview": "Mostrar vista previa en directo",
+    "needsHelp": "El escritorio virtual necesita tu ayuda.",
+    "stepIn": "Intervenir",
+    "done": "Listo",
+    "skip": "Omitir",
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos"
   }
 }

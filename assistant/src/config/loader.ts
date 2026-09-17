@@ -58,14 +58,6 @@ type ConfigFileSignature =
       exists: false;
     };
 
-function getConfigPath(): string {
-  return getWorkspaceConfigPath();
-}
-
-function ensureMigratedDataDir(): void {
-  ensureDataDir();
-}
-
 function readConfigFileSignature(configPath: string): ConfigFileSignature {
   const stats = safeStatSync(configPath);
   if (!stats) {
@@ -104,7 +96,7 @@ function getCachedConfigIfFresh(): AssistantConfig | null {
     return null;
   }
 
-  const currentSignature = readConfigFileSignature(getConfigPath());
+  const currentSignature = readConfigFileSignature(getWorkspaceConfigPath());
   if (configFileSignaturesEqual(cachedFileSignature, currentSignature)) {
     return cached;
   }
@@ -1002,7 +994,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
       Object.prototype.hasOwnProperty.call(llmDefaults, "activeProfile"),
   };
 
-  const configPath = getConfigPath();
+  const configPath = getWorkspaceConfigPath();
   let existing: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
@@ -1070,8 +1062,8 @@ export function loadConfig(): AssistantConfig {
   loading = true;
 
   try {
-    ensureMigratedDataDir();
-    const configPath = getConfigPath();
+    ensureDataDir();
+    const configPath = getWorkspaceConfigPath();
 
     let fileConfig: Record<string, unknown> = {};
     let configFileExisted = true;
@@ -1259,7 +1251,7 @@ export function getConfigReadOnly(): AssistantConfig {
     return freshCached;
   }
 
-  const configPath = getConfigPath();
+  const configPath = getWorkspaceConfigPath();
   let fileConfig: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
@@ -1312,8 +1304,8 @@ export function withSuppressedConfigDiskWritesSync<T>(fn: () => T): T {
  * type without runtime shape-checking — the boundary check happens here.
  */
 export function loadRawConfig(): Record<string, unknown> {
-  ensureMigratedDataDir();
-  const configPath = getConfigPath();
+  ensureDataDir();
+  const configPath = getWorkspaceConfigPath();
   if (!existsSync(configPath)) {
     return {};
   }
@@ -1372,8 +1364,8 @@ function describeJsonShape(value: unknown): string {
 }
 
 export function saveRawConfig(config: Record<string, unknown>): void {
-  ensureMigratedDataDir();
-  const configPath = getConfigPath();
+  ensureDataDir();
+  const configPath = getWorkspaceConfigPath();
 
   // Strip legacy apiKeys — provider keys belong in secure storage, not plaintext config
   delete config.apiKeys;

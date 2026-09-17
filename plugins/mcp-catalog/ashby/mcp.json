@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "ashby": {
+      "type": "streamable-http",
+      "url": "https://mcp.ashbyhq.com/mcp/v1"
+    }
+  }
+}

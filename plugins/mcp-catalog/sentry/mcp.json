@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "sentry": {
+      "type": "streamable-http",
+      "url": "https://mcp.sentry.dev/mcp"
+    }
+  }
+}

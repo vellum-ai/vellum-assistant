@@ -6241,8 +6241,17 @@ components:
             data for debugging: daemon log files, an admin terminal on the running
             assistant, and a disposable clone of its disk. Defaults to False; the
             owner can revoke at any time, which blocks new access and further commands
-            in open admin terminal sessions.'
+            in open admin terminal sessions. A grant lapses on its own at access_consent_expires_at;
+            reads report False once it has.'
+        access_consent_expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+          description: When the current grant lapses. Set on every enable, 24 hours
+            out by default. Null when access is off or the grant predates expiry.
       required:
+      - access_consent_expires_at
       - access_consented
     AcknowledgeRequest:
       type: object
@@ -6390,7 +6399,13 @@ components:
         access_consented:
           type: boolean
           readOnly: true
+        access_consent_expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
       required:
+      - access_consent_expires_at
       - access_consented
       - avatar_url
       - created
@@ -9388,7 +9403,15 @@ components:
             data for debugging: daemon log files, an admin terminal on the running
             assistant, and a disposable clone of its disk. Defaults to False; the
             owner can revoke at any time, which blocks new access and further commands
-            in open admin terminal sessions.'
+            in open admin terminal sessions. A grant lapses on its own at access_consent_expires_at;
+            reads report False once it has.'
+        expires_in_hours:
+          type: integer
+          maximum: 168
+          minimum: 1
+          writeOnly: true
+          description: 'Only with access_consented=true: how long the grant lasts,
+            1 to 168 hours. Defaults to 24. Enabling again resets the clock.'
     PatchedAssistantPartialUpdateRequest:
       type: object
       description: |-

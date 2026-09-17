@@ -29,23 +29,23 @@ import {
   pluginRiskyUpgradeConfirmLabel,
   pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
-import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
-import { showPluginUninstallWarnings } from "@/domains/intelligence/plugins/plugin-uninstall-warnings";
+import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
+import { showPluginUninstallWarnings } from "@/lib/plugin-uninstall-warnings";
 import type {
   InstalledPlugin,
   PluginCatalogMatch,
   PluginFilter,
   PluginListItem,
-} from "@/domains/intelligence/plugins/types";
+} from "@/lib/plugins/types";
 import {
   SYSTEM_CATEGORY,
   usePluginsList,
-} from "@/domains/intelligence/plugins/use-plugins-list";
+} from "@/hooks/use-plugins-list";
 import {
   filterByStatus,
   matchesQuery,
   shortSha,
-} from "@/domains/intelligence/plugins/utils";
+} from "@/lib/plugins/utils";
 import {
   isInstalledSkill,
   type SkillInfo,

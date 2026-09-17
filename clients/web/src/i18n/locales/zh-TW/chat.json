@@ -2008,5 +2008,14 @@
     "savedTime": "儲存於 {time}",
     "pendingAria": "攝影機畫面，影像仍在載入。{time}",
     "timeUnavailable": "時間無法取得"
+  },
+  "desktopHelpCard": {
+    "showPreview": "顯示即時預覽",
+    "needsHelp": "虛擬桌面需要你的協助。",
+    "stepIn": "接管",
+    "done": "完成",
+    "skip": "略過",
+    "showMore": "展開",
+    "showLess": "收起"
   }
 }

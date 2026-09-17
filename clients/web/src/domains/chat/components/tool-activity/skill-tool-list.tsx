@@ -15,19 +15,14 @@
 
 import { Typography } from "@vellumai/design-library";
 
+import { MachineText } from "@/components/detail-primitives";
 import type { SkillToolSummary } from "@/domains/chat/utils/skill-activity";
 import { useTranslation } from "@/i18n";
 
 function SkillToolRow({ tool }: { tool: SkillToolSummary }) {
   return (
     <li>
-      <Typography
-        variant="body-medium-default"
-        as="div"
-        className="font-mono leading-5 text-[var(--content-default)]"
-      >
-        {tool.name}
-      </Typography>
+      <MachineText as="div">{tool.name}</MachineText>
       {tool.description && (
         <Typography
           variant="body-small-lighter"

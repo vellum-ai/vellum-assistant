@@ -15,6 +15,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confirmation-row";
 import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pending-contact-record-request-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
+import { PendingDesktopHelpRow } from "@/domains/chat/transcript/pending-desktop-help-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { DeletedMessageRow } from "@/domains/chat/transcript/deleted-message-row";
 import { NoResponseRow } from "@/domains/chat/transcript/no-response-row";
@@ -356,6 +357,9 @@ export const TranscriptRow = memo(function TranscriptRow({
           </StreamingShimmerText>
         </div>
       );
+
+    case "pendingDesktopHelp":
+      return <PendingDesktopHelpRow requestId={item.requestId} />;
 
     case "pendingSecret":
       return <PendingSecretRow />;

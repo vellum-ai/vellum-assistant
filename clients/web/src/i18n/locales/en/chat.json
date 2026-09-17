@@ -2008,5 +2008,14 @@
     "savedTime": "Saved {time}",
     "pendingAria": "Camera frame, image still loading. {time}",
     "timeUnavailable": "Time unavailable"
+  },
+  "desktopHelpCard": {
+    "showPreview": "Show live preview",
+    "needsHelp": "The virtual desktop needs your help.",
+    "stepIn": "Step In",
+    "done": "Done",
+    "skip": "Skip",
+    "showMore": "Show more",
+    "showLess": "Show less"
   }
 }

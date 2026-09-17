@@ -86,6 +86,9 @@ function projectModel(model: CatalogModel): Record<string, unknown> {
   if (model.supportsToolUse !== undefined) {
     projected.supportsToolUse = model.supportsToolUse;
   }
+  if (model.supportsText !== undefined) {
+    projected.supportsText = model.supportsText;
+  }
   if (model.pricing !== undefined) {
     projected.pricing = model.pricing;
   }

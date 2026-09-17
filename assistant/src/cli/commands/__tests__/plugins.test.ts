@@ -65,6 +65,7 @@ let installPluginCalls: InstallPluginOptions[] = [];
 let platformInstallCalls: Array<{ name: string; force?: boolean }> = [];
 let upgradePluginCalls: UpgradePluginOptions[] = [];
 let catalogMatches: PluginSearchMatch[] = [];
+let catalogError: Error | null = null;
 
 /**
  * Queued daemon IPC responses. The default (empty queue) is a transport
@@ -162,7 +163,12 @@ mock.module("../../lib/install-from-platform.js", () => ({
 }));
 
 mock.module("../../lib/plugin-catalog-cache.js", () => ({
-  getPluginCatalog: async () => ({ ref: "main", matches: catalogMatches }),
+  getPluginCatalog: async () => {
+    if (catalogError) {
+      throw catalogError;
+    }
+    return { ref: "main", matches: catalogMatches };
+  },
 }));
 
 mock.module("../../lib/inspect-plugin.js", () => ({
@@ -264,6 +270,7 @@ beforeEach(() => {
   platformInstallCalls = [];
   upgradePluginCalls = [];
   catalogMatches = [];
+  catalogError = null;
   ipcResults = [];
   inspectResult = null;
   installTarget = null;
@@ -464,6 +471,18 @@ describe("plugins install - declared-schedules consent", () => {
       path: "plugins/mcp-catalog/fathom",
       version: "1.0.0",
     });
+    expect(r.exitCode).toBe(0);
+  });
+
+  test("falls back to the platform installer when catalog discovery fails", async () => {
+    catalogError = new Error("catalog unavailable");
+
+    const r = await runCommand(["plugins", "install", "example"]);
+
+    expect(installPluginCalls).toHaveLength(0);
+    expect(platformInstallCalls).toEqual([
+      { name: "example", force: undefined },
+    ]);
     expect(r.exitCode).toBe(0);
   });
 });

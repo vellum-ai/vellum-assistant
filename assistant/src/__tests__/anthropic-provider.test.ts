@@ -1650,6 +1650,61 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).toHaveLength(0);
   });
 
+  test("mixed tail answered by a tool_result plus trailing text gets a synthetic web_search_tool_result", async () => {
+    // Text after the client result closes the assistant turn on the provider
+    // side, which then rejects the unanswered search as unpaired. The search
+    // is an orphan here, so the synthetic error result keeps the request
+    // valid at the cost of that one search.
+    const messages: Message[] = [
+      userMsg("Do things"),
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "web_fetch", input: {} },
+          {
+            type: "server_tool_use",
+            id: "srvtoolu_b",
+            name: "web_search",
+            input: { query: "test" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_a",
+            content: "Error: HTTP 404",
+            is_error: true,
+          },
+          { type: "text", text: "<system_notice>retry</system_notice>" },
+        ],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    // The repaired pair leaves the mixed message: ensureToolPairing keeps the
+    // client tool_result adjacent to its tool_use and moves the now-answered
+    // server pair into its own assistant turn, ahead of the trailing text.
+    expect(sent.map((m) => m.content.map((b) => b.type))).toEqual([
+      ["text"],
+      ["tool_use"],
+      ["tool_result"],
+      ["server_tool_use", "web_search_tool_result"],
+      ["text"],
+    ]);
+    expect(sent[3].content[1]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_b",
+    });
+  });
+
   test("deferred mixed heartbeat shape with text and multiple searches goes out verbatim", async () => {
     const messages: Message[] = [
       userMsg("Heartbeat: check the file and the news"),

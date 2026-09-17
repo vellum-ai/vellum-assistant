@@ -30,6 +30,10 @@ import {
   loadRawConfig,
 } from "../../config/loader.js";
 import {
+  nonTextConversationProfileMessage,
+  profileSupportsTextGeneration,
+} from "../../config/profile-text-generation.js";
+import {
   ProfileEntry,
   routingIdentityModelIssue,
 } from "../../config/schemas/llm.js";
@@ -890,6 +894,11 @@ async function handleSetActiveProfile({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(
       `Profile "${name}" is disabled and cannot be set as the active profile. Enable it first, or pick another.`,
     );
+  }
+  if (
+    !profileSupportsTextGeneration(entry, effective as Record<string, unknown>)
+  ) {
+    throw new BadRequestError(nonTextConversationProfileMessage(name));
   }
   // No escape hatch here: an active profile that cannot dispatch locks the
   // user out of chat entirely, and nothing about the write signals that.

@@ -43,7 +43,7 @@ function isPositiveInteger(v: unknown): v is number {
 
 /**
  * Read daemon timeout values directly from the config JSON file, bypassing
- * loadConfig() and its ensureMigratedDataDir()/ensureDataDir() side effects.
+ * loadConfig() and its ensureDataDir() side effects.
  * Falls back to hardcoded defaults on any error (missing file, malformed JSON,
  * unexpected shape) so daemon stop/start never fails due to config issues.
  */

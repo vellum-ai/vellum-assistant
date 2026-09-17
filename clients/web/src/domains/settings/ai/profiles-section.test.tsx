@@ -113,15 +113,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // version below it so the section exercises the config-derived fallback path
 // (deterministic without mocking the inference/profiles route). See the
 // beforeEach for why the version is pinned rather than left unset.
-const { configGetQueryKey } = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
-const { ProfilesSection } = await import(
-  "@/domains/settings/ai/profiles-section"
-);
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
+const { configGetQueryKey } =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { ProfilesSection } =
+  await import("@/domains/settings/ai/profiles-section");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const { ApiError } = await import("@/utils/api-errors");
 
 // ---------------------------------------------------------------------------
@@ -339,6 +336,23 @@ describe("ProfilesSection - kebab menus", () => {
     expect(items).not.toContain("Make Default");
     expect(items).not.toContain("Make Advisor");
     expect(items).not.toContain("Remove as Advisor");
+  });
+
+  test("a non-text catalog profile hides Make Default", async () => {
+    profilesState = {
+      ...profilesState,
+      jev: {
+        label: "Jev",
+        source: "user",
+        provider: "jev",
+        model: "jev-latest",
+      },
+    };
+    renderSection();
+    const menu = await openKebab("Jev");
+    const items = menuItems(menu);
+    expect(items).not.toContain("Make Default");
+    expect(items).toContain("Edit");
   });
 
   test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {

@@ -14,7 +14,11 @@ import { useState } from "react";
 
 import { SegmentControl } from "@vellumai/design-library";
 
-import { DetailBlock, SectionLabel } from "@/components/detail-primitives";
+import {
+  CodePre,
+  DetailBlock,
+  SectionLabel,
+} from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { useTranslation } from "@/i18n";
 
@@ -84,9 +88,7 @@ export function SkillLoadOutput({
             assistantId={assistantId}
           />
         ) : (
-          <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-            {raw}
-          </pre>
+          <CodePre text={raw} />
         )}
       </DetailBlock>
     </div>

@@ -37,7 +37,8 @@ describe("IntegrationRow", () => {
     );
 
     screen.getByText("1 connected account");
-    screen.getByText("Connected");
+    expect(screen.queryByText("Connected")).toBeNull();
+    screen.getByText("Needs attention");
     fireEvent.click(screen.getByRole("button", { name: "Configure" }));
     expect(configure).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();

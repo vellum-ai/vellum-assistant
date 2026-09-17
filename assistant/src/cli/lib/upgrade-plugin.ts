@@ -412,6 +412,24 @@ export async function upgradePlugin(
     };
   }
 
+  const usesMergeStrategy =
+    strategy === "ours" || strategy === "theirs" || strategy === "assistant";
+  const canOverwriteCleanBundledInstall =
+    remote.kind === "local" &&
+    strategy === "theirs" &&
+    local.localChanges?.clean === true;
+
+  if (
+    remote.kind === "local" &&
+    usesMergeStrategy &&
+    !canOverwriteCleanBundledInstall
+  ) {
+    throw new PluginMergeBaselineError(
+      name,
+      "bundled packages do not retain the previous package version needed for a three-way merge",
+    );
+  }
+
   if (dryRun) {
     return {
       name,
@@ -433,17 +451,7 @@ export async function upgradePlugin(
   // `ours`/`theirs`/`assistant` carry local edits forward via a three-way
   // merge; the default `overwrite` discards them and re-installs the pin
   // wholesale.
-  if (
-    strategy === "ours" ||
-    strategy === "theirs" ||
-    strategy === "assistant"
-  ) {
-    if (remote.kind === "local") {
-      throw new PluginMergeBaselineError(
-        name,
-        "bundled packages do not retain the previous package version needed for a three-way merge",
-      );
-    }
+  if (usesMergeStrategy && remote.kind !== "local") {
     const [remoteOwner, remoteRepo] = remote.repo.split("/");
     return mergeUpgrade(
       {

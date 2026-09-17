@@ -1,7 +1,8 @@
 /**
  * Small presentational primitives shared by side-drawer detail panels: the
- * block long content sits on, the `<pre>` code block built on it, and the
- * uppercase section label.
+ * block long content sits on, the `<pre>` code block built on it, the
+ * monospace text every machine value is set in, and the uppercase section
+ * label.
  *
  * Extracted from `tool-detail-panel.tsx` so tool-specific activity renderers
  * (`domains/chat/components/tool-activity/`) can compose them without importing
@@ -11,7 +12,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Typography, type TypographyAs } from "@vellumai/design-library";
 
 import { CopyButton } from "@/components/copy-button";
 import { useTranslation } from "@/i18n";
@@ -139,6 +140,78 @@ export function DetailBlock({
   );
 }
 
+const MACHINE_TEXT_TONE_CLASSES = {
+  default: "text-[var(--content-default)]",
+  muted: "text-[var(--content-tertiary)]",
+  error: "text-[var(--system-negative-strong)]",
+} as const;
+
+type MachineTextTone = keyof typeof MACHINE_TEXT_TONE_CLASSES;
+
+/** The type every machine value in a detail panel is set in, by tone. */
+function machineTextClassName(tone: MachineTextTone): string {
+  return cn("font-mono", MACHINE_TEXT_TONE_CLASSES[tone]);
+}
+
+interface MachineTextProps {
+  as?: TypographyAs;
+  tone?: MachineTextTone;
+  /** Layout and wrapping for this spot, such as `truncate`. */
+  className?: string;
+  title?: string;
+  children: ReactNode;
+}
+
+/**
+ * Text a tool reads or writes: an argument, a path, a command, a tool id. It is
+ * always monospace at the panel's code size, whether it sits inline or in a
+ * {@link CodeBlock}, so a value reads the same wherever it appears and however
+ * long it is. Whether it is shown inline or as a block is the caller's call.
+ */
+export function MachineText({
+  as = "span",
+  tone = "default",
+  className,
+  title,
+  children,
+}: MachineTextProps) {
+  return (
+    <Typography
+      variant="body-small-lighter"
+      as={as}
+      title={title}
+      className={cn(machineTextClassName(tone), className)}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+/**
+ * Preformatted machine text: line breaks and spacing kept, long lines wrapped.
+ * The body of a {@link CodeBlock}, and of any block that frames its own.
+ */
+export function CodePre({
+  text,
+  tone = "default",
+}: {
+  text: string;
+  tone?: Exclude<MachineTextTone, "muted">;
+}) {
+  return (
+    <Typography
+      variant="body-small-lighter"
+      asChild
+      className={cn(
+        machineTextClassName(tone),
+        "whitespace-pre-wrap break-words",
+      )}
+    >
+      <pre>{text}</pre>
+    </Typography>
+  );
+}
+
 /**
  * A `<pre>` code block with a copy button positioned in the top-right, clamped
  * when the text is long. Tool results reach the panel at up to
@@ -155,15 +228,7 @@ export function CodeBlock({
 }) {
   return (
     <DetailBlock length={text.length} copyText={text}>
-      <pre
-        className={`font-mono text-xs whitespace-pre-wrap break-words ${
-          tone === "error"
-            ? "text-[var(--system-negative-strong)]"
-            : "text-[var(--content-default)]"
-        }`}
-      >
-        {text}
-      </pre>
+      <CodePre text={text} tone={tone} />
     </DetailBlock>
   );
 }

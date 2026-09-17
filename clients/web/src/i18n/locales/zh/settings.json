@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "启用后，Vellum 员工将能够访问您的助手及其数据以进行调试。建议您保持此功能关闭，仅在需要 Vellum 支持团队协助调查问题时暂时开启。",
+    "expiresAt": "员工访问将于{when}结束。",
+    "extend": "延长 24 小时",
     "loadError": "未能加载同意设置。",
     "loginNotice": "登录 Vellum 平台以管理管理员数据访问权限。",
     "title": "允许员工访问",
     "toastDisabled": "管理员数据访问已禁用。",
     "toastEnabled": "管理员数据访问已启用。",
+    "toastExtended": "管理员数据访问已延长。",
     "toastUpdateFailed": "未能更新日志访问同意。"
   },
   "adjustPlanModal": {
@@ -906,6 +909,20 @@
     "connectedAccounts": "{count, plural, other {# 个已连接账号}}",
     "needsAttention": "需要处理"
   },
+  "pluginIntegration": {
+    "actionFailed": "无法更新插件。请重试。",
+    "chooseMethod": "选择连接此集成的方式。",
+    "localServer": "本地 MCP 服务器",
+    "noServers": "插件已安装，但未提供任何 MCP 服务器。",
+    "openDocumentation": "打开设置指南",
+    "providerAccount": "{name} 账户",
+    "remoteServer": "远程 MCP 服务器",
+    "serverLoadFailed": "插件已安装，但无法加载其 MCP 服务器。",
+    "removeMessage": "移除 {name}？这将移除该插件、其技能以及全部 {count} 个 MCP 服务器。",
+    "removePlugin": "移除插件",
+    "removeTitle": "移除 {name}？",
+    "setUp": "设置"
+  },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 账户连接成功。",
     "accountConnectedToastGeneric": "账户连接成功。",
@@ -922,6 +939,7 @@
     "oauthErrorStateExpired": "授权已过期。请重试。",
     "oauthErrorStateInvalid": "授权状态无效。请重试。",
     "oauthUnavailable": "部分 OAuth 集成无法加载。MCP 连接仍然可用。",
+    "pluginCatalogUnavailable": "无法加载插件集成。现有集成仍然可用。",
     "searchAriaLabel": "搜索集成",
     "searchPlaceholder": "搜索集成",
     "sectionAvailable": "可用",
@@ -1066,7 +1084,6 @@
     "moreActions": "{serverId} 的更多操作",
     "reconnect": "重新连接",
     "removeServer": "移除",
-    "statusConnected": "已连接",
     "statusNeedsAttention": "需要处理",
     "viewDetails": "查看详情"
   },

@@ -209,6 +209,70 @@ afterEach(() => {
 });
 
 describe("useMcpConnect", () => {
+  test("reserves the popup before preparation resolves the server id", async () => {
+    nativePlatform = false;
+    const prepareGate = deferred<string>();
+    const popup = {
+      closed: false,
+      opener: window,
+      close: mock(() => {
+        popup.closed = true;
+      }),
+      location: {
+        replace: mock((_url: string) => {}),
+      },
+    };
+    window.open = mock(() => popup) as unknown as typeof window.open;
+    const { result } = mountConnect();
+
+    act(() =>
+      result.current.connect(
+        "plugin:example",
+        () => prepareGate.promise,
+        DISPLAY_NAME,
+      ),
+    );
+
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(startMcpAuthMock).not.toHaveBeenCalled();
+    prepareGate.resolve(SERVER_ID);
+
+    await waitFor(() => expect(result.current.attempt?.phase).toBe("authorizing"));
+    expect(result.current.attempt?.serverId).toBe(SERVER_ID);
+    expect(startMcpAuthMock).toHaveBeenCalledWith(ASSISTANT_ID, SERVER_ID);
+    expect(popup.location.replace).toHaveBeenCalledWith(
+      "https://auth.example.com/authorize",
+    );
+  });
+
+  test("closes the reserved popup when preparation has no single server", async () => {
+    nativePlatform = false;
+    const popup = {
+      closed: false,
+      opener: window,
+      close: mock(() => {
+        popup.closed = true;
+      }),
+      location: {
+        replace: mock((_url: string) => {}),
+      },
+    };
+    window.open = mock(() => popup) as unknown as typeof window.open;
+    const { result } = mountConnect();
+
+    act(() =>
+      result.current.connect(
+        "plugin:example",
+        async () => null,
+        DISPLAY_NAME,
+      ),
+    );
+
+    await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(startMcpAuthMock).not.toHaveBeenCalled();
+  });
+
   test("prepares, authorizes, and waits through legacy runtime errors until connected", async () => {
     nativePlatform = false;
     const prepareGate = deferred<void>();

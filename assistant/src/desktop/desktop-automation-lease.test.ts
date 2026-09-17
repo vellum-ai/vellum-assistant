@@ -349,3 +349,90 @@ test("turn completion cancels commands queued behind an in-progress detach", asy
   await f.lease.runBrowser(context, callback);
   expect(callback).toHaveBeenCalledTimes(1);
 });
+
+test("human help releases held input while reserving the desktop, then resumes its owner", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  const finish = await f.lease.reserveForHuman(context);
+  expect(f.releaseBrowser).toHaveBeenCalledTimes(2);
+  expect(f.released).not.toHaveBeenCalled();
+  expect(f.lease.isActive).toBe(false);
+  const callback = mock(operation);
+  await expect(f.lease.runBrowser(context, callback)).rejects.toThrow(
+    "reserved",
+  );
+  await expect(f.lease.runBrowser(context, callback, true)).rejects.toThrow(
+    "reserved",
+  );
+  const other = { ...context, conversationId: "conv-456" };
+  await expect(f.lease.runBrowser(other, callback)).rejects.toThrow(
+    "Another conversation",
+  );
+  expect(callback).not.toHaveBeenCalled();
+  await finish(true);
+  expect(f.lease.isActive).toBe(true);
+  await expect(f.lease.runBrowser(other, callback)).rejects.toThrow(
+    "Another conversation",
+  );
+  await f.lease.runBrowser(context, callback);
+  expect(callback).toHaveBeenCalledTimes(1);
+  expect(f.started).toHaveBeenCalledTimes(1);
+});
+
+test("closing human help releases its reservation and stale cleanup preserves the next owner", async () => {
+  const f = fixture();
+  const finish = await f.lease.reserveForHuman(context);
+  await finish(false);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  const other = { ...context, conversationId: "conv-456" };
+  await f.lease.runBrowser(other, operation);
+  await finish(false);
+  expect(f.lease.isActive).toBe(true);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(other, operation, true);
+});
+
+test("aborting human help releases its reservation", async () => {
+  const f = fixture();
+  const abort = new AbortController();
+  const finish = await f.lease.reserveForHuman({
+    ...context,
+    signal: abort.signal,
+  });
+  abort.abort();
+  await finish(true);
+  expect(f.lease.isActive).toBe(false);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(context, operation);
+  expect(f.started).toHaveBeenCalledTimes(2);
+});
+
+test("the browser idle timeout cannot steal a pending human-help reservation", async () => {
+  const f = fixture();
+  const finish = await f.lease.reserveForHuman(context);
+  const now = Date.now;
+  const future = now() + 10 * 60_000;
+  Date.now = () => future;
+  try {
+    await Bun.sleep(1_100);
+    expect(f.released).not.toHaveBeenCalled();
+    await expect(
+      f.lease.runBrowser({ ...context, conversationId: "conv-456" }, operation),
+    ).rejects.toThrow("Another conversation");
+  } finally {
+    Date.now = now;
+    await finish(false);
+  }
+  expect(f.released).toHaveBeenCalledTimes(1);
+});
+
+test("ending human help retries failed input cleanup without another turn", async () => {
+  const f = fixture();
+  const finish = await f.lease.reserveForHuman(context);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("cleanup failed"));
+  await expect(finish(false)).rejects.toThrow("cleanup failed");
+  await Bun.sleep(0);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(context, operation);
+  expect(f.lease.isActive).toBe(true);
+});

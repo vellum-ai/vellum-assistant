@@ -19,6 +19,7 @@ import {
   PluginInspectNotFoundError,
 } from "../inspect-plugin.js";
 import { computeFingerprint } from "../plugin-fingerprint.js";
+import type { PluginCatalog } from "../search-plugins.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -303,6 +304,59 @@ describe("inspectPlugin", () => {
     expect(result.installed).toBe(false);
     expect(result.local).toBeNull();
     expect(result.remote?.commit).toBe(SHA_B);
+  });
+
+  test("previews an uninstalled bundled provider offline without fetching GitHub", async () => {
+    const savedDisablePlatform = process.env.VELLUM_DISABLE_PLATFORM;
+    const savedIsPlatform = process.env.IS_PLATFORM;
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    delete process.env.IS_PLATFORM;
+    let fetchCalls = 0;
+    const fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error("offline");
+    }) as FetchLike;
+    const localCatalog: PluginCatalog = {
+      ref: "bundled",
+      matches: [
+        {
+          name: "fathom",
+          path: "local:plugins/mcp-catalog/fathom@1.0.0",
+          category: "productivity",
+          source: {
+            kind: "local",
+            path: "plugins/mcp-catalog/fathom",
+            version: "1.0.0",
+          },
+        },
+      ],
+    };
+
+    try {
+      const result = await inspectPlugin(
+        { name: "fathom" },
+        { fetch, workspacePluginsDir: workspace, localCatalog },
+      );
+
+      expect(result.status).toBe("not-installed");
+      expect(result.remote).toMatchObject({
+        kind: "local",
+        path: "plugins/mcp-catalog/fathom",
+        version: "1.0.0",
+      });
+      expect(fetchCalls).toBe(0);
+    } finally {
+      if (savedDisablePlatform === undefined) {
+        delete process.env.VELLUM_DISABLE_PLATFORM;
+      } else {
+        process.env.VELLUM_DISABLE_PLATFORM = savedDisablePlatform;
+      }
+      if (savedIsPlatform === undefined) {
+        delete process.env.IS_PLATFORM;
+      } else {
+        process.env.IS_PLATFORM = savedIsPlatform;
+      }
+    }
   });
 
   test("reports remote-unavailable when the marketplace cannot be reached", async () => {

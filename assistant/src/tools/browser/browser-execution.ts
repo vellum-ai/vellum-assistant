@@ -4,6 +4,10 @@ import { getConfig } from "../../config/loader.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
+import {
+  DESKTOP_HELP_GUIDANCE,
+  HUMAN_VERIFICATION_GUIDANCE,
+} from "../../util/browser-human-verification.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { safeStringSlice } from "../../util/unicode.js";
@@ -1319,7 +1323,9 @@ export async function executeBrowserNavigate(
               "⚠️ CAPTCHA/Cloudflare verification detected on this page.",
             );
             lines.push(
-              "This challenge requires human verification. Surface this clearly: the page cannot be accessed until the verification is solved manually.",
+              context.cdpClient
+                ? DESKTOP_HELP_GUIDANCE
+                : HUMAN_VERIFICATION_GUIDANCE,
             );
             if (cdp.kind === "local") {
               lines.push("");

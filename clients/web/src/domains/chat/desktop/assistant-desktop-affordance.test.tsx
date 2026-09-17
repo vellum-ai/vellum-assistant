@@ -6,15 +6,25 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useEffect, useState } from "react";
 
+import { publish } from "@/lib/event-bus";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
 let touch = false;
 let platformHosted = true;
+let attended = true;
+let attentionSupported = true;
+
+mock.module("@/runtime/window-attention", () => ({
+  isWindowAttended: () => attended,
+  supportsWindowAttention: () => attentionSupported,
+}));
+
 let automationActive: boolean | undefined = false;
 mock.module("./use-desktop-setup", () => ({
   useDesktopSetupStatus: () => ({ query: { data: { automationActive } } }),
@@ -88,9 +98,15 @@ const openDesktop = async () => {
 beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   touch = false;
+  attended = true;
+  attentionSupported = true;
   platformHosted = true;
   automationActive = false;
-  useDesktopPreviewStore.setState({ position: null, width: 320 });
+  useDesktopPreviewStore.setState({
+    position: null,
+    width: 320,
+    submittedHelpRequests: {},
+  });
   panelUnmounts = 0;
   desktopEnabled = true;
   assistantId = "asst-1";
@@ -342,8 +358,15 @@ describe("AssistantDesktopAffordance", () => {
     expect(capture).toHaveBeenCalledWith(pointer.pointerId);
     fireEvent.pointerMove(frame, { ...pointer, clientX: 160, clientY: 200 });
     expect(useDesktopPreviewStore.getState().width).toBe(640);
-    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 200 });
-    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    expect(useDesktopPreviewStore.getState().position).toEqual({
+      x: 160,
+      y: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      ...pointer,
+      clientX: -1000,
+      clientY: -1000,
+    });
     expect(useDesktopPreviewStore.getState().width).toBe(1000);
     expect(useDesktopPreviewStore.getState().position).toEqual({ x: 0, y: 0 });
     fireEvent.pointerUp(frame, pointer);
@@ -369,11 +392,18 @@ describe("AssistantDesktopAffordance", () => {
     expect(useDesktopPreviewStore.getState().width).toBe(344);
     const pointer = { pointerId: 1, button: 0, buttons: 1, isPrimary: true };
     fireEvent.pointerDown(handle, { ...pointer, clientX: 400, clientY: 200 });
-    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    fireEvent.pointerMove(frame, {
+      ...pointer,
+      clientX: -1000,
+      clientY: -1000,
+    });
     fireEvent.pointerUp(frame, pointer);
     expect(frame.offsetWidth).toBe(640);
     expect(frame.offsetHeight).toBe(400);
-    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 0 });
+    expect(useDesktopPreviewStore.getState().position).toEqual({
+      x: 160,
+      y: 0,
+    });
     expect(panelUnmounts).toBe(0);
   });
 
@@ -478,6 +508,232 @@ test("switching to a self-hosted assistant closes the virtual desktop preview", 
   expect(useDesktopPreviewStore.getState().session).toBeNull();
 });
 
+const { DesktopHelpCard } = await import("./desktop-help-card");
+const { normalizeQuestionRequest } =
+  await import("@/domains/chat/api/event-types");
+
+const helpEntry = normalizeQuestionRequest({
+  type: "question_request",
+  requestId: "req-help",
+  question: "Please complete the CAPTCHA.",
+  options: [],
+  questions: [
+    {
+      id: "q1",
+      question: "Please complete the CAPTCHA.",
+      presentation: "virtual_desktop",
+      options: [
+        { id: "done", label: "Done" },
+        { id: "skip", label: "Skip" },
+      ],
+    },
+  ],
+})[0]!;
+
+test.each([false, true])(
+  "desktop help keeps one viewer through Step In and returns to the card (touch=%s)",
+  async (isTouch) => {
+    touch = isTouch;
+    const submit = mock(() => {});
+    render(
+      <>
+        <DesktopHelpCard
+          entry={helpEntry}
+          isSubmitting={false}
+          onSubmit={submit}
+        />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
+    const panel = await screen.findByTestId("desktop-panel");
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    await waitFor(() =>
+      expect(panel.getAttribute("data-view-only")).toBe("false"),
+    );
+    expect(screen.getAllByTestId("desktop-panel")).toHaveLength(1);
+    expect(panelUnmounts).toBe(0);
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(panel.getAttribute("data-view-only")).toBe("true"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(submit).toHaveBeenCalledWith([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(submit).toHaveBeenLastCalledWith([
+      { questionId: "q1", kind: "skip" },
+    ]);
+  },
+);
+
+test("desktop help disables all actions while its response is submitting", () => {
+  render(
+    <DesktopHelpCard entry={helpEntry} isSubmitting onSubmit={() => {}} />,
+  );
+  for (const name of ["Show live preview", "Step In", "Done", "Skip"]) {
+    expect(
+      (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  }
+});
+
+test("moving an open desktop into a help card preserves the live connection", async () => {
+  function Harness({ help }: { help: boolean }) {
+    return (
+      <>
+        {help && (
+          <DesktopHelpCard
+            entry={helpEntry}
+            isSubmitting={false}
+            onSubmit={() => {}}
+          />
+        )}
+        <DesktopHarness />
+      </>
+    );
+  }
+  const { rerender } = render(<Harness help={false} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Alice's virtual desktop" }),
+  );
+  const panel = await screen.findByTestId("desktop-panel");
+  rerender(<Harness help />);
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  rerender(<Harness help={false} />);
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
+  expect(panel.getAttribute("data-view-only")).toBe("true");
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("desktop help releases its viewer when another app window takes focus", async () => {
+  attended = false;
+  render(
+    <>
+      <DesktopHelpCard
+        entry={helpEntry}
+        isSubmitting={false}
+        onSubmit={() => {}}
+      />
+      <AssistantDesktopPreview />
+    </>,
+  );
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  act(() => publish("app.attention", { attended: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
+  await screen.findByTestId("desktop-panel");
+  act(() => publish("app.attention", { attended: false }));
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  expect(panelUnmounts).toBe(1);
+  act(() => publish("app.attention", { attended: true }));
+  await screen.findByTestId("desktop-panel");
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+test("windows without attention reporting release the viewer on browser focus changes", async () => {
+  attended = false;
+  attentionSupported = false;
+  let focused = false;
+  const originalHasFocus = document.hasFocus;
+  document.hasFocus = () => focused;
+  try {
+    render(
+      <>
+        <DesktopHelpCard
+          entry={helpEntry}
+          isSubmitting={false}
+          onSubmit={() => {}}
+        />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    focused = true;
+    fireEvent(window, new Event("focus"));
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
+    await screen.findByTestId("desktop-panel");
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    focused = false;
+    fireEvent(window, new Event("blur"));
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    expect(panelUnmounts).toBe(1);
+    focused = true;
+    fireEvent(window, new Event("focus"));
+    await screen.findByTestId("desktop-panel");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  } finally {
+    document.hasFocus = originalHasFocus;
+  }
+});
+
+const submitQuestion = mock(() => {});
+mock.module("@/domains/chat/question-actions", () => ({
+  handleQuestionResponse: submitQuestion,
+  handleDismissPendingQuestion: mock(() => {}),
+}));
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { PendingDesktopHelpRow } =
+  await import("@/domains/chat/transcript/pending-desktop-help-row");
+const { QuestionPromptSlot } =
+  await import("@/domains/chat/components/question-prompt-slot");
+
+test("desktop help renders in the transcript only and submits through the question lifecycle", async () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+  });
+  try {
+    render(
+      <>
+        <section aria-label="Messages">
+          <PendingDesktopHelpRow requestId="req-help" />
+        </section>
+        <footer data-testid="composer">
+          <QuestionPromptSlot />
+        </footer>
+        <AssistantDesktopPreview />
+      </>,
+    );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
+    await screen.findByTestId("desktop-panel");
+    const messages = within(screen.getByRole("region", { name: "Messages" }));
+    expect(messages.getByRole("button", { name: "Step In" })).toBeTruthy();
+    expect(
+      within(screen.getByTestId("composer")).queryByRole("button"),
+    ).toBeNull();
+    fireEvent.click(messages.getByRole("button", { name: "Done" }));
+    expect(submitQuestion).toHaveBeenCalledWith([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    expect(messages.queryByRole("button", { name: "Step In" })).toBeNull();
+  } finally {
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+  }
+});
+
+test("an older transcript row cannot show a newer help request", () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-new", entries: [helpEntry] },
+  });
+  try {
+    render(<PendingDesktopHelpRow requestId="req-old" />);
+    expect(screen.queryByRole("button", { name: "Step In" })).toBeNull();
+  } finally {
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+  }
+});
+
 test("desktop icon pulses during automation and clears when it ends", () => {
   const { rerender } = render(<DesktopHarness />);
   const icon = () =>
@@ -495,4 +751,164 @@ test("desktop icon pulses during automation and clears when it ends", () => {
   rerender(<DesktopHarness />);
   expect(icon().getAttribute("stroke")).toBe("currentColor");
   expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
+});
+
+test("a help request does not claim a viewer until this client selects Step In", async () => {
+  render(
+    <>
+      <DesktopHelpCard
+        entry={helpEntry}
+        isSubmitting={false}
+        onSubmit={() => {}}
+      />
+      <AssistantDesktopPreview />
+    </>,
+  );
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  expect(useDesktopPreviewStore.getState().session).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  const panel = await screen.findByTestId("desktop-panel");
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(panel.getAttribute("data-view-only")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
+});
+
+test.each([false, true])(
+  "resolving help remotely closes its interactive viewer (touch=%s)",
+  async (isTouch) => {
+    touch = isTouch;
+    useInteractionStore.setState({
+      pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+    });
+    try {
+      render(
+        <>
+          <PendingDesktopHelpRow requestId="req-help" />
+          <AssistantDesktopPreview />
+        </>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+      const panel = await screen.findByTestId("desktop-panel");
+      expect(panel.getAttribute("data-view-only")).toBe("false");
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+      expect(panel.getAttribute("data-view-only")).toBe("true");
+      await waitFor(() =>
+        expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(useDesktopPreviewStore.getState().session).toBeNull();
+    } finally {
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    }
+  },
+);
+
+test.each(["preview", "fullscreen"] as const)(
+  "mobile help resolution does not reactivate a preexisting %s session",
+  async (view) => {
+    touch = true;
+    render(
+      <>
+        <PendingDesktopHelpRow requestId="req-help" />
+        <DesktopHarness />
+      </>,
+    );
+    act(() =>
+      useDesktopPreviewStore.setState({
+        session: { assistantId: "asst-1", view },
+      }),
+    );
+    const panel = await screen.findByTestId("desktop-panel");
+    act(() =>
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "req-help", entries: [helpEntry] }),
+    );
+    if (view === "preview") {
+      fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    }
+    expect(panel.getAttribute("data-view-only")).toBe("false");
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    if (view === "fullscreen") {
+      await waitFor(() =>
+        expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+      );
+      expect(useDesktopPreviewStore.getState().session).toBeNull();
+    } else {
+      expect(screen.getByTestId("desktop-panel")).toBe(panel);
+      expect(useDesktopPreviewStore.getState().session?.view).toBe("preview");
+    }
+  },
+);
+
+test("submitted help stays read-only after a failed response and reopening", async () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+  });
+  try {
+    render(
+      <>
+        <PendingDesktopHelpRow requestId="req-help" />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    const panel = await screen.findByTestId("desktop-panel");
+    expect(panel.getAttribute("data-view-only")).toBe("false");
+    act(() => {
+      useInteractionStore.getState().claimSubmission("question", "req-help");
+      useDesktopPreviewStore
+        .getState()
+        .markHelpSubmitted("asst-1", "req-help", "conv-help");
+    });
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "req-help",
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(panelUnmounts).toBe(0);
+    act(() => {
+      useInteractionStore.getState().releaseSubmission("question", "req-help");
+    });
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    act(() => useDesktopPreviewStore.getState().close());
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(
+      (await screen.findByTestId("desktop-panel")).getAttribute(
+        "data-view-only",
+      ),
+    ).toBe("true");
+    act(() => useInteractionStore.getState().resetAll());
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+    act(() => useDesktopPreviewStore.getState().openFullscreen("asst-1"));
+    const reopened = await screen.findByTestId("desktop-panel");
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    act(() =>
+      useDesktopPreviewStore.getState().resolveHelpSubmission("unrelated"),
+    );
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    act(() =>
+      useDesktopPreviewStore.getState().resolveHelpSubmission("req-help"),
+    );
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    act(() => useDesktopPreviewStore.getState().openFullscreen("asst-1"));
+    expect(reopened.getAttribute("data-view-only")).toBe("false");
+  } finally {
+    act(() => {
+      useInteractionStore.getState().releaseSubmission("question", "req-help");
+      useInteractionStore.setState({ pendingQuestion: null });
+    });
+  }
 });
