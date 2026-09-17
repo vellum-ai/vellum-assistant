@@ -409,21 +409,30 @@ function laneTag(candidate: PoolCandidate): string {
 }
 
 /**
+ * One finder line as the selector sees it, minus its pool number: the lane
+ * tag (omitted for a candidate without one, naming the keyed word for a
+ * rare-term line, `(rare: turnip)`), the slug, and the snippet after a dash
+ * (no dash for a candidate with an empty descriptor). Shared with the pool
+ * input capture (`pool-log-store.ts`), so the persisted text is exactly the
+ * rendered line.
+ */
+export function renderFinderLine(candidate: PoolCandidate): string {
+  const snippet = renderSnippet(candidate);
+  const lane = laneTag(candidate);
+  return snippet.length > 0
+    ? `${lane}${candidate.slug} — ${snippet}`
+    : `${lane}${candidate.slug}`;
+}
+
+/**
  * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
- * candidate, numbered continuing after the `offset` stable-prefix cards. The
- * lane tag is omitted for a candidate without one and names the keyed word
- * for a rare-term line (`(rare: turnip)`); a candidate with an empty
- * descriptor renders without the dash.
+ * candidate ({@link renderFinderLine}), numbered continuing after the
+ * `offset` stable-prefix cards.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
-  const lines = finder.map((c, i) => {
-    const snippet = renderSnippet(c);
-    const id = offset + i + 1;
-    const lane = laneTag(c);
-    return snippet.length > 0
-      ? `[${id}] ${lane}${c.slug} — ${snippet}`
-      : `[${id}] ${lane}${c.slug}`;
-  });
+  const lines = finder.map(
+    (c, i) => `[${offset + i + 1}] ${renderFinderLine(c)}`,
+  );
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
 }
 
