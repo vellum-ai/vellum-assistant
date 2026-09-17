@@ -939,8 +939,8 @@ async function mintCollectionLinkFallback(
  * resolves the prompt generically. The broadcast is scoped to the supplied
  * `conversationId` (the CLI `credentials prompt` command forwards
  * `__CONVERSATION_ID`) so clients deliver it. Two cases have no surface that
- * can render the card and resolve immediately with `unsupported_channel` —
- * carrying a one-time collection link when the gateway can mint one — instead
+ * can render the card and resolve immediately with `unsupported_channel`,
+ * carrying a one-time collection link when the gateway can mint one, instead
  * of broadcasting a request that can only time out:
  *   - the conversation's channel cannot render dynamic UI (slack, telegram);
  *   - there is no conversation at all (a headless exec such as Doctor's
