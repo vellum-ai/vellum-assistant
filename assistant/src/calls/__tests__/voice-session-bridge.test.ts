@@ -205,6 +205,7 @@ interface FakeConversation {
     opts?: { decisionContext?: string },
   ) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
+  warmPromptCache: (options?: Record<string, unknown>) => Promise<void>;
   getMessages: () => Array<{ role: string; content: unknown[] }>;
   abort: (reason?: unknown) => void;
   loadFromDb: () => Promise<void>;
@@ -304,6 +305,7 @@ function makeFakeConversation(opts: {
       confirmationDecisions.push({ requestId, decision });
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
+    warmPromptCache: async () => {},
     getMessages: () => opts.messages ?? [],
     abort: () => {},
     loadFromDb: async () => {
@@ -2885,6 +2887,26 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     return runOptions;
   }
 
+  function warmPreparedCall(
+    runOptions: Record<string, unknown>,
+    overrideProfile: string,
+  ): Promise<void> {
+    const onPrepared = runOptions.onFirstModelCallPrepared as (prepared: {
+      callSite: "callAgent";
+      overrideProfile: string;
+      forceOverrideProfile: boolean;
+      systemPrompt: string;
+      tools: [];
+    }) => Promise<void>;
+    return onPrepared({
+      callSite: "callAgent",
+      overrideProfile,
+      forceOverrideProfile: true,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
+  }
+
   test("with no chat-model selection the leg keeps the call-site profile", async () => {
     const runOptions = await runOptionsFor({});
 
@@ -2904,6 +2926,41 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(runOptions.callSite).toBe("callAgent");
     expect(runOptions.overrideProfile).toBe("quality-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+  });
+
+  test("warms the conversation profile selected for the handoff", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    await warmPreparedCall(runOptions, "quality-optimized");
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "callAgent",
+      overrideProfile: "quality-optimized",
+      forceOverrideProfile: true,
+      signal: undefined,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
+  });
+
+  test("warms a profile selected by final pre-model routing", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    await warmPreparedCall(runOptions, "cost-optimized");
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "callAgent",
+      overrideProfile: "cost-optimized",
+      forceOverrideProfile: true,
+      signal: undefined,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
   });
 
   test("the conversation's own pin wins over the workspace selection", async () => {

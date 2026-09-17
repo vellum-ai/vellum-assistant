@@ -49,6 +49,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
 import { doesSupportVision } from "../plugin-api/vision-support.js";
+import { dispatchProviderResolvable } from "../providers/connection-resolution.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -133,6 +134,7 @@ function conversationProfileForEscalation(
   const selection = selectWinningProfile("mainAgent", getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
+    isResolvableProvider: dispatchProviderResolvable,
     onMixSelected: ({ chosenProfile }) => {
       chosenArm = chosenProfile;
     },
@@ -2149,6 +2151,30 @@ export async function startVoiceTurn(
         // already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
+          : {}),
+        // Warm the cache only after pre-model routing finalizes the profile,
+        // prompt, and provider-native tool surface.
+        ...(opts.routingLeg === "escalated"
+          ? {
+              onFirstModelCallPrepared: async (prepared) => {
+                await conversation.warmPromptCache({
+                  ...(prepared.callSite !== undefined
+                    ? { callSite: prepared.callSite }
+                    : {}),
+                  ...(prepared.overrideProfile !== undefined
+                    ? { overrideProfile: prepared.overrideProfile }
+                    : {}),
+                  ...(prepared.forceOverrideProfile
+                    ? { forceOverrideProfile: true }
+                    : {}),
+                  signal: opts.signal,
+                  ...(prepared.systemPrompt !== undefined
+                    ? { systemPrompt: prepared.systemPrompt }
+                    : {}),
+                  tools: prepared.tools,
+                });
+              },
+            }
           : {}),
       });
       if (lastError) {

@@ -15,6 +15,7 @@ import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
+  PreparedModelCall,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -413,6 +414,10 @@ export async function runAgentLoopImpl(
      * sites. Used when a caller explicitly pins a background run to a profile.
      */
     forceOverrideProfile?: boolean;
+    /** Observe the first model call after pre-model routing settles. */
+    onFirstModelCallPrepared?: (
+      prepared: PreparedModelCall,
+    ) => void | Promise<void>;
     /**
      * Origin tag of this turn (the conversation's `TitleOrigin`, e.g.
      * "memory_consolidation"), threaded from `runBackgroundJob`. Exposed on
@@ -1459,6 +1464,18 @@ export async function runAgentLoopImpl(
     // fields self-resolve from its own conversation id.
     const loopTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
 
+    const notifyFirstModelCallPrepared = options?.onFirstModelCallPrepared;
+    let firstModelCallPrepared = false;
+    const onModelCallPrepared = notifyFirstModelCallPrepared
+      ? async (prepared: PreparedModelCall): Promise<void> => {
+          if (firstModelCallPrepared) {
+            return;
+          }
+          firstModelCallPrepared = true;
+          await notifyFirstModelCallPrepared(prepared);
+        }
+      : undefined;
+
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
      * maps the loop's returned checkpoint pause-reason into the wrapper's yield
@@ -1487,6 +1504,7 @@ export async function runAgentLoopImpl(
           overrideProfile: turnOverrideProfile,
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           resolveOverrideProfile: resolveCurrentOverrideProfile,
+          ...(onModelCallPrepared !== undefined ? { onModelCallPrepared } : {}),
           resolveContextWindow,
           compactInPlace,
           isNonInteractive,

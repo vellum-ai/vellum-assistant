@@ -16,7 +16,7 @@
  */
 
 import { repairHistory } from "../agent/history-repair/history-repair.js";
-import type { AgentLoopConfig } from "../agent/loop.js";
+import type { AgentLoopConfig, PreparedModelCall } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
@@ -1237,48 +1237,86 @@ export class Conversation {
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
-   * Fire-and-forget LLM call with max_tokens=1 to populate the provider's
-   * prompt cache (system prompt + tools). Called after the canned first
-   * greeting so the user's next real message gets a cache hit.
+   * Non-rejecting LLM call with max_tokens=1 to populate the selected
+   * provider's prompt cache (system prompt + tools).
    */
-  warmPromptCache(): void {
+  async warmPromptCache(options?: {
+    callSite?: LLMCallSite;
+    overrideProfile?: string;
+    forceOverrideProfile?: boolean;
+    signal?: AbortSignal;
+    systemPrompt?: string;
+    tools?: ToolDefinition[];
+  }): Promise<void> {
     this.cacheWarmAbort?.abort();
     const abort = new AbortController();
     this.cacheWarmAbort = abort;
 
-    const systemPrompt = this.buildCurrentSystemPrompt();
-    const tools = getAllToolDefinitions();
-    const provider = this.provider;
+    const externalSignal = options?.signal;
+    const relayAbort = (): void => abort.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) {
+      relayAbort();
+    } else {
+      externalSignal?.addEventListener("abort", relayAbort, { once: true });
+    }
+
+    const systemPrompt =
+      options?.systemPrompt ?? this.buildCurrentSystemPrompt();
+    const tools = options?.tools ?? getAllToolDefinitions();
+    const callSite = options?.callSite ?? "mainAgent";
+    const providerConfig = {
+      ...(options?.overrideProfile !== undefined
+        ? { overrideProfile: options.overrideProfile }
+        : {}),
+      ...(options?.forceOverrideProfile !== undefined
+        ? { forceOverrideProfile: options.forceOverrideProfile }
+        : {}),
+      selectionSeed: this.conversationId,
+    };
 
     const warmMessage: Message = {
       role: "user",
       content: [{ type: "text", text: "hi" }],
     };
 
-    provider
-      .sendMessage([warmMessage], {
-        tools,
+    try {
+      await this.provider.sendMessage([warmMessage], {
+        tools: tools.length > 0 ? tools : undefined,
         systemPrompt,
         config: {
           max_tokens: 1,
-          callSite: "mainAgent",
+          callSite,
+          ...providerConfig,
           usageTracking: "manual",
         },
         signal: abort.signal,
-      })
-      .then(() => {
-        log.info("Prompt cache warmed successfully");
-      })
-      .catch((err) => {
-        if (!abort.signal.aborted) {
-          log.warn({ err }, "Prompt cache warming failed (non-fatal)");
-        }
-      })
-      .finally(() => {
-        if (this.cacheWarmAbort === abort) {
-          this.cacheWarmAbort = undefined;
-        }
       });
+      if (!abort.signal.aborted) {
+        log.info(
+          {
+            callSite,
+            profile: options?.overrideProfile ?? null,
+          },
+          "Prompt cache warmed successfully",
+        );
+      }
+    } catch (err) {
+      if (!abort.signal.aborted) {
+        log.warn(
+          {
+            err,
+            callSite,
+            profile: options?.overrideProfile ?? null,
+          },
+          "Prompt cache warming failed (non-fatal)",
+        );
+      }
+    } finally {
+      externalSignal?.removeEventListener("abort", relayAbort);
+      if (this.cacheWarmAbort === abort) {
+        this.cacheWarmAbort = undefined;
+      }
+    }
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -3428,6 +3466,10 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
+      /** Observe the first model call after pre-model routing settles. */
+      onFirstModelCallPrepared?: (
+        prepared: PreparedModelCall,
+      ) => void | Promise<void>;
       /**
        * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
