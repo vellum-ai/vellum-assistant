@@ -750,6 +750,37 @@ describe("SubagentDetailPanel: nested detail reads the live call", () => {
     expect(screen.getByText("event-output")).toBeDefined();
   });
 
+  test("a finished event-built detail wins over a canonical copy still running", () => {
+    const events: SubagentEntry["events"] = [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls" },
+        timestamp: 0,
+      },
+      {
+        id: "te-result",
+        type: "tool_result",
+        content: "event-output",
+        result: "event-output",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        timestamp: 10,
+      },
+    ];
+    // Seeded from a snapshot older than the result the timeline already has.
+    const entry = withToolCalls(makeEntry({ events }), [
+      { id: "tool-1", name: "bash", input: { command: "ls" } },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(screen.getByText("event-output")).toBeDefined();
+  });
+
   test("a pill with nothing behind it in either source stays on the timeline", () => {
     render(
       <SubagentDetailPanel

@@ -9,15 +9,20 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
  * Where a tool call lives: the transcript on screen, or the history of one of
  * its subagents. Together with the call's id this is the identity a detail
  * drawer opens, so the drawer reads the call rather than a copy of it.
+ * `snapshot` is a detail with no live source, shown as its payload says.
  */
 export type ToolCallSource =
   | { kind: "transcript" }
-  | { kind: "subagent"; subagentId: string };
+  | { kind: "subagent"; subagentId: string }
+  | { kind: "snapshot" };
 
 /** The on-screen transcript, the source of every main-chat tool call. */
 export const TRANSCRIPT_TOOL_CALL_SOURCE: ToolCallSource = {
   kind: "transcript",
 };
+
+/** A detail read from its payload alone. */
+export const SNAPSHOT_TOOL_CALL_SOURCE: ToolCallSource = { kind: "snapshot" };
 
 const NO_MESSAGES: DisplayMessage[] = [];
 
@@ -65,8 +70,9 @@ export function useLiveToolCall(
   );
   const messages =
     source.kind === "subagent" ? subagentMessages : transcriptMessages;
+  const live = source.kind !== "snapshot";
   return useMemo(
-    () => (toolCallId ? findToolCall(messages, toolCallId) : null),
-    [messages, toolCallId],
+    () => (live && toolCallId ? findToolCall(messages, toolCallId) : null),
+    [live, messages, toolCallId],
   );
 }

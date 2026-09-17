@@ -919,6 +919,38 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
     }
   });
 
+  test("an anonymous result closes the same call in the timeline and the detail map", () => {
+    // A follow-up with neither a tool id nor a tool name: the timeline never
+    // tracks a web_fetch as in flight, so both projections must close the
+    // bash call, not the newer fetch.
+    const entry = makeEntry({
+      events: [
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-bash",
+            input: { command: "ls" },
+          },
+          0,
+        ),
+        makeEvent(
+          {
+            type: "tool_call",
+            toolName: "web_fetch",
+            toolUseId: "tu-wf",
+            content: "https://example.com",
+          },
+          1,
+        ),
+        makeEvent({ type: "tool_result", result: "file-a" }, 2),
+      ],
+    });
+    const details = buildSubagentStepDetails(entry.events);
+    expect(details.get("tu-bash")?.result).toBe("file-a");
+    expect(details.get("tu-wf")?.result).toBeUndefined();
+  });
+
   test("web_fetch prefers the raw input url over the content summary", () => {
     const data = computeSubagentCardData(
       makeEntry({

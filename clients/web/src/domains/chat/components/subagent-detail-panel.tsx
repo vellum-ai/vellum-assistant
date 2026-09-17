@@ -54,7 +54,7 @@ import {
 } from "@/domains/chat/hooks/use-live-tool-call";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
-import { toolDetailPayloadFromToolCall } from "@/domains/chat/utils/tool-call-card-utils";
+import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
 
@@ -269,18 +269,17 @@ export function SubagentDetailPanel({
     }
   }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
-  // The selected step's nested detail: a tool call derived from the live call
-  // in this subagent's history, the same way a main-chat call's drawer is. A
-  // call the history lacks (not loaded, loaded incomplete, or keyed by an id
-  // the events never carried) falls back to the payload built from the
-  // timeline's events, as does a thinking segment. `undefined` only when
-  // nothing is selected.
+  // The selected step's nested detail, and where the drawer reads it live:
+  // the canonical call in this subagent's history when it is there and no less
+  // complete than the timeline, otherwise the payload built from the timeline's
+  // events (see `resolveSubagentStepDetail`).
   const liveToolCall = useLiveToolCall(toolCallSource, selectedDetailKey);
-  const activeDetail = liveToolCall
-    ? toolDetailPayloadFromToolCall(liveToolCall)
-    : selectedDetailKey
-      ? stepDetails.get(selectedDetailKey)
-      : undefined;
+  const selectedStep = resolveSubagentStepDetail(
+    liveToolCall,
+    selectedDetailKey ? stepDetails.get(selectedDetailKey) : undefined,
+    toolCallSource,
+  );
+  const activeDetail = selectedStep?.detail;
 
   // Returns from a nested step detail to the subagent timeline. Clearing only
   // `selectedDetailKey` preserves `expandedSectionKeys` (and the objective
@@ -377,7 +376,7 @@ export function SubagentDetailPanel({
         showToolHeader && activeDetail ? (
           <ToolDetailHeaderTitle
             detail={activeDetail}
-            source={toolCallSource}
+            source={selectedStep.source}
           />
         ) : undefined
       }
@@ -421,7 +420,7 @@ export function SubagentDetailPanel({
               ) : (
                 <ToolDetailBody
                   detail={activeDetail}
-                  source={toolCallSource}
+                  source={selectedStep.source}
                   assistantId={assistantId}
                 />
               )}
