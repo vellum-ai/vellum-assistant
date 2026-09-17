@@ -916,7 +916,7 @@
     "disconnectFailedToast": "Vellum could not disconnect the {name} account.",
     "disconnectMessageManaged": "Vellum revokes access to this account. You can connect it again at any time.",
     "disconnectMessageMcp": "Vellum removes the {name} MCP server and its tools. You can connect it again at any time.",
-    "disconnectMessagePlugin": "Vellum removes {name} and {count, plural, one {its # MCP server} other {all # of its MCP servers}}, with the tools they bring. You can connect it again at any time.",
+    "disconnectMessagePlugin": "{count, plural, =0 {Vellum removes {name} and everything it installed.} one {Vellum removes {name} and everything it installed, including its MCP server and the tools it brings.} other {Vellum removes {name} and everything it installed, including all # of its MCP servers and the tools they bring.}} You can connect it again at any time.",
     "disconnectTitle": "Disconnect {label}?",
     "disconnectTitlePlugin": "Disconnect {name}?",
     "disconnectedToast": "{name} account disconnected.",

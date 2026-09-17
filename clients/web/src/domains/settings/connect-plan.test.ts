@@ -113,6 +113,7 @@ describe("buildConnectPlan", () => {
     const plan = planOf(oauthItem([pluginMethod()]), {
       platformGate: "full",
       ownOAuthAvailable: false,
+      mcpServersLoaded: true,
     });
 
     expect(plan.primary.kind).toBe("mcp-oauth");
@@ -125,6 +126,7 @@ describe("buildConnectPlan", () => {
     const plan = planOf(oauthItem([]), {
       platformGate: "full",
       ownOAuthAvailable: false,
+      mcpServersLoaded: true,
     });
 
     expect(plan.primary.kind).toBe("managed-oauth");
@@ -135,6 +137,7 @@ describe("buildConnectPlan", () => {
     const plan = planOf(oauthItem([]), {
       platformGate: "disabled",
       ownOAuthAvailable: false,
+      mcpServersLoaded: true,
     });
 
     expect(plan.primary.kind).toBe("managed-oauth");
@@ -145,6 +148,7 @@ describe("buildConnectPlan", () => {
     const plan = planOf(oauthItem([pluginMethod()]), {
       platformGate: "gated",
       ownOAuthAvailable: false,
+      mcpServersLoaded: true,
     });
 
     expect(planMethods(plan).map((method) => method.kind)).toEqual([
@@ -157,6 +161,7 @@ describe("buildConnectPlan", () => {
       buildConnectPlan(oauthItem([]), {
         platformGate: "gated",
         ownOAuthAvailable: false,
+        mcpServersLoaded: true,
       }),
     ).toBeNull();
   });
@@ -169,6 +174,7 @@ describe("buildConnectPlan", () => {
         planOf(oauthItem([]), {
           ...context,
           ownOAuthAvailable: false,
+          mcpServersLoaded: true,
         }),
       ).map((method) => method.kind),
     ).toEqual(["managed-oauth"]);
@@ -178,9 +184,35 @@ describe("buildConnectPlan", () => {
         planOf(oauthItem([]), {
           ...context,
           ownOAuthAvailable: true,
+          mcpServersLoaded: true,
         }),
       ).map((method) => method.kind),
     ).toEqual(["managed-oauth", "own-oauth"]);
+  });
+
+  test("stands an installed plugin up on its own once the servers are in", () => {
+    const plan = planOf(oauthItem([pluginMethod({ installed: {} })]), {
+      platformGate: "full",
+      ownOAuthAvailable: false,
+      mcpServersLoaded: true,
+    });
+
+    expect(plan.primary.connections.map((row) => row.pluginName)).toEqual([
+      "notion-mcp",
+    ]);
+  });
+
+  test("waits for the server list before calling a plugin server-less", () => {
+    // Loading and failed both hand this an empty array. Reading either as
+    // "the plugin declared nothing" puts a row on screen that offers to
+    // uninstall a plugin whose servers were only unavailable.
+    const plan = planOf(oauthItem([pluginMethod({ installed: {} })]), {
+      platformGate: "full",
+      ownOAuthAvailable: false,
+      mcpServersLoaded: false,
+    });
+
+    expect(plan.primary.connections).toEqual([]);
   });
 
   test("reads a manual MCP setup as its own kind and keeps its instructions", () => {
@@ -200,7 +232,7 @@ describe("buildConnectPlan", () => {
           },
         }),
       },
-      { platformGate: "full", ownOAuthAvailable: false },
+      { platformGate: "full", ownOAuthAvailable: false, mcpServersLoaded: true },
     );
 
     expect(plan.primary.kind).toBe("mcp-manual");

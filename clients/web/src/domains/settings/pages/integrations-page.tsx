@@ -275,13 +275,14 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
       const plan = buildConnectPlan(item, {
         platformGate,
         ownOAuthAvailable: !isPlatformHosted,
+        mcpServersLoaded: mcp.list.isSuccess,
       });
       if (plan) {
         byItemId.set(item.id, plan);
       }
     }
     return byItemId;
-  }, [allItems, isPlatformHosted, platformGate]);
+  }, [allItems, isPlatformHosted, mcp.list.isSuccess, platformGate]);
   // A tile is for what is still to connect, plus whatever is being connected
   // right now with no dialog of its own to report it: a plugin counts as
   // configured the moment it installs, and an integration must not change

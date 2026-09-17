@@ -143,8 +143,12 @@ describe("IntegrationConnectModal", () => {
     openMenu("More actions for Notion MCP server");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
-    await screen.findByText("Remove Notion MCP server?");
-    screen.getByText("Are you sure?");
+    // One server, but still a whole plugin going, and a plugin is more than
+    // its servers: the confirmation is scoped to what the uninstall takes.
+    await screen.findByText("Disconnect Notion?");
+    screen.getByText(
+      "Vellum removes Notion and everything it installed, including its MCP server and the tools it brings. You can connect it again at any time.",
+    );
 
     expect(handlers.onDisconnect).not.toHaveBeenCalled();
   });
@@ -174,7 +178,34 @@ describe("IntegrationConnectModal", () => {
 
     await screen.findByText("Disconnect Ashby?");
     screen.getByText(
-      "Vellum removes Ashby and all 2 of its MCP servers, with the tools they bring. You can connect it again at any time.",
+      "Vellum removes Ashby and everything it installed, including all 2 of its MCP servers and the tools they bring. You can connect it again at any time.",
+    );
+  });
+
+  test("counts no servers rather than inventing one for an installed plugin", async () => {
+    const noServers = planFor({
+      definitions: [
+        pluginDefinition({
+          pluginName: "ashby-mcp",
+          displayName: "Ashby",
+          description: "Search candidates and jobs in Ashby.",
+          oauthProvider: undefined,
+          installed: {},
+        }),
+      ],
+    });
+    modal({ plan: noServers });
+
+    // With no server of its own the row is named after the method, and the
+    // plugin is still the thing the disconnect takes away.
+    openMenu("More actions for Ashby MCP server");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect" }),
+    );
+
+    await screen.findByText("Disconnect Ashby?");
+    screen.getByText(
+      "Vellum removes Ashby and everything it installed. You can connect it again at any time.",
     );
   });
 

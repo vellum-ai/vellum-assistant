@@ -273,12 +273,16 @@ export function IntegrationConnectModal({
     setView({ kind: "connect", methodId: plan.primary.id });
   }
 
-  // Disconnecting an MCP row uninstalls the plugin that declared the server,
-  // and a plugin can declare several. The confirmation has to name what is
-  // really going, not only the row the menu was opened on.
+  // Disconnecting a row a plugin owns uninstalls that whole plugin: every
+  // server it declared, and the tools and skills it shipped alongside them.
+  // So the confirmation is plugin-scoped whenever a plugin owns the row, at
+  // any server count. A row with one server is still a whole plugin going,
+  // and a row with none is a plugin that only ever brought the rest.
+  const removesPlugin = Boolean(confirming?.pluginName);
   const pluginServerCount = confirming?.pluginName
     ? connections.filter(
-        (candidate) => candidate.pluginName === confirming.pluginName,
+        (candidate) =>
+          candidate.pluginName === confirming.pluginName && candidate.serverId,
       ).length
     : 0;
 
@@ -389,23 +393,23 @@ export function IntegrationConnectModal({
         open={confirming !== null}
         destructive
         title={
-          pluginServerCount > 1
+          removesPlugin
             ? t("integrationConnect.disconnectTitlePlugin", { name: plan.name })
             : t("integrationConnect.disconnectTitle", {
                 label: confirming ? connectionTitle(confirming) : "",
               })
         }
         message={
-          confirming && isMcpMethodKind(confirming.methodKind)
-            ? pluginServerCount > 1
-              ? t("integrationConnect.disconnectMessagePlugin", {
+          removesPlugin
+            ? t("integrationConnect.disconnectMessagePlugin", {
+                name: plan.name,
+                count: pluginServerCount,
+              })
+            : confirming && isMcpMethodKind(confirming.methodKind)
+              ? t("integrationConnect.disconnectMessageMcp", {
                   name: plan.name,
-                  count: pluginServerCount,
                 })
-              : t("integrationConnect.disconnectMessageMcp", {
-                  name: plan.name,
-                })
-            : t("integrationConnect.disconnectMessageManaged")
+              : t("integrationConnect.disconnectMessageManaged")
         }
         confirmLabel={t("integrationConnect.disconnect")}
         cancelLabel={t("integrationConnect.cancel")}

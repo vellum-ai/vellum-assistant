@@ -109,6 +109,7 @@ export function planFor({
   definitions = [],
   platformGate = "full",
   ownOAuthAvailable = false,
+  mcpServersLoaded = true,
 }: {
   providers?: OAuthProvider[];
   connections?: OAuthConnection[];
@@ -116,6 +117,8 @@ export function planFor({
   definitions?: McpPluginDefinition[];
   platformGate?: PlatformGateState;
   ownOAuthAvailable?: boolean;
+  /** A fixture has its servers in hand, so the list counts as read. */
+  mcpServersLoaded?: boolean;
 }): ConnectPlan {
   const items = buildIntegrationItems(
     providers,
@@ -128,7 +131,11 @@ export function planFor({
       candidate.kind !== "mcp",
   );
   const plan = item
-    ? buildConnectPlan(item, { platformGate, ownOAuthAvailable })
+    ? buildConnectPlan(item, {
+        platformGate,
+        ownOAuthAvailable,
+        mcpServersLoaded,
+      })
     : null;
   if (!plan) {
     throw new Error("No connectable integration in the fixture");

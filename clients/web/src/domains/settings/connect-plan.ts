@@ -90,6 +90,15 @@ export interface ConnectPlanContext {
   platformGate: PlatformGateState;
   /** Bring-your-own OAuth apps only exist on self-hosted assistants. */
   ownOAuthAvailable: boolean;
+  /**
+   * Whether the MCP server list has actually been read. An installed plugin
+   * with no servers is a real state with a row of its own, but so is a server
+   * list that has not arrived or failed to load, and the two are the same
+   * empty array. Without this the second one renders as the first: a row that
+   * says the plugin declared nothing, offering to uninstall a plugin whose
+   * servers were only unavailable.
+   */
+  mcpServersLoaded: boolean;
 }
 
 export type ConnectableIntegrationItem = Exclude<
@@ -177,21 +186,25 @@ function oauthConnections(
   }));
 }
 
-function pluginMethod(method: McpPluginMethod): ConnectMethod {
+function pluginMethod(
+  method: McpPluginMethod,
+  mcpServersLoaded: boolean,
+): ConnectMethod {
   const { definition } = method;
   const kind: ConnectMethodKind =
     definition.setup.mode === "manual" ? "mcp-manual" : "mcp-oauth";
   const id = `mcp:${definition.pluginName}`;
+  const declaredNothing =
+    mcpServersLoaded && method.servers.length === 0 && definition.installed;
   return {
     id,
     kind,
     availability: "available",
     instructions: definition.setup.instructions,
     setupGuideUrl: definition.documentationUrl,
-    connections:
-      method.servers.length === 0 && definition.installed
-        ? [installedWithoutServers(definition, id, kind)]
-        : mcpConnections(method, id, kind),
+    connections: declaredNothing
+      ? [installedWithoutServers(definition, id, kind)]
+      : mcpConnections(method, id, kind),
     plugin: definition,
   };
 }
@@ -223,7 +236,7 @@ export function buildConnectPlan(
     logoUrl = item.provider.logo_url;
     description = item.provider.description;
     for (const method of item.methods) {
-      methods.push(pluginMethod(method));
+      methods.push(pluginMethod(method, context.mcpServersLoaded));
     }
     if (context.platformGate !== "gated") {
       const managedId = `managed:${item.provider.provider_key}`;
@@ -249,7 +262,7 @@ export function buildConnectPlan(
     iconKey = definition.pluginName;
     logoUrl = definition.logo || null;
     description = definition.description;
-    methods.push(pluginMethod(item.method));
+    methods.push(pluginMethod(item.method, context.mcpServersLoaded));
   }
 
   const [primary, ...alternatives] = methods;
