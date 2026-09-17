@@ -31,8 +31,8 @@ import {
   createCesClient,
 } from "../credential-execution/client.js";
 import {
+  discoverCes,
   discoverCesWithRetry,
-  discoverManagedCes,
 } from "../credential-execution/executable-discovery.js";
 
 // ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ describe("managed CES discovery", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-missing-"));
     const restore = withBootstrapDir(bootstrapDir);
     try {
-      const result = discoverManagedCes();
+      const result = discoverCes();
       expect(result.mode).toBe("unavailable");
       expect((result as { reason: string }).reason).toContain(
         "CES bootstrap socket not found",
@@ -115,7 +115,7 @@ describe("managed CES discovery", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-missing-"));
     const restore = withBootstrapDir(bootstrapDir);
     try {
-      const result = discoverManagedCes();
+      const result = discoverCes();
       expect(["managed", "unavailable"]).toContain(result.mode);
     } finally {
       restore();
@@ -132,7 +132,7 @@ describe("CES bootstrap socket discovery", () => {
       const socketPath = resolveIpcEndpoint("ces", {
         workspaceDir: bootstrapDir,
       }).path;
-      const result = discoverManagedCes();
+      const result = discoverCes();
       expect(result.mode).toBe("unavailable");
       expect((result as { reason: string }).reason).toContain(socketPath);
     } finally {
@@ -145,7 +145,7 @@ describe("CES bootstrap socket discovery", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-bootstrap-"));
     const restore = withBootstrapDir(bootstrapDir);
     try {
-      const result = discoverManagedCes();
+      const result = discoverCes();
       const workspaceDir = process.env.VELLUM_WORKSPACE_DIR;
       expect(workspaceDir).toBeDefined();
       const workspaceSocket = resolveIpcEndpoint("ces", {

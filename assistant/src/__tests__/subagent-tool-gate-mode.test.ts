@@ -68,30 +68,36 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 
 // Records every wire tool surface the resolver persists (conversation id +
 // tool names + the hash it already knew), and lets a test make the write fail.
+type RecordedSurface = {
+  tools: ToolDefinition[];
+  delegateIndependentTasks: boolean | null;
+};
 let recordedSurfaces: Array<{
   conversationId: string;
   toolNames: string[];
+  delegateIndependentTasks: boolean | null;
   knownHash: string | undefined;
 }> = [];
 let recordSurfaceThrows: Error | null = null;
 mock.module("../persistence/conversation-tool-surface.js", () => ({
   recordConversationToolSurface: (
     conversationId: string,
-    tools: ToolDefinition[],
+    surface: RecordedSurface,
     knownHash?: string,
   ) => {
     recordedSurfaces.push({
       conversationId,
-      toolNames: tools.map((t) => t.name),
+      toolNames: surface.tools.map((t) => t.name),
+      delegateIndependentTasks: surface.delegateIndependentTasks,
       knownHash,
     });
     if (recordSurfaceThrows) {
       throw recordSurfaceThrows;
     }
-    return `hash:${tools.map((t) => t.name).join(",")}`;
+    return `hash:${surface.tools.map((t) => t.name).join(",")}`;
   },
-  hashConversationToolSurface: (tools: ToolDefinition[]) =>
-    `hash:${tools.map((t) => t.name).join(",")}`,
+  hashConversationToolSurface: (surface: RecordedSurface) =>
+    `hash:${surface.tools.map((t) => t.name).join(",")}`,
 }));
 
 // ---------------------------------------------------------------------------
@@ -1172,7 +1178,10 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
   });
 
   test("the send-boundary recorder records the sent array, keyed by conversation, and remembers its hash", () => {
-    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-live",
+      renderedDelegateIndependentTasks: true,
+    });
     const record = createWireToolSurfaceRecorder(ctx);
     const sent = [makeToolDef("remember"), makeToolDef("web_search")];
 
@@ -1185,15 +1194,63 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
       {
         conversationId: "conv-live",
         toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
         knownHash: undefined,
       },
       {
         conversationId: "conv-live",
         toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
         knownHash: "hash:remember,web_search",
       },
     ]);
     expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
+  });
+
+  test("the recorder records the state the prompt build captured, never a re-derivation", () => {
+    const sent = [makeToolDef("remember")];
+
+    // The loop sends the prompt built before the run, so the captured state
+    // is recorded as is even where the live scope would now derive the
+    // opposite: a spawn path excluded after the build (here, an allowlist
+    // with none) still records the section on...
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-captured-on",
+        subagentAllowedTools: new Set(["remember"]),
+        renderedDelegateIndependentTasks: true,
+      }),
+    )(sent);
+    // ...and a path restored after the build still records it off.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-captured-off",
+        renderedDelegateIndependentTasks: false,
+      }),
+    )(sent);
+    // A verbatim system-prompt override captures unknown.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-override",
+        renderedDelegateIndependentTasks: null,
+      }),
+    )(sent);
+    // No prompt built yet: unknown as well.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-unbuilt" }),
+    )(sent);
+
+    expect(
+      recordedSurfaces.map((r) => [
+        r.conversationId,
+        r.delegateIndependentTasks,
+      ]),
+    ).toEqual([
+      ["conv-captured-on", true],
+      ["conv-captured-off", false],
+      ["conv-override", null],
+      ["conv-unbuilt", null],
+    ]);
   });
 
   test("a failed record is swallowed and still counts as recorded", () => {

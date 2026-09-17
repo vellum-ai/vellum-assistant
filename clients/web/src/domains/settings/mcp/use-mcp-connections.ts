@@ -28,6 +28,9 @@ export function useMcpConnections(assistantId: string) {
     null,
   );
   const [removeServerId, setRemoveServerId] = useState<string | null>(null);
+  // The server whose tools another surface is showing. The summary covers
+  // every server in one response, so naming one is all the query needs.
+  const [toolsServerId, setToolsServerId] = useState<string | null>(null);
 
   const list = useQuery({
     queryKey: mcpQueryKeys.list(assistantId),
@@ -39,7 +42,7 @@ export function useMcpConnections(assistantId: string) {
   const details = useQuery({
     queryKey: mcpQueryKeys.details(assistantId),
     queryFn: () => fetchMcpToolsSummary(assistantId),
-    enabled: configureServer !== null,
+    enabled: configureServer !== null || toolsServerId !== null,
   });
 
   const invalidate = () => {
@@ -118,5 +121,7 @@ export function useMcpConnections(assistantId: string) {
     setConfigureServerId,
     removeServerId,
     setRemoveServerId,
+    toolsServerId,
+    setToolsServerId,
   };
 }

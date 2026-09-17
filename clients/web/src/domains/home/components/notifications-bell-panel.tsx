@@ -67,11 +67,11 @@ export function NotificationsBellPanel({
           >
             {t("notificationsBell.heading")}
           </Typography>
-          <span className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--system-positive-weak)] px-2 py-0.5">
+          <span className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent-fill,var(--system-positive-weak))] px-2 py-0.5">
             <Typography
               variant="body-small-default"
               data-testid="notifications-bell-count"
-              className="text-[var(--system-positive-on-weak)]"
+              className="text-[var(--avatar-accent-ink,var(--system-positive-on-weak))]"
             >
               {count}
             </Typography>
@@ -90,7 +90,7 @@ export function NotificationsBellPanel({
             checked={unreadOnly}
             onChange={onUnreadOnlyChange}
             aria-label={t("notificationsBell.unread")}
-            className="flex items-center [&_[role=switch][aria-checked=true]>span]:bg-[var(--avatar-accent-glyph,var(--aux-white))] [&_[role=switch][aria-checked=true]]:bg-[var(--avatar-accent,var(--system-positive-strong))]"
+            className="flex items-center [&_[role=switch][aria-checked=true]]:bg-[var(--avatar-accent,var(--system-positive-strong))]"
           />
           {showsBulkActions ? (
             <ActionMenu.Root>

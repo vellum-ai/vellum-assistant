@@ -1,7 +1,8 @@
 /**
  * The memory-v3 plugin's own schema on the dedicated memory connection
- * (`assistant-memory.db`): the `memory_v3_pools` and
- * `memory_v3_injected_sections` tables, and the `section_key` column of
+ * (`assistant-memory.db`): the `memory_v3_pools`, `memory_v3_pool_inputs`,
+ * `memory_v3_pool_texts`, and `memory_v3_injected_sections` tables, and the
+ * `section_key` column of
  * `memory_v3_selections`. Plugin storage is created by the plugin,
  * idempotently and fail-open, never by the global migration chain that gates
  * database readiness: the memory plugin's `init` hook runs every ensure on
@@ -151,6 +152,53 @@ export function ensureMemoryV3PoolsSchema(memoryRaw: MemorySqlite): void {
 export const ensureMemoryV3PoolsSchemaOnce = ensureOncePerConnection(
   ensureMemoryV3PoolsSchema,
   "failed to ensure memory_v3_pools; pool logging degraded",
+);
+
+const POOL_INPUTS_TABLE = "memory_v3_pool_inputs";
+const POOL_TEXTS_TABLE = "memory_v3_pool_texts";
+
+/**
+ * Create the pool input capture tables, written only under
+ * `memory.v3.poolLog.captureInput` (`pool-log-store.ts`):
+ * `memory_v3_pool_inputs`, one row per `(conversation, turn)` holding the
+ * context strings the selector was given, the gate and keep-all facts, and
+ * the content hash of every pooled candidate's rendered text in pool order
+ * (aligned with the turn's `memory_v3_pools` candidates); and
+ * `memory_v3_pool_texts`, each rendered text once, keyed by that hash, so a
+ * stable-prefix card repeated across turns is stored once. Idempotent
+ * (`IF NOT EXISTS`).
+ */
+export function ensureMemoryV3PoolInputsSchema(memoryRaw: MemorySqlite): void {
+  memoryRaw.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS ${POOL_INPUTS_TABLE} (
+      conversation_id TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      situational_context TEXT,
+      recent_context TEXT NOT NULL,
+      current_message TEXT NOT NULL,
+      previous_assistant_message TEXT,
+      selector_prompt_hash TEXT,
+      kept_all INTEGER NOT NULL DEFAULT 0,
+      gate_reason TEXT,
+      candidate_text_hashes_json TEXT NOT NULL,
+      PRIMARY KEY (conversation_id, turn)
+    )
+  `);
+  memoryRaw.exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS ${POOL_TEXTS_TABLE} (
+      text_hash TEXT PRIMARY KEY,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+}
+
+/** {@link ensureMemoryV3PoolInputsSchema} once per connection in this
+ *  process, for the pool input capture's writer and readers. */
+export const ensureMemoryV3PoolInputsSchemaOnce = ensureOncePerConnection(
+  ensureMemoryV3PoolInputsSchema,
+  "failed to ensure memory_v3_pool_inputs; pool input capture degraded",
 );
 
 const SECTIONS_TABLE = "memory_v3_injected_sections";
@@ -331,8 +379,9 @@ export const ensureMemoryV3SelectionsSectionKeyOnce = ensureOncePerConnection(
 
 /**
  * Ensure the whole plugin-owned schema on the memory connection of this
- * process, for the memory plugin's `init` hook: the pools and
- * injected-sections tables and the selection log's `section_key` column,
+ * process, for the memory plugin's `init` hook: the pools, pool input
+ * capture, and injected-sections tables and the selection log's
+ * `section_key` column,
  * each through its once-per-connection wrapper so a store's first use on
  * the same connection is a no-op. No-op when the connection is unavailable
  * (the stores degrade to no-ops as on any turn).
@@ -340,6 +389,7 @@ export const ensureMemoryV3SelectionsSectionKeyOnce = ensureOncePerConnection(
 export function ensureMemoryV3PluginSchema(): void {
   ensuredMemorySqlite("ensureMemoryV3PluginSchema", (raw) => {
     ensureMemoryV3PoolsSchemaOnce(raw);
+    ensureMemoryV3PoolInputsSchemaOnce(raw);
     ensureMemoryV3InjectedSectionsSchemaOnce(raw);
     ensureMemoryV3SelectionsSectionKeyOnce(raw);
   });

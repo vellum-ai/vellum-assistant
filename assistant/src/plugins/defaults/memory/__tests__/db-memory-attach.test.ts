@@ -68,6 +68,8 @@ describe("memory database connection", () => {
     "memory_recall_logs",
     "memory_v3_selections",
     "memory_v3_pools",
+    "memory_v3_pool_inputs",
+    "memory_v3_pool_texts",
     "activation_sessions",
     "activation_state",
     "conversation_graph_memory_state",

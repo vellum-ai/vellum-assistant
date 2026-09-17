@@ -19,7 +19,9 @@
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution, plus the
  *      full candidate pool and verdict to `memory_v3_pools` for the inspector,
- *      as one transaction ({@link writeTurnLog}).
+ *      and, under `memory.v3.poolLog.captureInput`, the selector's exact
+ *      input to `memory_v3_pool_inputs` / `memory_v3_pool_texts`, as one
+ *      transaction ({@link writeTurnLog}).
  *
  * {@link observeTurn} wraps everything in try/catch — any failure is logged and
  * swallowed so it can never affect the live turn. The injector treats a
@@ -70,9 +72,12 @@ import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
 import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
 import {
+  buildPoolInput,
   buildPoolRecord,
+  type PoolInputCapture,
   type PoolRecord,
   writePool,
+  writePoolInput,
 } from "./pool-log-store.js";
 import {
   MemoryV3RetrievalUnavailableError,
@@ -738,20 +743,24 @@ function replaceSelections(
 /**
  * Write the turn's log over the dedicated memory connection: its attributed
  * selection rows to `memory_v3_selections` and its candidate pool to
- * `memory_v3_pools`, in one transaction. A turn observed again (a retried or
- * re-entered turn index) replaces its rows in both tables as a unit, so the
- * pool's `chosen` flags and the selection rows always describe the same
- * observation. Best-effort: an unavailable memory database or a failed
- * statement drops this observation's log rather than affecting the turn, and
- * the transaction leaves the earlier observation's rows in place in both
- * tables. The selection table's plugin-owned `section_key` column is ensured
- * on the first use of a connection in this process (`plugin-schema.ts`).
+ * `memory_v3_pools`, plus, when the caller captured it under
+ * `memory.v3.poolLog.captureInput`, the selector's exact `input` to
+ * `memory_v3_pool_inputs` / `memory_v3_pool_texts`, in one transaction. A
+ * turn observed again (a retried or re-entered turn index) replaces its rows
+ * in every table as a unit, so the pool's `chosen` flags, the selection rows,
+ * and the captured input always describe the same observation. Best-effort:
+ * an unavailable memory database or a failed statement drops this
+ * observation's log rather than affecting the turn, and the transaction
+ * leaves the earlier observation's rows in place in every table. The
+ * selection table's plugin-owned `section_key` column is ensured on the
+ * first use of a connection in this process (`plugin-schema.ts`).
  */
 export function writeTurnLog(
   conversationId: string,
   turn: number,
   rows: SelectionRow[],
   pool: PoolRecord,
+  input?: PoolInputCapture,
 ): void {
   try {
     const raw = memorySqliteOrNull("writeTurnLog");
@@ -762,6 +771,9 @@ export function writeTurnLog(
     raw.transaction(() => {
       replaceSelections(raw, conversationId, turn, rows);
       writePool(raw, conversationId, turn, pool);
+      if (input) {
+        writePoolInput(raw, conversationId, turn, input);
+      }
     })();
   } catch (err) {
     log.warn(
@@ -854,6 +866,10 @@ export async function observeTurn(
     // against the same store the injector renders from. This turn has not
     // committed yet, so the set matches what the injector will see.
     const activeSections = getActiveSections(conversationId);
+    const selectorPrompt = resolveSelectorPrompt(
+      v3.selectorPromptPath,
+      getWorkspaceDir(),
+    );
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
@@ -886,10 +902,7 @@ export async function observeTurn(
       learnedPerSeed: v3.learnedEdges.perSeed,
       learnedCap: tuning.learnedEdgesCap,
       selectorEnabled: tuning.selectorEnabled,
-      selectorPrompt: resolveSelectorPrompt(
-        v3.selectorPromptPath,
-        getWorkspaceDir(),
-      ),
+      selectorPrompt,
       // Per-turn injection gate: the `memory.v3.gate` tuning, `enabled`
       // kill-switch included. Read-only downstream, so the config object is
       // passed as-is.
@@ -919,6 +932,11 @@ export async function observeTurn(
       turnIndex,
       attributeSelections(result),
       buildPoolRecord(result),
+      // The selector's exact input, captured only when opted in: the context
+      // strings and every pooled candidate's rendered text.
+      v3.poolLog.captureInput
+        ? buildPoolInput(result, turn, selectorPrompt)
+        : undefined,
     );
     recordLatencySubSpan(
       "v3_persist",

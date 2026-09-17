@@ -357,6 +357,17 @@ export interface OrchestrateResult {
    *  live injector queues a notice so the person knows this turn drew on
    *  core memories only. */
   selectorFailure?: MemoryV3RetrievalUnavailableError;
+  /** The pool as the selector was given it, in one numbering: the
+   *  stable-prefix cards, then the finder lines. Absent when no pool was
+   *  assembled this turn (a closed gate's hard skip). Read by the pool input
+   *  capture (`buildPoolInput` in `pool-log-store.ts`). */
+  pool?: SelectorPool;
+  /** Whether the selector's recall-safe keep-all fallback fired
+   *  (`selectPool`'s `keptAll`). Absent when no pool was assembled. */
+  keptAll?: boolean;
+  /** The injection gate's reason code for this turn. Absent when the gate
+   *  did not run. */
+  gateReason?: string;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -899,10 +910,13 @@ export async function orchestrate(
             selections: SelectedPage[],
             selectorRan: boolean,
             selectorFailure?: MemoryV3RetrievalUnavailableError,
+            judged?: { pool: SelectorPool; keptAll: boolean },
           ): OrchestrateResult => ({
             selections,
             lanes: { core, hot, fresh, always, finder: [] },
             selectorRan,
+            gateReason: gate.reason,
+            ...(judged ? { pool: judged.pool, keptAll: judged.keptAll } : {}),
             ...(selectorFailure ? { selectorFailure } : {}),
           });
           if (deps.gateConfig.bypassForCore) {
@@ -915,20 +929,26 @@ export async function orchestrate(
             // explicitly configured with `selectorEnabled: false` AND
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
-            const stableOnly = buildStable();
+            const stableOnly: SelectorPool = {
+              stable: buildStable(),
+              finder: [],
+            };
             const {
               selections: bypassed,
               keptAll,
               failure,
-            } = await runSelection({
-              stable: stableOnly,
-              finder: [],
-            });
-            recordSelection(bypassed, stableOnly.length, keptAll, failure);
+            } = await runSelection(stableOnly);
+            recordSelection(
+              bypassed,
+              stableOnly.stable.length,
+              keptAll,
+              failure,
+            );
             return closed(
               bypassed,
-              selectorRanOver(stableOnly.length, failure),
+              selectorRanOver(stableOnly.stable.length, failure),
               failure,
+              { pool: stableOnly, keptAll },
             );
           }
           // Hard skip: the selector is never consulted, so this is a zero
@@ -1042,6 +1062,9 @@ export async function orchestrate(
     selections,
     lanes: { core, hot, fresh, always, finder },
     selectorRan: selectorRanOver(poolSize, failure),
+    pool,
+    keptAll,
+    ...(gateOutcome ? { gateReason: gateOutcome.reason } : {}),
     ...(failure ? { selectorFailure: failure } : {}),
   };
 }

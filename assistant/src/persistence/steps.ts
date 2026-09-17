@@ -487,6 +487,7 @@ import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/37
 import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagent-budget-stop-reason.js";
 import { migrateCreateConversationToolSurfaces } from "./migrations/378-create-conversation-tool-surfaces.js";
 import { migrateOAuthProvidersResponseOkField } from "./migrations/379-oauth-providers-response-ok-field.js";
+import { migrateConversationToolSurfacesDelegateIndependentTasks } from "./migrations/380-conversation-tool-surfaces-delegate-independent-tasks.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1622,5 +1623,13 @@ export const migrationSteps: MigrationStep[] = [
     // that failed to create it would either fail this step needlessly or, if
     // the error were swallowed, checkpoint it as done against no table.
     dependsOn: ["createOAuthTables"],
+  },
+  {
+    name: "migrateConversationToolSurfacesDelegateIndependentTasks",
+    run: migrateConversationToolSurfacesDelegateIndependentTasks,
+    // Same column-guard shape as the step above: the guard reads the table's
+    // columns and the `ALTER` throws on a missing table, so the table's own
+    // step must be checkpointed first.
+    dependsOn: ["migrateCreateConversationToolSurfaces"],
   },
 ];

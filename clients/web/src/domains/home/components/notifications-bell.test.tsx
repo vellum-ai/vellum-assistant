@@ -759,7 +759,7 @@ describe("NotificationsBell panel", () => {
     );
   });
 
-  test("uses the active assistant accent and contrast glyph for the enabled unread switch", async () => {
+  test("uses the active assistant accent with a white knob for the enabled unread switch", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
@@ -769,8 +769,22 @@ describe("NotificationsBell panel", () => {
     expect(filter.parentElement?.className).toContain(
       "--system-positive-strong",
     );
-    expect(filter.parentElement?.className).toContain("--avatar-accent-glyph");
-    expect(filter.parentElement?.className).toContain("--aux-white");
+    expect(filter.parentElement?.className).not.toContain(
+      "--avatar-accent-glyph",
+    );
+    expect(filter.querySelector("span")?.className).toContain("--aux-white");
+  });
+
+  test("uses the active assistant's readable accent surface for the count", async () => {
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+
+    const count = screen.getByTestId("notifications-bell-count");
+    expect(count.parentElement?.className).toContain("--avatar-accent-fill");
+    expect(count.parentElement?.className).toContain("--system-positive-weak");
+    expect(count.className).toContain("--avatar-accent-ink");
+    expect(count.className).toContain("--system-positive-on-weak");
   });
 
   test("preserves the filter through detail and back", async () => {

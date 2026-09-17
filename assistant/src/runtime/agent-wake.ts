@@ -355,13 +355,23 @@ export interface WakeOptions {
    * Tool definitions to send verbatim as the wake's wire tool array, in place
    * of the ones the conversation would resolve for itself. Used by fork-based
    * memory retrospectives to replay the SOURCE conversation's recorded surface
-   * (`getConversationToolSurface`) so the provider prompt-cache prefix matches
+   * (`getRecordedConversationToolSurface`) so the provider prompt-cache prefix matches
    * the source's live turns byte for byte. Definitions only: what may execute
    * is still decided by `allowedTools` and the turn's own active set. Applied
    * and restored alongside `allowedTools`; ignored when `allowedTools` is
    * absent.
    */
   wireToolDefinitions?: readonly ToolDefinition[];
+  /**
+   * Whether the source's recorded surface rendered the system prompt's
+   * parallel-delegation section, replayed into the wake's prompt so that
+   * tier of the provider cache prefix matches the source's too (the wake's
+   * own scope cannot spawn, so deriving it would render the section off where
+   * an interactive source rendered it on). Prompt only: a spawn attempt is
+   * still rejected at execution. Applied and restored alongside
+   * `allowedTools`; ignored when `allowedTools` is absent.
+   */
+  delegateIndependentTasks?: boolean;
   /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
@@ -1440,6 +1450,7 @@ export async function wakeAgentForOpportunity(
             toolContextPin: opts.toolContextPin,
             preactivateSkillIds: opts.preactivateSkillIds,
             wireToolDefinitions: opts.wireToolDefinitions,
+            delegateIndependentTasks: opts.delegateIndependentTasks,
           },
         );
         return true;

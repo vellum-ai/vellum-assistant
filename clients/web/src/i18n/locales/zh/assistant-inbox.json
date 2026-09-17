@@ -1,0 +1,60 @@
+{
+  "assistantInboxNavItem": {
+    "label": "助手收件箱",
+    "dismiss": "隐藏助手收件箱"
+  },
+  "assistantInboxHeader": {
+    "title": "{name} 的收件箱",
+    "subtitle": "这里是我为你收到和发出的所有邮件。",
+    "usage": "今天已发送 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
+  },
+  "addressPill": {
+    "copyAddress": "复制邮箱地址",
+    "copied": "已复制",
+    "copyFailed": "无法复制地址。"
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "邮件文件夹",
+    "inboxTab": "已接收",
+    "sentTab": "已发送",
+    "inboxEmptyTitle": "还没有邮件",
+    "inboxEmptyBody": "把 {address} 分享出去，发到这里的邮件都会显示在这里。",
+    "sentEmptyTitle": "还没有已发送的邮件",
+    "sentEmptyBody": "让我给某人发邮件，我会在这里保留一份副本。",
+    "selectPrompt": "选择一封邮件来阅读。",
+    "backToList": "返回列表",
+    "searchPlaceholder": "搜索邮件",
+    "searchAriaLabel": "在此文件夹中搜索",
+    "searchEmptyTitle": "没有匹配项",
+    "searchEmptyBody": "此文件夹中没有与你的搜索匹配的邮件。"
+  },
+  "emailListRow": {
+    "toPrefix": "发给 {name}",
+    "attachments": "{count, plural, other {# 个附件}}"
+  },
+  "emailDetail": {
+    "from": "发件人",
+    "to": "收件人",
+    "sentBy": "由 {name} 发送",
+    "attachments": "附件",
+    "askToReply": "让 {name} 回复"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "前缀",
+    "prefixPlaceholder": "hi"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "给 {name} 一个收件箱",
+    "subtitle": "一个别人可以写信的邮箱地址，以及一个阅读所有来信的地方。",
+    "perkAddress": "在 {rootDomain} 上的真实地址",
+    "perkReads": "{name} 为你阅读、整理并回复",
+    "perkHistory": "每封邮件都保存在这里，包括收件和已发送",
+    "upgradeButton": "升级到 Super",
+    "seePlans": "查看套餐"
+  },
+  "assistantInboxSetupCard": {
+    "title": "助手邮箱",
+    "subtitle": "为你的助手设置一个邮箱。",
+    "getStarted": "开始使用"
+  }
+}

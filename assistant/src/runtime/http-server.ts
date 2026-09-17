@@ -254,9 +254,9 @@ type AllWebSocketData =
 
 function virtualDesktopEnabled(): boolean {
   try {
-    return isVirtualDesktopEnabled(getConfig());
+    return isVirtualDesktopEnabled();
   } catch (err) {
-    log.warn({ err }, "Failed to read config for desktop stream gate");
+    log.warn({ err }, "Failed to check desktop stream gate");
     return false;
   }
 }

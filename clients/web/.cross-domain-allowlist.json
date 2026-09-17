@@ -1,4 +1,7 @@
 {
+  "src/domains/assistant-inbox/assistant-inbox.stories.tsx": [
+    "chat"
+  ],
   "src/domains/chat/active-chat-view.tsx": [
     "onboarding"
   ],

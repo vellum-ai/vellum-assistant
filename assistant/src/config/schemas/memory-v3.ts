@@ -352,6 +352,17 @@ export const MemoryV3GateSchema = z
     "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
+const MemoryV3PoolLogSchema = z
+  .object({
+    captureInput: z
+      .boolean({ error: "memory.v3.poolLog.captureInput must be a boolean" })
+      .default(false)
+      .describe(
+        "Persist the selector's exact input beside each turn's pool audit: the rendered text of every pooled candidate, content-addressed in `memory_v3_pool_texts`, and the turn's context strings in `memory_v3_pool_inputs`, for offline selector evaluation and training data. Off by default; the pool audit itself (`memory_v3_pools`) is always written.",
+      ),
+  })
+  .describe("Memory v3 selector pool audit options.");
+
 // Persisted config files can carry unsupported tuning keys this object does
 // not declare; zod's default unknown-key stripping accepts and drops them, so
 // such a config keeps parsing. Do not make this object `.strict()`.
@@ -434,6 +445,7 @@ export const MemoryV3ConfigSchema = z
     entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),
     rareTerm: MemoryV3RareTermSchema.default(MemoryV3RareTermSchema.parse({})),
     gate: MemoryV3GateSchema.default(MemoryV3GateSchema.parse({})),
+    poolLog: MemoryV3PoolLogSchema.default(MemoryV3PoolLogSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");
 

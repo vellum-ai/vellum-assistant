@@ -205,11 +205,12 @@ describe("decideWorkerSlot", () => {
     ).toEqual({ action: "adopt", pid: WORKER });
   });
 
-  // The cases below are the ones that must never reach a kill.
+  // The cases below must never reach a kill. Unmatched command lines spawn
+  // a new worker without signalling the stranger holding the recycled PID.
   test("never signals an unrelated process on a recycled PID", () => {
     expect(
       decide({ pid: WORKER, ppid: 1, command: "/usr/bin/postgres -D /data" }),
-    ).toEqual({ action: "adopt", pid: WORKER });
+    ).toEqual({ action: "spawn" });
   });
 
   test("never signals another project's worker.ts on a recycled PID", () => {
@@ -219,7 +220,7 @@ describe("decideWorkerSlot", () => {
         ppid: 1,
         command: "bun run /home/dev/side-project/worker.ts",
       }),
-    ).toEqual({ action: "adopt", pid: WORKER });
+    ).toEqual({ action: "spawn" });
   });
 
   test("never signals a different worker kind holding this slot", () => {
@@ -229,7 +230,7 @@ describe("decideWorkerSlot", () => {
         ppid: 1,
         command: "bun --smol run /app/runtime/0.10.11/src/monitoring/worker.ts",
       }),
-    ).toEqual({ action: "adopt", pid: WORKER });
+    ).toEqual({ action: "spawn" });
   });
 
   test("never signals when the process table could not be read", () => {

@@ -7,32 +7,64 @@ import { getDb } from "./db-connection.js";
 import { conversationToolSurfaces } from "./schema/index.js";
 
 /**
- * Per-conversation record of the tool definitions the most recent live turn
- * sent to the provider (`conversation_tool_surfaces`).
+ * Per-conversation record of what the most recent live turn sent to the
+ * provider that a fork wake cannot re-derive (`conversation_tool_surfaces`).
  *
  * The provider prompt cache is a byte-exact prefix match over
  * `tools -> system -> messages`, so a background wake that forks a
  * conversation can only reuse the source's cached prefix by sending the SAME
- * tools array. Re-deriving the array on the fork cannot guarantee that: the
- * fork may run in another process (a different tool registry), with no
- * connected clients (different host-tool gates), or under a presence the
- * persisted message stamps do not encode. Recording the resolved array and
- * replaying it verbatim can.
+ * tools array under the SAME system prompt. Re-deriving either on the fork
+ * cannot guarantee that: the fork may run in another process (a different
+ * tool registry), with no connected clients (different host-tool gates),
+ * under a presence the persisted message stamps do not encode, or under a
+ * wake scope that cannot spawn subagents where the source could (the system
+ * prompt's delegation section). Recording the resolved values and replaying
+ * them verbatim can.
  */
 
-/** Content hash of the serialized tools array. */
-export function hashConversationToolSurface(
-  tools: readonly ToolDefinition[],
-): string {
-  return hashToolsJson(JSON.stringify(tools));
+/** What a live turn sent that a replaying fork reproduces verbatim. */
+export interface ConversationToolSurface {
+  /** The tool definitions the turn sent, exactly as resolved. */
+  tools: ToolDefinition[];
+  /**
+   * Whether the turn's system prompt rendered the parallel-delegation
+   * section (`01-parallel-tasks`), which the prompt derives from the same
+   * resolved tool surface plus the turn's channel. `null` when unknown: the
+   * turn ran on a system-prompt override, or the row predates the column.
+   */
+  delegateIndependentTasks: boolean | null;
 }
 
-function hashToolsJson(toolsJson: string): string {
-  return createHash("sha256").update(toolsJson).digest("hex").slice(0, 32);
+/** Content hash of the serialized surface. */
+export function hashConversationToolSurface(
+  surface: ConversationToolSurface,
+): string {
+  return hashSurface(
+    JSON.stringify(surface.tools),
+    surface.delegateIndependentTasks,
+  );
+}
+
+function hashSurface(
+  toolsJson: string,
+  delegateIndependentTasks: boolean | null,
+): string {
+  const marker =
+    delegateIndependentTasks === null
+      ? ""
+      : delegateIndependentTasks
+        ? "1"
+        : "0";
+  return createHash("sha256")
+    .update(toolsJson)
+    .update("\n")
+    .update(marker)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 /**
- * Persist `tools` as the conversation's current wire tool surface and return
+ * Persist `surface` as the conversation's current wire surface and return
  * its hash. `knownHash` is the hash the caller last recorded for this
  * conversation (undefined when it has recorded nothing this process
  * lifetime): a matching hash skips the statement outright. Otherwise the
@@ -41,21 +73,28 @@ function hashToolsJson(toolsJson: string): string {
  */
 export function recordConversationToolSurface(
   conversationId: string,
-  tools: readonly ToolDefinition[],
+  surface: ConversationToolSurface,
   knownHash?: string,
 ): string {
-  const toolsJson = JSON.stringify(tools);
-  const toolsHash = hashToolsJson(toolsJson);
+  const toolsJson = JSON.stringify(surface.tools);
+  const { delegateIndependentTasks } = surface;
+  const toolsHash = hashSurface(toolsJson, delegateIndependentTasks);
   if (knownHash === toolsHash) {
     return toolsHash;
   }
   const updatedAt = Date.now();
   getDb()
     .insert(conversationToolSurfaces)
-    .values({ conversationId, toolsJson, toolsHash, updatedAt })
+    .values({
+      conversationId,
+      toolsJson,
+      toolsHash,
+      delegateIndependentTasks,
+      updatedAt,
+    })
     .onConflictDoUpdate({
       target: conversationToolSurfaces.conversationId,
-      set: { toolsJson, toolsHash, updatedAt },
+      set: { toolsJson, toolsHash, delegateIndependentTasks, updatedAt },
       setWhere: sql`${conversationToolSurfaces.toolsHash} <> excluded.tools_hash`,
     })
     .run();
@@ -63,14 +102,18 @@ export function recordConversationToolSurface(
 }
 
 /**
- * The tool definitions the conversation's most recent live turn sent, or
- * `null` when no turn has recorded one (or the stored JSON is unreadable).
+ * The surface the conversation's most recent live turn sent, or `null` when
+ * no turn has recorded one (or the stored JSON is unreadable).
  */
 export function getConversationToolSurface(
   conversationId: string,
-): ToolDefinition[] | null {
+): ConversationToolSurface | null {
   const row = getDb()
-    .select({ toolsJson: conversationToolSurfaces.toolsJson })
+    .select({
+      toolsJson: conversationToolSurfaces.toolsJson,
+      delegateIndependentTasks:
+        conversationToolSurfaces.delegateIndependentTasks,
+    })
     .from(conversationToolSurfaces)
     .where(eq(conversationToolSurfaces.conversationId, conversationId))
     .get();
@@ -79,7 +122,13 @@ export function getConversationToolSurface(
   }
   try {
     const parsed: unknown = JSON.parse(row.toolsJson);
-    return Array.isArray(parsed) ? (parsed as ToolDefinition[]) : null;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    return {
+      tools: parsed as ToolDefinition[],
+      delegateIndependentTasks: row.delegateIndependentTasks ?? null,
+    };
   } catch {
     return null;
   }

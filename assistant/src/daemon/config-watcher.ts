@@ -190,12 +190,22 @@ export class ConfigWatcher {
         if (this.suppressReload) {
           return;
         }
+        const prevMcpGlobalMax = this.lastConfig?.tools.mcpGlobalMaxTools;
         try {
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             evictConversationsForReload();
             refreshAuthenticatedApiRateLimit();
             publishConfigChanged();
+            const nextMcpGlobalMax = getConfig().tools.mcpGlobalMaxTools;
+            if (prevMcpGlobalMax !== nextMcpGlobalMax) {
+              reloadMcpServers().catch((err: unknown) => {
+                log.error(
+                  { err },
+                  "MCP reload after tools.mcpGlobalMaxTools change failed",
+                );
+              });
+            }
           }
         } catch (err) {
           log.error(

@@ -102,7 +102,7 @@ export class DesktopStreamBridge {
     try {
       tcp = await this.connect(DESKTOP_VNC_PORT, {
         onData: (data) => {
-          if (!this.checkEnabled()) {
+          if (this.closed) {
             return;
           }
           if (this.ws.send(data) === 0) {
@@ -128,7 +128,7 @@ export class DesktopStreamBridge {
   }
 
   handleClientFrame(message: string | Uint8Array | ArrayBuffer): void {
-    if (!this.checkEnabled() || typeof message === "string") {
+    if (this.closed || typeof message === "string") {
       return;
     }
     const bytes =
@@ -148,7 +148,7 @@ export class DesktopStreamBridge {
   }
 
   private flush(): void {
-    if (!this.checkEnabled()) {
+    if (this.closed) {
       return;
     }
     const tcp = this.tcp;

@@ -10,7 +10,7 @@ import {
   MCP_GLOBAL_MAX_TOOLS,
   MCP_MAX_TOOLS_PER_SERVER,
 } from "../../config/schemas/mcp.js";
-import { applyMcpToolCaps } from "../tool-caps.js";
+import { applyMcpToolCaps, resolveMcpGlobalMaxTools } from "../tool-caps.js";
 
 function toolsNamed(prefix: string, count: number): string[] {
   return Array.from({ length: count }, (_, i) => `${prefix}-tool-${i}`);
@@ -103,5 +103,32 @@ describe("applyMcpToolCaps", () => {
     expect(result.servers.find((s) => s.serverId === "mid")?.tools.length).toBe(
       4,
     );
+  });
+
+  test("honors a workspace global-max override", () => {
+    const servers = Array.from({ length: 8 }, (_, i) => ({
+      serverId: `server-${String(i + 1).padStart(2, "0")}`,
+      tools: toolsNamed(`s${i + 1}`, 10),
+    }));
+
+    const result = applyMcpToolCaps(servers, { globalMax: 80, perServerMax: 20 });
+
+    expect(result.keptToolCount).toBe(80);
+    expect(result.droppedToolCount).toBe(0);
+    expect(result.servers.every((server) => server.tools.length === 10)).toBe(
+      true,
+    );
+  });
+});
+
+describe("resolveMcpGlobalMaxTools", () => {
+  test("uses the shipped default when the workspace omits the override", () => {
+    expect(resolveMcpGlobalMaxTools()).toBe(MCP_GLOBAL_MAX_TOOLS);
+    expect(resolveMcpGlobalMaxTools({})).toBe(MCP_GLOBAL_MAX_TOOLS);
+  });
+
+  test("uses tools.mcpGlobalMaxTools from config.json when set", () => {
+    expect(resolveMcpGlobalMaxTools({ mcpGlobalMaxTools: 80 })).toBe(80);
+    expect(resolveMcpGlobalMaxTools({ mcpGlobalMaxTools: 1 })).toBe(1);
   });
 });

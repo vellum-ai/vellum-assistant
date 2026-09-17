@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
@@ -290,6 +291,7 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    applyActivePluginName(env, context.conversationId);
     // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
     env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
     // Surface the resolving model to assistant CLI commands so they can tailor

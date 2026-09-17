@@ -52,6 +52,16 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now);
       return;
+    case "memory_v3_pool_inputs":
+      raw
+        .query(
+          `INSERT INTO memory_v3_pool_inputs
+             (conversation_id, turn, created_at, recent_context, current_message,
+              candidate_text_hashes_json)
+           VALUES (?, 1, ?, '', '', '[]')`,
+        )
+        .run(conversationId, now);
+      return;
     case "activation_sessions":
       raw
         .query(

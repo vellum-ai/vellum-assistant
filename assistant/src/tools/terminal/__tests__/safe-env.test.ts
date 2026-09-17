@@ -50,6 +50,17 @@ describe("safe-env Qdrant forwarding", () => {
   });
 });
 
+describe("safe-env plugin name stripping", () => {
+  test("does not forward a parent-supplied VELLUM_PLUGIN_NAME", () => {
+    expect(SAFE_ENV_VARS).not.toContain("VELLUM_PLUGIN_NAME");
+
+    const env = buildSanitizedEnv("linux", {
+      VELLUM_PLUGIN_NAME: "forged-plugin",
+    });
+    expect(env.VELLUM_PLUGIN_NAME).toBeUndefined();
+  });
+});
+
 describe("safe-env CES child forwarding", () => {
   test("forwards CES IPC discovery env and CES HTTP credentials", () => {
     expect(SAFE_ENV_VARS).toContain("CES_BOOTSTRAP_SOCKET_DIR");

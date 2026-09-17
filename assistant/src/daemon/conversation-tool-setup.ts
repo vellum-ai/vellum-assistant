@@ -23,6 +23,7 @@ import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
+  type ConversationToolSurface,
   hashConversationToolSurface,
   recordConversationToolSurface,
 } from "../persistence/conversation-tool-surface.js";
@@ -936,8 +937,12 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
   // executor instead. That is the right answer to "is this tool on the wire"
   // and the wrong one to "could this turn actually spawn": the memory
   // retrospective wake runs in execution mode with an allowlist that names
-  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
-  // is denied after the prompt has already told the model to delegate.
+  // `skill_load` but neither the dispatcher nor the spawn tool, so a spawn is
+  // denied at execution. A wake replaying its source's recorded surface
+  // renders the source's delegation state in place of this answer
+  // (`Conversation.delegateIndependentTasksReplay`): a denied spawn attempt
+  // costs one tool error, a system prompt that differs from the source's
+  // costs the whole cached prefix behind it.
   const allowlist = ctx.subagentAllowedTools;
   return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
     (name) =>
@@ -949,8 +954,10 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 
 /**
  * Build the agent loop's `onToolsSent` observer for a conversation: record
- * the tool array each provider call sends so a later fork wake can replay it
- * (`recordConversationToolSurface`). Only the loop's send boundary sees the
+ * the tool array each provider call sends, with the delegation-section state
+ * the prompt build captured for the prompt that call carries
+ * (`Conversation.renderedDelegateIndependentTasks`), so a later fork wake can
+ * replay both (`recordConversationToolSurface`). Only the loop's send boundary sees the
  * sent array. The resolver is also consulted out of band (the token count
  * behind `/compact` and `/clean`, compaction estimates), where a read outside
  * any turn resolves a clientless surface that would overwrite the one the
@@ -960,8 +967,8 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
  * wake sends its source's array, an empty array is a tools-disabled call (a
  * fork replaying it could never call `remember`), and disk-pressure cleanup
  * mode narrows the wire to cleanup tools. Best-effort: a failed write is
- * logged and the array still counts as recorded, so a persistent failure logs
- * once per distinct surface rather than once per provider call.
+ * logged and the surface still counts as recorded, so a persistent failure
+ * logs once per distinct surface rather than once per provider call.
  */
 export function createWireToolSurfaceRecorder(
   ctx: Conversation,
@@ -975,10 +982,15 @@ export function createWireToolSurfaceRecorder(
     ) {
       return;
     }
+    const surface: ConversationToolSurface = {
+      tools,
+      // Unknown before the first prompt build or for a verbatim override.
+      delegateIndependentTasks: ctx.renderedDelegateIndependentTasks ?? null,
+    };
     try {
       ctx.recordedToolSurfaceHash = recordConversationToolSurface(
         ctx.conversationId,
-        tools,
+        surface,
         ctx.recordedToolSurfaceHash,
       );
     } catch (err) {
@@ -986,7 +998,7 @@ export function createWireToolSurfaceRecorder(
         { err, conversationId: ctx.conversationId },
         "failed to record the conversation's wire tool surface; continuing",
       );
-      ctx.recordedToolSurfaceHash = hashConversationToolSurface(tools);
+      ctx.recordedToolSurfaceHash = hashConversationToolSurface(surface);
     }
   };
 }

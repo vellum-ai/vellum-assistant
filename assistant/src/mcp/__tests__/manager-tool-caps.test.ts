@@ -11,6 +11,13 @@ import type { ResolvedMcpConfig } from "../../config/schemas/mcp.js";
 
 const toolsByServer = new Map<string, Array<{ name: string }>>();
 const connectDelays = new Map<string, number>();
+let mcpGlobalMaxTools: number | undefined;
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({
+    tools: { exclude: [], mcpGlobalMaxTools },
+  }),
+}));
 
 mock.module("../client.js", () => ({
   McpClient: class {
@@ -60,6 +67,7 @@ describe("McpServerManager tool selection", () => {
   beforeEach(() => {
     toolsByServer.clear();
     connectDelays.clear();
+    mcpGlobalMaxTools = undefined;
   });
 
   test("later servers keep tools when eight servers exceed the global cap", async () => {
@@ -106,6 +114,31 @@ describe("McpServerManager tool selection", () => {
       elapsed < 80,
       "Servers connect in parallel, so one 40ms delay should not serialize both.",
     ).toBe(true);
+    await manager.stop();
+  });
+
+  test("a workspace global-max override raises how many tools are kept", async () => {
+    const ids = Array.from(
+      { length: 8 },
+      (_, i) => `server-${String(i + 1).padStart(2, "0")}`,
+    );
+    for (const id of ids) {
+      toolsByServer.set(
+        id,
+        Array.from({ length: 10 }, (_, i) => ({ name: `tool_${i}` })),
+      );
+    }
+
+    mcpGlobalMaxTools = 80;
+    const manager = new McpServerManager();
+    const started = await manager.start(configWith(ids));
+
+    expect(started.discoveredToolCount).toBe(80);
+    expect(started.keptToolCount).toBe(80);
+    expect(started.droppedToolCount).toBe(0);
+    expect(started.servers.every((server) => server.tools.length === 10)).toBe(
+      true,
+    );
     await manager.stop();
   });
 });

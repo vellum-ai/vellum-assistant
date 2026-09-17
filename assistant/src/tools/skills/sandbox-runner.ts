@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { PLUGIN_NAME_ENV } from "../../plugin-api/plugin-name-env.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import {
@@ -74,6 +75,7 @@ export async function runSkillToolScriptSandbox(
     timeoutMs?: number;
     expectedSkillVersionHash?: string;
     skillDirHashResolver?: (skillDir: string) => string;
+    pluginOwner?: string;
   },
 ): Promise<ToolExecutionResult> {
   const scriptPath = resolve(join(skillDir, executorPath));
@@ -117,7 +119,9 @@ export async function runSkillToolScriptSandbox(
       "utf-8",
     );
 
-    return await spawnRunner(runDir, input, context, timeoutMs, executorPath);
+    return await spawnRunner(runDir, input, context, timeoutMs, executorPath, {
+      pluginOwner: options?.pluginOwner,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -139,6 +143,7 @@ function spawnRunner(
   context: ToolContext,
   timeoutMs: number,
   executorPath: string,
+  pluginContext?: { pluginOwner?: string },
 ): Promise<ToolExecutionResult> {
   return new Promise<ToolExecutionResult>((resolve) => {
     const stdoutChunks: Buffer[] = [];
@@ -156,8 +161,12 @@ function spawnRunner(
       conversationId: context.conversationId,
     });
     env.__CONVERSATION_ID = context.conversationId;
-    // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+    // Secret binding for reveal-derived chat authority. See reveal-nonce.ts.
     env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
+
+    if (pluginContext?.pluginOwner) {
+      env[PLUGIN_NAME_ENV] = pluginContext.pluginOwner;
+    }
 
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: runDir,

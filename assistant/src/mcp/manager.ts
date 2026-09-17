@@ -1,3 +1,4 @@
+import { getConfig } from "../config/loader.js";
 import type {
   ResolvedMcpConfig,
   ResolvedMcpServerConfig,
@@ -6,6 +7,7 @@ import { getLogger } from "../util/logger.js";
 import { McpClient, type McpToolInfo } from "./client.js";
 import {
   applyMcpToolCaps,
+  resolveMcpGlobalMaxTools,
   truncatedServerIdsFromCaps,
 } from "./tool-caps.js";
 
@@ -78,6 +80,7 @@ export class McpServerManager {
         serverId: result.serverId,
         tools: result.tools,
       })),
+      { globalMax: resolveMcpGlobalMaxTools(getConfig().tools) },
     );
     const keptByServer = new Map(
       capped.servers.map((server) => [server.serverId, server.tools]),

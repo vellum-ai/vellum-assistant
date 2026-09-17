@@ -270,6 +270,12 @@ under `memory.v3.*`. The `memory.v2.enabled` flag gates only the v2 injection
 engine's turn-time selection; the substrate runs whenever
 `usesConceptPageMemory()` holds.
 
+`memory.v3.poolLog.captureInput` (off by default) makes the v3 selector
+persist its exact per-turn input beside the always-written pool audit
+(`memory_v3_pool_inputs`, `memory_v3_pool_texts`), for offline selector
+evaluation and training data; the memory plugin `AGENTS.md` documents the
+tables.
+
 `src/plugins/defaults/memory/AGENTS.md` carries the details that matter when
 you touch this: the three substrate keys whose names differ from their v2 twin,
 the three disjoint places the dense/sparse sum-to-1 invariant is checked, and

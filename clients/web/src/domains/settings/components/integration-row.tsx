@@ -1,3 +1,5 @@
+import { Settings } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -12,8 +14,8 @@ import {
   type McpPluginMethod,
 } from "../integration-items";
 import {
+  INTEGRATION_ACTION_SIZING,
   IntegrationListRow,
-  type IntegrationListLayout,
 } from "./integration-list-row";
 
 interface IntegrationRowProps {
@@ -24,7 +26,6 @@ interface IntegrationRowProps {
   connections: OAuthConnection[];
   mcpMethods?: McpPluginMethod[];
   disabled?: boolean;
-  layout?: IntegrationListLayout;
   onConfigure: () => void;
 }
 
@@ -36,7 +37,6 @@ export function IntegrationRow({
   connections,
   mcpMethods = [],
   disabled,
-  layout,
   onConfigure,
 }: IntegrationRowProps) {
   const { t } = useTranslation("settings");
@@ -49,7 +49,6 @@ export function IntegrationRow({
 
   return (
     <IntegrationListRow
-      layout={layout}
       icon={
         <IntegrationIcon
           providerKey={providerKey}
@@ -72,15 +71,22 @@ export function IntegrationRow({
         ) : undefined
       }
       primaryAction={
-        <Button
-          variant={configured ? "outlined" : "primary"}
-          onClick={onConfigure}
-          disabled={disabled}
-        >
-          {configured
-            ? t("integrationRow.configure")
-            : t("integrationRow.connect")}
-        </Button>
+        configured ? (
+          <Button
+            variant="outlined"
+            className={INTEGRATION_ACTION_SIZING}
+            iconOnly={<Settings />}
+            aria-label={t("integrationRow.configureLabel", {
+              name: displayName,
+            })}
+            onClick={onConfigure}
+            disabled={disabled}
+          />
+        ) : (
+          <Button variant="primary" onClick={onConfigure} disabled={disabled}>
+            {t("integrationRow.connect")}
+          </Button>
+        )
       }
     />
   );
