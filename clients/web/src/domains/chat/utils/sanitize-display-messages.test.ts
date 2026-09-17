@@ -245,6 +245,24 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     ).toEqual(["r-1", "r-2"]);
   });
 
+  test("never drops the second of two adjacent silence markers", () => {
+    // Two wake-triggered turns that both chose silence, before the turn-end
+    // reseed: each live row carries the streamed sentinel text and the
+    // silence flag, and no user row sits between them (wake rows render no
+    // bubble). They read as twins, but each is a turn of its own.
+    const quiet = (id: string) =>
+      makeMessage({
+        id,
+        role: "assistant",
+        ...textBody("<no_response/>"),
+        isNoResponse: true,
+        timestamp: 1000,
+      });
+    expect(
+      sanitizeDisplayMessages([quiet("q-1"), quiet("q-2")]).map((m) => m.id),
+    ).toEqual(["q-1", "q-2"]);
+  });
+
   test("keeps both rows when only one is the assistant", () => {
     const user = makeMessage({
       id: "u",
