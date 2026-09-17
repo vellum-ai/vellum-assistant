@@ -1,36 +1,28 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-const recorded: Array<{
-  clientId: string;
-  reason: string;
-  connectionId: string;
-}> = [];
-
-mock.module("../persistence/client-connection-events-store.js", () => ({
-  recordClientConnectionEvent: (input: {
-    clientId: string;
-    reason: string;
-    connectionId: string;
-  }) => {
-    recorded.push({
-      clientId: input.clientId,
-      reason: input.reason,
-      connectionId: input.connectionId,
-    });
-    return null;
-  },
-}));
-
+import type { ClientConnectionEventInput } from "../persistence/client-connection-events-store.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 
 describe("AssistantEventHub connection history", () => {
+  const recorded: Array<Pick<ClientConnectionEventInput, "clientId" | "reason">> =
+    [];
+
   beforeEach(() => {
     recorded.length = 0;
   });
 
+  function hub(options?: { maxSubscribers?: number }): AssistantEventHub {
+    return new AssistantEventHub({
+      ...options,
+      recordConnection: (input) => {
+        recorded.push({ clientId: input.clientId, reason: input.reason });
+        return null;
+      },
+    });
+  }
+
   test("records sse_open on client subscribe and sse_close on dispose", () => {
-    const hub = new AssistantEventHub();
-    const sub = hub.subscribe({
+    const sub = hub().subscribe({
       type: "client",
       clientId: "client-123",
       interfaceId: "chrome-extension",
@@ -44,15 +36,15 @@ describe("AssistantEventHub connection history", () => {
   });
 
   test("records stale_replaced then sse_open on reconnect", () => {
-    const hub = new AssistantEventHub();
-    hub.subscribe({
+    const instance = hub();
+    instance.subscribe({
       type: "client",
       clientId: "client-123",
       interfaceId: "chrome-extension",
       capabilities: ["host_browser"],
       callback: () => {},
     });
-    hub.subscribe({
+    instance.subscribe({
       type: "client",
       clientId: "client-123",
       interfaceId: "chrome-extension",
@@ -68,8 +60,8 @@ describe("AssistantEventHub connection history", () => {
   });
 
   test("records force_disconnect from disposeClient", () => {
-    const hub = new AssistantEventHub();
-    hub.subscribe({
+    const instance = hub();
+    instance.subscribe({
       type: "client",
       clientId: "client-123",
       interfaceId: "chrome-extension",
@@ -78,13 +70,13 @@ describe("AssistantEventHub connection history", () => {
     });
     recorded.length = 0;
 
-    expect(hub.disposeClient("client-123")).toBe(1);
+    expect(instance.disposeClient("client-123")).toBe(1);
     expect(recorded.map((row) => row.reason)).toEqual(["force_disconnect"]);
   });
 
   test("records cap_evicted when the oldest subscriber is shed", () => {
-    const hub = new AssistantEventHub({ maxSubscribers: 1 });
-    hub.subscribe({
+    const instance = hub({ maxSubscribers: 1 });
+    instance.subscribe({
       type: "client",
       clientId: "client-old",
       interfaceId: "web",
@@ -93,7 +85,7 @@ describe("AssistantEventHub connection history", () => {
     });
     recorded.length = 0;
 
-    hub.subscribe({
+    instance.subscribe({
       type: "client",
       clientId: "client-new",
       interfaceId: "web",
@@ -109,8 +101,7 @@ describe("AssistantEventHub connection history", () => {
   });
 
   test("does not record process subscribers", () => {
-    const hub = new AssistantEventHub();
-    const sub = hub.subscribe({
+    const sub = hub().subscribe({
       type: "process",
       callback: () => {},
     });

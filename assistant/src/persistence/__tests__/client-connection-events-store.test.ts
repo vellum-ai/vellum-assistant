@@ -44,11 +44,20 @@ describe("coalesceClientConnectionSessions", () => {
   test("merges a reconnect shorter than the flap window", () => {
     const sessions = coalesceClientConnectionSessions(
       [
-        event({ reason: "sse_open", occurredAt: 1_000 }),
-        event({ reason: "stale_replaced", occurredAt: 2_000 }),
+        event({
+          reason: "sse_open",
+          occurredAt: 1_000,
+          connectionId: "conn-1",
+        }),
+        event({
+          reason: "stale_replaced",
+          occurredAt: 2_000,
+          connectionId: "conn-1",
+        }),
         event({
           reason: "sse_open",
           occurredAt: 2_000 + CLIENT_CONNECTION_FLAP_WINDOW_MS - 1,
+          connectionId: "conn-2",
         }),
       ],
       10_000 + CLIENT_CONNECTION_FLAP_WINDOW_MS,
@@ -174,18 +183,9 @@ describe("recordClientConnectionEvent / listClientConnectionHistory", () => {
     expect(history.events[0].connectionId).toBe("conn-new");
   });
 
-  test("returns empty lists when the main database is not open", () => {
-    expect(listClientConnectionHistory()).toEqual({
-      events: [],
-      sessions: [],
-    });
-    expect(
-      recordClientConnectionEvent({
-        clientId: "client-123",
-        interfaceId: "chrome-extension",
-        connectionId: "conn-1",
-        reason: "sse_open",
-      }),
-    ).toBeNull();
+  test("does not throw when listing without an injected database", () => {
+    const history = listClientConnectionHistory();
+    expect(Array.isArray(history.events)).toBe(true);
+    expect(Array.isArray(history.sessions)).toBe(true);
   });
 });

@@ -201,14 +201,22 @@ type SubscriberInput = DistributiveOmit<
  * Client connections register as subscribers with metadata and are queryable
  * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
+export type ClientConnectionRecorder = typeof recordClientConnectionEvent;
+
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
   /** Monotonic source for per-connection ids, scoped to this hub. */
   private connectionCounter = 0;
+  private readonly recordConnection: ClientConnectionRecorder;
 
-  constructor(options?: { maxSubscribers?: number }) {
+  constructor(options?: {
+    maxSubscribers?: number;
+    recordConnection?: ClientConnectionRecorder;
+  }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+    this.recordConnection =
+      options?.recordConnection ?? recordClientConnectionEvent;
   }
 
   /**
@@ -727,7 +735,7 @@ export class AssistantEventHub {
     if (entry.type !== "client") {
       return;
     }
-    recordClientConnectionEvent({
+    this.recordConnection({
       clientId: entry.clientId,
       interfaceId: entry.interfaceId,
       connectionId: entry.connectionId,
