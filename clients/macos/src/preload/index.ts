@@ -534,6 +534,17 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:companion:state", handler);
       };
     },
+    getIntroStage: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:companion:getIntroStage") as Promise<boolean>,
+    onIntroStage: (callback) => {
+      const handler = (_event: IpcRendererEvent, staged: boolean) => {
+        callback(staged);
+      };
+      ipcRenderer.on("vellum:companion:introStage", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:introStage", handler);
+      };
+    },
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:companion:setInteractive", interactive);
     },

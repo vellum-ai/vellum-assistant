@@ -138,21 +138,49 @@
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
-    "done": "Got it",
-    "meet": {
-      "body": "I stay on your desktop, even when Vellum isn’t visible.",
-      "title": "This is me",
-      "titleNamed": "I’m {name}"
+    "back": "Back",
+    "call": {
+      "click": "Click",
+      "line": "Listening",
+      "shortcut": "Shortcut"
     },
-    "menu": {
-      "body": "That’s where you hide me or change my size.",
-      "title": "Right-click me"
+    "close": "Close",
+    "done": "Got it",
+    "draw": {
+      "body": "Point out anything on your screen",
+      "title": "Draw"
+    },
+    "idle": {
+      "body": "Hover me and I’ll come out.",
+      "title": "Hey, it’s me",
+      "titleNamed": "Hey, it’s {name}"
+    },
+    "key": {
+      "scolded": "No, the button on your keyboard"
+    },
+    "meet": {
+      "body": "I stay on your desktop, even when Vellum isn’t visible."
+    },
+    "mute": {
+      "body": "Click the mic to mute yourself or the speaker to mute me",
+      "title": "Mute"
     },
     "next": "Next",
-    "skip": "Skip",
+    "share": {
+      "body": "Show me a tab, window, or entire screen",
+      "title": "Share your screen"
+    },
     "talk": {
-      "body": "Start a voice conversation.",
-      "title": "Talk"
+      "body": "Click me to start a conversation.",
+      "gesture": "Or double tap this key:",
+      "greeted": "You did it! That’s all there is to it.",
+      "prompt": "You’ll be asked to let me use your mic",
+      "title": "Talk to me"
+    },
+    "try": {
+      "body": "Say hello and I’ll answer out loud.",
+      "how": "Click me, or double tap the key",
+      "title": "Give it a go"
     }
   },
   "companionPopover": {

@@ -24,6 +24,7 @@ import {
 } from "./assets/menu-icons";
 import { acceleratorOption } from "./commands.client";
 import {
+  replayCompanionIntro,
   setCompanionSurfaceSize,
   setCompanionSurfaceVisible,
 } from "./companion-window";
@@ -63,6 +64,7 @@ export const installTray = (handlers: TrayHandlers): void => {
       void shell.openExternal("http://localhost:6007");
     },
     removePairedLabel: "Remove from this Mac…",
+    replayCompanionIntro,
     setCompanionSize: setCompanionSurfaceSize,
     setCompanionVisible: setCompanionSurfaceVisible,
   });

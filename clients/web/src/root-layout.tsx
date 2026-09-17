@@ -99,6 +99,7 @@ import {
   usePageSurfaceStore,
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
+import { CompanionIntroScrim } from "@/components/companion-intro-scrim";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { RoutePendingIndicator } from "@/components/route-pending-indicator";
@@ -192,8 +193,7 @@ export function RootLayout() {
   const authUser = useAuthStore.use.user();
   const requestOrganizationId = useRequestOrganizationId();
   const assistantVersion = useAssistantIdentityStore.use.version();
-  const platformAccountId =
-    authUser?.kind === "platform" ? authUser.id : null;
+  const platformAccountId = authUser?.kind === "platform" ? authUser.id : null;
   const connectionFallback =
     getSelfHostedIngressUrl() ??
     (typeof globalThis.location === "undefined"
@@ -723,6 +723,10 @@ export function RootLayout() {
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
+
+      {/* The app dimmed while the companion introduces itself over this
+          window. Inert off Electron and on the shells with no surface. */}
+      <CompanionIntroScrim />
 
       {feedbackOpen ? (
         <ShareFeedbackModalLazy

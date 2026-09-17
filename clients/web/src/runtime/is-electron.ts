@@ -399,6 +399,9 @@ declare global {
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        /** Optional: shells that predate the staged introduction have none. */
+        getIntroStage?(): Promise<boolean>;
+        onIntroStage?(callback: (staged: boolean) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         release?(): void;

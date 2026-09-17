@@ -138,21 +138,49 @@
   },
   "companionIntro": {
     "ariaLabel": "介绍您的助手",
-    "done": "知道了",
-    "meet": {
-      "body": "我会在您的桌面上，即使 Vellum 不可见。",
-      "title": "这就是我",
-      "titleNamed": "我是 {name}"
+    "back": "上一步",
+    "call": {
+      "click": "点击",
+      "line": "正在聆听",
+      "shortcut": "快捷键"
     },
-    "menu": {
-      "body": "您可以在这里隐藏我或更改我的大小。",
-      "title": "右键点击我"
+    "close": "关闭",
+    "done": "知道了",
+    "draw": {
+      "body": "指出屏幕上的任何内容",
+      "title": "标注"
+    },
+    "idle": {
+      "body": "把光标移到我上面，我就出来。",
+      "title": "嘿，是我",
+      "titleNamed": "嘿，我是 {name}"
+    },
+    "key": {
+      "scolded": "不是这个，是键盘上的那个键"
+    },
+    "meet": {
+      "body": "我会在您的桌面上，即使 Vellum 不可见。"
+    },
+    "mute": {
+      "body": "点击麦克风把自己静音，点击喇叭把我静音",
+      "title": "静音"
     },
     "next": "下一步",
-    "skip": "跳过",
+    "share": {
+      "body": "把标签页、窗口或整个屏幕分享给我",
+      "title": "分享您的屏幕"
+    },
     "talk": {
-      "body": "开始语音对话。",
-      "title": "交谈"
+      "body": "点击我就能开始对话。",
+      "gesture": "或者连按两次这个键：",
+      "greeted": "成功了！就这么简单。",
+      "prompt": "我会请求使用您的麦克风",
+      "title": "和我说话"
+    },
+    "try": {
+      "body": "跟我打个招呼，我会说出声来回答。",
+      "how": "点击我，或连按两次这个键",
+      "title": "试一试"
     }
   },
   "companionPopover": {

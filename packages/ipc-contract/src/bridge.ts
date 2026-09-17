@@ -621,6 +621,23 @@ export interface VellumBridge {
   companion?: {
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
+    /**
+     * Whether a run is staged right now, for a window that has just mounted
+     * its scrim: a push that landed before it subscribed is gone, exactly as
+     * for `getState`.
+     */
+    getIntroStage(): Promise<boolean>;
+    /**
+     * Whether the one-time introduction is being staged on the app's own
+     * window: the surface is held in front and stood in the middle of that
+     * window, rather than sitting where it lives.
+     *
+     * Sent to the app's window, not to the surface's. The surface knows the
+     * beat it is on from `onState`; this is for the window the run is staged
+     * over, which dims itself so the only thing lit is the thing being
+     * introduced. Fires on every change, and the run ending is one.
+     */
+    onIntroStage(callback: (staged: boolean) => void): () => void;
     setInteractive(interactive: boolean): void;
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;
