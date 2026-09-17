@@ -14,6 +14,7 @@ import { userEvent, within } from "storybook/test";
 
 import { UsageTab } from "@/domains/settings/billing/usage/usage-tab";
 import { client } from "@/generated/daemon/client.gen";
+import { fixtureNotFound, stubClientFetch } from "@/lib/stub-client-fetch";
 import type {
   ConfigGetResponse,
   ConfigLlmCallsitesGetResponse,
@@ -295,8 +296,7 @@ const EMPTY_CONFIG: ConfigGetResponse = {};
  * names. Groupings the fixture has no rows for answer an empty breakdown, so
  * switching the picker in the story lands on the empty state, not an error.
  */
-async function usageFetch(input: RequestInfo | URL): Promise<Response> {
-  const request = input instanceof Request ? input : new Request(input);
+async function usageFetch(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const { pathname } = url;
   const fixture = pathname.startsWith(`/v1/assistants/${ASSISTANT_IDS.idle}/`)
@@ -326,10 +326,7 @@ async function usageFetch(input: RequestInfo | URL): Promise<Response> {
   if (pathname.endsWith("/schedules")) {
     return Response.json(NO_SCHEDULES satisfies SchedulesGetResponse);
   }
-  return Response.json(
-    { error: "This request is not part of the story fixture." },
-    { status: 404 },
-  );
+  return fixtureNotFound();
 }
 
 const meta = {
@@ -348,16 +345,7 @@ const meta = {
       options: Object.values(ASSISTANT_IDS),
     },
   },
-  beforeEach: () => {
-    const clientSnapshot = client.getConfig();
-    client.setConfig({
-      baseUrl: "https://storybook.invalid",
-      fetch: Object.assign(usageFetch, { preconnect: () => {} }),
-    });
-    return () => {
-      client.setConfig(clientSnapshot);
-    };
-  },
+  beforeEach: () => stubClientFetch(client, usageFetch),
   decorators: [
     (Story) => (
       <div className="w-[880px]">

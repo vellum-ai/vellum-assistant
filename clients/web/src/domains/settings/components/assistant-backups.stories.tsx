@@ -15,6 +15,7 @@ import { AssistantBackups } from "@/domains/settings/components/assistant-backup
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import type { BackupsGetResponse } from "@/generated/daemon/types.gen";
+import { fixtureNotFound, stubClientFetch } from "@/lib/stub-client-fetch";
 
 const ASSISTANT_IDS = {
   established: "story-assistant",
@@ -81,29 +82,21 @@ function backupsFor(pathname: string): AssistantBackup[] {
 }
 
 /** Answers the platform's `GET /v1/assistants/{id}/backups/`. */
-async function platformFetch(input: RequestInfo | URL): Promise<Response> {
-  const request = input instanceof Request ? input : new Request(input);
+async function platformFetch(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (pathname.endsWith("/backups/") && request.method === "GET") {
     return Response.json({ backups: backupsFor(pathname) });
   }
-  return Response.json(
-    { error: "This request is not part of the story fixture." },
-    { status: 404 },
-  );
+  return fixtureNotFound();
 }
 
 /** Answers the daemon's `GET /v1/assistants/{id}/backups`. */
-async function daemonFetch(input: RequestInfo | URL): Promise<Response> {
-  const request = input instanceof Request ? input : new Request(input);
+async function daemonFetch(request: Request): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (pathname.endsWith("/backups") && request.method === "GET") {
     return Response.json(DAEMON_BACKUPS satisfies BackupsGetResponse);
   }
-  return Response.json(
-    { error: "This request is not part of the story fixture." },
-    { status: 404 },
-  );
+  return fixtureNotFound();
 }
 
 const meta = {
@@ -122,19 +115,11 @@ const meta = {
     },
   },
   beforeEach: () => {
-    const platformSnapshot = platformClient.getConfig();
-    const daemonSnapshot = daemonClient.getConfig();
-    platformClient.setConfig({
-      baseUrl: "https://storybook.invalid",
-      fetch: Object.assign(platformFetch, { preconnect: () => {} }),
-    });
-    daemonClient.setConfig({
-      baseUrl: "https://storybook.invalid",
-      fetch: Object.assign(daemonFetch, { preconnect: () => {} }),
-    });
+    const restorePlatform = stubClientFetch(platformClient, platformFetch);
+    const restoreDaemon = stubClientFetch(daemonClient, daemonFetch);
     return () => {
-      platformClient.setConfig(platformSnapshot);
-      daemonClient.setConfig(daemonSnapshot);
+      restorePlatform();
+      restoreDaemon();
     };
   },
   decorators: [
