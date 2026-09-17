@@ -11,8 +11,11 @@
  * SSE streaming connections for client registration in the daemon.
  */
 
+import { DEFAULT_SSE_IDLE_TIMEOUT_MS } from './sse-idle-watchdog.js';
+
 const CHROME_EXT_INTERFACE_ID = 'chrome-extension';
 const CLIENT_ID_STORAGE_KEY = 'vellum.clientId';
+const SSE_WATCHDOG_ENABLED = DEFAULT_SSE_IDLE_TIMEOUT_MS > 0;
 
 let cached: string | null = null;
 
@@ -53,8 +56,25 @@ export async function getClientId(): Promise<string> {
  * connected clients and their capabilities.
  */
 export async function getClientRegistrationHeaders(): Promise<Record<string, string>> {
-  return {
+  const headers: Record<string, string> = {
     'X-Vellum-Client-Id': await getClientId(),
     'X-Vellum-Interface-Id': CHROME_EXT_INTERFACE_ID,
   };
+  const version = readManifestVersion();
+  if (version) {
+    headers['X-Vellum-Client-Version'] = version;
+  }
+  if (SSE_WATCHDOG_ENABLED) {
+    headers['X-Vellum-Sse-Watchdog'] = '1';
+  }
+  return headers;
+}
+
+function readManifestVersion(): string | undefined {
+  try {
+    const version = chrome.runtime.getManifest().version;
+    return typeof version === 'string' && version.length > 0 ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }

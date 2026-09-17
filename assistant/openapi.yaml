@@ -5647,6 +5647,64 @@ paths:
                 required:
                   - disconnected
                 additionalProperties: false
+  /v1/clients/history:
+    get:
+      operationId: clients_history_get
+      summary: List client connection history
+      description:
+        Return persisted client subscribe/dispose events and coalesced sessions. Reconnects shorter than 60 seconds
+        are flaps, not outages.
+      tags:
+        - clients
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Restrict history to one client UUID.
+        - name: interfaceId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Restrict history to one interface (e.g. chrome-extension).
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO-8601 or epoch-ms lower bound on event time.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max coalesced sessions to return (1-500, default 50).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                required:
+                  - sessions
+                  - events
+                additionalProperties: false
   /v1/clients/presence:
     post:
       operationId: clients_presence_post
