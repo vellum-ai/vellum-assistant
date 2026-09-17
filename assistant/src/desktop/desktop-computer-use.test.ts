@@ -1,0 +1,268 @@
+import { describe, expect, mock, spyOn, test } from "bun:test";
+
+import * as configLoader from "../config/loader.js";
+import { HostCuProxy } from "../daemon/host-cu-proxy.js";
+import { desktopAutomationLease } from "./desktop-automation-lease.js";
+import {
+  executeDesktopComputerUse,
+  performDesktopComputerUse,
+} from "./desktop-computer-use.js";
+
+function driver() {
+  return {
+    input: mock(async (_args: string[], _signal?: AbortSignal) => {}),
+    capture: mock(async (_signal: AbortSignal) => ({
+      screenshot: "anBlZw==",
+      screenshotWidthPx: 1600,
+      screenshotHeightPx: 900,
+      screenWidthPt: 1600,
+      screenHeightPt: 900,
+    })),
+  };
+}
+
+const signal = () => new AbortController().signal;
+
+describe("virtual desktop computer use", () => {
+  test("observes without input and returns pixels on repeated observations", async () => {
+    const backend = driver();
+    for (let i = 0; i < 2; i++) {
+      const result = await performDesktopComputerUse(
+        "computer_use_observe",
+        {},
+        signal(),
+        backend,
+      );
+      expect(result.screenshot).toBe("anBlZw==");
+    }
+    expect(backend.input).not.toHaveBeenCalled();
+    expect(backend.capture).toHaveBeenCalledTimes(2);
+  });
+
+  test("runs a sequence in order and captures once after its last action", async () => {
+    const backend = driver();
+    await performDesktopComputerUse(
+      "computer_use_sequence",
+      {
+        actions: [
+          { action: "click", x: 30, y: 40 },
+          { action: "key", key: "ctrl+l" },
+          { action: "type", text: "--shell $(example)" },
+        ],
+      },
+      signal(),
+      backend,
+    );
+    expect(backend.input.mock.calls.map(([args]) => args)).toEqual([
+      [
+        "mousemove",
+        "30",
+        "40",
+        "click",
+        "--repeat",
+        "1",
+        "--delay",
+        "100",
+        "1",
+      ],
+      ["key", "--clearmodifiers", "ctrl+l"],
+      ["type", "--clearmodifiers", "--delay", "0", "--", "--shell $(example)"],
+    ]);
+    expect(backend.capture).toHaveBeenCalledTimes(1);
+  });
+
+  test("an execution failure stops a sequence and returns the resulting screen", async () => {
+    const backend = driver();
+    backend.input.mockRejectedValueOnce(new Error("Input failed"));
+    const result = await performDesktopComputerUse(
+      "computer_use_sequence",
+      {
+        actions: [
+          { action: "key", key: "ctrl+l" },
+          { action: "type", text: "example.com" },
+        ],
+      },
+      signal(),
+      backend,
+    );
+    expect(backend.input).toHaveBeenCalledTimes(1);
+    expect(result.executionError).toBe("Input failed");
+    expect(result.screenshot).toBe("anBlZw==");
+  });
+
+  test("done releases only its conversation without starting desktop setup", async () => {
+    const release = spyOn(
+      desktopAutomationLease,
+      "releaseForConversation",
+    ).mockImplementation(() => {});
+    const run = spyOn(desktopAutomationLease, "runBrowser");
+    try {
+      const proxy = new HostCuProxy(1);
+      proxy.recordAction("computer_use_observe", {});
+      const result = await executeDesktopComputerUse(
+        "computer_use_done",
+        { summary: "Finished" },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-123",
+          trustClass: "guardian",
+        },
+        proxy,
+      );
+      expect(result).toEqual({ content: "Finished", isError: false });
+      expect(release).toHaveBeenCalledWith("conv-123");
+      expect(run).not.toHaveBeenCalled();
+      expect(proxy.stepCount).toBe(0);
+    } finally {
+      release.mockRestore();
+      run.mockRestore();
+    }
+  });
+
+  test("tool deadline cancels queued setup before it can perform an action", async () => {
+    const config = configLoader.getConfig();
+    const getConfig = spyOn(configLoader, "getConfig").mockReturnValue({
+      ...config,
+      timeouts: { ...config.timeouts, toolExecutionTimeoutSec: 0.01 },
+    });
+    const run = spyOn(desktopAutomationLease, "runBrowser").mockImplementation(
+      async (context) => {
+        return new Promise((_, reject) =>
+          context.signal!.addEventListener(
+            "abort",
+            () => reject(context.signal!.reason),
+            { once: true },
+          ),
+        );
+      },
+    );
+    try {
+      await expect(
+        executeDesktopComputerUse(
+          "computer_use_click",
+          { x: 1, y: 2 },
+          {
+            workingDir: "/tmp",
+            conversationId: "conv-123",
+            trustClass: "guardian",
+          },
+          new HostCuProxy(10),
+        ),
+      ).rejects.toThrow("Computer use timed out");
+      expect(run.mock.calls[0][0].signal?.aborted).toBe(true);
+    } finally {
+      getConfig.mockRestore();
+      run.mockRestore();
+    }
+  });
+
+  test("validates the whole sequence before any input", async () => {
+    const backend = driver();
+    await expect(
+      performDesktopComputerUse(
+        "computer_use_sequence",
+        {
+          actions: [
+            { action: "click", x: 30, y: 40 },
+            { action: "click", element_id: 1 },
+          ],
+        },
+        signal(),
+        backend,
+      ),
+    ).rejects.toThrow("Accessibility element IDs");
+    expect(backend.input).not.toHaveBeenCalled();
+    expect(backend.capture).not.toHaveBeenCalled();
+  });
+
+  for (const [tool, input] of [
+    ["computer_use_observe", { capture_window_id: 12 }],
+    ["computer_use_run_applescript", { script: "return 1" }],
+    ["computer_use_click", { x: 1600, y: 10 }],
+    ["computer_use_key", { key: "Return click 1" }],
+    ["computer_use_scroll", { direction: "down", amount: 100 }],
+  ] as const) {
+    test(`rejects unsupported input for ${tool} before acting`, async () => {
+      const backend = driver();
+      await expect(
+        performDesktopComputerUse(tool, input, signal(), backend),
+      ).rejects.toThrow();
+      expect(backend.input).not.toHaveBeenCalled();
+      expect(backend.capture).not.toHaveBeenCalled();
+    });
+  }
+
+  test("cancellation releases a held drag button and prevents capture", async () => {
+    const backend = driver();
+    const abort = new AbortController();
+    backend.input.mockImplementation(async (_args, actionSignal) => {
+      if (actionSignal) {
+        abort.abort();
+        actionSignal.throwIfAborted();
+      }
+    });
+    await expect(
+      performDesktopComputerUse(
+        "computer_use_drag",
+        {
+          x: 30,
+          y: 40,
+          to_x: 300,
+          to_y: 400,
+        },
+        abort.signal,
+        backend,
+      ),
+    ).rejects.toThrow();
+    expect(backend.input.mock.calls.at(-1)).toEqual([["mouseup", "1"]]);
+    expect(backend.capture).not.toHaveBeenCalled();
+  });
+
+  test("an already-cancelled request does not actuate or capture", async () => {
+    const backend = driver();
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      performDesktopComputerUse(
+        "computer_use_click",
+        { x: 30, y: 40 },
+        abort.signal,
+        backend,
+      ),
+    ).rejects.toThrow();
+    expect(backend.input).not.toHaveBeenCalled();
+    expect(backend.capture).not.toHaveBeenCalled();
+  });
+
+  test("uses the CU step budget and image result format and resets on done", async () => {
+    const proxy = new HostCuProxy(1);
+    const capture = driver().capture;
+    const execute = () => capture(signal());
+    const result = await proxy.executeLocal(
+      "computer_use_observe",
+      {},
+      execute,
+    );
+    expect(result.contentBlocks).toEqual([
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: "anBlZw==",
+        },
+      },
+    ]);
+    expect(result.content).toContain("1600x900 px");
+    expect(proxy.actionHistory).toHaveLength(1);
+    expect(
+      (await proxy.executeLocal("computer_use_click", { x: 1, y: 2 }, execute))
+        .isError,
+    ).toBe(true);
+    expect(capture).toHaveBeenCalledTimes(1);
+    proxy.endTask("conv-123");
+    expect(
+      (await proxy.executeLocal("computer_use_observe", {}, execute)).isError,
+    ).toBe(false);
+  });
+});

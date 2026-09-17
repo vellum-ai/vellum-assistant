@@ -35,3 +35,12 @@ Validation: focused client tests exercise shared snapshot/click behavior, namesp
 The desktop header icon pulses in the assistant's avatar accent color while a browser automation lease is active, including between browser commands. It shares the progress indicator's accent and neutral fallback. Reduced-motion clients show a solid accent. Setup status exposes the optional `automationActive` field; `desktop_activity_changed` events refresh it on acquisition and cancellation or release. Installation progress retains its `assistant:self:desktop` sync invalidations. The indicator reads status without starting installation, and reconnects refetch the current lease state.
 
 Desktop streaming checks the current in-memory gateway feature flags during connection startup. Once connected, frame and drain callbacks do not check feature flags or load workspace configuration. Turning the flag off prevents new connections; an existing stream continues until it closes or the desktop stops.
+
+## Computer use on the same desktop
+
+In eligible web conversations, the existing `computer-use` skill controls this
+same desktop by default. It returns full-screen screenshots and accepts screen
+coordinates for mouse actions. Browser commands and computer use share session
+ownership, cancellation, and the user-help reservation. Use browser commands for
+page-level operations and computer use for desktop UI. Native app conversations
+and explicit `target_client_id` requests retain the personal-computer path.

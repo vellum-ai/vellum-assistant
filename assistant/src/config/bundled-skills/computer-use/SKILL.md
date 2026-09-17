@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Control a connected desktop
+description: Control a connected or virtual desktop
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🖥️"
@@ -15,18 +15,32 @@ metadata:
       - "Task can be done via a more specific skill (gmail, calendar, contacts, terminal-sessions) or a CLI / API call"
 ---
 
-This skill provides the computer_use_* action tools for controlling a
-connected desktop. CU tools run through the main agent loop via HostCuProxy.
+This skill provides the computer_use_* action tools through the main agent
+loop and its shared computer-use history, step budget, and screenshot handling.
 
-The skill is internally preactivated for conversations with a connected desktop client.
+In web conversations on enabled platform-hosted assistants, untargeted actions
+control the streamed Virtual desktop. The skill is preactivated there and for
+conversations with a connected desktop client. Native app conversations retain
+their connected desktop target. Pass `target_client_id` to explicitly control
+a connected personal computer from the web.
 
-Tools in this skill are proxy tools. Execution is forwarded to a connected
-desktop client and is never handled locally by the assistant.
+## Virtual desktop
+
+Use `computer_use_observe` first. Every step returns a full desktop screenshot;
+there is no accessibility tree, so use screen coordinates from that screenshot.
+Click, type, key, scroll, drag, wait, and sequences share the browser automation
+session, cancellation, and user handoff. First use installs desktop components
+and starts the same desktop shown in the Virtual desktop panel.
+
+Use Linux shortcuts such as `ctrl+l`. Open apps through the dock or desktop UI;
+`open_app`, AppleScript, element IDs, and window-scoped capture are unavailable.
+Call `computer_use_done` when finished to release the session. Prefer
+`assistant browser` for browser tasks that do not need desktop interaction.
 
 ## Observations
 
-Every computer-use step returns the accessibility tree. Every action also
-returns a screenshot taken after it ran (one at the end of a
+On connected personal computers, every computer-use step returns the
+accessibility tree. Every action also returns a screenshot taken after it ran (one at the end of a
 `computer_use_sequence`), so check it to see what your action did. An
 observation comes with a screenshot on a desktop's first look, when it is
 window-scoped, or when you pass `include_screenshot: true`. Ask for one whenever

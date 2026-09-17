@@ -3,8 +3,7 @@
  *
  * These tools mirror the desktop client's computer-use schemas, prefixed
  * with `computer_use_` to avoid collisions with existing daemon tools.  They are all
- * proxy tools. Execution is forwarded to a connected desktop client and never
- * handled locally by the daemon.
+ * proxy tools routed to a connected client or the streamed virtual desktop.
  */
 
 import { RiskLevel } from "../../permissions/types.js";

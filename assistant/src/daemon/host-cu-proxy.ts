@@ -597,6 +597,30 @@ export class HostCuProxy {
     return result;
   }
 
+  /** Run a screenshot-only backend through the shared CU budget and formatter. */
+  async executeLocal(
+    toolName: string,
+    input: Record<string, unknown>,
+    execute: () => Promise<CuObservationResult>,
+  ): Promise<ToolExecutionResult> {
+    if (this._stepCount >= this._maxSteps) {
+      return {
+        content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
+        isError: true,
+      };
+    }
+    const reasoning =
+      typeof input.reasoning === "string" ? input.reasoning : undefined;
+    this.recordAction(toolName, input, reasoning);
+    this._previousAXTree = undefined;
+    this._consecutiveUnchangedSteps = 0;
+    const observation = await execute();
+    return this.formatObservation(observation, undefined, false, {
+      toolName,
+      input,
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // CU state management
   // ---------------------------------------------------------------------------

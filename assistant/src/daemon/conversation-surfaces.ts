@@ -28,6 +28,8 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import { executeDesktopComputerUse } from "../desktop/desktop-computer-use.js";
+import { shouldUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -70,7 +72,7 @@ import {
   type SurfaceShowPair,
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
-import type { HostCuProxy } from "./host-cu-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
@@ -92,6 +94,7 @@ import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
 import { turnActorPrincipalId } from "./turn-actor.js";
+import { virtualDesktopContext } from "./virtual-desktop-context.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -3161,6 +3164,22 @@ export async function surfaceProxyResolver(
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
+    const desktopContext = virtualDesktopContext(ctx, signal);
+    if (
+      toolName !== POINT_AT_PROXY_TOOL &&
+      !input.target_client_id &&
+      shouldUseVirtualDesktop(desktopContext)
+    ) {
+      if (!ctx.hostCuProxy) {
+        ctx.setHostCuProxy(new HostCuProxy());
+      }
+      return executeDesktopComputerUse(
+        toolName,
+        input,
+        desktopContext,
+        ctx.hostCuProxy!,
+      );
+    }
     const hostCuProxy = ensureHostCuProxy(ctx);
     if (!hostCuProxy || !hostCuProxy.isAvailable()) {
       return {
