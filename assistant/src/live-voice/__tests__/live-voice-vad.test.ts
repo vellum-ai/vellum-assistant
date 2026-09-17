@@ -666,45 +666,50 @@ describe("LiveVoiceSession subagent outcomes", () => {
     }
   });
 
-  test("a barge-in retains both outcomes without spawning another worker", async () => {
-    const calls: VoiceTurnOptions[] = [];
-    const spawnBackgroundContinuation = mock(
-      async () => "unexpected continuation",
-    );
-    const { session, frames } = createHarness({
-      finals: ["what does this setting mean"],
-      continuationAnnounceSilenceMs: 10,
-      streamTtsAudio: immediateTts(),
-      spawnBackgroundContinuation,
-      startVoiceTurn: async (turn) => {
-        calls.push(turn);
-        if (calls.length > 1) {
-          turn.callbacks?.assistant_text_delta?.(
-            makeTextDelta("Here is the answer."),
-          );
-          turn.callbacks?.message_complete?.(makeMessageComplete());
-        }
-        return { turnId: `turn-${calls.length}`, abort: mock() };
-      },
-    });
-    await session.start();
-    try {
-      session.receiveSubagentNotification(outcome("task-1"));
-      session.receiveSubagentNotification(outcome("task-2"));
-      await waitFor(() => calls.length === 1);
-      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
-      await waitFor(() => countType(frames, "tts_done") === 3);
-      expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
-        "task-1",
-        undefined,
-        "task-1",
-        "task-2",
-      ]);
-      expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
-    } finally {
-      await session.close("client_end");
-    }
-  });
+  test.each(["what does this setting mean", ""])(
+    "a barge-in (%j) retains both outcomes without spawning another worker",
+    async (utterance) => {
+      const calls: VoiceTurnOptions[] = [];
+      const spawnBackgroundContinuation = mock(
+        async () => "unexpected continuation",
+      );
+      const { session, frames } = createHarness({
+        finals: [utterance],
+        continuationAnnounceSilenceMs: 10,
+        streamTtsAudio: immediateTts(),
+        spawnBackgroundContinuation,
+        startVoiceTurn: async (turn) => {
+          calls.push(turn);
+          if (calls.length > 1) {
+            turn.callbacks?.assistant_text_delta?.(
+              makeTextDelta("Here is the answer."),
+            );
+            turn.callbacks?.message_complete?.(makeMessageComplete());
+          }
+          return { turnId: `turn-${calls.length}`, abort: mock() };
+        },
+      });
+      await session.start();
+      try {
+        session.receiveSubagentNotification(outcome("task-1"));
+        session.receiveSubagentNotification(outcome("task-2"));
+        await waitFor(() => calls.length === 1);
+        await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+        await waitFor(
+          () => countType(frames, "tts_done") === (utterance ? 3 : 2),
+        );
+        expect(calls.map((call) => call.subagentNotification?.taskId)).toEqual([
+          "task-1",
+          ...(utterance ? [undefined] : []),
+          "task-1",
+          "task-2",
+        ]);
+        expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+      } finally {
+        await session.close("client_end");
+      }
+    },
+  );
 
   test("hang-up returns every undelivered outcome with its metadata and attribution", async () => {
     const { session } = createHarness({ continuationAnnounceSilenceMs: 1_000 });

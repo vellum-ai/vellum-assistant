@@ -2270,6 +2270,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // server_vad capability; manual sessions keep single-utterance semantics
   // (no speculative post-turn transcriber).
   private scheduleRearmAfterTurn(): void {
+    this.scheduleSubagentAnnouncement();
     if (!this.turnDetector) {
       return;
     }
