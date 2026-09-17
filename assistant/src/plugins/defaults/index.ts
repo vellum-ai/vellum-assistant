@@ -78,6 +78,9 @@ import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hook
 import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
 import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
 import surfaceCompletionNudgePkg from "./surface-completion-nudge/package.json" with { type: "json" };
+import taskProgressContextPostCompact from "./task-progress-context/hooks/post-compact.js";
+import taskProgressContextUserPromptSubmit from "./task-progress-context/hooks/user-prompt-submit.js";
+import taskProgressContextPkg from "./task-progress-context/package.json" with { type: "json" };
 import taskProgressNudgePostToolUse, {
   resetTaskProgressNudgeStateForTests,
 } from "./task-progress-nudge/hooks/post-tool-use.js";
@@ -372,6 +375,26 @@ export const defaultExplorationDriftPlugin: Plugin = {
 };
 
 /**
+ * `task-progress-context`: a `user-prompt-submit` and `post-compact` hook
+ * pair that injects a compact provider-only snapshot of active
+ * `task_progress` cards. Reads canonical conversation surface state through
+ * the supported plugin API. Owns no durable state. Registered after
+ * `empty-response` so memory/runtime injection and refusal quarantine settle
+ * first. Built-in history repair still runs after the user-prompt hook chain.
+ * The snapshot is small enough to re-apply in minimal injection mode.
+ */
+export const defaultTaskProgressContextPlugin: Plugin = {
+  manifest: {
+    name: taskProgressContextPkg.name,
+    version: taskProgressContextPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": taskProgressContextUserPromptSubmit,
+    "post-compact": taskProgressContextPostCompact,
+  },
+};
+
+/**
  * `task-progress-nudge` — a `post-tool-use` hook that nudges the model to show
  * a `task_progress` card once an interactive turn has accumulated several
  * tool-call rounds without one. Best-effort and once-per-turn; capable models
@@ -440,6 +463,7 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
+    defaultTaskProgressContextPlugin,
     defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
