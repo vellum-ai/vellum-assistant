@@ -273,6 +273,15 @@ export function IntegrationConnectModal({
     setView({ kind: "connect", methodId: plan.primary.id });
   }
 
+  // Disconnecting an MCP row uninstalls the plugin that declared the server,
+  // and a plugin can declare several. The confirmation has to name what is
+  // really going, not only the row the menu was opened on.
+  const pluginServerCount = confirming?.pluginName
+    ? connections.filter(
+        (candidate) => candidate.pluginName === confirming.pluginName,
+      ).length
+    : 0;
+
   const toolsConnection =
     view.kind === "tools"
       ? connections.find((candidate) => candidate.id === view.connectionId)
@@ -379,11 +388,26 @@ export function IntegrationConnectModal({
       <ConfirmDialog
         open={confirming !== null}
         destructive
-        title={t("integrationConnect.removeTitle", {
-          label: confirming ? connectionTitle(confirming) : "",
-        })}
-        message={t("integrationConnect.removeMessage")}
-        confirmLabel={t("integrationConnect.remove")}
+        title={
+          pluginServerCount > 1
+            ? t("integrationConnect.disconnectTitlePlugin", { name: plan.name })
+            : t("integrationConnect.disconnectTitle", {
+                label: confirming ? connectionTitle(confirming) : "",
+              })
+        }
+        message={
+          confirming && isMcpMethodKind(confirming.methodKind)
+            ? pluginServerCount > 1
+              ? t("integrationConnect.disconnectMessagePlugin", {
+                  name: plan.name,
+                  count: pluginServerCount,
+                })
+              : t("integrationConnect.disconnectMessageMcp", {
+                  name: plan.name,
+                })
+            : t("integrationConnect.disconnectMessageManaged")
+        }
+        confirmLabel={t("integrationConnect.disconnect")}
         cancelLabel={t("integrationConnect.cancel")}
         onConfirm={() => {
           if (confirming) {

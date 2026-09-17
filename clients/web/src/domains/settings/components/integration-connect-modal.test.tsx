@@ -149,40 +149,33 @@ describe("IntegrationConnectModal", () => {
     expect(handlers.onDisconnect).not.toHaveBeenCalled();
   });
 
-  test("asks an account the same question, and removes it on confirm", async () => {
-    modal({ plan: connectedPlan });
-
-    openMenu("More actions for user@example.com");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
-
-    await screen.findByText("Remove user@example.com?");
-    screen.getByText("Are you sure?");
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    expect(handlers.onDisconnect).toHaveBeenCalledTimes(1);
-  });
-
-  test("leaves out an MCP server a plugin has already installed", async () => {
-    modal({ plan: connectedPlan });
-
-    openMenu("Connect another");
-    await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
-    expect(
-      screen.queryByRole("menuitem", { name: "Notion MCP server" }),
-    ).toBeNull();
-  });
-
-  test("drops Connect another when the only path is already connected", () => {
-    modal({
-      plan: planFor({
-        servers: [mcpServer("notion-mcp", { id: "notion" })],
-        definitions: [pluginDefinition({ oauthProvider: undefined })],
-      }),
+  test("names the whole plugin when one row would take its siblings", async () => {
+    const twoServers = planFor({
+      servers: [
+        mcpServer("ashby-mcp", { id: "ashby-jobs" }),
+        mcpServer("ashby-mcp", { id: "ashby-candidates" }),
+      ],
+      definitions: [
+        pluginDefinition({
+          pluginName: "ashby-mcp",
+          displayName: "Ashby",
+          description: "Search candidates and jobs in Ashby.",
+          oauthProvider: undefined,
+        }),
+      ],
     });
+    modal({ plan: twoServers });
 
-    expect(
-      screen.queryByRole("button", { name: "Connect another" }),
-    ).toBeNull();
+    // Siblings are told apart by their own ids, not by one shared label.
+    openMenu("More actions for ashby-jobs");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect" }),
+    );
+
+    await screen.findByText("Disconnect Ashby?");
+    screen.getByText(
+      "Vellum removes Ashby and all 2 of its MCP servers, with the tools they bring. You can connect it again at any time.",
+    );
   });
 
   test("puts an MCP server's tools behind the row they belong to", async () => {

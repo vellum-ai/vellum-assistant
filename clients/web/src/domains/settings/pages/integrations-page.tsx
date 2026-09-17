@@ -151,8 +151,18 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const startLogin = useCallback(() => void login(), [login]);
 
   const dismissConnectModal = connect.closeModal;
+  const cancelAttempt = connect.cancel;
+  const connectingItemId = connect.attemptItemId;
+  const modalItemId = connect.modal?.itemId ?? null;
   const setToolsServerId = mcp.setToolsServerId;
   const closeConnectModal = useCallback(() => {
+    // Closing the dialog abandons the sign-in it was reporting. For a
+    // connected integration the dialog is the only surface that draws one, so
+    // leaving it running would hold every other connect action against a wait
+    // with nothing to show it or stop it.
+    if (modalItemId !== null && connectingItemId === modalItemId) {
+      cancelAttempt();
+    }
     dismissConnectModal();
     setToolsServerId(null);
     if (!searchParams.has("provider")) {
@@ -161,7 +171,15 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("provider");
     setSearchParams(nextSearchParams, { replace: true });
-  }, [dismissConnectModal, searchParams, setSearchParams, setToolsServerId]);
+  }, [
+    cancelAttempt,
+    connectingItemId,
+    dismissConnectModal,
+    modalItemId,
+    searchParams,
+    setSearchParams,
+    setToolsServerId,
+  ]);
 
   const {
     platformAssistantId,
@@ -244,7 +262,6 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     () => filterIntegrationItems(allItems, searchText),
     [allItems, searchText],
   );
-  const connectingItemId = connect.attemptItemId;
   // Every way each integration connects, connected or not: the same plan
   // drives the tile that offers a first connection and the dialog that
   // manages the ones an integration already has.

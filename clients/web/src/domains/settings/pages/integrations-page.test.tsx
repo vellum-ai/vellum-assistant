@@ -978,6 +978,34 @@ describe("IntegrationsPage", () => {
     await settle();
   });
 
+  test("closing the dialog gives up the sign-in it was reporting", async () => {
+    seededProviders = [provider()];
+    seededConnections = [connection({ status: "ERROR", connected: false })];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Notion" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(managedConnect).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Nothing is left holding the other integrations against a wait that has
+    // no surface to report it.
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Add custom integration",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    screen.getByRole("heading", { name: /Your integrations/ });
+    expect(screen.queryByRole("heading", { name: /Available/ })).toBeNull();
+    await settle();
+  });
+
   test("tools and details lists what an MCP server brings", async () => {
     seededCatalog = [catalogMatch()];
     seededPlugins = [installedPlugin()];

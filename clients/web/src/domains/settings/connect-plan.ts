@@ -116,13 +116,17 @@ function mcpConnections(
   methodId: string,
   kind: ConnectMethodKind,
 ): ConnectionSummary[] {
+  // One server speaks for the whole integration, so it is named after it.
+  // Several have to be told apart, and the server's own id is the name the
+  // rest of the app already shows for it.
+  const several = method.servers.length > 1;
   return method.servers.map((server) => {
     const status = mcpConnectionStatus(server);
     return {
       id: `mcp:${server.id}`,
       methodId,
       methodKind: kind,
-      label: null,
+      label: several ? server.id : null,
       detail: integrationHostname(server),
       status,
       pluginName: server.pluginName,
