@@ -21,6 +21,8 @@ import { usePortalContainer } from "../utils/portal-container";
  */
 const BottomSheetContext = createContext<{
   open?: boolean;
+  /** Radix's own default, and what decides whether a backdrop exists at all. */
+  modal?: boolean;
   onOpenChange?: (open: boolean) => void;
 }>({});
 
@@ -54,6 +56,7 @@ const BottomSheetContext = createContext<{
 function Root({
   open: controlledOpen,
   defaultOpen = false,
+  modal = true,
   onOpenChange,
   ...props
 }: ComponentProps<typeof Dialog.Root>) {
@@ -69,8 +72,8 @@ function Root({
     onOpenChange?.(next);
   };
   return (
-    <BottomSheetContext value={{ open, onOpenChange: setOpen }}>
-      <Dialog.Root open={open} onOpenChange={setOpen} {...props} />
+    <BottomSheetContext value={{ open, modal, onOpenChange: setOpen }}>
+      <Dialog.Root open={open} modal={modal} onOpenChange={setOpen} {...props} />
     </BottomSheetContext>
   );
 }
@@ -106,12 +109,13 @@ function Content({
   className,
   padded = true,
   children,
+  onInteractOutside,
   ref,
   style,
   ...props
 }: BottomSheetContentProps) {
   const container = usePortalContainer();
-  const { open, onOpenChange } = useContext(BottomSheetContext);
+  const { open, modal, onOpenChange } = useContext(BottomSheetContext);
   const dismiss = useOverlayDismiss({
     onDismiss: () => onOpenChange?.(false),
   });
@@ -127,6 +131,21 @@ function Content({
         ref={ref}
         data-slot="bottom-sheet-content"
         data-variant={variant}
+        // A modal sheet's backdrop covers the viewport, so a press outside the
+        // sheet is a press on the backdrop, and the overlay already reports
+        // that one. Leaving Radix's outside-dismissal on as well closes the
+        // sheet twice for one tap, and gives it a second way out that cannot
+        // see the gesture behind: the check runs on the click, after React has
+        // flushed, so a menu or dialog that closed on the same press is gone
+        // by then and its press reads as a press outside the sheet. A
+        // non-modal sheet has no backdrop, so there Radix stays the only
+        // owner.
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (modal) {
+            event.preventDefault();
+          }
+        }}
         inert={variant === "detail" && !open ? true : undefined}
         style={
           variant === "detail" ? { pointerEvents: "none", ...style } : style
