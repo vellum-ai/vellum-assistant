@@ -14,6 +14,7 @@ export const CALL_OPENING_ACK_MARKER = "[CALL_OPENING_ACK]";
 export const CALL_VERIFICATION_COMPLETE_MARKER = "[CALL_VERIFICATION_COMPLETE]";
 export const END_CALL_MARKER = "[END_CALL]";
 export const TASK_STOP_MARKER = "[TASK:STOP]";
+export const TASK_UPDATE_SILENT_MARKER = "[TASK_UPDATE:SILENT]";
 
 /**
  * Verdict tokens for the fast "front-door" model (triage-and-escalate voice
@@ -220,6 +221,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(CALL_OPENING_ACK_MARKER_REGEX, "")
     .replace(END_CALL_MARKER_REGEX, "")
     .replace(TASK_STOP_MARKER_REGEX, "")
+    .replaceAll(TASK_UPDATE_SILENT_MARKER, "")
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
     .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
@@ -249,6 +251,7 @@ const CONTROL_MARKER_STRINGS = [
   "[CALL_OPENING_ACK]",
   "[END_CALL]",
   TASK_STOP_MARKER,
+  TASK_UPDATE_SILENT_MARKER,
   "[0]",
   "[1]",
   "[-1]",
@@ -435,6 +438,9 @@ export function parseTerminalSessionControl(
  */
 export function terminalControlMarkerLength(text: string): number {
   const trimmed = text.trimEnd();
+  if (trimmed.endsWith(TASK_UPDATE_SILENT_MARKER)) {
+    return TASK_UPDATE_SILENT_MARKER.length;
+  }
   if (trimmed.endsWith(MINIMIZE_ROOM_MARKER)) {
     return MINIMIZE_ROOM_MARKER.length;
   }

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
 import type { VoiceProgressNarrator } from "../../calls/progress-narration.js";
+import { TASK_UPDATE_SILENT_MARKER } from "../../calls/voice-control-protocol.js";
 import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
@@ -637,6 +638,63 @@ describe("LiveVoiceSession subagent outcomes", () => {
       await session.close("client_end");
     }
     expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
+  test("silently consumes a redundant update and still speaks the next useful result", async () => {
+    const { calls, startVoiceTurn } = makeAutoCompletingTurnStarter([
+      TASK_UPDATE_SILENT_MARKER,
+      "The export is ready.",
+    ]);
+    const { session, frames } = createHarness({
+      startVoiceTurn,
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 10,
+    });
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1", "running"));
+      await waitFor(() => countType(frames, "tts_done") === 1);
+      expect(countType(frames, "tts_audio")).toBe(0);
+      expect(countType(frames, "assistant_text_delta")).toBe(0);
+      session.receiveSubagentNotification(outcome("task-2"));
+      await waitFor(() => countType(frames, "tts_done") === 2);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(calls).toHaveLength(2);
+      expect(countType(frames, "tts_audio")).toBe(1);
+    } finally {
+      await session.close("client_end");
+    }
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
+  test("an interrupted silent decision leaves the update pending", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const { session } = createHarness({
+      startVoiceTurn: async (turn) => {
+        callbacks = turn.callbacks;
+        return { turnId: "turn-1", abort: mock() };
+      },
+      streamTtsAudio: immediateTts(),
+      continuationAnnounceSilenceMs: 10,
+    });
+    const first = outcome("task-1");
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.start();
+    session.receiveSubagentNotification(first);
+    await waitFor(() => callbacks !== undefined);
+    callbacks?.assistant_text_delta?.(makeTextDelta(TASK_UPDATE_SILENT_MARKER));
+    await session.handleClientFrame({ type: "interrupt" });
+    callbacks?.message_complete?.(makeMessageComplete());
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+      [
+        "conversation-123",
+        first.message,
+        first.metadata,
+        { cronRunId: "run-123", bypassLiveVoice: true },
+      ],
+    ]);
   });
 
   test("waits through user speech and the current reply before announcing", async () => {

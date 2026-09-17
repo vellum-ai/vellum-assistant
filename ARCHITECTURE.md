@@ -780,9 +780,11 @@ attribution and playback semantics.
 flowchart LR
     Worker[Subagent update] --> Router[Parent notification router]
     Router -->|Matching live call| Queue[Per-task voice queue]
-    Router -->|No matching call| Parent[Conversation turn]
-    Queue -->|Floor available| Voice[Hidden voice turn and TTS]
-    Queue -->|Hang-up| Parent
+    Router -->|No matching call| Parent[Parent conversation queue]
+    Queue -->|Floor available| Voice[Hidden voice turn]
+    Voice -->|Useful new outcome| Speech[Paced TTS]
+    Voice -->|Silent acknowledgement| Done[Update consumed]
+    Queue -->|Hang-up after teardown| Parent
 ```
 
 ## Watch Sessions

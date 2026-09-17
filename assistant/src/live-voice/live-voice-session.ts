@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   type BargeInGuard,
@@ -26,6 +27,7 @@ import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
   createControlMarkerHoldback,
   TASK_STOP_MARKER,
+  TASK_UPDATE_SILENT_MARKER,
 } from "../calls/voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
@@ -265,6 +267,7 @@ const PROVIDER_TURN_END_FALLBACK_MARGIN_MS = 1_000;
 // a segment is at most ~180 chars of speech (~10 s of 24 kHz mono PCM
 // ≈ 480 KB), so one buffered segment is an acceptable bound.
 const TTS_MAX_OPEN_SYNTHESIS_JOBS = 2;
+const TTS_MAX_PLAYBACK_LEAD_MS = 500;
 // Audible silence required before a finished background continuation's result
 // is spoken into a live call. Long enough that the announcement lands in a real
 // lull rather than on the heels of the turn that just ended; short enough that
@@ -733,6 +736,7 @@ interface ActiveAssistantTurn {
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
   subagentNotification: SubagentParentNotification | null;
+  notificationHandledSilently: boolean;
   // Set only on the turn that answers a look: which look it answers. The turn
   // has no user utterance behind it; the instruction rides the control prompt
   // (lookFollowUpNote).
@@ -983,8 +987,7 @@ function buildVoiceControlPrompt(
     )}`;
   }
   if (turn.subagentNotification !== null) {
-    prompt +=
-      "\n\nThis turn is an internal background task update, not new words from the user. Its audible delivery is still pending; an earlier attempt may have been interrupted before it was heard. Use the latest conversation context to briefly tell the user the substantive outcome or what is blocked, out loud. If they already acknowledged the outcome or no longer want it, do not repeat it. Respect instructions to use findings internally; do not read worker status or raw output aloud, revive cancelled work, or repeat completed actions.";
+    prompt += `\n\nThis turn is an internal background task update, not new words from the user. An earlier announcement may have been interrupted before it was heard. Use the latest conversation context to decide whether it adds something worth telling the user now. For routine progress, already-heard findings, cancelled work, or findings meant only for internal use, output only ${TASK_UPDATE_SILENT_MARKER}. Otherwise briefly speak the useful new outcome or blocker first, before optional tool calls or a visual summary. Include only what changed since the last announcement; do not just announce completion, read raw worker status, or repeat completed actions.`;
   }
   return prompt;
 }
@@ -5877,6 +5880,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
       subagentNotification: opts?.subagentNotification ?? null,
+      notificationHandledSilently: false,
       lookFollowUp: opts?.lookFollowUp ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
       foregroundTaskEpoch,
@@ -6272,6 +6276,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // or the escalated leg. A handed-off front-door leg returned
             // above, so its holding phrase can never end a call.
             if (msg.type === "message_complete") {
+              current.notificationHandledSilently =
+                current.subagentNotification !== null &&
+                rawText.trim() === TASK_UPDATE_SILENT_MARKER;
               const request = requestedSessionControl(
                 rawText,
                 this.sessionControls,
@@ -7026,6 +7033,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     activeTurn.assistantAudioMimeType = chunk.contentType;
     activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
+      // Pace audio before entering the shared outbound queue so control frames
+      // and cancellation remain immediate while prefetched speech waits.
+      const leadMs = this.assistantPlaybackTailUntilMs - Date.now();
+      if (
+        leadMs > TTS_MAX_PLAYBACK_LEAD_MS &&
+        !activeTurn.abortController.signal.aborted
+      ) {
+        try {
+          await delay(leadMs - TTS_MAX_PLAYBACK_LEAD_MS, undefined, {
+            signal: activeTurn.abortController.signal,
+          });
+        } catch (error) {
+          if (activeTurn.abortController.signal.aborted) {
+            return;
+          }
+          throw error;
+        }
+      }
       const sent = await this.sendFrame(
         {
           type: "tts_audio",
@@ -7319,11 +7344,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (
         status === "completed" &&
         !turn.ttsFailed &&
-        turn.ttsJobs.some((job) => job.isReply && job.audioSent)
+        (turn.notificationHandledSilently ||
+          turn.ttsJobs.some((job) => job.isReply && job.audioSent))
       ) {
         this.subagentNotifications.finish(
           turn.subagentNotification,
-          this.assistantPlaybackTailUntilMs,
+          turn.notificationHandledSilently
+            ? Date.now()
+            : this.assistantPlaybackTailUntilMs,
         );
       } else if (reason !== "barge_in") {
         this.subagentAnnouncementsDeferred = true;
