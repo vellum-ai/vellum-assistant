@@ -1189,8 +1189,7 @@ export class Conversation {
         canSpawnSubagents: canSpawnSubagentsForTurn(this),
         channelCapabilities: this.currentTurnChannelCapabilities,
       });
-    this.renderedDelegateIndependentTasks = delegateIndependentTasks;
-    return buildSystemPrompt({
+    const prompt = buildSystemPrompt({
       hasNoClient: this.hasNoClient,
       trustContext: this.currentTurnTrustContext,
       channelCapabilities: this.currentTurnChannelCapabilities,
@@ -1200,6 +1199,11 @@ export class Conversation {
       sendUserMessageTool: resolveSendUserMessageActive(this),
       delegateIndependentTasks,
     });
+    // Recorded only once the build succeeds: a wake's prompt sync swallows a
+    // failed rebuild and runs on the previous prompt, whose state must stay
+    // the recorded one.
+    this.renderedDelegateIndependentTasks = delegateIndependentTasks;
+    return prompt;
   }
 
   /**
