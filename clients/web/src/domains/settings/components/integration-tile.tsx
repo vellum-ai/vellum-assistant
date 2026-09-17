@@ -49,6 +49,12 @@ export type TileConnectState =
       phase: "failed";
       /** The provider's own words. Shown only while they stay one line. */
       error: string;
+      /**
+       * The method that failed. "Try another way" offers every other method
+       * the plan carries, so the way out of a failed alternative includes the
+       * recommended path the user skipped to get here.
+       */
+      methodId: string;
       methodKind: ConnectMethodKind;
       setupGuideUrl?: string;
     };
@@ -175,29 +181,41 @@ export function IntegrationTile({
     connectButton
   );
 
-  const alternativesMenu =
-    plan.alternatives.length > 0 ? (
-      <ActionMenu.Root>
-        <ActionMenu.Trigger asChild>
-          <Button variant="ghost" size="compact" rightIcon={<ChevronDown />}>
-            {t("integrationTile.tryAnother")}
-          </Button>
-        </ActionMenu.Trigger>
-        <ActionMenu.Content
-          title={t("integrationTile.tryAnotherLabel", { name: plan.name })}
-        >
-          {methodItems(plan.alternatives)}
-        </ActionMenu.Content>
-      </ActionMenu.Root>
-    ) : null;
-
   let footer: ReactNode = null;
   if (state.phase === "failed") {
+    // Every way in but the one that just failed. The method that failed can
+    // be an alternative the user picked, so the menu has to be able to offer
+    // the recommended path they skipped to get here, which `plan.alternatives`
+    // by itself never contains.
+    const otherMethods = planMethods(plan).filter(
+      (method) => method.id !== state.methodId,
+    );
     footer = (
       <FailureLine
         name={plan.name}
         state={state}
-        menu={alternativesMenu}
+        menu={
+          otherMethods.length > 0 ? (
+            <ActionMenu.Root>
+              <ActionMenu.Trigger asChild>
+                <Button
+                  variant="ghost"
+                  size="compact"
+                  rightIcon={<ChevronDown />}
+                >
+                  {t("integrationTile.tryAnother")}
+                </Button>
+              </ActionMenu.Trigger>
+              <ActionMenu.Content
+                title={t("integrationTile.tryAnotherLabel", {
+                  name: plan.name,
+                })}
+              >
+                {methodItems(otherMethods)}
+              </ActionMenu.Content>
+            </ActionMenu.Root>
+          ) : null
+        }
         onOpenSetupGuide={onOpenSetupGuide}
       />
     );

@@ -903,6 +903,7 @@
     "yourOwnTab": "您的"
   },
   "integrationRow": {
+    "configureLabel": "設定 {name}",
     "connect": "連線",
     "connected": "已連線",
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
@@ -1077,6 +1078,7 @@
   "mcpServerCard": {
     "actionsSheetClose": "關閉",
     "configure": "設定",
+    "configureLabel": "設定 {serverId}",
     "connecting": "正在連線...",
     "finishConnecting": "完成連線",
     "managePlugin": "管理外掛",

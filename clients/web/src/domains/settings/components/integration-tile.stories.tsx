@@ -26,6 +26,7 @@ const selfHostedNotionPlan = planFor({
 const mcpFailure: TileConnectState = {
   phase: "failed",
   error: "Linear rejected the sign-in.",
+  methodId: linearMcpPlan.primary.id,
   methodKind: linearMcpPlan.primary.kind,
   setupGuideUrl: linearMcpPlan.primary.setupGuideUrl,
 };
@@ -164,6 +165,7 @@ export const FailedManaged: Story = {
     state: {
       phase: "failed",
       error: "Google did not return an account.",
+      methodId: googlePlan.primary.id,
       methodKind: "managed-oauth",
     },
   },

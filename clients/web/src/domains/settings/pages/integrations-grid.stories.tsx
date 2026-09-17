@@ -43,6 +43,7 @@ const dropboxPlan = planFor({
 const mcpFailure: TileConnectState = {
   phase: "failed",
   error: "Linear rejected the sign-in.",
+  methodId: linearMcpPlan.primary.id,
   methodKind: linearMcpPlan.primary.kind,
   setupGuideUrl: linearMcpPlan.primary.setupGuideUrl,
 };

@@ -84,6 +84,40 @@ describe("IntegrationTile", () => {
     }
   });
 
+  test("offers the way back to the recommended path when an alternative fails", async () => {
+    const plan = planFor({
+      providers: [NOTION_PROVIDER],
+      definitions: [pluginDefinition()],
+      ownOAuthAvailable: true,
+    });
+    // The managed sign-in is an alternative here: the provider's own MCP
+    // server leads. Failing it must not strand the user on the two ways in
+    // that are left.
+    const failed = plan.alternatives.find(
+      (method) => method.kind === "managed-oauth",
+    );
+    if (!failed) {
+      throw new Error("expected a managed alternative in the fixture plan");
+    }
+    tile({
+      plan,
+      showAlternatives: true,
+      state: {
+        phase: "failed",
+        error: "Notion rejected the sign-in.",
+        methodId: failed.id,
+        methodKind: failed.kind,
+      },
+    });
+
+    openMenu("Try another way");
+    await screen.findByRole("menuitem", { name: "Notion MCP server" });
+    await screen.findByRole("menuitem", { name: "Use your own OAuth app" });
+    expect(
+      screen.queryByRole("menuitem", { name: "Sign in through Vellum" }),
+    ).toBeNull();
+  });
+
   test("sends a connect with no platform session to the login flow", () => {
     tile({
       plan: planFor({
@@ -120,6 +154,7 @@ describe("IntegrationTile", () => {
       state: {
         phase: "failed",
         error: "Linear rejected the sign-in.",
+        methodId: linearMcpPlan.primary.id,
         methodKind: "mcp-oauth",
         setupGuideUrl: "https://example.com/docs/linear-mcp",
       },
@@ -140,6 +175,7 @@ describe("IntegrationTile", () => {
       state: {
         phase: "failed",
         error: "Google did not return an account.",
+        methodId: googlePlan.primary.id,
         methodKind: "managed-oauth",
       },
     });
