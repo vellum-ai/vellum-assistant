@@ -16,10 +16,7 @@ import {
 } from "../../acp/acp-credentials.js";
 import {
   getPlatformAssistantId,
-  setPlatformAssistantId,
   setPlatformBaseUrl,
-  setPlatformOrganizationId,
-  setPlatformUserId,
 } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
@@ -41,6 +38,7 @@ import {
   refreshProvidersAfterSecretChange,
   refreshProvidersForRotatedCredential,
 } from "../../providers/inference/credential-rotation.js";
+import { validateJevApiKey } from "../../providers/jev/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
 import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
@@ -78,6 +76,48 @@ const log = getLogger("runtime-http");
 
 const CES_READY_POLL_INTERVAL_MS = 500;
 const CES_READY_POLL_TIMEOUT_MS = 30_000;
+
+const WRITABLE_VELLUM_CREDENTIAL_FIELDS = [
+  "assistant_api_key",
+  "webhook_secret",
+  "platform_base_url",
+] as const;
+
+function isWritableVellumCredentialField(field: string): boolean {
+  return (WRITABLE_VELLUM_CREDENTIAL_FIELDS as readonly string[]).includes(
+    field,
+  );
+}
+
+async function persistCredential(
+  service: string,
+  field: string,
+  value: string,
+): Promise<void> {
+  const key = credentialKey(service, field);
+  const stored = await setSecureKeyAsync(key, value);
+  if (!stored) {
+    throw new InternalError(
+      `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
+    );
+  }
+  if (!isNonSecretPlatformField(service, field)) {
+    try {
+      const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+      log.info(
+        { service, field, ...scrubbed },
+        "Credential stored; scrubbed value from recent transcripts",
+      );
+    } catch (err) {
+      log.warn(
+        { err, service, field },
+        "Credential stored, but transcript scrub failed",
+      );
+    }
+  }
+  upsertCredentialMetadata(service, field, {});
+  await syncManualTokenConnection(service);
+}
 
 let apiKeyGeneration = 0;
 
@@ -263,6 +303,15 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "jev") {
+        const validation = await validateJevApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -307,9 +356,49 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
         );
       }
-      assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      if (service === "vellum") {
+        if (!isWritableVellumCredentialField(field)) {
+          throw new BadRequestError(
+            `Unknown vellum credential: ${field}. Allowed fields: ${WRITABLE_VELLUM_CREDENTIAL_FIELDS.join(", ")}`,
+          );
+        }
+        assertMetadataWritable();
+        await persistCredential(service, field, value);
+        if (field === "platform_base_url") {
+          setPlatformBaseUrl(value);
+        }
+        if (isPlatformManagedCredential(service, field)) {
+          await refreshProvidersAfterSecretChange();
+          // Close the first-boot race where the startup capability seed ran before
+          // the managed embedding credential was provisioned, leaving skill/CLI
+          // pages unseeded until restart. Detached, must not block the response.
+          void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
+          if (field === "assistant_api_key") {
+            await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
+          }
+        } else {
+          await refreshProvidersForRotatedCredential(service, field);
+        }
+        if (field === "assistant_api_key" || field === "platform_base_url") {
+          // Managed-speech availability needs the API key, the assistant ID,
+          // and the base URL. Fire on each write that completes a piece of
+          // that set; the hook no-ops until the connection is complete.
+          // Detached, must not block the response.
+          void maybeDefaultSpeechToManaged();
+          // Same last-write-wins shape: the startup syncs no-op before live
+          // registration, so re-enqueue them here. Both dedup and no-op until
+          // the client and assistant id exist.
+          syncWorkspaceIdentityToPlatform();
+          syncAvatarToPlatform();
+        }
+        log.info({ service, field }, "Credential added via HTTP");
+        return { success: true, type, name };
+      }
+
+      assertMetadataWritable();
 
       // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
       // footgun) as a 400 rather than letting it persist and fail at runtime.
@@ -324,104 +413,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
       }
 
-      const key = credentialKey(service, field);
-
-      const TRIMMED_IDENTITY_FIELDS = new Set([
-        "platform_assistant_id",
-        "platform_organization_id",
-        "platform_user_id",
-      ]);
-      const isTrimmedIdentity =
-        service === "vellum" && TRIMMED_IDENTITY_FIELDS.has(field);
-      const effectiveValue = isTrimmedIdentity ? value.trim() : value;
-
-      if (isTrimmedIdentity && effectiveValue === "") {
-        const deleteResult = await deleteSecureKeyAsync(key);
-        if (deleteResult === "error") {
-          throw new InternalError(
-            `Failed to delete stale credential from secure storage: ${service}:${field}`,
-          );
-        }
-        if (field === "platform_assistant_id") {
-          setPlatformAssistantId(undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(undefined);
-        }
-        deleteCredentialMetadata(service, field);
-      } else {
-        const stored = await setSecureKeyAsync(key, effectiveValue);
-        if (!stored) {
-          throw new InternalError(
-            `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
-          );
-        }
-        if (!isNonSecretPlatformField(service, field)) {
-          // Same seam as the api_key branch: the scrub runs immediately after
-          // the secure-store write, before side effects that can throw. The
-          // value IS stored at this point; the scrub is best-effort hygiene
-          // and must stay invisible to the caller. Counts only — never the
-          // value.
-          try {
-            const scrubbed =
-              await scrubStoredCredentialFromTranscripts(effectiveValue);
-            log.info(
-              { service, field, ...scrubbed },
-              "Credential stored; scrubbed value from recent transcripts",
-            );
-          } catch (err) {
-            log.warn(
-              { err, service, field },
-              "Credential stored, but transcript scrub failed",
-            );
-          }
-        }
-        upsertCredentialMetadata(service, field, {});
-        await syncManualTokenConnection(service);
-        if (service === "vellum" && field === "platform_base_url") {
-          setPlatformBaseUrl(effectiveValue);
-        }
-        if (service === "vellum" && field === "platform_assistant_id") {
-          setPlatformAssistantId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_organization_id") {
-          setPlatformOrganizationId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_user_id") {
-          setPlatformUserId(effectiveValue || undefined);
-        }
-      }
-      if (isPlatformManagedCredential(service, field)) {
-        await refreshProvidersAfterSecretChange();
-        // Close the first-boot race where the startup capability seed ran before
-        // the managed embedding credential was provisioned, leaving skill/CLI
-        // pages unseeded until restart. Detached — must not block the response.
-        void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
-        if (service === "vellum" && field === "assistant_api_key") {
-          await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
-        }
-      } else if (!isTrimmedIdentity) {
-        await refreshProvidersForRotatedCredential(service, field);
-      }
-      if (
-        service === "vellum" &&
-        (field === "assistant_api_key" ||
-          field === "platform_assistant_id" ||
-          field === "platform_base_url")
-      ) {
-        // Managed-speech availability needs the API key, the assistant ID,
-        // and the base URL, and the CLI connect path stores all three
-        // concurrently — fire on each so the last write to land triggers the
-        // defaulting; the hook no-ops until the connection is complete.
-        // Detached — must not block the response.
-        void maybeDefaultSpeechToManaged();
-        // Same last-write-wins shape: the startup syncs no-op before live
-        // registration, so re-enqueue them here. Both dedup and no-op until
-        // the client and assistant id exist.
-        syncWorkspaceIdentityToPlatform();
-        syncAvatarToPlatform();
-      }
+      await persistCredential(service, field, value);
+      await refreshProvidersForRotatedCredential(service, field);
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };
     }
@@ -464,8 +457,7 @@ async function handleReadSecret({ body }: RouteHandlerArgs) {
   try {
     let accountKey: string;
     let prefetchedResult:
-      | Awaited<ReturnType<typeof getSecureKeyResultAsync>>
-      | undefined;
+      Awaited<ReturnType<typeof getSecureKeyResultAsync>> | undefined;
 
     if (type === "api_key") {
       if (
@@ -609,6 +601,9 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       const service = name.slice(0, colonIdx);
+      if (service === "vellum") {
+        throw new BadRequestError("Vellum credentials cannot be deleted");
+      }
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = credentialKey(service, field);
@@ -624,21 +619,6 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       deleteCredentialMetadata(service, field);
-      if (service === "vellum" && field === "platform_base_url") {
-        setPlatformBaseUrl(undefined);
-      }
-      if (service === "vellum" && field === "platform_assistant_id") {
-        setPlatformAssistantId(undefined);
-      }
-      if (service === "vellum" && field === "platform_organization_id") {
-        setPlatformOrganizationId(undefined);
-      }
-      if (service === "vellum" && field === "platform_user_id") {
-        setPlatformUserId(undefined);
-      }
-      if (isPlatformManagedCredential(service, field)) {
-        await refreshProvidersAfterSecretChange();
-      }
       invalidateConnectionsAfterCredentialDelete(affectedConnections);
       log.info({ service, field }, "Credential deleted via HTTP");
       return { success: true, type, name };

@@ -24,9 +24,12 @@ export type DesktopSessionState =
   | { kind: "connected" }
   | { kind: "ended"; reason: DesktopEndReason };
 
+export type DesktopViewportMode = "fit" | "pan" | "control";
+
 export interface OpenDesktopSessionArgs {
   assistantId: string;
   viewOnly?: boolean;
+  viewportMode?: DesktopViewportMode;
   /** The element noVNC renders its canvas into. */
   container: HTMLElement;
   onState: (state: DesktopSessionState) => void;
@@ -36,6 +39,7 @@ export interface DesktopSession {
   /** End the session and release everything it holds. Idempotent. */
   close(): void;
   setViewOnly(viewOnly: boolean): void;
+  setViewportMode(mode: DesktopViewportMode): void;
 }
 
 /**
@@ -48,15 +52,26 @@ export function openDesktopSession({
   container,
   onState,
   viewOnly = false,
+  viewportMode = "fit",
 }: OpenDesktopSessionArgs): DesktopSession {
   let done = false;
   let ws: WebSocket | null = null;
   let rfb: RFB | null = null;
   let currentViewOnly = viewOnly;
+  let currentViewportMode = viewportMode;
+  const updateViewport = (): void => {
+    if (rfb) {
+      const mode = currentViewOnly ? "fit" : currentViewportMode;
+      rfb.scaleViewport = mode === "fit";
+      rfb.clipViewport = mode !== "fit";
+      rfb.dragViewport = mode === "pan";
+    }
+  };
   const updateViewOnly = (): void => {
     if (rfb) {
       rfb.viewOnly = currentViewOnly;
       rfb.focusOnClick = !currentViewOnly;
+      updateViewport();
     }
   };
   const teardown: (() => void)[] = [];
@@ -102,10 +117,8 @@ export function openDesktopSession({
     }
     rfb = client;
     client.background = "transparent";
-    client.scaleViewport = true;
     client.resizeSession = false;
     updateViewOnly();
-    client.clipViewport = false;
 
     const connectTimer = setTimeout(() => end("lost"), CONNECT_TIMEOUT_MS);
     teardown.push(() => clearTimeout(connectTimer));
@@ -158,6 +171,10 @@ export function openDesktopSession({
   );
 
   return {
+    setViewportMode: (value) => {
+      currentViewportMode = value;
+      updateViewport();
+    },
     setViewOnly: (value) => {
       currentViewOnly = value;
       updateViewOnly();

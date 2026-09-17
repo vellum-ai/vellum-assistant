@@ -842,6 +842,17 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(escalatedContinuationRule());
   });
 
+  test("a direct escalated turn keeps the caller-supplied resume prompt verbatim", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+      directEscalated: true,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+
   test("the auto-built phone prompt carries the front-door rule anchored to the caller's words", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({
@@ -1966,7 +1977,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
+  test("tool_use_start delivers the tool name, input, and active allowlist", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1975,6 +1986,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
         toolUseId: "toolu-1",
       },
     ]);
+    (
+      fakeConversation as typeof fakeConversation & {
+        allowedToolNames?: Set<string>;
+      }
+    ).allowedToolNames = new Set(["web_search"]);
 
     const starts: Array<{ toolName: string; detail?: unknown }> = [];
     await startVoiceTurn({
@@ -1988,7 +2004,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
     expect(starts).toEqual([
       {
         toolName: "web_search",
-        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+        detail: {
+          toolUseId: "toolu-1",
+          input: { query: "weather" },
+          allowedToolNames: new Set(["web_search"]),
+        },
       },
     ]);
   });
@@ -2143,6 +2163,68 @@ describe("front-door leg tool suppression", () => {
       expect(depthDuringLoop).toBe(0);
       expect(fake.conversation.toolsDisabledDepth).toBe(0);
     }
+  });
+});
+
+describe("desktop skill preactivation", () => {
+  async function preactivatedFor(turn: Record<string, unknown>): Promise<{
+    skillIds: string[];
+    proxyInterfaces: unknown[];
+    skillIdsDuringLoop: string[];
+  }> {
+    const skillIds: string[] = [];
+    const proxyInterfaces: unknown[] = [];
+    let skillIdsDuringLoop: string[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        skillIdsDuringLoop = [...skillIds];
+      },
+    });
+    Object.assign(fake.conversation, {
+      addPreactivatedSkillId: (id: string) => {
+        skillIds.push(id);
+      },
+      ensureHostProxiesForTurn: (sourceInterface: unknown) => {
+        proxyInterfaces.push(sourceInterface);
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-desktop-skills"),
+      userMessageInterface: "macos",
+      ...turn,
+    });
+    await flushMicrotasks();
+    return { skillIds, proxyInterfaces, skillIdsDuringLoop };
+  }
+
+  test("an escalated leg of a macOS desktop session starts with computer use active", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIdsDuringLoop).toContain("computer-use");
+    expect(result.proxyInterfaces).toEqual(["macos"]);
+  });
+
+  test("a session from any other client leaves the desktop skills to be loaded", async () => {
+    const result = await preactivatedFor({ routingLeg: "escalated" });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
+  });
+
+  test("the toolless front-door leg is never preactivated", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "front-door",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
   });
 });
 
@@ -2510,6 +2592,25 @@ describe("transcript hygiene (teardown pass)", () => {
     ]);
     expect(crudLog.deletes).toHaveLength(0);
     // The clean row must reach in-memory history and sync consumers.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a row ending with a session control marker persists with it stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("Muting you for thirty seconds. [MUTE:30]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Muting you for thirty seconds." },
+        ]),
+      },
+    ]);
     expect(events).toContain("loadFromDb");
   });
 

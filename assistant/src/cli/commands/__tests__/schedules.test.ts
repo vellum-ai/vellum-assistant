@@ -380,6 +380,7 @@ describe("schedules get", () => {
     mode: "execute",
     status: "active",
     routingIntent: "all_channels",
+    quiet: false,
     reuseConversation: false,
     wakeConversationId: null,
     isOneShot: false,
@@ -436,7 +437,20 @@ describe("schedules get", () => {
     expect(output).toContain("Every 30 minutes (UTC)");
     expect(output).toContain("run heartbeat");
     expect(output).toContain("all_channels");
+    expect(output).toMatch(/Quiet:\s+no/);
     expect(output).toContain("conv-abc");
+  });
+
+  test("prints Quiet: yes when the schedule suppresses completion notifications", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: { schedule: { ...scheduleFixture, quiet: true } },
+    };
+
+    const { exitCode } = await runCommand(["schedules", "get", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    expect(logLines.join("\n")).toMatch(/Quiet:\s+yes/);
   });
 
   test("emits JSON result when --json is set", async () => {

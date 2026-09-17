@@ -32,6 +32,7 @@ describe("admitDiscordMessage", () => {
   test("admits a direct mention from a human in a guild channel", () => {
     expect(admitDiscordMessage(candidate(), policy)).toEqual({
       admitted: true,
+      botMentioned: true,
     });
   });
 
@@ -65,7 +66,7 @@ describe("admitDiscordMessage", () => {
       }),
       policy,
     );
-    expect(verdict).toEqual({ admitted: true });
+    expect(verdict.admitted).toBe(true);
   });
 
   test("drops the bot's own DM echo", () => {
@@ -132,7 +133,7 @@ describe("admitDiscordMessage", () => {
       candidate({ channelId: "800000000000000099" }),
       policy,
     );
-    expect(verdict).toEqual({ admitted: true });
+    expect(verdict.admitted).toBe(true);
   });
 
   test("a thread still has to clear every other check", () => {
@@ -165,9 +166,7 @@ describe("the legacy allow-list fence", () => {
   };
 
   test("a listed channel still admits a mention", () => {
-    expect(admitDiscordMessage(candidate(), legacyPolicy)).toEqual({
-      admitted: true,
-    });
+    expect(admitDiscordMessage(candidate(), legacyPolicy).admitted).toBe(true);
   });
 
   test("an unlisted channel stays out, exactly as configured", () => {
@@ -175,7 +174,7 @@ describe("the legacy allow-list fence", () => {
       candidate({ channelId: OTHER_CHANNEL }),
       legacyPolicy,
     );
-    expect(verdict).toEqual({ admitted: false, reason: "channel_not_allowed" });
+    expect(verdict).toEqual({ admitted: false, reason: "room_not_allowed" });
   });
 
   test("a thread inherits its parent's listing", () => {
@@ -186,7 +185,7 @@ describe("the legacy allow-list fence", () => {
       }),
       legacyPolicy,
     );
-    expect(verdict).toEqual({ admitted: true });
+    expect(verdict.admitted).toBe(true);
   });
 
   test("a DM is unaffected by the list", () => {
@@ -198,7 +197,7 @@ describe("the legacy allow-list fence", () => {
       }),
       legacyPolicy,
     );
-    expect(verdict).toEqual({ admitted: true });
+    expect(verdict.admitted).toBe(true);
   });
 
   test("without a list, an unlisted room admits a mention", () => {
@@ -206,6 +205,6 @@ describe("the legacy allow-list fence", () => {
       candidate({ channelId: OTHER_CHANNEL }),
       policy,
     );
-    expect(verdict).toEqual({ admitted: true });
+    expect(verdict.admitted).toBe(true);
   });
 });

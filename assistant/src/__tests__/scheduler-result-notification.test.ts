@@ -6,10 +6,10 @@
  * covered in `notifications/__tests__/schedule-result-producer.test.ts`. What
  * is checked here is the scheduler's half of the contract, which the producer
  * cannot verify about itself: that a successful execute-mode run calls it at
- * all, that a failed run does not, that the other modes are left alone, and
- * that `runStartedAt` is captured before the run rather than after — the bound
- * that keeps a reused conversation's earlier notifications from silencing
- * later runs.
+ * all, that a quiet successful execute-mode run does not, that a failed run
+ * does not, that the other modes are left alone, and that `runStartedAt` is
+ * captured before the run rather than after. The start bound keeps a reused
+ * conversation's earlier notifications from silencing later runs.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -212,6 +212,25 @@ describe("schedule result notification wiring", () => {
     const runs = getScheduleRuns(schedule.id);
     expect(producerCalls[0].runId).toBe(runs[0].id);
     expect(runs[0].conversationId).toBe(producerCalls[0].conversationId);
+  });
+
+  test("a successful quiet execute-mode run does not reach the producer", async () => {
+    // Quiet suppresses the automatic schedule-result fallback. The run still
+    // completes; only the completion notification is skipped.
+    const schedule = await createSchedule({
+      name: "Morning briefing",
+      cronExpression: "0 9 * * *",
+      message: "Summarize my inbox",
+      syntax: "cron",
+      expression: "0 9 * * *",
+      quiet: true,
+    });
+    forceScheduleDue(schedule.id);
+
+    await runDueSchedulesOnce();
+
+    expect(getScheduleRuns(schedule.id)[0].status).toBe("ok");
+    expect(producerCalls).toHaveLength(0);
   });
 
   test("waits for a delegated advisor so the result is the informed reply", async () => {

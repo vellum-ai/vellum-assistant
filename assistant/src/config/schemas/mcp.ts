@@ -17,7 +17,12 @@ export const PLUGIN_MCP_RISK_LEVEL = "low" as const;
 /** Per-server cap on tools registered from one MCP server. */
 export const MCP_MAX_TOOLS_PER_SERVER = 20;
 
-/** Cap on tools registered across every MCP server. */
+/**
+ * Cap on tools registered across every MCP server when the workspace
+ * does not set `tools.mcpGlobalMaxTools` in config.json. Selection is a
+ * deterministic round-robin by server id (see `mcp/tool-caps.ts`), so a
+ * later server is not emptied just because earlier ones filled the budget.
+ */
 export const MCP_GLOBAL_MAX_TOOLS = 50;
 
 export type McpRiskLevel =
@@ -55,9 +60,7 @@ const McpSseTransportSchema = z
       .optional()
       .describe("Custom HTTP headers sent with SSE requests"),
   })
-  .describe(
-    "SSE transport: connects to an MCP server over Server-Sent Events",
-  );
+  .describe("SSE transport: connects to an MCP server over Server-Sent Events");
 
 const McpStreamableHttpTransportSchema = z
   .object({
@@ -114,10 +117,14 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
  */
 export type McpServerSource = "workspace" | "plugin";
 
-/** A server config with its origin resolved. */
-export interface ResolvedMcpServerConfig extends McpServerConfig {
-  readonly source: McpServerSource;
-}
+/** A server config with its runtime-only origin and credential identity. */
+export type ResolvedMcpServerConfig =
+  | (McpServerConfig & { readonly source: "workspace" })
+  | (McpServerConfig & {
+      readonly source: "plugin";
+      readonly pluginName: string;
+      readonly serverKey: string;
+    });
 
 /** The MCP config the daemon runs: both origins, every server attributed. */
 export interface ResolvedMcpConfig {

@@ -107,6 +107,7 @@ import {
   persistWakeTriggerMessage,
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
@@ -118,7 +119,7 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import {
   type UntrustedContentSource,
   wrapUntrustedContent,
@@ -350,6 +351,27 @@ export interface WakeOptions {
    * skill-management authoring tools callable directly.
    */
   preactivateSkillIds?: readonly string[];
+  /**
+   * Tool definitions to send verbatim as the wake's wire tool array, in place
+   * of the ones the conversation would resolve for itself. Used by fork-based
+   * memory retrospectives to replay the SOURCE conversation's recorded surface
+   * (`getRecordedConversationToolSurface`) so the provider prompt-cache prefix matches
+   * the source's live turns byte for byte. Definitions only: what may execute
+   * is still decided by `allowedTools` and the turn's own active set. Applied
+   * and restored alongside `allowedTools`; ignored when `allowedTools` is
+   * absent.
+   */
+  wireToolDefinitions?: readonly ToolDefinition[];
+  /**
+   * Whether the source's recorded surface rendered the system prompt's
+   * parallel-delegation section, replayed into the wake's prompt so that
+   * tier of the provider cache prefix matches the source's too (the wake's
+   * own scope cannot spawn, so deriving it would render the section off where
+   * an interactive source rendered it on). Prompt only: a spawn attempt is
+   * still rejected at execution. Applied and restored alongside
+   * `allowedTools`; ignored when `allowedTools` is absent.
+   */
+  delegateIndependentTasks?: boolean;
   /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
@@ -1410,6 +1432,7 @@ export async function wakeAgentForOpportunity(
      * is one function rather than a rebuild bolted onto either half.
      */
     const restoreWakeTurnScope = (): void => {
+      desktopAutomationLease.releaseForConversation(conversationId);
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
       syncWakeLoopSystemPrompt();
@@ -1422,9 +1445,13 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
-          opts.toolGateMode,
-          opts.toolContextPin,
-          opts.preactivateSkillIds,
+          {
+            gateMode: opts.toolGateMode,
+            toolContextPin: opts.toolContextPin,
+            preactivateSkillIds: opts.preactivateSkillIds,
+            wireToolDefinitions: opts.wireToolDefinitions,
+            delegateIndependentTasks: opts.delegateIndependentTasks,
+          },
         );
         return true;
       } catch (err) {

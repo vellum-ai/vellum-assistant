@@ -169,10 +169,12 @@ export { publishEvent } from "./publish-event.js";
 // `inputModalities.image` override winning when set (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
-// Resolve a stored credential to its plaintext value — the same value
-// `assistant credentials reveal` prints — from a UUID or a "service/field"
+// Resolve a stored credential to its plaintext value (the same value
+// `assistant credentials reveal` prints) from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
-// whose service matches the plugin's manifest name; outside any plugin it is
+// whose service matches the plugin's runtime name. A plugin-resident skill
+// script or skill-tool child presents a daemon-issued invocation grant and is
+// scoped the same way. Outside any plugin context or grant the resolver is
 // unscoped. Throws CredentialResolutionError when the ref does not resolve, the
 // store is unreachable, or the credential is out of the plugin's scope.
 export {
@@ -286,6 +288,11 @@ export {
 // writes files under the workspace (e.g. its own `plugins/<name>/data/`
 // directory) resolves them against this instead of hardcoding a base path.
 export { getWorkspaceDir } from "../util/platform.js";
+// `String.prototype.slice` that never cuts a UTF-16 surrogate pair in half.
+// Any text a plugin truncates by character budget and hands to a model must
+// go through this: an orphaned half is invalid UTF-16 that strict provider
+// parsers reject.
+export { safeStringSlice } from "../util/unicode.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.
@@ -359,7 +366,8 @@ export {
   stringifyMessageContent,
 } from "../persistence/message-content.js";
 // Conversation history — reads and writes on the host conversation store
-// (rows, message history, processing state, disk-view paths) plus the lexical
+// (rows, message history, processing state, the recorded wire tool surface,
+// disk-view paths) plus the lexical
 // message-search surface. Every operation takes explicit parameters; nothing
 // is resolved from config. Async because the facade loads the DB store graph
 // lazily on first call.
@@ -371,7 +379,9 @@ export {
   getConversation,
   getConversationDirPath,
   getConversationProcessingStartedAt,
+  getConversationToolSurface,
   getMessages,
+  getRecordedConversationToolSurface,
   hasLexicalTokens,
   isConversationProcessing,
   listConversations,
@@ -380,6 +390,7 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+export type { ConversationToolSurface } from "../persistence/conversation-tool-surface.js";
 // System cards: a transcript notice authored by the daemon rather than the
 // assistant persona, for telling the user something a turn did to their input
 // that the model's reply cannot explain (e.g. an attachment that could not be
@@ -438,6 +449,7 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+export { PluginTurnNotAdmittedError } from "./plugin-channel-turn-trust.js";
 // Live voice — drive a single client's real-time voice session (STT → agent
 // turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
 // transport the plugin owns. The plugin brings only a `send` callback (e.g.

@@ -23,12 +23,30 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { formatCompactLocalDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
 import { feedItem } from "../feed-test-fixtures";
 
 const isTouchMobileRef = { value: false };
+const originalMatchMedia = window.matchMedia;
+
+function setTouchSurface(matches: boolean): void {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    }),
+  });
+}
 
 mock.module("@/hooks/use-touch-mobile", () => ({
   useTouchMobile: () => isTouchMobileRef.value,
@@ -50,6 +68,12 @@ interface TriggerActionVars {
   actionId: string;
 }
 
+interface MarkAllVars {
+  from: FeedItemStatus[];
+  to: FeedItemStatus;
+  ids: string[];
+}
+
 interface TriggerActionCallbacks {
   onSuccess?: (data: { conversationId: string }) => void;
   onError?: (error: Error) => void;
@@ -58,6 +82,8 @@ interface TriggerActionCallbacks {
 
 const updateStatusCalls: UpdateStatusVars[] = [];
 const triggerActionCalls: TriggerActionVars[] = [];
+const markAllCalls: MarkAllVars[] = [];
+const markAllPendingRef = { value: false };
 
 /**
  * How the mocked `triggerAction` settles. "pending" leaves it in flight, which
@@ -97,7 +123,12 @@ mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
       },
       isPending: false,
     },
-    markAll: { mutate: () => {}, isPending: false },
+    markAll: {
+      mutate: (vars: MarkAllVars) => {
+        markAllCalls.push(vars);
+      },
+      isPending: markAllPendingRef.value,
+    },
   }),
   useInvalidateHomeFeed: () => () => {
     feedInvalidateCalls.push(feedInvalidateCalls.length + 1);
@@ -118,8 +149,10 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   },
 }));
 
+const supportsBulkFeedStatusRef = { value: true };
+
 mock.module("@/lib/backwards-compat/bulk-feed-status", () => ({
-  useSupportsBulkFeedStatus: () => true,
+  useSupportsBulkFeedStatus: () => supportsBulkFeedStatusRef.value,
 }));
 
 const navigateMock = mock((..._args: unknown[]) => {});
@@ -135,10 +168,12 @@ mock.module("react-router", () => ({
 const navigateToConversationMock = mock((..._args: unknown[]) => {});
 const navigateToNewConversationMock = mock((..._args: unknown[]) => "draft-1");
 
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToConversation: navigateToConversationMock,
-  navigateToNewConversation: navigateToNewConversationMock,
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    navigateToConversation: navigateToConversationMock,
+    navigateToNewConversation: navigateToNewConversationMock,
+  }),
+);
 
 /**
  * The three conversation lists the detail validates its link against, plus a
@@ -208,8 +243,7 @@ mock.module("@/domains/home/hooks/use-feed-item-conversation-link", () => ({
     assistantId: string | null | undefined,
     enabled: boolean,
   ) => {
-    const canFetch =
-      enabled && Boolean(assistantId) && Boolean(conversationId);
+    const canFetch = enabled && Boolean(assistantId) && Boolean(conversationId);
     conversationLinkEnabledCalls.push(canFetch);
     if (!conversationId || !canFetch) {
       return { conversationId: null, isPending: false };
@@ -453,6 +487,10 @@ async function openBell(): Promise<void> {
 /** Open the bell and select a row by the title its card carries. */
 async function openDetail(title: string): Promise<void> {
   await openBell();
+  if (!screen.queryByRole("button", { name: title })) {
+    fireEvent.click(screen.getByRole("switch", { name: "Unread" }));
+    await act(async () => {});
+  }
   fireEvent.click(screen.getByRole("button", { name: title }));
   await act(async () => {});
 }
@@ -480,6 +518,7 @@ function detailFooter(): HTMLElement {
 
 beforeEach(() => {
   isTouchMobileRef.value = false;
+  setTouchSurface(false);
   feedRef.items = [];
   feedRef.isError = false;
   conversationListsRef.foreground = [];
@@ -502,6 +541,9 @@ beforeEach(() => {
   activeAssistantIdRef.value = "assistant-1";
   localStorage.clear();
   updateStatusCalls.length = 0;
+  markAllCalls.length = 0;
+  markAllPendingRef.value = false;
+  supportsBulkFeedStatusRef.value = true;
   decisionCalls.length = 0;
   decisionRef.outcome = "pending";
   decisionRef.reason = undefined;
@@ -524,6 +566,10 @@ afterEach(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   cleanup();
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: originalMatchMedia,
+  });
 });
 
 describe("NotificationsBell unread dot", () => {
@@ -532,6 +578,7 @@ describe("NotificationsBell unread dot", () => {
     const html = renderBell();
     expect(html).toContain(UNREAD_DOT);
     expect(html).toContain(UNREAD_LABEL);
+    expect(html).toContain("bg-[var(--notification-attention)]");
   });
 
   test("hides the dot when every notification has been read", () => {
@@ -662,16 +709,130 @@ describe("NotificationsBell panel", () => {
     expect(screen.getByTestId("home-recap-row-unread-dot")).toBeTruthy();
   });
 
-  test("keeps the panel header and bulk actions", async () => {
+  test("keeps the panel header and puts bulk actions in its overflow menu", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
     expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Mark all as read" }),
+      screen.queryByRole("menuitem", { name: "Mark all as read" }),
+    ).toBeNull();
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Notification actions" }),
+    );
+    await act(async () => {});
+
+    expect(
+      screen.getByRole("menuitem", { name: "Mark all as read" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Clear all" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Clear all" })).toBeTruthy();
+  });
+
+  test("opens on unread notifications and counts only displayed rows", async () => {
+    feedRef.items = [
+      bellItem({ id: "unread", status: "new", title: "Unread item" }),
+      bellItem({ id: "read", status: "seen", title: "Read item" }),
+      bellItem({ id: "acted", status: "acted_on", title: "Acted item" }),
+    ];
+
+    await openBell();
+
+    const filter = screen.getByRole("switch", { name: "Unread" });
+    expect(filter.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("Unread item")).toBeTruthy();
+    expect(screen.queryByText("Read item")).toBeNull();
+    expect(screen.queryByText("Acted item")).toBeNull();
+    expect(screen.getByTestId("notifications-bell-count").textContent).toBe(
+      "1",
+    );
+
+    fireEvent.click(filter);
+    await act(async () => {});
+
+    expect(filter.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByText("Read item")).toBeTruthy();
+    expect(screen.getByText("Acted item")).toBeTruthy();
+    expect(screen.getByTestId("notifications-bell-count").textContent).toBe(
+      "3",
+    );
+  });
+
+  test("uses the active assistant accent with a white knob for the enabled unread switch", async () => {
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+
+    const filter = screen.getByRole("switch", { name: "Unread" });
+    expect(filter.parentElement?.className).toContain("--avatar-accent");
+    expect(filter.parentElement?.className).toContain(
+      "--system-positive-strong",
+    );
+    expect(filter.parentElement?.className).not.toContain(
+      "--avatar-accent-glyph",
+    );
+    expect(filter.querySelector("span")?.className).toContain("--aux-white");
+  });
+
+  test("uses the active assistant's readable accent surface for the count", async () => {
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+
+    const count = screen.getByTestId("notifications-bell-count");
+    expect(count.parentElement?.className).toContain("--avatar-accent-fill");
+    expect(count.parentElement?.className).toContain("--system-positive-weak");
+    expect(count.className).toContain("--avatar-accent-ink");
+    expect(count.className).toContain("--system-positive-on-weak");
+  });
+
+  test("preserves the filter through detail and back", async () => {
+    feedRef.items = [
+      bellItem({ id: "unread", status: "new", title: "Unread item" }),
+      bellItem({ id: "read", status: "seen", title: "Read item" }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("switch", { name: "Unread" }));
+    fireEvent.click(screen.getByRole("button", { name: "Read item" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to notifications" }),
+    );
+    await act(async () => {});
+
+    expect(
+      screen
+        .getByRole("switch", { name: "Unread" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(screen.getByText("Unread item")).toBeTruthy();
+    expect(screen.getByText("Read item")).toBeTruthy();
+  });
+
+  test("resets the unread filter on each fresh opening", async () => {
+    feedRef.items = [
+      bellItem({ id: "unread", status: "new", title: "Unread item" }),
+      bellItem({ id: "read", status: "seen", title: "Read item" }),
+    ];
+
+    await openBell();
+    fireEvent.click(screen.getByRole("switch", { name: "Unread" }));
+    expect(screen.getByText("Read item")).toBeTruthy();
+
+    await clickTrigger();
+    await clickTrigger();
+
+    expect(
+      screen
+        .getByRole("switch", { name: "Unread" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.queryByText("Read item")).toBeNull();
+    expect(screen.getByTestId("notifications-bell-count").textContent).toBe(
+      "1",
+    );
   });
 
   test("offers no route out to a full-page feed", async () => {
@@ -680,6 +841,143 @@ describe("NotificationsBell panel", () => {
     await openBell();
 
     expect(screen.queryByRole("button", { name: "View all" })).toBeNull();
+  });
+});
+
+describe("NotificationsBell bulk action menu", () => {
+  function pendingGuardianItem(): FeedItem {
+    return bellItem({
+      id: "guardian:req-1",
+      status: "new",
+      urgency: "high",
+      title: "Guardian request",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: "tool_approval",
+        intent: "approval",
+        status: "pending",
+      },
+    });
+  }
+
+  async function openActionsMenu(): Promise<void> {
+    const trigger = screen.getByRole("button", {
+      name: "Notification actions",
+    });
+    if (isTouchMobileRef.value) {
+      fireEvent.click(trigger);
+    } else {
+      fireEvent.pointerDown(trigger);
+    }
+    await act(async () => {});
+  }
+
+  test("applies bulk actions to every eligible item regardless of the filter", async () => {
+    feedRef.items = [
+      bellItem({ id: "unread", status: "new" }),
+      bellItem({ id: "read", status: "seen" }),
+      pendingGuardianItem(),
+    ];
+
+    await openBell();
+    await openActionsMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark all as read" }));
+    await act(async () => {});
+
+    expect(markAllCalls).toEqual([
+      { from: ["new"], to: "seen", ids: ["unread"] },
+    ]);
+
+    await openActionsMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Clear all" }));
+    await act(async () => {});
+
+    expect(markAllCalls[1]).toEqual({
+      from: ["new", "seen", "acted_on"],
+      to: "dismissed",
+      ids: ["unread", "read"],
+    });
+  });
+
+  test("hides bulk actions when the assistant does not support them", async () => {
+    supportsBulkFeedStatusRef.value = false;
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+
+    expect(
+      screen.queryByRole("button", { name: "Notification actions" }),
+    ).toBeNull();
+  });
+
+  test("hides bulk actions when only a pending guardian request is visible", async () => {
+    feedRef.items = [pendingGuardianItem()];
+
+    await openBell();
+
+    expect(
+      screen.queryByRole("button", { name: "Notification actions" }),
+    ).toBeNull();
+  });
+
+  test("holds every action inert while a bulk mutation is pending", async () => {
+    markAllPendingRef.value = true;
+    feedRef.items = [
+      bellItem({ id: "unread", status: "new" }),
+      bellItem({ id: "read", status: "seen" }),
+    ];
+
+    await openBell();
+    await openActionsMenu();
+
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Mark all as read" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("menuitem", { name: "Clear all" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
+  test("Escape closes the action menu and leaves the notification panel open", async () => {
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+    await openActionsMenu();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await act(async () => {});
+
+    expect(
+      screen.queryByRole("menuitem", { name: "Mark all as read" }),
+    ).toBeNull();
+    expect(screen.getByRole("heading", { name: "Notifications" })).toBeTruthy();
+  });
+
+  test("uses the adaptive action sheet on touch mobile", async () => {
+    isTouchMobileRef.value = true;
+    setTouchSurface(true);
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+    expect(
+      screen
+        .getByRole("button", { name: "Notification actions" })
+        .getAttribute("aria-haspopup"),
+    ).toBe("dialog");
+    await openActionsMenu();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+    await act(async () => {});
+
+    expect(markAllCalls).toEqual([
+      { from: ["new"], to: "seen", ids: ["item-1"] },
+    ]);
+    expect(
+      screen.getAllByRole("heading", { name: "Notifications" }).length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -1030,6 +1328,21 @@ describe("NotificationsBell guardian rows", () => {
 });
 
 describe("NotificationsBell empty state", () => {
+  test("distinguishes read history from a feed with no notifications", async () => {
+    feedRef.items = [
+      bellItem({ id: "read", status: "seen", title: "Read item" }),
+    ];
+
+    await openBell();
+
+    expect(screen.getByText("No unread notifications.")).toBeTruthy();
+    expect(screen.queryByText("Nothing yet.")).toBeNull();
+    expect(screen.queryByRole("button", { name: RECIPE_LABEL })).toBeNull();
+    expect(screen.getByTestId("notifications-bell-count").textContent).toBe(
+      "0",
+    );
+  });
+
   test("offers the schedule that produces the first notification", async () => {
     await openBell();
 
@@ -1529,6 +1842,8 @@ describe("NotificationsBell detail", () => {
 
     const { rerender } = render(<NotificationsBell />);
     await clickTrigger();
+    fireEvent.click(screen.getByRole("switch", { name: "Unread" }));
+    await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
 
@@ -1669,9 +1984,7 @@ describe("NotificationsBell detail", () => {
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
-    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(
-      false,
-    );
+    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(false);
     expect(skillsEnabledCalls.length).toBeGreaterThan(0);
     expect(skillsEnabledCalls.some((enabled) => enabled)).toBe(false);
     // The recipe gate reads the same list, but only for an empty feed, and
@@ -1695,9 +2008,7 @@ describe("NotificationsBell detail", () => {
     feedRef.items = [{ ...FIRST, conversationId: "scheduled-1" }];
 
     await openBell();
-    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(
-      false,
-    );
+    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
@@ -1797,6 +2108,8 @@ describe("NotificationsBell detail status actions", () => {
 
     const { rerender } = render(<NotificationsBell />);
     await clickTrigger();
+    fireEvent.click(screen.getByRole("switch", { name: "Unread" }));
+    await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
 

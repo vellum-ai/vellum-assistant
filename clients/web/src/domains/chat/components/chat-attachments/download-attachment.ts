@@ -1,7 +1,11 @@
-import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import {
+  attachmentsByIdContentGet,
+  attachmentsByIdGet,
+} from "@/generated/daemon/sdk.gen";
 import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toApiError } from "@/utils/api-errors";
+import type { AttachmentMetadata } from "@/types/attachment-types";
 
 /**
  * Every reader of the attachment bytes lands here, so this is the one place
@@ -56,12 +60,41 @@ export async function fetchAttachmentContentBlob(
   }
 }
 
+/** Fetch canonical stored metadata for a referenced attachment. */
+export async function fetchAttachmentMetadata(
+  assistantId: string,
+  attachmentId: string,
+): Promise<AttachmentMetadata | null> {
+  if (!attachmentId || attachmentId.startsWith("rehydrated:")) {
+    return null;
+  }
+  try {
+    const { data, error } = await attachmentsByIdGet({
+      path: { assistant_id: assistantId, id: attachmentId },
+      throwOnError: false,
+    });
+    if (error || !data) {
+      return null;
+    }
+    return {
+      id: data.id,
+      filename: data.filename,
+      mimeType: data.mimeType,
+      sizeBytes: data.sizeBytes,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Download an attachment directly without opening the preview modal. Prefers
  * the daemon content endpoint because `previewUrl` may be a JPEG thumbnail
  * rather than the actual file (e.g. video attachments with `thumbnailData`
- * only). Falls back to `previewUrl` when the daemon endpoint is unavailable
- * (no assistantId, synthetic rehydrated IDs, or fetch failure).
+ * only). Referenced tool images also resolve their canonical stored filename
+ * and MIME type because their message wire carries only an attachment id.
+ * Falls back to `previewUrl` when the daemon endpoint is unavailable (no
+ * assistantId, synthetic rehydrated IDs, or fetch failure).
  *
  * With neither source `saveFile` never runs, so this publishes the terminal
  * `download.done` itself. Nothing else would: a deleted attachment answers
@@ -72,15 +105,25 @@ export async function downloadAttachment(
     id: string;
     filename: string;
     previewUrl: string | null;
+    resolveReferenceMetadata?: boolean;
   },
   assistantId?: string | null,
 ): Promise<void> {
   const { saveFile } = await import("@/runtime/native-file");
 
   if (assistantId) {
-    const blob = await fetchAttachmentContentBlob(assistantId, attachment.id);
+    const [blob, metadata] = await Promise.all([
+      fetchAttachmentContentBlob(assistantId, attachment.id),
+      attachment.resolveReferenceMetadata
+        ? fetchAttachmentMetadata(assistantId, attachment.id)
+        : Promise.resolve(null),
+    ]);
     if (blob) {
-      await saveFile(blob, attachment.filename);
+      const source =
+        metadata?.mimeType && blob.type !== metadata.mimeType
+          ? new Blob([blob], { type: metadata.mimeType })
+          : blob;
+      await saveFile(source, metadata?.filename ?? attachment.filename);
       return;
     }
   }

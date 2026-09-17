@@ -111,6 +111,28 @@ describe("toDisplayAttachments", () => {
     expect(result?.[0]?.id).toBe("noId.txt");
   });
 
+  test("preserves automatic computer-use screenshot provenance", () => {
+    const result = toDisplayAttachments([
+      {
+        id: "shot-1",
+        filename: "computer-use-click.png",
+        mimeType: "image/png",
+        data: "c2NyZWVuc2hvdA==",
+        computerUseScreenshot: true,
+      },
+      {
+        id: "explicit-1",
+        filename: "selected.png",
+        mimeType: "image/png",
+        data: "c2VsZWN0ZWQ=",
+        computerUseScreenshot: false,
+      },
+    ]);
+
+    expect(result?.[0]?.computerUseScreenshot).toBe(true);
+    expect(result?.[1]?.computerUseScreenshot).toBe(false);
+  });
+
   test("inline-only video without storage id keeps data as previewUrl", () => {
     // When a streamed video has inline data but no storage id (in-memory
     // draft), the lazy-fetch has nothing to resolve. The inline data must

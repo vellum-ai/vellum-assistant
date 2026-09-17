@@ -39,6 +39,10 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import {
+  hasPluginManifest,
+  readPluginManifest,
+} from "../util/plugin-manifest.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
@@ -220,10 +224,6 @@ export interface SkillToolManifestMeta {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function getSkillsDir(): string {
-  return getWorkspaceSkillsDir();
-}
 
 export function getBundledSkillsDir(): string {
   const dir = import.meta.dir;
@@ -734,8 +734,7 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 /**
- * Whether `pluginDir` carries a plugin manifest the runtime can load: a
- * parseable `package.json` with a non-empty string `name`. This mirrors the
+ * Whether `pluginDir` carries a plugin manifest the runtime can load. This mirrors the
  * external plugin loader (`buildPluginFromDir`), which builds a plugin from
  * any such directory and derives the plugin's identity from `package.json`
  * `name` — it imposes no match between that `name` and the directory name.
@@ -745,31 +744,20 @@ function discoverSkillDirectories(skillsDir: string): string[] {
  * requiring the two to match would silently drop the resident skills of every
  * such plugin even though the runtime loads its hooks and tools fine.
  *
- * The caller is responsible for the missing-`package.json` case (it emits a
+ * The caller is responsible for the missing-manifest case (it emits a
  * diagnostic warning); this function only judges a manifest that is present.
  */
 function hasLoadablePluginManifest(pluginDir: string): boolean {
-  const manifestPath = join(pluginDir, "package.json");
-  if (!existsSync(manifestPath)) {
-    return false;
-  }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    readPluginManifest(pluginDir);
+    return true;
   } catch (err) {
     log.warn(
-      { err, manifestPath },
-      "Skipping plugin dir with unparseable package.json for resident skills",
+      { err, pluginDir },
+      "Skipping plugin dir with an invalid manifest for resident skills",
     );
     return false;
   }
-  return (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "name" in parsed &&
-    typeof (parsed as { name: unknown }).name === "string" &&
-    (parsed as { name: string }).name.length > 0
-  );
 }
 
 /**
@@ -885,15 +873,15 @@ function discoverInstalledPluginResidentSkills(): SkillSummary[] {
     }
     const pluginDir = join(pluginsDir, entry.name);
 
-    // A directory under `plugins/` with no `package.json` is not a plugin the
+    // A directory under `plugins/` with no supported manifest is not a plugin the
     // runtime can load, so its skills are never surfaced. This is an easy
     // footgun — a plugin dropped in without its manifest looks installed but
     // silently contributes nothing — so warn loudly with the path rather than
     // skipping in silence, to make the misconfiguration diagnosable.
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       log.warn(
         { pluginDir },
-        "Plugin directory is missing package.json — skipping; its skills will not be available. Add a package.json with a `name`.",
+        "Plugin directory is missing package.json and plugin.json; its skills will not be available.",
       );
       continue;
     }
@@ -1122,7 +1110,7 @@ export function loadSkillCatalog(
   }
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
-  const skillsDir = getSkillsDir();
+  const skillsDir = getWorkspaceSkillsDir();
   const directories = discoverSkillDirectories(skillsDir);
 
   for (const directory of directories) {
@@ -1362,7 +1350,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   } else {
     loaded = readSkillFromDirectory(
       skill.directoryPath,
-      getSkillsDir(),
+      getWorkspaceSkillsDir(),
       skill.source,
     );
   }

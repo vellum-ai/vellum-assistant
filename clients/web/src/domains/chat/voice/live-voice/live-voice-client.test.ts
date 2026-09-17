@@ -201,6 +201,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -215,6 +217,8 @@ describe("connect", () => {
       type: "start",
       client: "web",
       textInput: true,
+      sessionControls: ["end", "mute"],
+      lookFrames: true,
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
   });
@@ -228,6 +232,8 @@ describe("connect", () => {
     ws.open();
 
     expect(ws.sentJson[0]).toMatchObject({ type: "start", textInput: true });
+    // Every surface this client runs on can end and mute when asked out loud.
+    expect(ws.sentJson[0]).toMatchObject({ sessionControls: ["end", "mute"] });
   });
 
   test("reports the detected OS surface as the start frame's client", async () => {
@@ -263,6 +269,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -282,6 +290,8 @@ describe("connect", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -911,6 +921,8 @@ describe("sendAudio", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -972,6 +984,8 @@ describe("control frames", () => {
         type: "start",
         client: "web",
         textInput: true,
+        sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);

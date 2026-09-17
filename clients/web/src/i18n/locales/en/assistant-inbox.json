@@ -1,0 +1,60 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Assistant Inbox",
+    "dismiss": "Hide Assistant Inbox"
+  },
+  "assistantInboxHeader": {
+    "title": "{name}'s Inbox",
+    "subtitle": "Here are all the emails I've received and sent for you.",
+    "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
+  },
+  "addressPill": {
+    "copyAddress": "Copy email address",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the address."
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Mail folder",
+    "inboxTab": "Received",
+    "sentTab": "Sent",
+    "inboxEmptyTitle": "Nothing here yet",
+    "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
+    "sentEmptyTitle": "No sent mail yet",
+    "sentEmptyBody": "Ask me to email someone and I'll keep a copy here.",
+    "selectPrompt": "Pick an email to read it.",
+    "backToList": "Back to list",
+    "searchPlaceholder": "Search mail",
+    "searchAriaLabel": "Search this folder",
+    "searchEmptyTitle": "No matches",
+    "searchEmptyBody": "Nothing in this folder matches your search."
+  },
+  "emailListRow": {
+    "toPrefix": "To {name}",
+    "attachments": "{count, plural, one {# attachment} other {# attachments}}"
+  },
+  "emailDetail": {
+    "from": "From",
+    "to": "To",
+    "sentBy": "Sent by {name}",
+    "attachments": "Attachments",
+    "askToReply": "Ask {name} to reply"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Prefix",
+    "prefixPlaceholder": "hi"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Give {name} an inbox",
+    "subtitle": "An email address people can write to, and one place to read everything that arrives.",
+    "perkAddress": "A real address on {rootDomain}",
+    "perkReads": "{name} reads, sorts, and replies for you",
+    "perkHistory": "Every message kept here, inbox and sent",
+    "upgradeButton": "Upgrade to Super",
+    "seePlans": "See plans"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Assistant Email",
+    "subtitle": "Set up an email for your assistant.",
+    "getStarted": "Get started"
+  }
+}

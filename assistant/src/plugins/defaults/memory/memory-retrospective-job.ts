@@ -43,11 +43,11 @@
 import {
   addMessage,
   type AgentLoopExitReason,
-  type ContentBlock,
   type ConversationRow,
   deleteConversation,
   getConversation,
   getConversationProcessingStartedAt,
+  getRecordedConversationToolSurface,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
@@ -105,6 +105,12 @@ import {
   upsertRetrospectiveState,
 } from "./memory-retrospective-state.js";
 import { effectiveSweepLookbackMs } from "./memory-retrospective-sweep.js";
+import {
+  collectSuccessfulToolResultIds,
+  countDurableToolUses,
+  extractRememberContents,
+  hasCommittedTextReply,
+} from "./memory-run-evidence.js";
 
 const log = getLogger("memory-retrospective-job");
 
@@ -500,10 +506,9 @@ export async function runForkBasedRetrospective(
   // Persona + tool-context parity pins derived from the source conversation
   // (see `resolveSourceParityPins`), both passed unconditionally. The persona
   // override keeps the system-prompt prefix in parity (and is a review-quality
-  // fix on its own); the tool-context pin keeps the wire tool surface in
-  // parity — the fork always runs execution gate mode below, so the source's
-  // full tool surface stays on the wire while the allowlist holds at
-  // execution time.
+  // fix on its own); the tool-context pin resolves the fork's execution-side
+  // tool inventory under the source's client context and carries the wire
+  // surface when the source has no recorded one (`sourceToolSurface` below).
   // Warm both guardian-delivery cache keys (vellum + unfiltered) so the sync
   // slug resolution inside resolveSourceParityPins (resolveUserSlug(undefined)),
   // including its any-channel fallback, hits fresh keys instead of falling
@@ -513,6 +518,16 @@ export async function runForkBasedRetrospective(
     sourceConversation,
     newMessages,
   );
+
+  // The tools array the source's most recent live turn actually sent,
+  // replayed verbatim on the fork. The wire tool block is the first tier of
+  // the provider cache prefix (tools → system → messages), and re-deriving it
+  // on the fork cannot reproduce the source's bytes: this worker's registry
+  // has no user-plugin tools, host-tool gates read connected clients the
+  // worker never has, and presence derived from a persisted interface stamp
+  // misreads clientless turns. `null` (no live turn has recorded a surface)
+  // leaves the pin's derivation as the wire surface.
+  const sourceToolSurface = await readSourceToolSurface(sourceConversationId);
 
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
@@ -542,16 +557,32 @@ export async function runForkBasedRetrospective(
             "find_similar_skills",
           ]
         : ["remember"],
-      // Always keep the source's full tool surface on the wire and resolve it
-      // under the source's client context (`toolContextPin`). The wire tool
-      // block is the first tier of the provider cache prefix
-      // (tools → system → messages), so a wire filter busts cache parity with
-      // the source's live turns — re-creating the cached prefix instead of
-      // reading it. The allowlist still holds at execution time: non-allowlisted
-      // calls are rejected before any executor or side effect runs. See
+      // Keep the source's full tool surface on the wire: replay the array its
+      // last live turn sent when one is recorded, otherwise resolve the fork's
+      // own surface under the source's client context (`toolContextPin`). The
+      // wire tool block is the first tier of the provider cache prefix
+      // (tools → system → messages), so any wire difference busts cache parity
+      // with the source's live turns, re-creating the cached prefix instead of
+      // reading it. The recorded delegation-section state rides with the array
+      // into the fork's system prompt (the second tier) for the same reason:
+      // this wake's own scope cannot spawn, so deriving the section here
+      // renders it off where an interactive source rendered it on. The
+      // allowlist still holds at execution time: non-allowlisted calls are
+      // rejected before any executor or side effect runs. See
       // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
+      ...(sourceToolSurface
+        ? {
+            wireToolDefinitions: sourceToolSurface.tools,
+            ...(sourceToolSurface.delegateIndependentTasks === null
+              ? {}
+              : {
+                  delegateIndependentTasks:
+                    sourceToolSurface.delegateIndependentTasks,
+                }),
+          }
+        : {}),
       // Preactivate skill-management so its authoring tools (`find_similar_skills`
       // / `scaffold_managed_skill` / the `skill_load` target) are in the turn's
       // active set from turn 1; the checker's origin-scoped grant then makes them
@@ -729,6 +760,25 @@ function enqueueFollowUpJobs(): string[] {
     }
   }
   return followUpJobIds;
+}
+
+/**
+ * The source's recorded wire surface (its tool array and the delegation
+ * section state of its system prompt), or `null` when none is recorded or the
+ * read fails (logged; the fork then derives both for itself).
+ */
+async function readSourceToolSurface(
+  sourceConversationId: string,
+): ReturnType<typeof getRecordedConversationToolSurface> {
+  try {
+    return await getRecordedConversationToolSurface(sourceConversationId);
+  } catch (err) {
+    log.warn(
+      { err, sourceConversationId },
+      "memory-retrospective (fork): failed to read the source's recorded tool surface; deriving the wire surface instead",
+    );
+    return null;
+  }
 }
 
 /**
@@ -1252,177 +1302,16 @@ async function collectRetrospectiveRunEvidence(
   const succeededIds = collectSuccessfulToolResultIds(runMessages);
   return {
     remembers: extractRememberContents(runMessages, succeededIds),
-    durableToolCallCount: countDurableToolUses(runMessages, succeededIds),
-    durableToolAttemptCount: countDurableToolUses(runMessages, null),
+    durableToolCallCount: countDurableToolUses(
+      runMessages,
+      DURABLE_RETROSPECTIVE_TOOLS,
+      succeededIds,
+    ),
+    durableToolAttemptCount: countDurableToolUses(
+      runMessages,
+      DURABLE_RETROSPECTIVE_TOOLS,
+      null,
+    ),
     committedTextReply: hasCommittedTextReply(runMessages),
   };
-}
-
-/**
- * Whether the LAST persisted assistant row on the run's tail carries a text
- * block with non-whitespace content. Paired with a model-driven stop and
- * zero memory-write attempts, that closing reply is the persisted artifact
- * of a pass that read its window and had nothing to save: the model spoke
- * and then chose to end the run. Reading only the final row separates it
- * from a run whose narration went live but whose actual conclusion was
- * empty, as well as from a response that committed nothing at all
- * (thinking-only output, an empty content array).
- */
-function hasCommittedTextReply(messages: MessageLike[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]!;
-    if (msg.role !== "assistant") {
-      continue;
-    }
-    const blocks = parseMessageBlocks(msg);
-    if (blocks === null) {
-      return false;
-    }
-    return blocks.some(
-      (b) =>
-        b.type === "text" && typeof b.text === "string" && b.text.trim() !== "",
-    );
-  }
-  return false;
-}
-
-/**
- * Ids of `tool_result` blocks on the run's user rows whose execution did not
- * report an error. Robust to malformed content JSON the same way
- * `extractRememberContents` is.
- */
-function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
-  const ids = new Set<string>();
-  for (const msg of messages) {
-    if (msg.role !== "user") {
-      continue;
-    }
-    for (const b of parseMessageBlocks(msg) ?? []) {
-      // guard:allow-tool-result-only: success evidence for locally-executed
-      // durable memory tools; server-side web_search_tool_result never
-      // corresponds to a durable write and carries no is_error flag.
-      if (
-        b.type === "tool_result" &&
-        typeof b.tool_use_id === "string" &&
-        b.is_error !== true
-      ) {
-        ids.add(b.tool_use_id);
-      }
-    }
-  }
-  return ids;
-}
-
-/**
- * Count persisted `tool_use` blocks whose `name` is in
- * {@link DURABLE_RETROSPECTIVE_TOOLS} across the run's assistant rows.
- * With a `succeededIds` set, only calls whose id has a matching successful
- * `tool_result` count (verified executions); with `null`, every attempt
- * counts regardless of outcome.
- */
-function countDurableToolUses(
-  messages: MessageLike[],
-  succeededIds: ReadonlySet<string> | null,
-): number {
-  let count = 0;
-  for (const msg of messages) {
-    if (msg.role !== "assistant") {
-      continue;
-    }
-    for (const b of parseMessageBlocks(msg) ?? []) {
-      if (
-        b.type === "tool_use" &&
-        DURABLE_RETROSPECTIVE_TOOLS.has(String(b.name)) &&
-        (succeededIds === null ||
-          (typeof b.id === "string" && succeededIds.has(b.id)))
-      ) {
-        count += 1;
-      }
-    }
-  }
-  return count;
-}
-
-interface MessageLike {
-  role: string;
-  content: string | ContentBlock[];
-}
-
-/**
- * Parse a message row's content into its block objects, or `null` when the
- * content is malformed (unparseable JSON, not an array). Non-object entries
- * are dropped. Every evidence reader in this module goes through this so
- * malformed rows degrade the same way everywhere: skipped, not propagated.
- */
-function parseMessageBlocks(
-  msg: MessageLike,
-): Record<string, unknown>[] | null {
-  let blocks: unknown = msg.content;
-  if (typeof blocks === "string") {
-    try {
-      blocks = JSON.parse(blocks);
-    } catch {
-      return null;
-    }
-  }
-  if (!Array.isArray(blocks)) {
-    return null;
-  }
-  return blocks.filter(
-    (block): block is Record<string, unknown> =>
-      typeof block === "object" && block !== null,
-  );
-}
-
-/**
- * Scan an array of message rows for `tool_use` blocks where `name` is
- * `"remember"` and return the `input.content` strings in order. Robust to
- * malformed content JSON — unparseable rows are skipped, not propagated.
- */
-function extractRememberContents(
-  messages: MessageLike[],
-  succeededIds?: ReadonlySet<string>,
-): string[] {
-  const contents: string[] = [];
-  for (const msg of messages) {
-    if (msg.role !== "assistant") {
-      continue;
-    }
-    for (const b of parseMessageBlocks(msg) ?? []) {
-      if (b.type !== "tool_use") {
-        continue;
-      }
-      if (b.name !== "remember") {
-        continue;
-      }
-      // When a success set is provided, only executions that reported a
-      // non-error tool_result contribute facts: a failed remember never
-      // wrote the buffer, and logging its facts would suppress the retry's
-      // re-save via <already_remembered>.
-      if (
-        succeededIds !== undefined &&
-        (typeof b.id !== "string" || !succeededIds.has(b.id))
-      ) {
-        continue;
-      }
-      const input = b.input;
-      if (!input || typeof input !== "object") {
-        continue;
-      }
-      const content = (input as Record<string, unknown>).content;
-      // `remember` accepts a single string or an array of facts (batch form);
-      // flatten both so batched saves still feed the dedup baseline.
-      const facts = Array.isArray(content) ? content : [content];
-      for (const fact of facts) {
-        if (typeof fact !== "string") {
-          continue;
-        }
-        const trimmed = fact.trim();
-        if (trimmed.length > 0) {
-          contents.push(trimmed);
-        }
-      }
-    }
-  }
-  return contents;
 }

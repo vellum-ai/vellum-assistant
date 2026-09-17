@@ -61,14 +61,12 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * under the `watch_retro` template, which the client draws as a paged card: the
  * record on the first page, one question per page after it.
  *
- * **The daemon appends the card; the model never reaches `ui_show`.** This wake
- * is `clientless`, and `conversation-tool-setup` gates the whole `ui_surface`
- * family on a client being present, so `ui_show` is absent from this turn's
- * tool set rather than merely denied. A retrospective told to call it can only
- * report that it cannot. `watch_retro_report` is an ordinary tool and passes
- * that gate, and the surface is appended here, the way the memory
- * retrospective's `skill_card` is appended by the daemon rather than requested
- * by the model.
+ * **The daemon appends the card; the model calls `watch_retro_report`.** This
+ * wake is `clientless`. `ui_show` stays on the wire so background surfaces can
+ * persist, but this flow still reports through `watch_retro_report` so the
+ * daemon can append the card after the turn ends. The memory retrospective's
+ * `skill_card` is appended the same way: the daemon writes the surface, the
+ * model does not request it.
  *
  * **The append waits for the turn to end.** A `ui_surface` row written mid-turn
  * can land between a persisted `tool_use` and its `tool_result`, an ordering

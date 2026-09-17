@@ -89,7 +89,11 @@ import type {
   SelectorPool,
   StableCandidate,
 } from "./pool-select.js";
-import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
+import {
+  MemoryV3RetrievalUnavailableError,
+  selectAllPoolCandidates,
+  selectPool,
+} from "./pool-select.js";
 import {
   type RareTermHit,
   rareTermLane,
@@ -339,12 +343,31 @@ export interface OrchestrateResult {
   lanes: OrchestrateLanes;
   /** Whether the selector LLM judged a non-empty pool this turn (the
    *  `selector_ran` telemetry field). False when the pool was empty, when the
-   *  disabled-selector passthrough kept every candidate, and when a closed
-   *  injection gate hard-skipped selection. On that last path `lanes` still
-   *  carries the stable prefix as computed, but no pool was ever assembled,
-   *  so a false value with empty `selections` means the selector was given
-   *  nothing. */
+   *  disabled-selector passthrough kept every candidate, when a closed
+   *  injection gate hard-skipped selection, and when the selector's provider
+   *  failed and the stable prefix was kept unjudged (`selectorFailure`). On
+   *  the gate path `lanes` still carries the stable prefix as computed, but
+   *  no pool was ever assembled, so a false value with empty `selections`
+   *  means the selector was given nothing. */
   selectorRan: boolean;
+  /** Set when the selector could not be run this turn (provider unavailable,
+   *  or no usable tool call after the re-prompt retries). `selections` then
+   *  holds the stable prefix unjudged; finder candidates are dropped because
+   *  they are evidence for a judge, not evidence to inject on their own. The
+   *  live injector queues a notice so the person knows this turn drew on
+   *  core memories only. */
+  selectorFailure?: MemoryV3RetrievalUnavailableError;
+  /** The pool as the selector was given it, in one numbering: the
+   *  stable-prefix cards, then the finder lines. Absent when no pool was
+   *  assembled this turn (a closed gate's hard skip). Read by the pool input
+   *  capture (`buildPoolInput` in `pool-log-store.ts`). */
+  pool?: SelectorPool;
+  /** Whether the selector's recall-safe keep-all fallback fired
+   *  (`selectPool`'s `keptAll`). Absent when no pool was assembled. */
+  keptAll?: boolean;
+  /** The injection gate's reason code for this turn. Absent when the gate
+   *  did not run. */
+  gateReason?: string;
 }
 
 /** Stable-order de-duplication preserving first occurrence. */
@@ -402,19 +425,55 @@ export async function orchestrate(
   // selector's recall-safe fallback ONLY — the disabled passthrough is not a
   // selector judgment, so it reports `false` (its turns are excluded from any
   // relevance read by `selector_ran` anyway).
+  //
+  // A selector that cannot run at all (provider unavailable, or no usable
+  // tool call after the re-prompt retries) keeps the stable prefix unjudged
+  // and drops the finder candidates: the stable cards are
+  // conversation-independent and already sit in every turn's pool, while a
+  // finder line is evidence for a judge, not evidence to inject on its own.
+  // The failure rides the result so the injector can tell the person this
+  // turn drew on core memories only.
   const runSelection = (
     pool: SelectorPool,
-  ): Promise<{ selections: SelectedPage[]; keptAll: boolean }> =>
+  ): Promise<{
+    selections: SelectedPage[];
+    keptAll: boolean;
+    failure?: MemoryV3RetrievalUnavailableError;
+  }> =>
     timeLatencySubSpan("v3_selection", "Memory selection", async () => {
       if (deps.selectorEnabled === false) {
         return { selections: selectAllPoolCandidates(pool), keptAll: false };
       }
-      const { pages, keptAll } = await selectPool(
-        pool,
-        turn,
-        deps.selectorPrompt,
-      );
-      return { selections: pages, keptAll };
+      try {
+        const { pages, keptAll } = await selectPool(
+          pool,
+          turn,
+          deps.selectorPrompt,
+        );
+        return { selections: pages, keptAll };
+      } catch (err) {
+        if (!(err instanceof MemoryV3RetrievalUnavailableError)) {
+          throw err;
+        }
+        log.warn(
+          {
+            conversationId: turn.conversationId,
+            turnNumber: turn.turnNumber,
+            stableCount: pool.stable.length,
+            finderCount: pool.finder.length,
+            err: err.message,
+          },
+          "memory-v3 selector unavailable; keeping the stable prefix unjudged",
+        );
+        return {
+          selections: selectAllPoolCandidates({
+            stable: pool.stable,
+            finder: [],
+          }),
+          keptAll: false,
+          failure: err,
+        };
+      }
     });
 
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
@@ -760,17 +819,22 @@ export async function orchestrate(
   //     Omitted when the caller did not supply `isResident` (tests,
   //     shadow-less paths). The count reads the same units the injector will
   //     (a closed gate's selections carry no sections, so it counts leads).
-  const selectorRanOver = (poolSize: number): boolean =>
-    deps.selectorEnabled !== false && poolSize > 0;
+  const selectorRanOver = (
+    poolSize: number,
+    failure?: MemoryV3RetrievalUnavailableError,
+  ): boolean =>
+    deps.selectorEnabled !== false && poolSize > 0 && failure === undefined;
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
     keptAll: boolean,
+    failure?: MemoryV3RetrievalUnavailableError,
   ): void => {
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
-      selector_ran: selectorRanOver(poolSize),
+      selector_ran: selectorRanOver(poolSize, failure),
+      selector_failed: failure !== undefined,
       selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
@@ -845,10 +909,15 @@ export async function orchestrate(
           const closed = (
             selections: SelectedPage[],
             selectorRan: boolean,
+            selectorFailure?: MemoryV3RetrievalUnavailableError,
+            judged?: { pool: SelectorPool; keptAll: boolean },
           ): OrchestrateResult => ({
             selections,
             lanes: { core, hot, fresh, always, finder: [] },
             selectorRan,
+            gateReason: gate.reason,
+            ...(judged ? { pool: judged.pool, keptAll: judged.keptAll } : {}),
+            ...(selectorFailure ? { selectorFailure } : {}),
           });
           if (deps.gateConfig.bypassForCore) {
             // Select over the stable prefix only. `runSelection` mirrors the
@@ -860,13 +929,27 @@ export async function orchestrate(
             // explicitly configured with `selectorEnabled: false` AND
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
-            const stableOnly = buildStable();
-            const { selections: bypassed, keptAll } = await runSelection({
-              stable: stableOnly,
+            const stableOnly: SelectorPool = {
+              stable: buildStable(),
               finder: [],
-            });
-            recordSelection(bypassed, stableOnly.length, keptAll);
-            return closed(bypassed, selectorRanOver(stableOnly.length));
+            };
+            const {
+              selections: bypassed,
+              keptAll,
+              failure,
+            } = await runSelection(stableOnly);
+            recordSelection(
+              bypassed,
+              stableOnly.stable.length,
+              keptAll,
+              failure,
+            );
+            return closed(
+              bypassed,
+              selectorRanOver(stableOnly.stable.length, failure),
+              failure,
+              { pool: stableOnly, keptAll },
+            );
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
@@ -972,13 +1055,17 @@ export async function orchestrate(
     Date.now() - expandStartedAt,
   );
   const poolSize = stable.length + finderTail.length;
-  const { selections, keptAll } = await runSelection(pool);
-  recordSelection(selections, poolSize, keptAll);
+  const { selections, keptAll, failure } = await runSelection(pool);
+  recordSelection(selections, poolSize, keptAll, failure);
 
   return {
     selections,
     lanes: { core, hot, fresh, always, finder },
-    selectorRan: selectorRanOver(poolSize),
+    selectorRan: selectorRanOver(poolSize, failure),
+    pool,
+    keptAll,
+    ...(gateOutcome ? { gateReason: gateOutcome.reason } : {}),
+    ...(failure ? { selectorFailure: failure } : {}),
   };
 }
 

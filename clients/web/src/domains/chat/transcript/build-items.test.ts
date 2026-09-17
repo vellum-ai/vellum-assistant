@@ -1511,3 +1511,59 @@ describe("buildTranscriptItems", () => {
     expect(items[1]!.key).toBe("server-id-456");
   });
 });
+
+describe("desktop help transcript placement", () => {
+  const pendingQuestion = {
+    requestId: "request-desktop",
+    entries: [
+      {
+        id: "q1",
+        question: "Complete the verification.",
+        options: [],
+        presentation: "virtual_desktop" as const,
+      },
+    ],
+  };
+  const messages = [
+    makeMessage({
+      id: "assistant-help",
+      role: "assistant",
+      ...textBody("I need help with verification."),
+    }),
+  ];
+
+  test("places desktop help after the assistant message and removes it when resolved", () => {
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages,
+      pendingQuestion,
+    });
+    expect(items.map((item) => item.kind)).toEqual([
+      "message",
+      "pendingDesktopHelp",
+    ]);
+    expect(items[1]).toMatchObject({
+      key: "desktop-help-request-desktop",
+      requestId: "request-desktop",
+    });
+    expect(
+      buildTranscriptItems({
+        ...emptyInput(),
+        messages,
+        pendingQuestion: null,
+      }).map((item) => item.kind),
+    ).toEqual(["message"]);
+  });
+
+  test("keeps ordinary questions in the composer", () => {
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages,
+      pendingQuestion: {
+        ...pendingQuestion,
+        entries: [{ id: "q1", question: "Which option?", options: [] }],
+      },
+    });
+    expect(items.map((item) => item.kind)).toEqual(["message"]);
+  });
+});

@@ -22,6 +22,7 @@ declare module "@novnc/novnc" {
     focusOnClick: boolean;
     resizeSession: boolean;
     clipViewport: boolean;
+    dragViewport: boolean;
     clipboardPasteFrom(text: string): void;
     disconnect(): void;
     addEventListener<K extends keyof RFBEventMap>(

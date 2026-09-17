@@ -74,9 +74,9 @@ export const VoiceProgressConfigSchema = z
       .positive(
         "voice.frontModel.progress.generationTimeoutMs must be a positive integer",
       )
-      .default(1_500)
+      .default(5_000)
       .describe(
-        "Budget (ms) for LLM-generated progress text. Not latency-critical: it speaks into dead air",
+        "Budget (ms) for LLM-generated progress text. Not latency-critical: it speaks into dead air, so the budget is set to cover the narrator's real roundtrip rather than to be tight. A budget that only sometimes covers that roundtrip thins narration out rather than speeding it up, and it thins out exactly where the updates matter most, since the slow beats are the ones with the longest silence behind them (see endpointDecisionTimeoutMs for the same failure mode). Kept under progress.minGapMs so an update that spends the whole budget still lands before the next one is due",
       ),
   })
   // The heartbeat is checked when the idle tick finds the turn silent, so a

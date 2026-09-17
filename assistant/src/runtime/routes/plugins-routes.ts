@@ -2,7 +2,7 @@
  * Route handlers for the assistant plugins surface.
  *
  * GET    /v1/plugins          — list installed plugins under `<workspaceDir>/plugins/`.
- * GET    /v1/plugins/search   — search the canonical GitHub catalog of installable plugins.
+ * GET    /v1/plugins/search   - search the reviewed catalog of installable plugins.
  * GET    /v1/plugins/:name    — resolve a single plugin's detail view (metadata + README).
  * POST   /v1/plugins/install  — install a plugin by name from the canonical source.
  * DELETE /v1/plugins/:name    — uninstall a plugin from `<workspaceDir>/plugins/<name>/`.
@@ -80,6 +80,7 @@ import {
   PluginDirectoryNotFoundError,
 } from "../../cli/lib/toggle-plugin.js";
 import {
+  PLUGIN_UNINSTALL_WARNING_KEYS,
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
@@ -191,30 +192,47 @@ const pluginsListResponseSchema = z.object({
 });
 
 const pluginMatchSourceSchema = z
-  .object({
-    kind: z.literal("github"),
-    repo: z
-      .string()
-      .describe("`owner/repo` of the external plugin repository."),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Directory within the repo, when the plugin is not at the root.",
-      ),
-    ref: z.string().describe("Pinned git ref the plugin is fetched from."),
-  })
-  .describe("Origin of the match: a whitelisted external plugin repository.");
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("github"),
+      repo: z
+        .string()
+        .describe("`owner/repo` of the external plugin repository."),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Directory within the repo, when the plugin is not at the root.",
+        ),
+      ref: z.string().describe("Pinned git ref the plugin is fetched from."),
+    }),
+    z.object({
+      kind: z.literal("local"),
+      path: z.string().describe("Package key in the assistant bundle."),
+      version: z.string().describe("Bundled package version."),
+    }),
+  ])
+  .describe("Reviewed source of the marketplace entry.");
+
+const mcpPluginIntegrationSchema = z.object({
+  kind: z.literal("mcp"),
+  displayName: z.string(),
+  documentationUrl: z.string(),
+  verifiedAt: z.string(),
+  verification: z.literal("documentation-only"),
+  setup: z.object({
+    mode: z.enum(["oauth", "manual"]),
+    instructions: z.string(),
+  }),
+  logo: z.string(),
+  oauthProvider: z.string().optional(),
+});
 
 const pluginSearchMatchSchema = z.object({
   name: z
     .string()
     .describe("Install name. Matches `assistant plugins install <name>`."),
-  path: z
-    .string()
-    .describe(
-      "Human-readable origin: a `github:owner/repo@ref` locator for the external plugin.",
-    ),
+  path: z.string().describe("Human-readable catalog origin locator."),
   description: z
     .string()
     .optional()
@@ -231,6 +249,7 @@ const pluginSearchMatchSchema = z.object({
     .describe(
       "Marketplace category slug (Skills taxonomy); null when the entry declares none.",
     ),
+  integration: mcpPluginIntegrationSchema.optional(),
   source: pluginMatchSourceSchema,
 });
 
@@ -254,6 +273,14 @@ const pluginUninstallResponseSchema = z.object({
     .string()
     .describe(
       "Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.",
+    ),
+  warnings: z
+    .array(
+      z.literal(PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED),
+    )
+    .optional()
+    .describe(
+      "Stable keys for non-fatal cleanup limitations that should be localized at the presentation edge.",
     ),
 });
 
@@ -409,22 +436,20 @@ const fingerprintComparisonSchema = z
   );
 
 const installMetaSourceSchema = z
-  .object({
-    kind: z.string().describe("Source kind. Only `github` is written today."),
-    owner: z.string(),
-    repo: z.string(),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Repo-relative directory holding the plugin root; absent = repo root.",
-      ),
-    ref: z
-      .string()
-      .describe(
-        "Ref the install resolved through (the pinned commit SHA for marketplace installs).",
-      ),
-  })
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("github"),
+      owner: z.string(),
+      repo: z.string(),
+      path: z.string().optional(),
+      ref: z.string(),
+    }),
+    z.object({
+      kind: z.literal("local"),
+      path: z.string(),
+      version: z.string(),
+    }),
+  ])
   .describe(
     "Source coordinates recorded in the install-time provenance sidecar.",
   );
@@ -480,6 +505,7 @@ const pluginLocalInfoSchema = z
 
 const pluginRemoteInfoSchema = z
   .object({
+    kind: z.literal("local").optional(),
     repo: z
       .string()
       .describe("`owner/repo` of the external plugin repository."),
@@ -508,6 +534,7 @@ const pluginRemoteInfoSchema = z
       .describe(
         "Ref of the canonical repo the marketplace manifest was read from.",
       ),
+    version: z.string().optional().describe("Bundled package version."),
   })
   .describe("The marketplace's current pin and advertised metadata.");
 
@@ -861,7 +888,8 @@ interface PluginMatchView {
   description?: string;
   icon?: string;
   category: string | null;
-  source: { kind: "github"; repo: string; path?: string; ref: string };
+  integration?: PluginSearchMatch["integration"];
+  source: PluginSearchMatch["source"];
 }
 
 /**
@@ -877,18 +905,16 @@ function projectMatch(
     name: m.name,
     path: m.path,
     category: normalizeMarketplaceCategory(m.category, validSlugs),
-    source: {
-      kind: "github",
-      repo: m.source.repo,
-      ref: m.source.ref,
-      ...(m.source.path !== undefined ? { path: m.source.path } : {}),
-    },
+    source: { ...m.source },
   };
   if (m.description !== undefined) {
     view.description = m.description;
   }
   if (m.icon !== undefined) {
     view.icon = m.icon;
+  }
+  if (m.integration !== undefined) {
+    view.integration = m.integration;
   }
   return view;
 }
@@ -1134,7 +1160,11 @@ async function handleUninstallPlugin({
     const result = await uninstallPlugin({ name: rawName });
     await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
-    return { name: result.name, target: result.target };
+    return {
+      name: result.name,
+      target: result.target,
+      ...(result.warnings && { warnings: result.warnings }),
+    };
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
       throw new BadRequestError(err.message);
@@ -1263,12 +1293,15 @@ async function handleInstallPlugin({ body = {}, headers }: RouteHandlerArgs) {
         {
           name,
           force,
-          trustedSource: {
-            owner: source.owner,
-            repo: source.repo,
-            rootPath: source.path,
-            ref: source.ref,
-          },
+          trustedSource:
+            source.kind === "local"
+              ? source
+              : {
+                  owner: source.owner,
+                  repo: source.repo,
+                  rootPath: source.path,
+                  ref: source.ref,
+                },
         },
         { fetch: globalThis.fetch.bind(globalThis) },
       );

@@ -17,6 +17,7 @@ import type {
   BrowserOperationMeta,
   OperationField,
 } from "../../browser/types.js";
+import { DESKTOP_HELP_GUIDANCE } from "../../util/browser-human-verification.js";
 import type {
   CliCommandHelp,
   CliOptionHelp,
@@ -97,6 +98,15 @@ export const browserHelp: CliCommandHelp = {
   description: "Control the browser via the running assistant.",
   options: [
     {
+      flags: "--desktop",
+      description: "Compatibility alias for --virtual-desktop.",
+    },
+    {
+      flags: "--virtual-desktop",
+      description:
+        "Use Chrome in the platform-hosted virtual desktop with visible cursor feedback.",
+    },
+    {
       flags: "--session <id>",
       description: "Session ID to preserve browser state across invocations.",
       defaultValue: "default",
@@ -118,6 +128,41 @@ export const browserHelp: CliCommandHelp = {
   ],
   helpText: `
 Browser operations are executed through the running assistant.
+Virtual desktop is available only for platform-hosted assistants.
+In the web client, automatic selection prefers virtual desktop Chrome when
+its feature is enabled and the conversation has an
+identified guardian. The macOS and Windows apps keep their existing browser
+selection and fallback behavior; use --virtual-desktop to select it there.
+Existing sessions and explicit backend/client choices take priority.
+--browser-mode local (alias playwright) means the assistant's Playwright browser,
+not the user's Chrome. --desktop remains an alias for --virtual-desktop.
+Use --virtual-desktop for Chrome in the Desktop panel.
+Run navigate --url <url> directly to open a page.
+The assistant-desktop feature flag and completed installation are required.
+The first browser command installs missing components, starts Chrome, and completes
+the requested action in one call. Allow up to 600 seconds for this command when
+using bash (timeout_seconds: 600). Opening the Desktop panel also starts
+the same installation and shows progress. No separate setup command is needed.
+Report other availability errors without switching to a personal computer.
+The assistant manages Chrome startup. Do not launch a separate desktop stack,
+install desktop packages, or drive webpages with shell-level xdotool.
+With --virtual-desktop, screenshot captures the page directly from Chrome over CDP
+as a color JPEG. Use --output to save it and file_read to view it. Do not use
+shell-level xwd or custom screenshot conversion scripts.
+Use snapshot for current element IDs and tabs list for current tab IDs.
+Refresh the snapshot after navigation, tab changes or stale-element errors.
+Inspect the result before retrying a failed action; it may have happened.
+A purple page pointer shows CDP mouse movement in the stream. Browser toolbar
+controls, native dialogs and other apps are outside this CLI's page controls.
+Do not combine --virtual-desktop with personal browser targets, other browser modes
+or --use-active-tab. Download waiting is unavailable on this target.
+Users can interact directly with the expanded desktop. If they ask you to pause,
+stop and wait. Take a fresh snapshot before resuming. Closing the viewer does not
+end automation. Run assistant browser --virtual-desktop detach when finished or
+blocked. Chrome stays running.
+For logins, use saved credentials first. Securely collect missing credentials
+with assistant credentials prompt, then fill the login form yourself.
+${DESKTOP_HELP_GUIDANCE}
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 
@@ -131,6 +176,8 @@ local. Useful for debugging or when deterministic backend selection
 is required.
 
 Examples:
+  $ assistant browser --virtual-desktop status
+  $ assistant browser --virtual-desktop screenshot --output /tmp/desktop-page.jpg
   $ assistant browser navigate --url https://example.com
   $ assistant browser snapshot
   $ assistant browser click --selector "#login"

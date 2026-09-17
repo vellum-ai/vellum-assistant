@@ -63,6 +63,7 @@ const FIXTURES: Record<string, string> = {
   "Perplexity API Key": `pplx-${filler(40)}`,
   "Tavily API Key": `tvly-${filler(20)}`,
   "Firecrawl API Key": `fc-${filler(20)}`,
+  "Resend API Key": `re_${filler(8)}_${filler(24)}`,
 };
 
 describe("subpath export", () => {

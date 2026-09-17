@@ -43,6 +43,7 @@ import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import {
   ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PoolInputsSchema,
   ensureMemoryV3PoolsSchema,
 } from "../plugin-schema.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
@@ -123,6 +124,9 @@ let gateEnabledCfg = true;
 // Mutable `memory.v3.rareTerm.enabled` switch carried by the mocked config
 // (default on, mirroring the schema default).
 let rareTermEnabledCfg = true;
+// Mutable `memory.v3.poolLog.captureInput` opt-in carried by the mocked
+// config (default off, mirroring the schema default).
+let captureInputCfg = false;
 let messages: Array<{
   role: string;
   content: string;
@@ -240,6 +244,7 @@ function makeDb() {
   ensureMemoryV3InjectedSectionsSchema(memorySqlite);
   // `observeTurn` records each turn's candidate pool next to its selections.
   ensureMemoryV3PoolsSchema(memorySqlite);
+  ensureMemoryV3PoolInputsSchema(memorySqlite);
   return db;
 }
 
@@ -298,6 +303,7 @@ function seedMemoryConfig(): void {
       // Gate tuning (schema defaults) with the mutable `enabled` kill-switch,
       // threaded through to orchestrate as-is.
       gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
+      poolLog: { captureInput: captureInputCfg },
     },
     qdrant: { vectorSize: 8, onDisk: false },
   });
@@ -586,8 +592,9 @@ const {
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
-const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
-const { buildPoolRecord, readPoolForMessageIds } =
+const { MemoryV3RetrievalUnavailableError, renderFinderLine } =
+  await import("../pool-select.js");
+const { buildPoolRecord, readPoolForMessageIds, readPoolText } =
   await import("../pool-log-store.js");
 
 /** Seed the real config from the current mutable knobs, then run the real
@@ -623,6 +630,23 @@ function readPools() {
     selected_count: number;
     selector_ran: number;
     candidates_json: string;
+  }>;
+}
+
+function readPoolInputs() {
+  return memorySqlite
+    .query(
+      `SELECT conversation_id, turn, current_message, kept_all, gate_reason,
+              candidate_text_hashes_json
+       FROM memory_v3_pool_inputs ORDER BY turn`,
+    )
+    .all() as Array<{
+    conversation_id: string;
+    turn: number;
+    current_message: string;
+    kept_all: number;
+    gate_reason: string | null;
+    candidate_text_hashes_json: string;
   }>;
 }
 
@@ -668,6 +692,7 @@ beforeEach(() => {
   selectorEnabledCfg = false;
   gateEnabledCfg = true;
   rareTermEnabledCfg = true;
+  captureInputCfg = false;
   messages = [
     {
       role: "user",
@@ -975,6 +1000,61 @@ describe("memory-v3 engine", () => {
     expect(readPools().map((pool) => pool.message_id)).toEqual(["m-skipped"]);
   });
 
+  test("the selector's input is not captured unless memory.v3.poolLog.captureInput is on", async () => {
+    await observeTurn("conv-1", 2);
+
+    expect(readPools()).toHaveLength(1);
+    expect(readPoolInputs()).toHaveLength(0);
+  });
+
+  test("with memory.v3.poolLog.captureInput on, the turn log writes the selector's input and every pooled candidate's text", async () => {
+    captureInputCfg = true;
+    const finder = [
+      { slug: "page-1", descriptor: "the first page", lane: "needle" as const },
+      { slug: "page-2", descriptor: "", lane: "edge" as const },
+    ];
+    orchestrateSpy.mockImplementationOnce(async () => ({
+      selections: [
+        { slug: "page-core", sections: [] },
+        { slug: "page-1", sections: [] },
+      ],
+      lanes: { core: ["page-core"], hot: [], fresh: [], always: [], finder },
+      selectorRan: true,
+      keptAll: false,
+      gateReason: "dense_pass",
+      pool: {
+        stable: [{ slug: "page-core", card: "core card" }],
+        finder,
+      },
+    }));
+
+    await observeTurn("conv-1", 2);
+
+    const pools = readPools();
+    expect(pools).toHaveLength(1);
+    expect(pools[0]!.pool_size).toBe(3);
+    const inputs = readPoolInputs();
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({
+      conversation_id: "conv-1",
+      turn: 2,
+      current_message: "hello world",
+      kept_all: 0,
+      gate_reason: "dense_pass",
+    });
+
+    // One hash per pooled candidate in pool order: the card as pre-rendered,
+    // then each finder line exactly as the selector renders it.
+    const hashes = JSON.parse(
+      inputs[0]!.candidate_text_hashes_json,
+    ) as string[];
+    expect(hashes.map((hash) => readPoolText(hash))).toEqual([
+      "core card",
+      renderFinderLine(finder[0]!),
+      renderFinderLine(finder[1]!),
+    ]);
+  });
+
   test("a turn observed again replaces its selection rows in step with its pool", async () => {
     orchestrateSpy.mockImplementationOnce(async () =>
       poolOf(["page-1", "page-2"]),
@@ -1161,6 +1241,27 @@ describe("memory-v3 engine", () => {
     expect(sourceOf([inventory, bulk])).toBe("rare");
     // No section (the page's card): the page's first line decides.
     expect(sourceOf([])).toBe("needle");
+  });
+
+  test("a turn whose selector could not run attributes no rows, so unjudged pages never feed frecency or learned edges", () => {
+    const rows = attributeSelections({
+      selections: [
+        { slug: "page-core", sections: [] },
+        { slug: "page-hot", sections: [] },
+      ],
+      lanes: {
+        core: ["page-core"],
+        hot: ["page-hot"],
+        fresh: [],
+        always: [],
+        finder: [{ slug: "page-two", descriptor: "", lane: "needle" }],
+      },
+      selectorRan: false,
+      selectorFailure: new MemoryV3RetrievalUnavailableError(
+        "selector unavailable",
+      ),
+    });
+    expect(rows).toEqual([]);
   });
 
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {

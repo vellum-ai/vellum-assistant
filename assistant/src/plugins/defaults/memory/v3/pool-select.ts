@@ -42,9 +42,11 @@
  *   - infrastructure failure (selector provider unavailable — e.g. a transient
  *     CES credential blip drops the API key — or no usable `tool_use` / schema
  *     mismatch surviving the short re-prompt retry) → throw
- *     {@link MemoryV3RetrievalUnavailableError}. The live injector treats this
- *     as a logged memory miss for the turn; shadow/observation callers swallow
- *     it so v2 retrieval can serve the turn.
+ *     {@link MemoryV3RetrievalUnavailableError}. The orchestrator keeps the
+ *     stable prefix unjudged for the turn and drops the finder candidates,
+ *     recording the pool with `selector_ran = 0`; the live injector renders
+ *     that prefix and queues a notice that the turn drew on core memories
+ *     only.
  */
 
 import type {
@@ -52,12 +54,12 @@ import type {
   Message,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { redactLogString, safeStringSlice, truncate } from "../host-utils.js";
+import { redactLogString, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
   extractToolUse,
@@ -407,21 +409,30 @@ function laneTag(candidate: PoolCandidate): string {
 }
 
 /**
+ * One finder line as the selector sees it, minus its pool number: the lane
+ * tag (omitted for a candidate without one, naming the keyed word for a
+ * rare-term line, `(rare: turnip)`), the slug, and the snippet after a dash
+ * (no dash for a candidate with an empty descriptor). Shared with the pool
+ * input capture (`pool-log-store.ts`), so the persisted text is exactly the
+ * rendered line.
+ */
+export function renderFinderLine(candidate: PoolCandidate): string {
+  const snippet = renderSnippet(candidate);
+  const lane = laneTag(candidate);
+  return snippet.length > 0
+    ? `${lane}${candidate.slug} — ${snippet}`
+    : `${lane}${candidate.slug}`;
+}
+
+/**
  * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
- * candidate, numbered continuing after the `offset` stable-prefix cards. The
- * lane tag is omitted for a candidate without one and names the keyed word
- * for a rare-term line (`(rare: turnip)`); a candidate with an empty
- * descriptor renders without the dash.
+ * candidate ({@link renderFinderLine}), numbered continuing after the
+ * `offset` stable-prefix cards.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
-  const lines = finder.map((c, i) => {
-    const snippet = renderSnippet(c);
-    const id = offset + i + 1;
-    const lane = laneTag(c);
-    return snippet.length > 0
-      ? `[${id}] ${lane}${c.slug} — ${snippet}`
-      : `[${id}] ${lane}${c.slug}`;
-  });
+  const lines = finder.map(
+    (c, i) => `[${offset + i + 1}] ${renderFinderLine(c)}`,
+  );
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
 }
 
@@ -500,8 +511,9 @@ export interface PoolSelection {
  *
  * An omitted `ids` keeps ALL candidates (the recall-safe "all of these are
  * relevant" signal, `keptAll: true`); an explicit `[]` keeps none; an
- * infrastructure failure (after a short re-prompt retry) keeps none, degrading
- * to the deterministic recall lanes the orchestrator unions in.
+ * infrastructure failure (after a short re-prompt retry) throws
+ * {@link MemoryV3RetrievalUnavailableError}, and the orchestrator keeps the
+ * stable prefix unjudged in its place.
  *
  * `systemPrompt` is the selector's instruction scaffold; it defaults to the
  * bundled {@link SYSTEM_PROMPT} and is overridable via `memory.v3.selectorPromptPath`

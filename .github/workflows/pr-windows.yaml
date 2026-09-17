@@ -20,6 +20,7 @@ on:
       - 'packages/**'
       - '.github/workflows/pr-windows.yaml'
       - '.github/workflows/release-windows.yaml'
+      - '.github/workflows/publish-windows.yaml'
 
 concurrency:
   group: pr-windows-${{ github.event.pull_request.number }}
@@ -110,7 +111,7 @@ jobs:
           global-json-file: clients/windows/native/global.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --filter=@vellumai/native-sidecar --filter=@vellumai/windows
+        run: bun install --frozen-lockfile --filter=@vellumai/native-sidecar --filter=@vellumai/windows --filter=@vellumai/assistant
 
       - name: Test release signature verification
         shell: pwsh

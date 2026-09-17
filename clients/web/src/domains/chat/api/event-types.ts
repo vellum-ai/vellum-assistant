@@ -57,7 +57,8 @@ export type QuestionResponseEntry =
   | { questionId: string; kind: "skip" };
 
 export type QuestionSubmission =
-  { kind: "submit"; responses: QuestionResponseEntry[] } | { kind: "close" };
+  | { kind: "submit"; responses: QuestionResponseEntry[] }
+  | { kind: "close" };
 
 /**
  * Normalizes a `question_request` SSE event into the batched `QuestionEntry[]`
@@ -77,6 +78,7 @@ export function normalizeQuestionRequest(
       description: entry.description,
       options: Array.isArray(entry.options) ? entry.options : [],
       freeTextPlaceholder: entry.freeTextPlaceholder,
+      ...(entry.presentation ? { presentation: entry.presentation } : {}),
     }));
   }
   const hasLegacyFields =

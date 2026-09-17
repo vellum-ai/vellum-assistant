@@ -15,6 +15,7 @@ import * as conversationCache from "@/utils/conversation-cache";
 import * as cacheMutations from "@/utils/conversation-cache-mutations";
 import { useConversationStore } from "@/stores/conversation-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
 
 // The hook fetches the conversation list and runs an initial sweep; stub
 // both so renderHook does not try to hit a real backend.
@@ -55,6 +56,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
+  getPendingInteractions: async () => ({}),
 }));
 
 const { useAttentionTracking } =
@@ -113,6 +115,41 @@ afterEach(() => {
 });
 
 describe("useAttentionTracking — interaction_resolved subscriber", () => {
+  test("a background question resolution unlocks only its assistant and exits interactive mode", () => {
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted("asst-1", "req-help", "conv-help");
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted("asst-2", "req-other", "conv-other");
+    useDesktopPreviewStore.getState().openFullscreen("asst-1");
+    renderHook(
+      () =>
+        useAttentionTracking({
+          assistantId: "asst-1",
+          assistantStateKind: "active",
+          isTranscriptOnScreen: true,
+        }),
+      { wrapper },
+    );
+    publishInteractionResolved({
+      requestId: "req-help",
+      conversationId: "conv-background",
+      state: "answered",
+      kind: "question",
+    });
+    expect(useDesktopPreviewStore.getState().submittedHelpRequests).toEqual({
+      "asst-2": { requestId: "req-other", conversationId: "conv-other" },
+    });
+    expect(useDesktopPreviewStore.getState().session).toEqual({
+      assistantId: "asst-1",
+      view: "preview",
+    });
+    useDesktopPreviewStore.setState({
+      submittedHelpRequests: {},
+      session: null,
+    });
+  });
   test("removes the conversation from attentionConversationIds", () => {
     useConversationStore.getState().addAttentionConversationId("conv-1");
     expect(

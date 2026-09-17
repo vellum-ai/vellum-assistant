@@ -6,6 +6,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CONSOLIDATION_ALLOWED_TOOLS } from "../../plugins/defaults/memory/substrate/consolidation-tool-surface.js";
 import type { Conversation } from "../conversation.js";
 import type { ChannelCapabilities } from "../conversation-runtime-assembly.js";
 
@@ -777,5 +778,47 @@ describe("isToolActiveForContext — allowlist-only tools (delete_memory_page)",
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isToolActiveForContext — memory consolidation surface resolves onto the wire", () => {
+  // A background job conversation is not a subagent, so SUBAGENT_ONLY tools
+  // are filtered off before the allowlist applies. Every name the
+  // consolidation run allowlists must survive that gate, or the tool is
+  // silently missing from the run while the allowlist still claims it.
+  const consolidationCtx = () =>
+    makeCtx({
+      subagentAllowedTools: new Set(CONSOLIDATION_ALLOWED_TOOLS),
+      subagentToolGateMode: "wire",
+    });
+
+  test("every allowlisted tool is active for a background conversation", () => {
+    for (const name of CONSOLIDATION_ALLOWED_TOOLS) {
+      expect(isToolActiveForContext(name, consolidationCtx()), name).toBe(true);
+    }
+  });
+
+  test("the shell and the page-delete primitive are on the surface", () => {
+    expect(isToolActiveForContext("bash", consolidationCtx())).toBe(true);
+    expect(
+      isToolActiveForContext("delete_memory_page", consolidationCtx()),
+    ).toBe(true);
+  });
+
+  test("network egress and host-proxy tools stay off the wire", () => {
+    for (const name of [
+      "web_fetch",
+      "web_search",
+      "network_request",
+      "host_bash",
+      "host_file_read",
+      "host_file_write",
+      "host_file_edit",
+      "host_cu",
+    ]) {
+      expect(isToolActiveForContext(name, consolidationCtx()), name).toBe(
+        false,
+      );
+    }
   });
 });

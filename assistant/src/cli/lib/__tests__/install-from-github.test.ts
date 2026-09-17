@@ -22,6 +22,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { readPluginMcpServers } from "../../../plugins/mcp-servers.js";
+import { PluginManifestError } from "../../../util/plugin-manifest.js";
 import type { FetchLike } from "../fetch-like.js";
 import {
   type GitRunner,
@@ -37,6 +39,7 @@ import {
   resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
+import { readValidatedPluginIcon } from "../plugin-icon-file.js";
 
 const CANON_REPO = "vellum-ai/vellum-assistant";
 /** Synthetic host the fixtures use for Contents API `download_url`s. */
@@ -249,6 +252,113 @@ describe("installPlugin — install lifecycle", () => {
 
   afterEach(() => {
     rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs a bundled standard package and discovers its MCP server", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.0",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+        materializeLocalPackage: (path, version, destination) => {
+          expect(path).toBe("plugins/mcp-catalog/fathom");
+          expect(version).toBe("1.0.0");
+          writeFileSync(
+            join(destination, "plugin.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+              name: "fathom",
+              version: "1.0.0",
+            }),
+          );
+          writeFileSync(
+            join(destination, "mcp.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+              mcpServers: {
+                fathom: {
+                  type: "streamable-http",
+                  url: "https://api.fathom.ai/mcp",
+                },
+              },
+            }),
+          );
+          return 2;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      fileCount: 2,
+      ref: "1.0.0",
+      commit: null,
+    });
+    expect(readInstallMeta(result.target)?.source).toEqual({
+      kind: "local",
+      path: "plugins/mcp-catalog/fathom",
+      version: "1.0.0",
+    });
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+      }),
+    ]);
+  });
+
+  test("installs the reviewed Fathom package from the generated bundle", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.2",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      ref: "1.0.2",
+      commit: null,
+    });
+    expect(readValidatedPluginIcon(result.target).hasIcon).toBe(true);
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+        config: expect.objectContaining({
+          transport: expect.objectContaining({
+            url: "https://api.fathom.ai/mcp",
+          }),
+        }),
+      }),
+    ]);
   });
 
   test("refuses to overwrite an existing install without --force", async () => {
@@ -1223,6 +1333,115 @@ describe("installPlugin — direct (untrusted) install", () => {
     expect(meta?.source.repo).toBe("dev-plugin");
     expect(meta?.source.ref).toBe("HEAD");
     expect(meta?.commit).toBe("a".repeat(40));
+  });
+
+  test("installs a standard-only plugin without synthesizing package.json", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "standard-plugin",
+          version: "1.4.0",
+        }),
+        "mcp.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          mcpServers: {
+            "standard-plugin": {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        }),
+      },
+      commit: "9".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "standard-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "standard-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    expect(existsSync(join(result.target, "plugin.json"))).toBe(true);
+    expect(existsSync(join(result.target, "package.json"))).toBe(false);
+    expect(readInstallMeta(result.target)?.version).toBe("1.4.0");
+    const mcp = readPluginMcpServers({ workspacePluginsDir: pluginsDir });
+    expect(mcp.issues).toEqual([]);
+    expect(mcp.servers.map((server) => server.id)).toEqual(["standard-plugin"]);
+  });
+
+  test("synthesizes package.json beside a foreign plugin.json", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({ name: "foreign-plugin" }),
+        "mcp.json": JSON.stringify({
+          mcpServers: {
+            "foreign-plugin": {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        }),
+      },
+      commit: "8".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "foreign-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "foreign-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    expect(existsSync(join(result.target, "plugin.json"))).toBe(true);
+    expect(existsSync(join(result.target, "package.json"))).toBe(true);
+    const mcp = readPluginMcpServers({ workspacePluginsDir: pluginsDir });
+    expect(mcp.issues).toEqual([]);
+    expect(mcp.servers.map((server) => server.id)).toEqual(["foreign-plugin"]);
+  });
+
+  test("rejects a malformed claimed standard manifest before install", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "Invalid Standard Name",
+        }),
+      },
+      commit: "7".repeat(40),
+    });
+
+    await expect(
+      installPlugin(
+        {
+          name: "invalid-standard",
+          directSource: {
+            owner: "owner",
+            repo: "invalid-standard",
+            rootPath: "",
+            ref: "HEAD",
+          },
+        },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginManifestError);
+    expect(existsSync(join(pluginsDir, "invalid-standard"))).toBe(false);
   });
 
   test("never overlays a curated adapter stub, even if one matches the name", async () => {

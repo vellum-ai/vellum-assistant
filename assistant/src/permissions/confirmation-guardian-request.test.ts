@@ -111,6 +111,22 @@ describe("createGuardianRequestForConfirmation", () => {
     expect(expiresAt).toBeLessThanOrEqual(after + APPROVAL_WINDOW_MS);
   });
 
+  test("describes the request by the status sentence, never a tool's own reason argument", async () => {
+    await createGuardianRequestForConfirmation(
+      { ...MSG, input: { reason: "Task complete" } },
+      "conv-1",
+    );
+    await createGuardianRequestForConfirmation(
+      { ...MSG, input: { activity: "Stopping the app" } },
+      "conv-1",
+    );
+
+    expect(createCalls.map((call) => call.activityText)).toEqual([
+      undefined,
+      "Stopping the app",
+    ]);
+  });
+
   test("expires the row and skips the bridge when the confirmation resolved mid-create", async () => {
     confirmationPending = false;
 

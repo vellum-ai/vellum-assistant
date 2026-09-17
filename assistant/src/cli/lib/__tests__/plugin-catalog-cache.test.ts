@@ -20,14 +20,22 @@ import type { FetchLike } from "../fetch-like.js";
 import {
   getPluginCatalog,
   invalidatePluginCatalogCache,
+  mergePlatformCatalogWithBundledLocals,
   PLUGIN_CATALOG_CACHE_TTL_MS,
 } from "../plugin-catalog-cache.js";
 import { readBundledPluginCatalog } from "../plugin-catalog-local.js";
 import type { SearchPluginsDeps } from "../search-plugins.js";
+import type { PluginCatalog } from "../search-plugins.js";
 
 // A non-zero base time. Bun treats `setSystemTime(new Date(0))` as "reset to
 // the real clock", so the fake clock must start from a positive epoch.
 const BASE_TIME_MS = 1_700_000_000_000;
+
+function githubNames(catalog: PluginCatalog): string[] {
+  return catalog.matches
+    .filter((match) => match.source.kind === "github")
+    .map((match) => match.name);
+}
 
 /** A `deps.fetch` that serves a `/v1/plugins/` payload and counts its calls. */
 function platformFetch(names: string[]): {
@@ -95,7 +103,7 @@ describe("getPluginCatalog", () => {
     // THEN the platform is fetched exactly once — the second call is cached
     expect(calls()).toBe(1);
     expect(first).toBe(second);
-    expect(first.matches.map((m) => m.name)).toEqual(["a"]);
+    expect(githubNames(first)).toEqual(["a"]);
     expect(first.ref).toBe("main");
   });
 
@@ -133,7 +141,7 @@ describe("getPluginCatalog", () => {
     setSystemTime(new Date(BASE_TIME_MS));
     const good = platformFetch(["good"]);
     const cached = await getPluginCatalog("main", { fetch: good.fetch });
-    expect(cached.matches.map((m) => m.name)).toEqual(["good"]);
+    expect(githubNames(cached)).toEqual(["good"]);
 
     // WHEN the TTL has elapsed and the refresh fails
     setSystemTime(new Date(BASE_TIME_MS + PLUGIN_CATALOG_CACHE_TTL_MS + 1));
@@ -164,5 +172,60 @@ describe("getPluginCatalog", () => {
     expect(result.matches).toEqual(bundled.matches);
     // The requested ref is echoed onto the wire contract.
     expect(result.ref).toBe("main");
+  });
+});
+
+describe("mergePlatformCatalogWithBundledLocals", () => {
+  test("adds local packages while keeping a platform row on name collision", () => {
+    const platform: PluginCatalog = {
+      ref: "main",
+      matches: [
+        {
+          name: "fathom",
+          path: "github:provider/fathom@pin",
+          category: null,
+          source: {
+            kind: "github",
+            repo: "provider/fathom",
+            ref: "0".repeat(40),
+          },
+        },
+      ],
+    };
+    const bundled: PluginCatalog = {
+      ref: "bundled",
+      matches: [
+        {
+          name: "fathom",
+          path: "local:plugins/mcp-catalog/fathom@1.0.0",
+          category: null,
+          source: {
+            kind: "local",
+            path: "plugins/mcp-catalog/fathom",
+            version: "1.0.0",
+          },
+        },
+        {
+          name: "notion",
+          path: "local:plugins/mcp-catalog/notion@1.0.0",
+          category: null,
+          source: {
+            kind: "local",
+            path: "plugins/mcp-catalog/notion",
+            version: "1.0.0",
+          },
+        },
+      ],
+    };
+
+    const merged = mergePlatformCatalogWithBundledLocals(platform, bundled);
+
+    expect(merged.matches.map((match) => match.name)).toEqual([
+      "fathom",
+      "notion",
+    ]);
+    expect(merged.matches[0]?.source.kind).toBe("github");
+    expect(merged.matches[1]?.source.kind).toBe("local");
+    expect(merged.ref).toBe("main");
   });
 });

@@ -42,6 +42,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  TextContent,
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
@@ -74,6 +75,7 @@ import {
   isRepairableOrderingError,
   isUserTerminalHistoryError,
 } from "./history-repair/history-repair.js";
+import { buildToolResultFollowUp } from "./tool-result-follow-up.js";
 
 const log = getLogger("agent-loop");
 
@@ -1048,6 +1050,17 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
+   * Observer for the final tool array of each provider call, invoked
+   * immediately before the request leaves with exactly what goes on the wire
+   * (after any provider-native tool is appended, past the inter-call throttle
+   * and the pre-model hooks, and not at all once the run is aborted). This is
+   * the only point that sees the sent array: the dynamic `resolveTools`
+   * callback is also consulted out of band (token counting, compaction
+   * estimates), so a consumer that needs "what the last request sent"
+   * subscribes here rather than wrapping the resolver. Must not throw.
+   */
+  onToolsSent?: (tools: ToolDefinition[]) => void;
+  /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
    * post-compaction re-injection resolve the live conversation through.
@@ -1087,6 +1100,7 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
+  private onToolsSent: ((tools: ToolDefinition[]) => void) | null;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -1122,6 +1136,7 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
+      onToolsSent,
       conversationId,
       resolveConversationDir,
       transformCompactedHistory,
@@ -1131,6 +1146,7 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
+    this.onToolsSent = onToolsSent ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -1544,7 +1560,7 @@ export class AgentLoop {
       turn: number,
     ): Promise<{
       resultBlocks: ContentBlock[];
-      additionalContextBlocks: ContentBlock[];
+      additionalContextBlocks: TextContent[];
     }> => {
       if (conversationDir) {
         const toolCallByUseId = new Map(
@@ -1569,7 +1585,7 @@ export class AgentLoop {
         180_000;
 
       const resultBlocks: ContentBlock[] = [];
-      const additionalContextBlocks: ContentBlock[] = [];
+      const additionalContextBlocks: TextContent[] = [];
       for (const block of rawBlocks) {
         if (block.type !== "tool_result") {
           resultBlocks.push(block);
@@ -2241,6 +2257,11 @@ export class AgentLoop {
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
+        // Every await that could cancel the call is behind us; a run aborted
+        // during the throttle or a hook never reports an array it did not send.
+        if (!signal?.aborted) {
+          this.onToolsSent?.(currentTools);
+        }
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>
@@ -2945,16 +2966,20 @@ export class AgentLoop {
 
         toolUseTurns++;
 
-        // Append any guidance a post-tool-use hook surfaced via
-        // `additionalContext` (e.g. tool-error retry coaching) as separate
-        // blocks. They join the provider-bound history below but were not part
-        // of the tool_result events emitted above, so the model sees the
-        // guidance while the client-facing and persisted tool output stay the
-        // tool's actual result.
-        resultBlocks.push(...additionalContextBlocks);
-
-        // Add tool results as a user message and continue the loop.
-        history.push({ role: "user", content: resultBlocks });
+        // Add the tool results, plus any guidance a post-tool-use hook
+        // surfaced via `additionalContext` (e.g. tool-error retry coaching),
+        // as a user message and continue the loop. The guidance joins the
+        // provider-bound history only: it was not part of the tool_result
+        // events emitted above, so the client-facing and persisted tool
+        // output stay the tool's actual result.
+        history.push({
+          role: "user",
+          content: buildToolResultFollowUp(
+            history,
+            resultBlocks,
+            additionalContextBlocks,
+          ),
+        });
 
         // Invoke checkpoint callback after tool results are in history.
         // Handoff takes precedence over the budget gate: a handoff decision

@@ -17,7 +17,7 @@ import {
   pluginRiskyUpgradeConfirmLabel,
   pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
-import { shortSha } from "@/domains/intelligence/plugins/utils";
+import { shortSha } from "@/lib/plugins/utils";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
@@ -394,10 +394,10 @@ export function PluginDetailActionError({
   const message = isInstallError
     ? PLUGIN_INSTALL_ERROR
     : isRemoveError
-      ? PLUGIN_REMOVE_ERROR
-      : isUpgradeError
-        ? PLUGIN_UPGRADE_ERROR
-        : null;
+    ? PLUGIN_REMOVE_ERROR
+    : isUpgradeError
+    ? PLUGIN_UPGRADE_ERROR
+    : null;
 
   if (!message) {
     return null;

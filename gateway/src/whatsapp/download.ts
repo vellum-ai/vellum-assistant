@@ -59,6 +59,7 @@ export async function downloadWhatsAppFile(
   if (meta.file_size > maxBytes) {
     throw new AttachmentTooLargeError(
       `WhatsApp media ${mediaId} exceeds size limit (${meta.file_size} > ${maxBytes} bytes)`,
+      { limit: maxBytes, fileSize: meta.file_size },
     );
   }
 

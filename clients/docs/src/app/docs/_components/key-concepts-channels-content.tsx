@@ -239,6 +239,12 @@ export function KeyConceptsChannelsContent() {
             inline buttons for approvals. When your assistant needs permission
             to do something, it sends an inline keyboard you can tap.
           </p>
+          <p className="mb-4 text-zinc-600">
+            Telegram works in private chats and in groups. In a group, your
+            assistant answers when a message mentions it or replies to one of
+            its posts, and stays out of the rest of the conversation. Broadcast
+            channels are not supported.
+          </p>
           <p className="mb-0 text-zinc-600">
             Telegram is also one of the channels your assistant can use to
             reach you — notifications, follow-ups, and alerts can all land in

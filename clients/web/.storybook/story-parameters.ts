@@ -35,5 +35,7 @@ export interface StoryRouterParameters {
 declare module "storybook/internal/csf" {
   interface Parameters {
     router?: StoryRouterParameters;
+    /** Width, in pixels, of the frame a story's decorator mounts it inside. */
+    frameWidth?: number;
   }
 }

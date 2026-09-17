@@ -10,7 +10,8 @@
  *
  *   1. While a turn runs, every shell-style tool command is scanned for
  *      `credentials reveal` invocations and the referenced credentials
- *      (`--service`/`--field` flags or a positional UUID) are recorded as
+ *      (`--service`/`--field` flags, a positional UUID, or a legacy
+ *      `service/field` path) are recorded as
  *      *candidates* ({@link collectRevealRefsFromCommand}).
  *   2. At persist time, only those candidates' plaintexts are fetched from
  *      the credential store — a scoped read of secrets that were already in
@@ -55,6 +56,7 @@ import {
 } from "../security/secret-scanner.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getCredentialMetadataById } from "../tools/credentials/metadata-store.js";
+import { parseServiceFieldRef } from "../tools/credentials/ref-parse.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("chat-credential-redaction");
@@ -106,6 +108,12 @@ const SERVICE_FLAG_RE = new RegExp(String.raw`--service(?:=|\s+)${FLAG_VALUE}`);
 const FIELD_FLAG_RE = new RegExp(String.raw`--field(?:=|\s+)${FLAG_VALUE}`);
 const UUID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+// The CLI's single positional argument, directly after `reveal`. A UUID is
+// handled above; anything else is tried as a legacy `service/field` path via
+// the shared grammar in `parseServiceFieldRef`. The route rejects that form
+// as an id today, so no plaintext prints; staging the ref is defense in depth
+// so a future lookup that does succeed is already proof-gated.
+const POSITIONAL_RE = /\breveal\s+([^\s"'\\()<>`-][^\s"'\\()<>`]*)/;
 
 /**
  * Extract a flag's value from a segment, undoing the shell quoting the
@@ -265,6 +273,13 @@ export function collectRevealRefsFromCommand(
       const id = UUID_RE.exec(invocation)?.[0];
       if (id) {
         refs.push({ id });
+        continue;
+      }
+      const positional = POSITIONAL_RE.exec(invocation)?.[1];
+      const pathRef =
+        positional === undefined ? undefined : parseServiceFieldRef(positional);
+      if (pathRef) {
+        refs.push(pathRef);
       }
       // No parseable identity → no ref. The span still gets redacted at
       // persist; it just won't be revealable.

@@ -319,6 +319,18 @@ with the code they protect:
   before the identity fetch hydrates a version to compare. Delete the marker
   branch (and `extractWirePendingQuestion` with it) once no supported assistant
   predates the key.
+- **Workspace listing reach**:
+  `src/domains/workspace/use-workspace-tree-listings.ts` asks
+  `GET /v1/workspace/tree?recursive=true` for the whole workspace so search
+  reaches every folder. An assistant that predates the parameter ignores it
+  and answers 200 with one level, the silent superset again, and here too the
+  client can tell: an assistant with the parameter always answers with
+  `truncated`, so an answer without it is a one-level listing and the tree
+  falls back to filtering open folders, fetched one at a time as before. A
+  version gate would read unsupported before identity hydrates and on
+  same-source self-hosted builds, for a read whose fallback is the older
+  behavior anyway. Delete the open-folder branch (and the "Searching open
+  folders" copy) once no supported assistant predates the parameter.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
   `featureFlags?`, `diagnostics?`, …). Consumers guard on presence

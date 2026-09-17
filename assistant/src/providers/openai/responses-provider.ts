@@ -109,7 +109,9 @@ function mapResponsesReasoningEffort(
     return "none";
   }
   const clamped = clampReasoningEffort(raw, effortCeilingForModel(model));
-  return supported ? snapReasoningEffortToSupported(clamped, supported) : clamped;
+  return supported
+    ? snapReasoningEffortToSupported(clamped, supported)
+    : clamped;
 }
 
 /** Values accepted by the Responses API `text.verbosity` parameter. */
@@ -280,7 +282,11 @@ export class OpenAIResponsesProvider implements Provider {
     const effort = configObj?.effort as string | undefined;
     const verbosity = configObj?.verbosity as string | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
+    const perRequestHeaders = configObj?.requestHeaders as
+      | Record<string, string>
+      | undefined;
     const disableCache = configObj?.disableCache === true;
     const disableTurnStartCache = configObj?.disableTurnStartCache === true;
     const promptCacheKey =
@@ -463,6 +469,7 @@ export class OpenAIResponsesProvider implements Provider {
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),
+          ...(perRequestHeaders ?? {}),
         };
         const stream = await responsesApi.create(
           { ...params, stream: true },

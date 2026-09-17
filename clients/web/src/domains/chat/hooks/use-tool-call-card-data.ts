@@ -15,6 +15,7 @@ import {
   computeToolCallCardDataFromItems,
   hasRunningItem,
   type ToolCallCardData,
+  type ToolCallCardDataOptions,
   type ToolCallCardItem,
 } from "@/domains/chat/utils/tool-call-card-utils";
 
@@ -64,11 +65,13 @@ export function useToolCallCardData(
  */
 export function useToolCallCardDataFromItems(
   items: ToolCallCardItem[],
+  options: Pick<ToolCallCardDataOptions, "active"> = {},
 ): ToolCallCardData {
   const liveWebActivity = useTurnStore.use.liveWebActivity();
   const hideThinkingUi = useHideThinkingUi();
-  const now = useNow(hasRunningItem(items));
+  const now = useNow(hasRunningItem(items) || options.active === true);
   return computeToolCallCardDataFromItems(items, liveWebActivity, now, {
     hideThinkingUi,
+    active: options.active,
   });
 }

@@ -74,6 +74,7 @@ function makeTarget(onRun: (conv: Conversation) => void): {
     subagentAllowedTools: undefined as ReadonlySet<string> | undefined,
     subagentToolGateMode: undefined as string | undefined,
     toolContextPin: undefined,
+    delegateIndependentTasksReplay: undefined as boolean | undefined,
     preactivatedSkillIds: undefined as readonly string[] | undefined,
     setSubagentAllowedTools: (tools?: ReadonlySet<string>) => {
       target.subagentAllowedTools = tools;
@@ -82,9 +83,12 @@ function makeTarget(onRun: (conv: Conversation) => void): {
       target.preactivatedSkillIds = ids;
     },
     // The section's gate, rendered as a marker so the assertions turn on the
-    // real predicate rather than on a stubbed answer.
+    // real predicate rather than on a stubbed answer. Mirrors
+    // `Conversation.buildCurrentSystemPrompt`: a replayed rendered state wins
+    // over the derivation.
     buildCurrentSystemPrompt: () =>
-      canSpawnSubagentsForTurn(target as unknown as Conversation)
+      (target.delegateIndependentTasksReplay ??
+      canSpawnSubagentsForTurn(target as unknown as Conversation))
         ? `base ${DELEGATION_SECTION}`
         : "base",
     // Mirrors `Conversation.syncLoopSystemPrompt`.
@@ -154,6 +158,64 @@ describe("the delegation section on a direct wake", () => {
     );
 
     expect(promptDuringRun).toContain(DELEGATION_SECTION);
+  });
+
+  test("a replaying wake renders the section its source rendered", async () => {
+    let promptDuringRun = "";
+    const { target, loopPrompt } = makeTarget(() => {
+      promptDuringRun = loopPrompt();
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+        // The memory retrospective's shape: an allowlist with no spawn path,
+        // gated at execution...
+        allowedTools: ["remember", "skill_load"],
+        toolGateMode: "execution",
+        // ...replaying an interactive source whose live turn rendered the
+        // section.
+        wireToolDefinitions: [
+          { name: "remember", description: "Save", input_schema: {} },
+        ],
+        delegateIndependentTasks: true,
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(promptDuringRun).toContain(DELEGATION_SECTION);
+    // The replay comes off with the rest of the wake's scope.
+    expect(target.delegateIndependentTasksReplay).toBeUndefined();
+  });
+
+  test("a replaying wake renders the section off when its source did", async () => {
+    // A channel-delivered source records the section off. Replaying that
+    // keeps the fork's prompt in parity even though this wake's own scope
+    // could spawn.
+    let promptDuringRun = "";
+    const { target, loopPrompt } = makeTarget(() => {
+      promptDuringRun = loopPrompt();
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+        allowedTools: ["skill_load", "skill_execute", "subagent_spawn"],
+        toolGateMode: "execution",
+        wireToolDefinitions: [
+          { name: "skill_load", description: "Load", input_schema: {} },
+        ],
+        delegateIndependentTasks: false,
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(promptDuringRun).not.toContain(DELEGATION_SECTION);
+    expect(promptDuringRun.length).toBeGreaterThan(0);
   });
 
   test("the restored prompt is built without the wake's persona", async () => {

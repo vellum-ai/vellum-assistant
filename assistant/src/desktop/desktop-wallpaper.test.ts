@@ -1,18 +1,36 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  mock,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import sharp from "sharp";
 
 import {
   __resetResvgCacheForTests,
   __setResvgCacheForTests,
+  getResvg,
 } from "../avatar/resvg-lazy.js";
-import {
-  renderCurrentDesktopWallpaper,
-  renderDesktopWallpaper,
-} from "./desktop-wallpaper.js";
+import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { renderDesktopWallpaper } from "./desktop-wallpaper-renderer.js";
+
+// Native resvg renders scan the system font database per instance, and on a
+// loaded CI runner the file's first render runs past bun's 5s default. Each
+// test file runs in its own process, so this doesn't leak.
+setDefaultTimeout(15_000);
 
 let workspace: string;
 let previousWorkspace: string | undefined;
@@ -70,7 +88,7 @@ test("renders the current uploaded avatar into an opaque desktop wallpaper", asy
   expect((await sharp(result).stats()).isOpaque).toBe(true);
 });
 
-test("regenerates a character from current traits when its raster is missing", async () => {
+test("renders a missing character raster without changing persisted avatar files", async () => {
   manifest({
     kind: "character",
     source: "pool",
@@ -78,9 +96,18 @@ test("regenerates a character from current traits when its raster is missing", a
     image: null,
     accent: null,
   });
+  const avatarDir = join(workspace, "data/avatar");
+  writeFileSync(join(avatarDir, "character-traits.json"), "preserve traits");
+  writeFileSync(join(avatarDir, "character-ascii.txt"), "preserve ASCII");
+  const snapshot = () =>
+    readdirSync(avatarDir)
+      .sort()
+      .map((file) => [file, readFileSync(join(avatarDir, file))]);
+  const before = snapshot();
   const result = (await renderCurrentDesktopWallpaper(480, 300))!;
   const empty = renderDesktopWallpaper(480, 300, null, null);
   expect(await centerPixel(result)).not.toEqual(await centerPixel(empty));
+  expect(snapshot()).toEqual(before);
 });
 
 test("missing and unreadable avatars produce the same neutral background", async () => {
@@ -188,4 +215,18 @@ test("names containing XML are rendered as text without injecting SVG shapes", a
     await sharp(fallback).extract(top).raw().toBuffer(),
   );
   expect((await wordmarkPixels(png)).length).toBeGreaterThan(0);
+});
+
+test("renders in a child without invoking the assistant's native rasterizer", async () => {
+  const render = mock(() => {
+    throw new Error("Rendering must not run on the assistant event loop");
+  });
+  __setResvgCacheForTests({
+    available: true,
+    Resvg: render as unknown as ReturnType<typeof getResvg>,
+  });
+  const png = await renderCurrentDesktopWallpaper(1600, 900);
+  expect(render).not.toHaveBeenCalled();
+  const metadata = await sharp(png!).metadata();
+  expect([metadata.width, metadata.height]).toEqual([1600, 900]);
 });

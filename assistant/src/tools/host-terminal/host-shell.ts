@@ -17,14 +17,17 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   prependUniquePathEntries,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -90,8 +93,9 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   // Keep nested `assistant` CLI calls in host_bash aligned with the
   // originating conversation so browser IPC can resolve live proxy context.
   env.__CONVERSATION_ID = conversationId;
-  // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+  // Secret binding for reveal-derived chat authority. See reveal-nonce.ts.
   env.__REVEAL_NONCE = conversationRevealNonce(conversationId);
+  applyActivePluginName(env, conversationId);
   return env;
 }
 
@@ -436,6 +440,7 @@ export const hostShellTool = {
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;
     hostEnv.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
+    applyActivePluginName(hostEnv, context.conversationId);
 
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an
@@ -455,9 +460,9 @@ export const hostShellTool = {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
 
       const collector = attachBoundedStdio(child);
       let timedOut = false;
@@ -483,7 +488,9 @@ export const hostShellTool = {
         }
         completed = true;
         clearTimeout(timer);
-        const result = collector.format(code, timedOut, timeoutSec);
+        const result = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
         // Cancel takes precedence over the SIGKILL-induced error result.
         const status = aborted
           ? "cancelled"
@@ -629,9 +636,9 @@ export const hostShellTool = {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child, {
         onOutput: context.onOutput,
       });
@@ -657,7 +664,9 @@ export const hostShellTool = {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
 
-        const result = collector.format(code, timedOut, timeoutSec);
+        const result = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         resolve({
           content: result.content,

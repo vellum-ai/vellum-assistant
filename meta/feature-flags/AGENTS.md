@@ -8,7 +8,6 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 "browser"
 "a2a-channel"
 "conversation-starters"
-"conversation-starters"
 ```
 
 The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. client-scope flags follow the same convention:
@@ -58,7 +57,7 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
 
 1. **Remove the code reads and the registry entry in the same PR.** A registry-only removal breaks the gated surface silently: the web flag stores hold `Record<string, boolean>` state behind the `createSelectors` Proxy (`clients/web/src/utils/create-selectors.ts`), so `store.use.<removedKey>()` still type-checks and just returns `undefined`. The gate reads falsy, the surface vanishes, and no type check or test fails.
 
-2. Run `bun run meta/sync-bundled-copies.ts`. Commit the regenerated `clients/web/src/lib/feature-flags/feature-flag-registry.json` alongside `meta/feature-flags/feature-flag-registry.json`. CI byte-compares them (`bun run meta/sync-bundled-copies.ts --check`), so a stale copy fails the build.
+2. Run `bun run meta/sync-bundled-copies.ts`. Commit the regenerated `clients/web/src/lib/feature-flags/feature-flag-registry.json` alongside `meta/feature-flags/feature-flag-registry.json`. The `Check Bundled Copies In Sync` job in `.github/workflows/pr-marketplace.yaml` runs `bun run meta/sync-bundled-copies.ts --check` whenever either registry file changes and exits 1 if the tracked web copy has drifted (the assistant and gateway copies are git-ignored and regenerated at build). It is not in the required-status-check set, so a stale copy reddens CI rather than blocking the merge button.
 
 3. Add a negative assertion to `clients/web/src/lib/feature-flags/feature-flag-catalog.test.ts`, following the existing block of such tests:
 

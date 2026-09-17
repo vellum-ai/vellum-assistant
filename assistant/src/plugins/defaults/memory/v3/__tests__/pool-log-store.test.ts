@@ -28,13 +28,17 @@ import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { OrchestrateResult } from "../orchestrate.js";
-import { ensureMemoryV3PoolsSchema } from "../plugin-schema.js";
+import {
+  ensureMemoryV3PoolInputsSchema,
+  ensureMemoryV3PoolsSchema,
+} from "../plugin-schema.js";
 import type {
   PoolCandidateRecord,
   PoolLane,
   PoolRecord,
 } from "../pool-log-store.js";
-import type { Section, Slug } from "../types.js";
+import { renderFinderLine } from "../pool-select.js";
+import type { MemoryRoutingTurn, Section, Slug } from "../types.js";
 
 const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
@@ -50,6 +54,7 @@ makeDb();
 function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3PoolsSchema(memorySqlite);
+  ensureMemoryV3PoolInputsSchema(memorySqlite);
 }
 
 mock.module("../../../../../persistence/db-connection.js", () => ({
@@ -62,8 +67,17 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDb.getMemorySqlite(),
 }));
 
-const { buildPoolRecord, readPoolForMessageIds, readPoolForTurn, writePool } =
-  await import("../pool-log-store.js");
+const {
+  buildPoolInput,
+  buildPoolRecord,
+  hashPoolText,
+  readPoolForMessageIds,
+  readPoolForTurn,
+  readPoolInputForTurn,
+  readPoolText,
+  writePool,
+  writePoolInput,
+} = await import("../pool-log-store.js");
 
 beforeEach(() => {
   storeMockActive = true;
@@ -112,6 +126,32 @@ function orchestrated(): OrchestrateResult {
       ],
     },
     selectorRan: true,
+  };
+}
+
+/** {@link orchestrated} with the pool the selector was given: a card per
+ *  stable-prefix slug and one finder candidate per finder line, in the
+ *  record's order, plus the gate and keep-all facts. */
+function orchestratedWithPool(): OrchestrateResult {
+  const result = orchestrated();
+  return {
+    ...result,
+    pool: {
+      stable: [
+        { slug: "core/page", card: "core card" },
+        { slug: "hot/page", card: "hot card" },
+        { slug: "fresh/page", card: "fresh card" },
+        { slug: "skills/example", card: "skill card" },
+      ],
+      finder: result.lanes.finder.map((line) => ({
+        slug: line.slug,
+        lane: line.lane,
+        section: line.section,
+        descriptor: line.descriptor || `${line.slug} lead`,
+      })),
+    },
+    keptAll: false,
+    gateReason: "dense_pass",
   };
 }
 
@@ -445,5 +485,144 @@ describe("ensureMemoryV3PoolsSchema", () => {
       }>
     ).find((c) => c.name === "selector_ran");
     expect(column?.dflt_value).toBe("1");
+  });
+});
+
+describe("pool input capture", () => {
+  const turn: MemoryRoutingTurn = {
+    conversationId: "conv-1",
+    turnNumber: 4,
+    currentMessage: "what did we decide about the garden?",
+    recentContext: "user: hi\nassistant: hello",
+    situationalContext: "Today is 2026-01-01.",
+    previousAssistantMessage: "hello",
+  };
+
+  test("buildPoolInput captures each candidate's rendered text in pool order, aligned with the pool record", () => {
+    const result = orchestratedWithPool();
+    const { input, texts } = buildPoolInput(result, turn, "select wisely");
+    const record = buildPoolRecord(result);
+
+    expect(input.candidate_text_hashes).toHaveLength(record.candidates.length);
+    const rendered = [
+      ...result.pool!.stable.map((candidate) => candidate.card),
+      ...result.pool!.finder.map((candidate) => renderFinderLine(candidate)),
+    ];
+    expect(input.candidate_text_hashes.map((hash) => texts.get(hash))).toEqual(
+      rendered,
+    );
+    expect(input.candidate_text_hashes[0]).toBe(hashPoolText("core card"));
+    expect(input).toMatchObject({
+      situational_context: "Today is 2026-01-01.",
+      recent_context: "user: hi\nassistant: hello",
+      current_message: "what did we decide about the garden?",
+      previous_assistant_message: "hello",
+      selector_prompt_hash: hashPoolText("select wisely"),
+      kept_all: false,
+      gate_reason: "dense_pass",
+    });
+  });
+
+  test("a turn whose selector never judged a pool captures the context and no candidate texts", () => {
+    const { input, texts } = buildPoolInput(
+      hardSkipped(),
+      {
+        ...turn,
+        situationalContext: undefined,
+        previousAssistantMessage: undefined,
+      },
+      "select wisely",
+    );
+
+    expect(input.candidate_text_hashes).toEqual([]);
+    expect(texts.size).toBe(0);
+    expect(input).toMatchObject({
+      situational_context: null,
+      previous_assistant_message: null,
+      selector_prompt_hash: null,
+      gate_reason: null,
+    });
+  });
+
+  test("a result without the selector's pool captures no candidate texts rather than misaligned ones", () => {
+    const { input, texts } = buildPoolInput(
+      orchestrated(),
+      turn,
+      "select wisely",
+    );
+
+    expect(input.candidate_text_hashes).toEqual([]);
+    expect(texts.size).toBe(0);
+  });
+
+  test("writePoolInput and readPoolInputForTurn round-trip; a re-observed turn replaces its row; texts are stored once", () => {
+    const capture = buildPoolInput(
+      orchestratedWithPool(),
+      turn,
+      "select wisely",
+    );
+    writePoolInput(memorySqlite, "conv-1", 4, capture);
+
+    expect(readPoolInputForTurn("conv-1", 4)).toEqual(capture.input);
+    expect(readPoolText(capture.input.candidate_text_hashes[0]!)).toBe(
+      "core card",
+    );
+
+    // The next turn pools the same candidates: its input row is its own, the
+    // texts are shared by hash.
+    writePoolInput(
+      memorySqlite,
+      "conv-1",
+      5,
+      buildPoolInput(
+        orchestratedWithPool(),
+        { ...turn, turnNumber: 5, currentMessage: "and the fence?" },
+        "select wisely",
+      ),
+    );
+    const textCount = () =>
+      (
+        memorySqlite
+          .query(`SELECT COUNT(*) AS n FROM memory_v3_pool_texts`)
+          .get() as { n: number }
+      ).n;
+    expect(textCount()).toBe(new Set(capture.input.candidate_text_hashes).size);
+    expect(readPoolInputForTurn("conv-1", 5)?.current_message).toBe(
+      "and the fence?",
+    );
+
+    writePoolInput(
+      memorySqlite,
+      "conv-1",
+      4,
+      buildPoolInput(
+        orchestratedWithPool(),
+        { ...turn, currentMessage: "again" },
+        "select wisely",
+      ),
+    );
+    expect(readPoolInputForTurn("conv-1", 4)?.current_message).toBe("again");
+    expect(
+      (
+        memorySqlite
+          .query(`SELECT COUNT(*) AS n FROM memory_v3_pool_inputs`)
+          .get() as { n: number }
+      ).n,
+    ).toBe(2);
+  });
+
+  test("an absent turn or text reads null, and reads degrade to null when the memory connection is unavailable", () => {
+    expect(readPoolInputForTurn("conv-1", 9)).toBeNull();
+    expect(readPoolText("missing")).toBeNull();
+
+    writePoolInput(
+      memorySqlite,
+      "conv-1",
+      4,
+      buildPoolInput(orchestratedWithPool(), turn, "select wisely"),
+    );
+    memoryDbAvailable = false;
+    expect(readPoolInputForTurn("conv-1", 4)).toBeNull();
+    expect(readPoolText(hashPoolText("core card"))).toBeNull();
   });
 });

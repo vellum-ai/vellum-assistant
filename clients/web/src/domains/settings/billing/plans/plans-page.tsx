@@ -11,12 +11,8 @@ import {
   type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
-import {
-  currentTierRows,
-  machineLabel,
-} from "@/domains/settings/billing/plan-spec";
+import { currentTierRows } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
   type CustomPlanSeed,
@@ -24,9 +20,18 @@ import {
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
 import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
+import {
+  type CancelReasonSurveyValue,
+  toCancelRequestBody,
+} from "@/domains/settings/billing/cancel-reason-survey";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
+import {
+  freeColumnFeatures,
+  packageColumnFeatures,
+} from "@/domains/settings/billing/plans/plan-column-features";
+import { PAGE_BACKGROUND } from "@/domains/settings/billing/plans/plans-canvas";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { Trans, useTranslation } from "@/i18n";
 import {
@@ -80,10 +85,6 @@ import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-compo
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
-// Near-black takeover canvas. No surface token holds this value — the darkest
-// dark-theme surface is `--surface-base` (#17191C) — so the raw hex stands.
-const PAGE_BACKGROUND = "#0A0A0B";
-
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
 const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
@@ -100,36 +101,6 @@ const TAKEOVER_DIRECTION: Record<SwitchRelation, TakeoverDirection> = {
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
 preloadBundledAvatarComponents();
-
-type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
-
-/** Machine label for a package's feature row, e.g. "Medium Computer". */
-function machineComputerLabel(
-  pkg: ProPackage,
-  translate: SettingsTranslate,
-): string {
-  return translate("plansPage.featureComputer", {
-    machine: machineLabel(pkg),
-  });
-}
-
-/** Catalog-derived feature rows, plus any static extras from the copy. */
-function packageFeatures(
-  pkg: ProPackage,
-  extra: readonly string[],
-  translate: SettingsTranslate,
-): string[] {
-  return [
-    machineComputerLabel(pkg, translate),
-    translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    // The bundle row never names a credit amount: it reads as the package's
-    // own usage allowance, derived from the package name the way the plan
-    // card's chip is, so it holds even when the catalog carries no
-    // `usage_label`.
-    translate("plansPage.featureUsage", { name: pkg.name }),
-    ...extra,
-  ];
-}
 
 /**
  * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
@@ -582,18 +553,22 @@ function PlansPageContent() {
       : undefined;
 
     // Confirmed Pro → Free cancellation: schedule it server-side. Success
-    // closes the confirm (the hook's toast names the end date); failure keeps
-    // it open for a retry (the hook already toasted the error). A sub the
-    // endpoint would reject hands off to the Stripe portal instead.
-    const confirmFreeDowngrade = async () => {
+    // leaves the takeover for the billing settings tab, where the pending
+    // cancellation is shown (the hook's toast names the end date); the plans
+    // page is replaced in history so Back doesn't land on a now-stale plan
+    // picker. Failure keeps the confirm open for a retry (the hook already
+    // toasted the error). A sub the endpoint would reject hands off to the
+    // Stripe portal instead.
+    const confirmFreeDowngrade = async (survey: CancelReasonSurveyValue) => {
       if (!canCancelDirectly) {
         setFreeDowngradeOpen(false);
         portalMutation.mutate({});
         return;
       }
-      const result = await cancelSubscription();
+      const result = await cancelSubscription(toCancelRequestBody(survey));
       if (result) {
         setFreeDowngradeOpen(false);
+        navigate(routes.settings.usageBilling, { replace: true });
       }
     };
 
@@ -766,11 +741,7 @@ function PlansPageContent() {
       ? "downgrade"
       : tierRelation(currentTierKey, "free");
 
-    const freeFeatures = [
-      t("plansPage.freeFeatureSmallComputer"),
-      t("plansPage.freeFeatureStorage", { gib: FREE_STORAGE_GIB }),
-      t("plansPage.freeFeaturePayAsYouGo"),
-    ];
+    const freeFeatures = freeColumnFeatures(t);
 
     body = (
       <div className="my-auto flex w-full flex-col items-center">
@@ -792,10 +763,10 @@ function PlansPageContent() {
         </header>
 
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
-            to two-up then one-up; `items-start` keeps each card at its natural
-            content height, so the four-feature Super/Ultra columns are taller
-            than the featured Mighty column. */}
-        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
+            to two-up then one-up. The grid's default stretch keeps every card
+            in a row as tall as the tallest, so a three-feature column is never
+            ragged beside four-feature Super and Ultra. */}
+        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
             name="Base"
@@ -834,7 +805,11 @@ function PlansPageContent() {
                     ? t("plansPage.downgradeTo", { name: pkg.name })
                     : (copy?.cta ?? pkg.name)
                 }
-                features={packageFeatures(pkg, copy?.extraFeatures ?? [], t)}
+                features={packageColumnFeatures(
+                  pkg,
+                  copy?.extraFeatures ?? [],
+                  t,
+                )}
                 recommended={copy?.recommended}
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
@@ -888,7 +863,7 @@ function PlansPageContent() {
           viaPortal={!canCancelDirectly}
           pending={cancelPending || portalMutation.isPending}
           onCancel={() => setFreeDowngradeOpen(false)}
-          onConfirm={() => void confirmFreeDowngrade()}
+          onConfirm={(survey) => void confirmFreeDowngrade(survey)}
         />
 
         <BillingOnboardingModal

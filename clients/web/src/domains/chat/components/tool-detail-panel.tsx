@@ -17,7 +17,7 @@ import { Bolt, Brain } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
+import { SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
 import { RiskChip } from "@/domains/chat/components/risk-chip";
 import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
@@ -31,6 +31,8 @@ import {
   isToolCallDenied,
   isToolCallRunning,
 } from "@/domains/chat/utils/tool-call-status";
+import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
+import { toolCallParams } from "@/domains/chat/utils/tool-param-layout";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -62,10 +64,11 @@ function ThinkingDetailBody({
 
 /**
  * The body of a tool detail: whatever the tool's registered renderer shows, or
- * the generic Input and Output sections when it has none. No shell, header or
- * close button, so every panel that hosts a tool call frames it its own way:
- * `ToolDetailPanel`, `ActivityStepsPanel` and `SubagentDetailPanel` all compose
- * this, which is what makes a call read the same wherever it is opened.
+ * the generic parameter and Output sections when it has none. No shell,
+ * header or close button, so every panel that hosts a tool call frames it its
+ * own way: `ToolDetailPanel`, `ActivityStepsPanel` and `SubagentDetailPanel`
+ * all compose this, which is what makes a call read the same wherever it is
+ * opened.
  *
  * The tool that ran and its risk level belong to `ToolDetailHeaderTitle`, so
  * nothing here repeats them.
@@ -102,17 +105,16 @@ export function ToolDetailBody({
   const isDenied = liveTc
     ? isToolCallDenied(liveTc)
     : detail.status === "denied";
-  const inputJson = JSON.stringify(detail.input, null, 2);
 
-  // Tools with purpose-built activity UI replace the generic name/activity/JSON
-  // block; those that also own their output suppress the shared Output section.
+  // Tools with purpose-built activity UI replace the generic parameters; those
+  // that also own their output suppress the shared Output section.
   const renderer = getToolActivityRenderer(detail);
 
   return (
     <>
-      {/* Tool-specific body when the tool has one, else the raw JSON input.
-          The header names the tool and shows its risk, so neither is repeated
-          here. */}
+      {/* Tool-specific body when the tool has one, else the call's parameters
+          with its raw input behind a disclosure. The header names the tool and
+          shows its risk, so neither is repeated here. */}
       {renderer ? (
         <renderer.Component
           detail={detail}
@@ -124,13 +126,15 @@ export function ToolDetailBody({
           assistantId={assistantId}
         />
       ) : (
-        <div>
-          <SectionLabel>{t("toolDetailPanel.input")}</SectionLabel>
-          <CodeBlock text={inputJson} />
+        <div className="flex flex-col gap-5">
+          <ToolInputParameters
+            params={toolCallParams(detail.input)}
+            rawInput={detail.input}
+          />
         </div>
       )}
 
-      {/* Output — the final result once present, else the live streamed tail
+      {/* Output: the final result once present, else the live streamed tail
           while running, else a bare running placeholder. Suppressed for tools
           whose renderer already presents the result itself. */}
       {!renderer?.ownsOutput && (
@@ -142,7 +146,7 @@ export function ToolDetailBody({
                 ? (result as string)
                 : (streamedOutput ?? "")
             }
-            isDenied={isDenied && !hasResult}
+            isDenied={isDenied}
             isRunning={isRunning}
             isError={isError}
           />
@@ -233,7 +237,7 @@ export function ToolDetailPanel({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  // Thinking variant — reuse the same shell/header but render the full
+  // Thinking variant: reuse the same shell/header but render the full
   // reasoning markdown with no input/output sections and no risk badge.
   if (detail.kind === "thinking") {
     return (

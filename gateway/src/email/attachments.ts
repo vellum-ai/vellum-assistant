@@ -5,13 +5,15 @@ import {
   uploadAttachment,
 } from "../runtime/client.js";
 import type { EmailAttachment } from "./normalize.js";
+import {
+  type AttachmentIngestResult,
+  type IngestibleAttachment,
+  ingestAttachments,
+  oversizedAttachmentNotice,
+} from "../attachments/ingest.js";
 
-export interface EmailAttachmentIngestResult {
-  /** Attachment store ids for successfully uploaded attachments. */
-  attachmentIds: string[];
-  /** Display names of attachments that were skipped (oversized or rejected). */
-  failedAttachmentNames: string[];
-}
+/** The same accounting as the other channels' ingest: uploaded, rejected, or too large. */
+export type EmailAttachmentIngestResult = AttachmentIngestResult;
 
 /**
  * Estimate the decoded byte size of a base64 string without allocating the
@@ -32,87 +34,89 @@ function estimateBase64Bytes(base64: string): number {
  * and return the resulting ids for forwarding to the runtime, which stores
  * them in the conversation workspace.
  *
- * Attachments larger than the email per-file cap are skipped. Validation
- * failures (unsupported MIME type, dangerous extension) are skipped so a
- * single bad attachment never drops the user's email; transient failures
- * (upload 5xx, network) are propagated so the caller can surface an error and
- * let the upstream retry the delivery.
+ * Email is the one channel whose bytes arrive inline rather than behind a
+ * URL, so its "download" is a lookup; everything else (the per-channel cap,
+ * the bounded concurrency, the three-outcome accounting, and which failures
+ * are skipped versus propagated so the upstream retries the delivery) is the
+ * shared ingest, so a fix there is a fix here.
  */
 export async function ingestEmailAttachments(
   config: GatewayConfig,
   attachments: EmailAttachment[] | undefined,
   log: Logger,
 ): Promise<EmailAttachmentIngestResult> {
-  const attachmentIds: string[] = [];
-  const failedAttachmentNames: string[] = [];
-
   if (!attachments || attachments.length === 0) {
-    return { attachmentIds, failedAttachmentNames };
+    return {
+      attachmentIds: [],
+      failedAttachmentNames: [],
+      oversizedAttachments: [],
+    };
   }
 
-  const maxBytes =
-    config.maxAttachmentBytes.email ?? config.maxAttachmentBytes.default;
-
-  const eligible = attachments.filter((att) => {
-    const bytes = att.size ?? estimateBase64Bytes(att.content);
-    if (bytes > maxBytes) {
-      log.warn(
-        { filename: att.filename, bytes, limit: maxBytes },
-        "Skipping oversized email attachment",
-      );
-      failedAttachmentNames.push(att.filename);
-      return false;
-    }
-    return true;
+  const source = new Map<IngestibleAttachment, EmailAttachment>();
+  const references = attachments.map((att, index) => {
+    const reference: IngestibleAttachment = {
+      fileId: att.contentId ?? `${index}:${att.filename}`,
+      fileName: att.filename,
+      mimeType: att.contentType,
+      fileSize: att.size ?? estimateBase64Bytes(att.content),
+    };
+    source.set(reference, att);
+    return reference;
   });
 
-  // Bounded concurrency mirrors the other channel webhooks so a message with
-  // many attachments does not open an unbounded number of upstream requests.
-  for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
-    const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
-    const results = await Promise.allSettled(
-      batch.map((att) =>
-        uploadAttachment(config, {
-          filename: att.filename,
-          mimeType: att.contentType,
-          data: att.content,
-        }),
-      ),
-    );
-    for (let j = 0; j < results.length; j++) {
-      const result = results[j];
-      if (result.status === "fulfilled") {
-        attachmentIds.push(result.value.id);
-      } else if (result.reason instanceof AttachmentValidationError) {
-        log.warn(
-          { err: result.reason, filename: batch[j].filename },
-          "Skipping email attachment with validation error",
-        );
-        failedAttachmentNames.push(batch[j].filename);
-      } else {
-        // Transient failure — propagate so the caller returns an error and the
-        // upstream retries the whole delivery rather than silently dropping.
-        throw result.reason;
+  return ingestAttachments(config, "email", references, log, {
+    download: async (reference) => {
+      const att = source.get(reference);
+      if (!att) {
+        throw new Error(`Email attachment ${reference.fileId} has no source`);
       }
-    }
-  }
-
-  return { attachmentIds, failedAttachmentNames };
+      return {
+        filename: att.filename,
+        mimeType: att.contentType,
+        data: att.content,
+      };
+    },
+    upload: (downloaded) => uploadAttachment(config, downloaded),
+    failurePolicy: {
+      mode: "rethrow-unless-skippable",
+      // A rejected type or extension skips that one attachment; anything else
+      // (upload 5xx, network) propagates so the upstream retries the delivery.
+      isSkippableError: (error) => error instanceof AttachmentValidationError,
+    },
+  });
 }
 
 /**
- * Append a note to the message content listing attachments that could not be
- * ingested so the assistant can tell the user to re-send if the content
- * mattered. Returns the content unchanged when nothing failed.
+ * Append the notices for attachments the assistant did not receive. A
+ * rejected attachment asks for a re-send; an oversized one names its size
+ * and the cap in the same words every other channel uses, since re-sending
+ * the same file cannot help. Returns the content unchanged when everything
+ * arrived.
  */
 export function appendFailedEmailAttachmentNotice(
   content: string,
-  failedAttachmentNames: string[],
+  result: Pick<
+    EmailAttachmentIngestResult,
+    "failedAttachmentNames" | "oversizedAttachments"
+  >,
 ): string {
-  if (failedAttachmentNames.length === 0) {
+  const notices: string[] = [];
+  if (result.failedAttachmentNames.length > 0) {
+    const nameList = result.failedAttachmentNames
+      .map((n) => `"${n}"`)
+      .join(", ");
+    notices.push(
+      `[The user attached file(s) that could not be processed: ${nameList}. Ask them to re-send if the content is important.]`,
+    );
+  }
+  const oversized = oversizedAttachmentNotice(result.oversizedAttachments);
+  if (oversized !== undefined) {
+    notices.push(oversized);
+  }
+  if (notices.length === 0) {
     return content;
   }
-  const nameList = failedAttachmentNames.map((n) => `"${n}"`).join(", ");
-  const notice = `[The user attached file(s) that could not be processed: ${nameList}. Ask them to re-send if the content is important.]`;
+  const notice = notices.join("\n");
   return content.length > 0 ? `${content}\n\n${notice}` : notice;
 }

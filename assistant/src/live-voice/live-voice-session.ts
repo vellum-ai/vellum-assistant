@@ -23,7 +23,10 @@ import {
   SPOKEN_REPLY_PLAIN_TEXT_RULE,
 } from "../calls/spoken-reply-rules.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
-import { createControlMarkerHoldback } from "../calls/voice-control-protocol.js";
+import {
+  createControlMarkerHoldback,
+  TASK_STOP_MARKER,
+} from "../calls/voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
   type FrontDoorLegCoordinator,
@@ -97,7 +100,8 @@ import {
   liveVoiceSilenceReason,
   liveVoiceStartScreen,
 } from "../telemetry/live-voice-funnel.js";
-import { getToolOwner } from "../tools/registry.js";
+import { getTool, getToolOwner } from "../tools/registry.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import {
   createReasoningTagFilter,
   type ReasoningTagFilter,
@@ -156,7 +160,19 @@ import {
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
+  type LiveVoiceSessionControl,
 } from "./protocol.js";
+import {
+  type ClientSessionControlRequest,
+  isLookSessionControl,
+  LOOK_FOLLOW_UP_CONTENT,
+  LOOK_FRAME_REASON,
+  lookFollowUpNote,
+  type LookSessionControl,
+  progressConfigForCadence,
+  requestedSessionControl,
+  sessionControlTeaching,
+} from "./session-controls.js";
 
 const log = getLogger("live-voice-session");
 
@@ -258,11 +274,26 @@ const CONTINUATION_ANNOUNCE_SILENCE_MS = 1_500;
 // reply's audio landing between two checks. Beyond the cap the announcement
 // falls back to the stash rather than chasing a call that keeps talking.
 const CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS = 3;
+const FOREGROUND_TASK_RESUME_SILENCE_MS = 1_500;
+const FOREGROUND_TASK_MAX_SUSPENDED_MS = 120_000;
+const FOREGROUND_TASK_MAX_INTERVENING_TURNS = 3;
 // `content` of an announcement turn. The answer never rides here — it goes in
 // the model-facing control prompt (buildLiveDeliveryNote), so the only thing
 // persisted on the user side is this marker, and it persists hidden.
 export const CONTINUATION_DELIVERY_CONTENT =
   "(background work finished — deliver it now)";
+// How long a look control waits for the fresh frame the client takes for it.
+// Long enough for a camera that has to open and warm up before its first keep;
+// past it the look is dropped rather than answered into a later, unrelated
+// silence.
+const LOOK_FRAME_WAIT_MS = 10_000;
+// How long after the look was asked for its answer may still start. Past it
+// the floor has been taken for so long (a user talking through noise that never
+// became a turn, say) that the look no longer answers what is on screen.
+const LOOK_ANSWER_DEADLINE_MS = 15_000;
+// The shortest wait before checking the floor again, for a blocker with no
+// known end time (the look's own turn clearing, an utterance in capture).
+const LOOK_FOLLOW_UP_REARM_MS = 250;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -438,6 +469,12 @@ export interface LiveVoiceSessionOptions {
    * `CONTINUATION_ANNOUNCE_SILENCE_MS`.
    */
   continuationAnnounceSilenceMs?: number;
+  /** Overrides the silence before a suspended foreground task resumes (test hook). */
+  foregroundTaskResumeSilenceMs?: number;
+  /** Overrides the maximum time a foreground task may remain suspended (test hook). */
+  foregroundTaskMaxSuspendedMs?: number;
+  /** Overrides the committed user-turn limit while suspended (test hook). */
+  foregroundTaskMaxInterveningTurns?: number;
 }
 
 type LiveVoiceUtterancePhase =
@@ -610,6 +647,10 @@ interface ActiveAssistantTurn {
   // Never set from anything the model says: the reveal is a consequence of
   // showing a surface, not a token the model has to remember.
   minimizeRequested: boolean;
+  // The session control the completed reply ended with (see
+  // session-controls.ts); consumed at TTS drain like the minimize, where the
+  // session_control frame goes out once the acknowledgement has been spoken.
+  sessionControlRequested: ClientSessionControlRequest | null;
   // The activity label the client was last told about, so a run of tools that
   // map to the same line sends one frame rather than one per call. Empty means
   // the client believes nothing is running, which is also where a turn ends.
@@ -686,10 +727,21 @@ interface ActiveAssistantTurn {
   // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
+  // Set only on the turn that answers a look: which look it answers. The turn
+  // has no user utterance behind it; the instruction rides the control prompt
+  // (lookFollowUpNote).
+  lookFollowUp: LookSessionControl | null;
   // The turn's content is an internal instruction rather than user speech (the
   // greeting that opens a session, say). The row still persists and the model
   // still sees it; `hiddenSyntheticPrompt` keeps it out of the transcript.
   hiddenPrompt: boolean;
+  // The suspended foreground task this turn may continue. Set only after the user
+  // turn commits or on the synthetic resume turn; speculative discards never
+  // mutate the session's task state.
+  foregroundTaskEpoch: number | null;
+  // Snapshot retained while a tool-capable leg owns suspended work. If that
+  // leg fails asynchronously, the task returns to the same suspension budget.
+  foregroundTaskSuspensionSnapshot: SuspendedForegroundTask | null;
   // Set when a barge-in handed the interrupted work to a background subagent:
   // that request's transcript, so the model can tell the user the work is
   // still running instead of appearing to have dropped it.
@@ -757,7 +809,7 @@ interface ActiveAssistantTurn {
 // message. When a turn starts from a barge-in, the interruption merge note is
 // appended to it (see buildInterruptionMergeNote) so the model reconciles the
 // interrupted request with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice session. ${SPOKEN_REPLY_LENGTH_RULE} ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. `;
+const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice session. ${SPOKEN_REPLY_LENGTH_RULE} ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work, or a card with an image or a link instead of reading an address out); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. `;
 
 // Appended for the legs that can actually put something on screen: the main
 // leg and the escalated leg. The front-door (fast) leg never receives it, for
@@ -773,7 +825,7 @@ const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice s
 // model can get right, which is speaking as though the thing is already in
 // front of the user, because by the time it stops talking it is.
 const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
-  "When the complete answer would run past a few sentences, say the short version out loud and put the detail on screen instead of reading it out. The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
+  "When the complete answer would run past a few sentences, say the short version out loud and put the detail on screen instead of reading it out. The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. ";
 
 // The setup-flow case, spelled out because it is the one the model gets wrong
 // on its own: connecting an account reads as something a call cannot do, so it
@@ -794,7 +846,7 @@ const LIVE_VOICE_SETUP_FLOW_TEACHING =
 // off answering, rather than a fresh follow-up. Reaches the model only; it is
 // not a user message and never renders as a transcript bubble.
 function buildInterruptionMergeNote(interruptedRequest: string): string {
-  return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together, or stay silent if they only want you to stop.`;
+  return `The user interrupted your previous, unfinished reply. Their earlier request was: "${interruptedRequest}". Treat their current message as a continuation of that request and address both together. If they corrected or redirected the unfinished work, continue executing it with that correction instead of merely acknowledging it. If they clearly want the unfinished task abandoned, use the task-stop control.`;
 }
 
 // System-level guidance appended to the NEXT turn's control prompt after a
@@ -827,12 +879,40 @@ function describeInterruptedRequest(request: string): string {
     : "their earlier request";
 }
 
+// A look control waiting on its fresh frame: which look, when it was asked
+// for, and the wait's bound.
+interface PendingLook {
+  action: LookSessionControl;
+  armedAtMs: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 // A finished background continuation waiting to be delivered: the request it
 // took over and the answer it produced.
 interface ContinuationDelivery {
   request: string;
   answer: string;
 }
+
+interface OwnedForegroundTask {
+  phase: "owned";
+  epoch: number;
+  request: string;
+  ownerToken: symbol;
+  hostToolStarted: boolean;
+}
+
+interface SuspendedForegroundTask {
+  phase: "suspended";
+  epoch: number;
+  request: string;
+  suspendedAtMs: number;
+  interveningTurns: number;
+  resumePending: boolean;
+  hostToolStarted: boolean;
+}
+
+type ForegroundTaskState = OwnedForegroundTask | SuspendedForegroundTask;
 
 // Appended to an announcement turn's control prompt: the turn the session
 // starts on its own when a background continuation finishes while the call is
@@ -845,6 +925,12 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
   return `The user interrupted you earlier, and in the background you finished ${what}. The call is still live and nobody is speaking, so tell them briefly that it is done and give them the result. Do not re-run any tool calls; the work is already complete, and do not repeat it verbatim if it no longer fits. What you produced was:\n\n${answer}`;
 }
 
+function buildForegroundTaskResumePrompt(request: string): string {
+  const task =
+    request.length > 0 ? JSON.stringify(request) : "the unfinished task";
+  return `Continue the unfinished task that began with ${task}. Follow the user's latest corrections and all newer conversation context. If the conversation has clearly moved on or the user no longer wants the task, do not continue it and output only ${TASK_STOP_MARKER}, with no spoken words before the marker.`;
+}
+
 // Assemble a leg's model-facing control prompt: the base live-voice rules, the
 // screen-reveal and setup-flow teaching (both withheld from the front-door leg,
 // see LIVE_VOICE_SCREEN_REVEAL_TEACHING), plus any pending barge-in merge
@@ -854,12 +940,21 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 function buildVoiceControlPrompt(
   turn: ActiveAssistantTurn,
   leg: { frontDoor?: boolean },
+  sessionControls: readonly LiveVoiceSessionControl[],
+  client: { lookFrames: boolean },
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING) +
+    sessionControlTeaching(sessionControls, leg, {
+      ...client,
+      unfinishedTaskPending:
+        turn.foregroundTaskEpoch !== null ||
+        turn.interruptedRequest !== null ||
+        turn.handedOffRequest !== null,
+    });
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -871,6 +966,9 @@ function buildVoiceControlPrompt(
   }
   if (turn.handedOffRequest) {
     prompt = `${prompt}\n\n${buildHandoffAnnouncementNote(turn.handedOffRequest)}`;
+  }
+  if (turn.lookFollowUp !== null) {
+    prompt = `${prompt}\n\n${lookFollowUpNote(turn.lookFollowUp)}`;
   }
   if (turn.continuationDelivery) {
     prompt = `${prompt}\n\n${buildLiveDeliveryNote(
@@ -1024,6 +1122,20 @@ function foregroundToolContendsWithContinuation(
   return isRefusedInReadOnlyPass(toolName, ownerKind);
 }
 
+function hostInteractiveToolName(
+  toolName: string,
+  input?: Record<string, unknown>,
+  allowedToolNames?: ReadonlySet<string>,
+): string | null {
+  const effectiveToolName =
+    toolName === "skill_execute"
+      ? resolveSkillExecuteInvocation(input ?? {}, allowedToolNames).name
+      : toolName;
+  return getTool(effectiveToolName)?.executionTarget === "host"
+    ? effectiveToolName
+    : null;
+}
+
 // Upper bound on how long a barge-in waits for the interrupted turn's teardown
 // to settle before giving up on the continuation. The teardown settles once the
 // aborted turn's agent loop reaches its `finally`, which can wait out BOTH the
@@ -1119,6 +1231,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // take a turn without the microphone. Governs one thing only: whether a
   // missing speech-to-text leg is fatal to startup (see start()).
   private readonly textInput: boolean;
+  // The session controls the client declared it can carry out; the only ones
+  // the model is taught and the only ones a reply's marker can trigger.
+  private readonly sessionControls: readonly LiveVoiceSessionControl[];
+  // The client declared `lookFrames`: it sends a fresh frame for every look
+  // control it carries out, so the session answers a look on its own turn and
+  // teaches the model that the reply asking for one is only the acknowledgement.
+  private readonly lookFrames: boolean;
+  // How often progress updates are spoken, as the user last asked out loud.
+  // Session-scoped: it applies from the next turn to the end of the call.
+  private progressCadence: "fewer" | "normal" = "normal";
   // Whether this session's speech-to-text leg came up. False only when the
   // preflight found it missing and `textInput` let the session open anyway, in
   // which case nothing arms a transcriber and typed turns are the only input.
@@ -1203,6 +1325,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // answer.
   private pendingAnnouncement: ContinuationDelivery | null = null;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
+  // Host-backed work stays on the parent conversation across barge-ins. An
+  // owned task belongs to the tool-capable turn doing the work; a suspended
+  // task is waiting for either a merged escalation or a synthetic resume.
+  private foregroundTaskState: ForegroundTaskState | null = null;
+  private foregroundTaskEpoch = 0;
+  private foregroundTaskResumeTimer: ReturnType<typeof setTimeout> | null =
+    null;
+  private readonly foregroundTaskResumeSilenceMs: number;
+  private readonly foregroundTaskMaxSuspendedMs: number;
+  private readonly foregroundTaskMaxInterveningTurns: number;
+  // A look control sent to a client that declared `lookFrames`, waiting for
+  // the fresh frame the client takes for it. The session answers the look on a
+  // turn of its own once that frame is in the conversation (see
+  // answerLookWhenFloorIsFree). Cleared when the frame lands, when the wait
+  // runs out, and when the session closes.
+  private pendingLook: PendingLook | null = null;
+  private lookFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
   // Set when a continuation actually spawns: the request it took over, so the
   // NEXT turn can tell the user the work is still running. Consumed by that
   // turn; cleared when the continuation finishes (by then the result note
@@ -1217,6 +1356,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the distance from it to a keep arriving is the client leg of the frame the
   // onset asked for, measured from the daemon's own clock.
   private lastSpeechStartedAtMs: number | null = null;
+  // How many assistant turns have launched, so a look can tell whether one has
+  // started since its frame landed. A count rather than a time: two launches
+  // and a frame can share a millisecond.
+  private turnsLaunched = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1338,6 +1481,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       defaultDetachTeardownSettleTimeoutMs();
     this.continuationAnnounceSilenceMs =
       options.continuationAnnounceSilenceMs ?? CONTINUATION_ANNOUNCE_SILENCE_MS;
+    this.foregroundTaskResumeSilenceMs =
+      options.foregroundTaskResumeSilenceMs ??
+      FOREGROUND_TASK_RESUME_SILENCE_MS;
+    this.foregroundTaskMaxSuspendedMs =
+      options.foregroundTaskMaxSuspendedMs ?? FOREGROUND_TASK_MAX_SUSPENDED_MS;
+    this.foregroundTaskMaxInterveningTurns =
+      options.foregroundTaskMaxInterveningTurns ??
+      FOREGROUND_TASK_MAX_INTERVENING_TURNS;
     this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
@@ -1393,6 +1544,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       2 *
       SERVER_VAD_PENDING_AUDIO_MAX_SECONDS;
     this.textInput = context.startFrame.textInput === true;
+    this.sessionControls = context.startFrame.sessionControls ?? [];
+    this.lookFrames = context.startFrame.lookFrames === true;
   }
 
   get finalTranscriptText(): string {
@@ -1641,6 +1794,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         "Sight frame timing",
       );
+      // Only once the row is in: the turn that answers the look reads the
+      // conversation, so the frame has to be there before that turn starts.
+      if (result.ok && frame.timing?.reason === LOOK_FRAME_REASON) {
+        this.lookFrameLanded();
+      }
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
           type: "error",
@@ -1827,6 +1985,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    this.clearForegroundTask("session_closed");
     // Retire the island before the teardown below starts awaiting things. A
     // close can take a while (a pending continuation is delivered first), and
     // an activity left asserting "Speaking…" through it is exactly the stale
@@ -1846,6 +2005,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // cleared: the announcement is dead either way.
     await this.deliverPendingContinuationToConversation();
     this.clearContinuationAnnouncement();
+    this.clearPendingLook();
     this.stopSessionTranscriber();
     // Detached continuations outlive the call. A deliberate `interrupt()`
     // aborts them; ending the session leaves them running. With no next voice
@@ -2764,6 +2924,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // do not collide with it in the collector. turn_cancelled flushes
     // client playback, so the drain estimate resets with it.
     this.assistantPlaybackTailUntilMs = 0;
+    const keepForegroundTaskOnParent =
+      !turn.assistantCompleted && this.suspendOwnedForegroundTask(turn);
     // Carry the interrupted request into the next turn so it merges with the
     // barge-in utterance rather than being answered as a fresh follow-up.
     const interruptedRequest = turn.utterance.finalTranscriptSegments
@@ -2844,6 +3006,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.publishActivity(turn, "");
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
+      if (keepForegroundTaskOnParent) {
+        log.info(
+          { turnId: turn.turnId },
+          "Voice duplex continuation skipped for parent-owned foreground task",
+        );
+        return;
+      }
       // Keep the interrupted turn's work alive on a background subagent; the
       // detach waits for its teardown to settle the partial into history before
       // forking.
@@ -2889,16 +3058,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // already finished, so bargeIn returns it to the stash instead.
         turn.continuationDelivery !== null
         ? "announcement_turn"
-        : // The model already finished generating (barge-in during TTS playback
-          // of a complete reply): there is nothing to continue, so a
-          // continuation would just re-do a finished answer.
-          turn.assistantCompleted
-          ? "assistant_already_completed"
-          : // A stop (interrupt/close) or a superseding invalidation landed
-            // during the barge-in teardown: honor it.
-            this.detachStopGeneration !== stopGeneration
-            ? "invalidated_during_barge_teardown"
-            : null;
+        : // Nor over the answer to a look: there is no request behind it
+          // either, and the user talking over it is them moving on.
+          turn.lookFollowUp !== null
+          ? "look_follow_up"
+          : // The model already finished generating (barge-in during TTS playback
+            // of a complete reply): there is nothing to continue, so a
+            // continuation would just re-do a finished answer.
+            turn.assistantCompleted
+            ? "assistant_already_completed"
+            : // A stop (interrupt/close) or a superseding invalidation landed
+              // during the barge-in teardown: honor it.
+              this.detachStopGeneration !== stopGeneration
+              ? "invalidated_during_barge_teardown"
+              : null;
     if (skipReason !== null) {
       log.info(
         { turnId: turn.turnId, skipReason },
@@ -3117,6 +3290,350 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
+  private foregroundTaskRequestForTurn(turn: ActiveAssistantTurn): string {
+    const currentRequest = turn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    return currentRequest || turn.interruptedRequest || "";
+  }
+
+  private createForegroundTaskOwnership(
+    turn: ActiveAssistantTurn,
+    hostToolStarted: boolean,
+  ): OwnedForegroundTask {
+    const task: OwnedForegroundTask = {
+      phase: "owned",
+      epoch: ++this.foregroundTaskEpoch,
+      request: this.foregroundTaskRequestForTurn(turn),
+      ownerToken: turn.token,
+      hostToolStarted,
+    };
+    turn.foregroundTaskEpoch = task.epoch;
+    this.foregroundTaskState = task;
+    return task;
+  }
+
+  private noteEscalatedForegroundTask(turn: ActiveAssistantTurn): void {
+    if (
+      this.activeAssistantTurn?.token !== turn.token ||
+      turn.discardRequested ||
+      turn.abortController.signal.aborted
+    ) {
+      return;
+    }
+    if (
+      this.claimSuspendedForegroundTask(turn) ||
+      this.foregroundTaskState !== null
+    ) {
+      return;
+    }
+
+    const task = this.createForegroundTaskOwnership(turn, false);
+    log.info(
+      { turnId: turn.turnId, epoch: task.epoch },
+      "Escalated live voice turn provisionally owns a foreground task",
+    );
+  }
+
+  private noteHostToolStarted(
+    turn: ActiveAssistantTurn,
+    effectiveToolName: string,
+  ): void {
+    const current = this.foregroundTaskState;
+    if (current?.phase === "owned" && current.ownerToken === turn.token) {
+      if (!current.hostToolStarted) {
+        this.foregroundTaskState = { ...current, hostToolStarted: true };
+        log.info(
+          { turnId: turn.turnId, epoch: current.epoch, effectiveToolName },
+          "Foreground task confirmed by host tool use",
+        );
+      }
+      return;
+    }
+    if (this.claimSuspendedForegroundTask(turn, true)) {
+      return;
+    }
+
+    const task = this.createForegroundTaskOwnership(turn, true);
+    log.info(
+      { turnId: turn.turnId, epoch: task.epoch, effectiveToolName },
+      "Live voice turn started a foreground task",
+    );
+  }
+
+  private claimSuspendedForegroundTask(
+    turn: ActiveAssistantTurn,
+    hostToolStarted = false,
+  ): boolean {
+    const current = this.foregroundTaskState;
+    if (
+      current?.phase !== "suspended" ||
+      turn.foregroundTaskEpoch !== current.epoch ||
+      this.activeAssistantTurn?.token !== turn.token ||
+      turn.discardRequested ||
+      turn.abortController.signal.aborted
+    ) {
+      return false;
+    }
+    this.foregroundTaskState = {
+      phase: "owned",
+      epoch: current.epoch,
+      request: current.request,
+      ownerToken: turn.token,
+      hostToolStarted: current.hostToolStarted || hostToolStarted,
+    };
+    this.clearForegroundTaskResumeTimer();
+    log.info(
+      {
+        turnId: turn.turnId,
+        epoch: current.epoch,
+        hostToolStarted: current.hostToolStarted || hostToolStarted,
+      },
+      "Suspended foreground task claimed by tool-capable turn",
+    );
+    return true;
+  }
+
+  private suspendOwnedForegroundTask(turn: ActiveAssistantTurn): boolean {
+    const current = this.foregroundTaskState;
+    if (current?.phase === "owned" && current.ownerToken === turn.token) {
+      this.foregroundTaskState = {
+        phase: "suspended",
+        epoch: current.epoch,
+        request: current.request,
+        suspendedAtMs: Date.now(),
+        interveningTurns: 0,
+        resumePending: false,
+        hostToolStarted: current.hostToolStarted,
+      };
+      this.clearForegroundTaskResumeTimer();
+      log.info(
+        { turnId: turn.turnId, epoch: current.epoch },
+        "Foreground task suspended by voice barge-in",
+      );
+      return true;
+    }
+    return current !== null;
+  }
+
+  private clearForegroundTask(reason: string): void {
+    const current = this.foregroundTaskState;
+    this.foregroundTaskEpoch += 1;
+    this.foregroundTaskState = null;
+    this.clearForegroundTaskResumeTimer();
+    if (current !== null) {
+      log.info(
+        {
+          epoch: current.epoch,
+          phase: current.phase,
+          hostToolStarted: current.hostToolStarted,
+          reason,
+        },
+        "Live voice foreground task cleared",
+      );
+    }
+  }
+
+  private stopOutstandingInterruptedWork(reason: string): void {
+    this.clearForegroundTask(reason);
+    this.abortDetachedRuns({ reason });
+  }
+
+  private foregroundTaskSuspensionExpired(
+    task: SuspendedForegroundTask,
+  ): "turn_limit" | "time_limit" | null {
+    if (task.interveningTurns > this.foregroundTaskMaxInterveningTurns) {
+      return "turn_limit";
+    }
+    if (Date.now() - task.suspendedAtMs >= this.foregroundTaskMaxSuspendedMs) {
+      return "time_limit";
+    }
+    return null;
+  }
+
+  private queueForegroundTaskResume(turn: ActiveAssistantTurn): void {
+    const current = this.foregroundTaskState;
+    if (
+      current?.phase !== "suspended" ||
+      turn.foregroundTaskEpoch !== current.epoch ||
+      turn.hiddenPrompt ||
+      turn.discardRequested ||
+      turn.speculativePending
+    ) {
+      return;
+    }
+    const next: SuspendedForegroundTask = {
+      ...current,
+      interveningTurns: current.interveningTurns + 1,
+      resumePending: true,
+    };
+    const expired = this.foregroundTaskSuspensionExpired(next);
+    if (expired !== null) {
+      this.clearForegroundTask(`suspended_${expired}`);
+      return;
+    }
+    this.foregroundTaskState = next;
+    if (this.activeAssistantTurn === null) {
+      this.scheduleForegroundTaskResume();
+    }
+  }
+
+  private markForegroundTaskResumePending(epoch: number): boolean {
+    const current = this.foregroundTaskState;
+    if (current?.phase !== "suspended" || current.epoch !== epoch) {
+      return false;
+    }
+    this.foregroundTaskState = { ...current, resumePending: true };
+    return true;
+  }
+
+  private rearmForegroundTaskAfterLegFailure(
+    turn: ActiveAssistantTurn,
+  ): boolean {
+    const epoch = turn.foregroundTaskEpoch;
+    if (epoch === null) {
+      return false;
+    }
+    const current = this.foregroundTaskState;
+    if (current?.phase === "suspended" && current.epoch === epoch) {
+      return this.markForegroundTaskResumePending(epoch);
+    }
+    const snapshot = turn.foregroundTaskSuspensionSnapshot;
+    if (
+      current?.phase !== "owned" ||
+      current.epoch !== epoch ||
+      current.ownerToken !== turn.token ||
+      (snapshot !== null && snapshot.epoch !== epoch)
+    ) {
+      return false;
+    }
+    const next: SuspendedForegroundTask = {
+      ...(snapshot ?? {
+        phase: "suspended",
+        epoch,
+        request: current.request,
+        suspendedAtMs: Date.now(),
+        interveningTurns: 0,
+        hostToolStarted: current.hostToolStarted,
+      }),
+      resumePending: true,
+    };
+    const expired = this.foregroundTaskSuspensionExpired(next);
+    if (expired !== null) {
+      this.clearForegroundTask(`suspended_${expired}`);
+      return false;
+    }
+    this.foregroundTaskState = next;
+    log.info(
+      { turnId: turn.turnId, epoch },
+      "Foreground task re-armed after tool-capable leg failure",
+    );
+    return true;
+  }
+
+  private clearForegroundTaskResumeTimer(): void {
+    if (this.foregroundTaskResumeTimer !== null) {
+      clearTimeout(this.foregroundTaskResumeTimer);
+      this.foregroundTaskResumeTimer = null;
+    }
+  }
+
+  private scheduleFloorCheck(
+    currentTimer: ReturnType<typeof setTimeout> | null,
+    silenceMs: number,
+    check: (blockedBy: string | null) => void,
+  ): ReturnType<typeof setTimeout> {
+    if (currentTimer !== null) {
+      clearTimeout(currentTimer);
+    }
+    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
+    return setTimeout(
+      () => check(this.sessionTurnFloorBlocker()),
+      drainMs + silenceMs,
+    );
+  }
+
+  private scheduleForegroundTaskResume(): void {
+    const task = this.foregroundTaskState;
+    if (
+      task?.phase !== "suspended" ||
+      !task.resumePending ||
+      this.isClosed ||
+      this.state === "failed"
+    ) {
+      this.clearForegroundTaskResumeTimer();
+      return;
+    }
+    const expired = this.foregroundTaskSuspensionExpired(task);
+    if (expired !== null) {
+      this.clearForegroundTask(`suspended_${expired}`);
+      return;
+    }
+    const epoch = task.epoch;
+    this.foregroundTaskResumeTimer = this.scheduleFloorCheck(
+      this.foregroundTaskResumeTimer,
+      this.foregroundTaskResumeSilenceMs,
+      (blockedBy) => {
+        this.foregroundTaskResumeTimer = null;
+        const current = this.foregroundTaskState;
+        if (
+          current?.phase !== "suspended" ||
+          current.epoch !== epoch ||
+          !current.resumePending
+        ) {
+          return;
+        }
+        const currentExpired = this.foregroundTaskSuspensionExpired(current);
+        if (currentExpired !== null) {
+          this.clearForegroundTask(`suspended_${currentExpired}`);
+          return;
+        }
+        if (blockedBy === null) {
+          void this.resumeForegroundTask(current).catch((err: unknown) => {
+            log.warn({ err, epoch }, "Foreground task resume failed");
+          });
+          return;
+        }
+        if (blockedBy === "session_unavailable") {
+          this.clearForegroundTask("session_unavailable");
+          return;
+        }
+        if (blockedBy !== "turn_active") {
+          this.scheduleForegroundTaskResume();
+        }
+      },
+    );
+  }
+
+  private async resumeForegroundTask(
+    task: SuspendedForegroundTask,
+  ): Promise<void> {
+    const current = this.foregroundTaskState;
+    if (
+      current?.phase !== "suspended" ||
+      current.epoch !== task.epoch ||
+      !current.resumePending
+    ) {
+      return;
+    }
+    this.foregroundTaskState = { ...current, resumePending: false };
+    const started = await this.launchAssistantTurn(
+      createSyntheticUtterance(),
+      buildForegroundTaskResumePrompt(current.request),
+      {
+        hiddenPrompt: true,
+        initialLeg: "escalated",
+        foregroundTaskEpoch: current.epoch,
+      },
+    );
+    if (started) {
+      return;
+    }
+    if (this.markForegroundTaskResumePending(current.epoch)) {
+      this.scheduleForegroundTaskResume();
+    }
+  }
+
   // Abort every background continuation this session started and drop its
   // handle. Called on a hard stop (client interrupt / session close), when a
   // newer barge-in supersedes the detached runs, and on a foreground-wins
@@ -3243,50 +3760,53 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     retry = false,
     drainRearms = 0,
   ): void {
-    if (this.announcementTimer) {
-      clearTimeout(this.announcementTimer);
-    }
-    // Queued client-side audio is the previous reply still being audible, so
-    // the silence window only begins once it has drained.
-    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
-    this.announcementTimer = setTimeout(() => {
-      this.announcementTimer = null;
-      const blockedBy = this.continuationAnnouncementBlocker();
-      if (blockedBy === null) {
-        void this.announceContinuation().catch((err: unknown) => {
-          log.warn({ err }, "Voice duplex continuation announcement failed");
-        });
-        return;
-      }
-      log.debug(
-        { conversationId: this.conversationId, blockedBy, retry, drainRearms },
-        "Voice duplex continuation announcement deferred",
-      );
-      // A tail that grew while the timer ran (the reply was still streaming
-      // TTS when it was armed) is a wait of known length rather than a busy
-      // call, so it re-arms against the new deadline without spending the
-      // single retry the busy-call blockers get — otherwise a long reply's
-      // playback alone outlasts the budget and the announcement is dropped
-      // even though the call goes idle right after. The tail only extends
-      // while a turn is active, which blocks earlier, so the re-arms converge;
-      // the cap bounds the interleaving where a fresh turn's audio lands
-      // between two checks.
-      if (
-        blockedBy === "playback_draining" &&
-        drainRearms < CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS
-      ) {
-        this.scheduleContinuationAnnouncement(retry, drainRearms + 1);
-        return;
-      }
-      if (blockedBy === "turn_active") {
-        return;
-      }
-      if (retry || this.pendingAnnouncement === null) {
-        this.pendingAnnouncement = null;
-        return;
-      }
-      this.scheduleContinuationAnnouncement(true, drainRearms);
-    }, drainMs + this.continuationAnnounceSilenceMs);
+    this.announcementTimer = this.scheduleFloorCheck(
+      this.announcementTimer,
+      this.continuationAnnounceSilenceMs,
+      () => {
+        this.announcementTimer = null;
+        const blockedBy = this.continuationAnnouncementBlocker();
+        if (blockedBy === null) {
+          void this.announceContinuation().catch((err: unknown) => {
+            log.warn({ err }, "Voice duplex continuation announcement failed");
+          });
+          return;
+        }
+        log.debug(
+          {
+            conversationId: this.conversationId,
+            blockedBy,
+            retry,
+            drainRearms,
+          },
+          "Voice duplex continuation announcement deferred",
+        );
+        // A tail that grew while the timer ran (the reply was still streaming
+        // TTS when it was armed) is a wait of known length rather than a busy
+        // call, so it re-arms against the new deadline without spending the
+        // single retry the busy-call blockers get. Otherwise a long reply's
+        // playback alone outlasts the budget and the announcement is dropped
+        // even though the call goes idle right after. The tail only extends
+        // while a turn is active, which blocks earlier, so the re-arms converge;
+        // the cap bounds the interleaving where a fresh turn's audio lands
+        // between two checks.
+        if (
+          blockedBy === "playback_draining" &&
+          drainRearms < CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS
+        ) {
+          this.scheduleContinuationAnnouncement(retry, drainRearms + 1);
+          return;
+        }
+        if (blockedBy === "turn_active") {
+          return;
+        }
+        if (retry || this.pendingAnnouncement === null) {
+          this.pendingAnnouncement = null;
+          return;
+        }
+        this.scheduleContinuationAnnouncement(true, drainRearms);
+      },
+    );
   }
 
   /**
@@ -3476,6 +3996,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       this.scheduleContinuationAnnouncement();
     }
+    if (
+      this.foregroundTaskState?.phase === "suspended" &&
+      this.foregroundTaskState.resumePending &&
+      !this.isClosed &&
+      this.state !== "failed"
+    ) {
+      this.scheduleForegroundTaskResume();
+    }
   }
 
   // Why the session must not speak up right now, or null when the call is
@@ -3545,6 +4073,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // own it leaves manual mode blind to a user who is talking right now and
     // has no text yet — hence the captured-audio flag, which manual ingress
     // sets from the first chunk.
+    //
+    // A partial counts only when it has words. Deepgram Flux sends interim
+    // updates through silence too, each an empty partial, and one of those
+    // would otherwise hold the floor until the user next spoke.
     if (
       utterance !== null &&
       !utterance.completed &&
@@ -3552,11 +4084,127 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         utterance.assistantTurnStarted ||
         (utterance.manualAudioCaptured && opts?.ignoreManualCapture !== true) ||
         utterance.finalTranscriptSegments.length > 0 ||
-        utterance.latestPartialText !== null)
+        (utterance.latestPartialText?.trim() ?? "").length > 0)
     ) {
       return "utterance_in_flight";
     }
     return null;
+  }
+
+  /**
+   * Wait for the fresh frame a look control asks the client for.
+   *
+   * Only for a client that declared `lookFrames`: any other sends no such
+   * frame, and its look keeps the old shape, where the user's next words are
+   * what the frame gets answered on. A newer look replaces an older one still
+   * waiting, and the wait is bounded so a frame that never comes (a camera
+   * that would not open, a share the desktop refused) cannot turn up minutes
+   * later as a reply to nothing.
+   */
+  private awaitLookFrame(action: LookSessionControl): void {
+    if (!this.lookFrames) {
+      return;
+    }
+    this.clearPendingLook();
+    const timer = setTimeout(() => {
+      if (this.pendingLook?.timer !== timer) {
+        return;
+      }
+      this.pendingLook = null;
+      log.info(
+        { conversationId: this.conversationId, action },
+        "Live voice look dropped: no frame arrived",
+      );
+    }, LOOK_FRAME_WAIT_MS);
+    this.pendingLook = { action, armedAtMs: Date.now(), timer };
+  }
+
+  private clearPendingLook(): void {
+    if (this.pendingLook !== null) {
+      clearTimeout(this.pendingLook.timer);
+      this.pendingLook = null;
+    }
+    if (this.lookFollowUpTimer !== null) {
+      clearTimeout(this.lookFollowUpTimer);
+      this.lookFollowUpTimer = null;
+    }
+  }
+
+  /**
+   * The frame a look asked for is in the conversation: answer the look.
+   *
+   * A look frame with no look waiting (the wait ran out, or the session never
+   * armed one) is only a frame, like any other keep.
+   */
+  private lookFrameLanded(): void {
+    const pending = this.pendingLook;
+    if (pending === null || this.isClosed) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    this.pendingLook = null;
+    this.answerLookWhenFloorIsFree(pending, this.turnsLaunched, 0);
+  }
+
+  /**
+   * Start the turn that answers a look, once nothing else holds the floor.
+   *
+   * The acknowledgement ("taking a look") can still be playing when the frame
+   * lands, and the look's own turn can still be clearing, so both are waited
+   * out, as is the user mid-utterance. A turn that starts once the frame is in
+   * the conversation is not: it reads the frame, so answering the look as well
+   * would answer it twice. A turn that started before the frame landed did not
+   * see it, so the look is still answered once that turn is done.
+   *
+   * `turnsAtFrame` is how many turns had launched when the frame landed.
+   */
+  private answerLookWhenFloorIsFree(
+    look: PendingLook,
+    turnsAtFrame: number,
+    rearms: number,
+  ): void {
+    if (this.lookFollowUpTimer !== null) {
+      clearTimeout(this.lookFollowUpTimer);
+      this.lookFollowUpTimer = null;
+    }
+    const { action, armedAtMs } = look;
+    // A turn launched since the frame landed read it already. Speech that
+    // never became a turn (a cough, noise that transcribed to nothing) is only
+    // waited out.
+    const blockedBy =
+      this.turnsLaunched > turnsAtFrame
+        ? "turn_since_look"
+        : this.sessionTurnFloorBlocker();
+    if (blockedBy === null) {
+      void this.launchAssistantTurn(
+        createSyntheticUtterance(),
+        LOOK_FOLLOW_UP_CONTENT,
+        { lookFollowUp: action, hiddenPrompt: true },
+      ).catch((err: unknown) => {
+        log.warn(
+          { err, conversationId: this.conversationId, action },
+          "Live voice look follow-up failed to start",
+        );
+      });
+      return;
+    }
+    const waitable =
+      blockedBy !== "turn_since_look" && blockedBy !== "session_unavailable";
+    if (!waitable || Date.now() - armedAtMs >= LOOK_ANSWER_DEADLINE_MS) {
+      log.info(
+        { conversationId: this.conversationId, action, blockedBy, rearms },
+        "Live voice look follow-up skipped",
+      );
+      return;
+    }
+    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
+    this.lookFollowUpTimer = setTimeout(
+      () => {
+        this.lookFollowUpTimer = null;
+        this.answerLookWhenFloorIsFree(look, turnsAtFrame, rearms + 1);
+      },
+      Math.max(drainMs, LOOK_FOLLOW_UP_REARM_MS),
+    );
   }
 
   // Speak the finished continuation's result on a turn the session starts
@@ -4748,8 +5396,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the next turn is now stale (the interrupted utterance may be discarded
     // without ever reaching finalizePendingUtterance).
     this.pendingInterruptedRequest = null;
+    this.clearForegroundTask("client_interrupt");
     // ...and it hard-stops any detached background continuations.
     this.abortDetachedRuns({ reason: "client_interrupt" });
+    // ...and a look still waiting to be answered: the user stopped the call
+    // talking, and a reply starting on its own a moment later is not a stop.
+    this.clearPendingLook();
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -4971,6 +5623,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set on an announcement turn: the finished continuation this turn exists
       // to deliver. Its answer goes in the control prompt, not in `content`.
       continuationDelivery?: ContinuationDelivery | null;
+      // Set on the turn that answers a look: which look. Its instruction goes
+      // in the control prompt, not in `content`.
+      lookFollowUp?: LookSessionControl;
       // Unified front-door: dispatch without releasing the utterance. The
       // thinking frame and floor-holding timers are deferred until the leg's
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
@@ -4980,6 +5635,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // the row persists and drives the turn but never renders: no echo, and
       // `/messages` filters it after a reload.
       hiddenPrompt?: boolean;
+      // Synthetic host-task resumes start on the tool-capable profile without
+      // passing through the front door.
+      initialLeg?: VoiceRoutingLeg;
+      // The suspended foreground task this synthetic turn resumes.
+      foregroundTaskEpoch?: number;
     },
   ): Promise<boolean> {
     utterance.assistantTurnStarted = true;
@@ -4995,6 +5655,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.startMetricsTurnIfNeeded(utterance, turnId);
     this.markAssistantDispatch(utterance, turnId);
     const abortController = new AbortController();
+    const suspendedForegroundTask =
+      this.foregroundTaskState?.phase === "suspended"
+        ? this.foregroundTaskState
+        : null;
+    const foregroundTaskEpoch =
+      opts?.foregroundTaskEpoch ??
+      (opts?.hiddenPrompt !== true
+        ? (suspendedForegroundTask?.epoch ?? null)
+        : null);
     const activeTurn: ActiveAssistantTurn = {
       token,
       turnId,
@@ -5004,7 +5673,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       handle: null,
       launchedAtMs: Date.now(),
       progress: createProgressCadence({
-        config: this.frontModelConfig.progress,
+        config: progressConfigForCadence(
+          this.frontModelConfig.progress,
+          this.progressCadence,
+        ),
         // Without TTS there is nothing to speak (the idle trigger's static
         // fallback still needs a generation attempt to fall back from).
         narrator: this.streamTtsAudio ? this.progressNarrator : null,
@@ -5039,6 +5711,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantCompleted: false,
       ttsDone: false,
       minimizeRequested: false,
+      sessionControlRequested: null,
       activityLabel: "",
       publishedApprovalRequestId: null,
       pendingApproval: null,
@@ -5061,7 +5734,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
+      lookFollowUp: opts?.lookFollowUp ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
+      foregroundTaskEpoch,
+      foregroundTaskSuspensionSnapshot:
+        suspendedForegroundTask?.epoch === foregroundTaskEpoch
+          ? { ...suspendedForegroundTask }
+          : null,
       deltaEpoch: 0,
       frontDoor: null,
       ttsBuffer: "",
@@ -5076,6 +5755,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantAudioMimeType: "audio/pcm",
     };
     this.activeAssistantTurn = activeTurn;
+    this.turnsLaunched += 1;
 
     // A speculative turn defers the thinking frame and both floor-holding
     // timers to commitSpeculativeTurn: until the verdict arrives, the pause
@@ -5125,13 +5805,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn.progress.arm();
     }
 
-    // Front-door leg: a fast model fronts every turn (the `voiceFrontDoor`
-    // call site pins it) and may hand off to a quality leg on the escalate
-    // verdict.
+    const initialLeg = opts?.initialLeg ?? "front-door";
     const started = await this.startAssistantLeg(activeTurn, {
       content,
-      routingLeg: "front-door",
-      frontDoor: true,
+      routingLeg: initialLeg,
+      ...(initialLeg === "front-door"
+        ? { frontDoor: true }
+        : { directEscalated: true }),
       // Only this leg: an escalated leg persists its own continuation row, and
       // the frame belongs to the row carrying the user's words.
       ...(activeTurn.turnAttachmentId
@@ -5176,6 +5856,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       overrideProfile?: string;
       routingLeg?: VoiceRoutingLeg;
       frontDoor?: boolean;
+      directEscalated?: boolean;
       spokenEscalationBridge?: string;
       attachments?: readonly string[];
     },
@@ -5256,6 +5937,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             speakBridge: (bridge) =>
               this.speakEscalationBridge(activeTurn, bridge),
             startEscalatedLeg: (escalated) => {
+              this.noteEscalatedForegroundTask(activeTurn);
               void this.startAssistantLeg(activeTurn, escalated);
             },
           },
@@ -5298,6 +5980,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
+        ...(this.context.startFrame.client === "macos"
+          ? { macosDesktopSession: true }
+          : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,
           ...(this.context.startFrame.client
@@ -5307,9 +5992,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             ? { entry: this.context.startFrame.entry }
             : {}),
         },
-        voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
-          ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
-        }),
+        voiceControlPrompt: buildVoiceControlPrompt(
+          activeTurn,
+          {
+            ...(leg.frontDoor !== undefined
+              ? { frontDoor: leg.frontDoor }
+              : {}),
+          },
+          this.sessionControls,
+          { lookFrames: this.lookFrames },
+        ),
         onApprovalPending: (requestId) => {
           this.revealRoomForPendingApproval(activeTurn, requestId);
         },
@@ -5334,6 +6026,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ...(leg.spokenEscalationBridge != null
           ? { spokenEscalationBridge: leg.spokenEscalationBridge }
           : {}),
+        ...(leg.directEscalated === true ? { directEscalated: true } : {}),
         // A speculative front-door leg's decision rule includes the hold
         // branch so its leading tokens can be the hold verdict — but only
         // on the utterance's FIRST dispatch. Extension replays (the
@@ -5349,6 +6042,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) {
               return;
+            }
+            if (!leg.frontDoor) {
+              this.claimSuspendedForegroundTask(activeTurn);
             }
             if (coordinator !== null) {
               // Verdict-first: the leg's leading tokens decide the turn's
@@ -5385,6 +6081,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             ) {
               return;
             }
+            if (!leg.frontDoor) {
+              this.claimSuspendedForegroundTask(current);
+            }
             // A speculative leg that finished without a single delta (empty
             // output, provider hiccup) carries no verdict — fail open to a
             // committed turn so the utterance releases and finalizes like a
@@ -5413,6 +6112,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // emitted rather than dropped.
             if (!leg.frontDoor && msg.type === "message_complete") {
               flushLegText(rawText, { force: true });
+            }
+            // Read off the leg that finished the reply: a front-door answer
+            // or the escalated leg. A handed-off front-door leg returned
+            // above, so its holding phrase can never end a call.
+            if (msg.type === "message_complete") {
+              const request = requestedSessionControl(
+                rawText,
+                this.sessionControls,
+              );
+              if (request?.action === "updates") {
+                // The session's own control: nothing to send, and nothing to
+                // wait for, since it shapes turns that have not started yet.
+                this.progressCadence = request.cadence;
+                log.info(
+                  { turnId, cadence: request.cadence },
+                  "Live voice progress cadence changed",
+                );
+              } else if (request?.action === "task_stop") {
+                this.stopOutstandingInterruptedWork("spoken_task_stop");
+              } else {
+                if (request?.action === "end") {
+                  this.clearForegroundTask("call_end_requested");
+                }
+                current.sessionControlRequested = request;
+              }
+            }
+            if (leg.frontDoor) {
+              this.queueForegroundTaskResume(current);
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
@@ -5447,6 +6174,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             const current = this.activeAssistantTurn;
             if (current?.token !== token) {
               return;
+            }
+            const effectiveHostTool = hostInteractiveToolName(
+              toolName,
+              detail?.input,
+              detail?.allowedToolNames,
+            );
+            if (effectiveHostTool !== null) {
+              this.noteHostToolStarted(current, effectiveHostTool);
             }
             // Foreground wins the workspace: the continuation runs with full
             // subagent abilities (it can write files, run commands), so the
@@ -5534,7 +6269,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (currentTurn?.token !== token) {
               return;
             }
+            const foregroundTaskResumeRearmed =
+              !leg.frontDoor &&
+              !currentTurn.discardRequested &&
+              !currentTurn.abortController.signal.aborted &&
+              this.rearmForegroundTaskAfterLegFailure(currentTurn);
             await this.finalizeAssistantTurn(currentTurn, "cancelled", "error");
+            if (foregroundTaskResumeRearmed) {
+              this.scheduleForegroundTaskResume();
+            }
           })();
         },
       });
@@ -5570,6 +6313,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.clearActiveAssistantTurn(token);
         return true;
       }
+      if (!leg.frontDoor) {
+        this.claimSuspendedForegroundTask(current);
+      }
       // The front-door leg may have handed off before its handle resolved;
       // abort it rather than exposing it as the turn's live handle.
       if (coordinator?.handedOff === true) {
@@ -5584,8 +6330,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return false;
       }
 
+      const foregroundTaskResumeRearmed =
+        !leg.frontDoor &&
+        leg.directEscalated !== true &&
+        !activeTurn.discardRequested &&
+        !activeTurn.abortController.signal.aborted &&
+        this.rearmForegroundTaskAfterLegFailure(activeTurn);
       this.clearFillerTimers(activeTurn);
       this.clearActiveAssistantTurn(token);
+      if (foregroundTaskResumeRearmed) {
+        this.scheduleForegroundTaskResume();
+      }
       await this.sendFrame({
         type: "error",
         code: LiveVoiceProtocolErrorCode.InvalidField,
@@ -5825,6 +6580,44 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // for a turn that ends with an op still open, which would otherwise
         // leave the last tool it touched on screen through the next silence.
         this.publishActivity(currentTurn, "");
+
+        // Drain-scoped session control, under the same terms as the minimize
+        // below: after the acknowledgement has been spoken, never for a
+        // barged-in turn (talking over "okay, bye" means they are not
+        // leaving), at most once per turn. Ending the call makes revealing
+        // the screen moot, so an end takes the minimize's place.
+        const sessionControl = currentTurn.sessionControlRequested;
+        currentTurn.sessionControlRequested = null;
+        if (
+          sessionControl !== null &&
+          !currentTurn.abortController.signal.aborted
+        ) {
+          log.info(
+            { turnId: currentTurn.turnId, action: sessionControl.action },
+            "Live voice reply requested a session control",
+          );
+          if (sessionControl.action === "end") {
+            currentTurn.minimizeRequested = false;
+          }
+          // Armed before the send, so a client quick enough to answer with
+          // its frame before this await resolves still finds the look waiting.
+          // Never from the turn that answers a look: that turn is the answer,
+          // and a marker it emits anyway must not chain another.
+          if (
+            isLookSessionControl(sessionControl.action) &&
+            currentTurn.lookFollowUp === null
+          ) {
+            this.awaitLookFrame(sessionControl.action);
+          }
+          await this.sendFrame(
+            {
+              type: "session_control",
+              turnId: currentTurn.turnId,
+              ...sessionControl,
+            },
+            () => !this.isClosed,
+          );
+        }
 
         // Drain-scoped minimize: the latched marker is consumed here, after
         // the turn's speech has fully drained — never mid-speech, never for
@@ -6355,6 +7148,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     turn.finalized = true;
     this.clearFillerTimers(turn);
+    if (
+      this.foregroundTaskState?.phase === "owned" &&
+      this.foregroundTaskState.ownerToken === turn.token
+    ) {
+      this.clearForegroundTask(
+        status === "completed" ? "owner_completed" : `owner_${reason}`,
+      );
+    }
     turn.utterance.completed = true;
     await this.archiveBufferedAudio({
       turnId: turn.turnId,

@@ -148,6 +148,7 @@ const {
   MEMORY_V3_INJECTION_GATE_CHECK_NAME,
   MEMORY_V3_SELECTION_CHECK_NAME,
 } = await import("../orchestrate.js");
+const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures: a tiny corpus of pages with bodies + `links:` frontmatter.
@@ -2515,5 +2516,91 @@ describe("orchestrate: rare-term lane", () => {
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Selector infrastructure failure: the stable prefix is kept unjudged.
+// ---------------------------------------------------------------------------
+
+describe("selector infrastructure failure", () => {
+  /** A provider whose every send fails, so `selectPool` exhausts its
+   *  re-prompt retries and throws `MemoryV3RetrievalUnavailableError`. */
+  function failingProvider(): Provider {
+    return {
+      name: "stub",
+      sendMessage: async () => {
+        selectCalls++;
+        throw new Error("upstream rejected the request");
+      },
+    };
+  }
+
+  test("keeps the stable prefix unjudged, drops the finder tail, and records selector_ran: false", async () => {
+    const lanes = await buildLanes();
+    providerStub = failingProvider();
+
+    const result = await orchestrate(
+      makeTurn(1, "apple banana"),
+      depsOf(lanes, { coreSlugs: ["topic-c"], hotSlugs: ["topic-d"] }),
+    );
+
+    // The selector was tried (and retried) before the fallback engaged.
+    expect(selectCalls).toBeGreaterThan(1);
+    // The finder lane surfaced topic-a for the query, so the pool held it.
+    expect(result.lanes.finder.map((c) => c.slug)).toContain("topic-a");
+    // Only the stable prefix survives, in cache order, with no sections.
+    expect(result.selections.map((s) => s.slug)).toEqual([
+      "topic-c",
+      "topic-d",
+    ]);
+    expect(result.selections.every((s) => s.sections.length === 0)).toBe(true);
+    expect(result.selectorRan).toBe(false);
+    expect(result.selectorFailure).toBeInstanceOf(
+      MemoryV3RetrievalUnavailableError,
+    );
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: false,
+      selector_failed: true,
+      selector_kept_all: false,
+      selected_count: 2,
+      pool_size: 3,
+    });
+  });
+
+  test("with no stable prefix the turn keeps nothing, and the failure still rides the result", async () => {
+    const lanes = await buildLanes();
+    providerStub = failingProvider();
+
+    const result = await orchestrate(
+      makeTurn(1, "apple banana"),
+      depsOf(lanes),
+    );
+
+    expect(result.selections).toEqual([]);
+    expect(result.selectorRan).toBe(false);
+    expect(result.selectorFailure).toBeInstanceOf(
+      MemoryV3RetrievalUnavailableError,
+    );
+  });
+
+  test("a non-infrastructure throw from the selector still propagates", async () => {
+    const lanes = await buildLanes();
+    providerStub = {
+      name: "stub",
+      sendMessage: async () => {
+        throw new Error("boom");
+      },
+    };
+    // `selectPool` wraps provider throws into its infrastructure error, so a
+    // plain throw reaching the orchestrator means something outside the
+    // selector broke; only a card map hole does that here.
+    await expect(
+      orchestrate(
+        makeTurn(1, "apple"),
+        depsOf(lanes, { coreSlugs: ["topic-c"], prefixCards: new Map() }),
+      ),
+    ).rejects.toThrow("no pre-rendered card");
   });
 });

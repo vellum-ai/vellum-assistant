@@ -63,4 +63,12 @@ describe("secure-keys managed CES failover", () => {
     expect(rpcCall).toHaveBeenCalledTimes(1);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
+
+  test("uses CES HTTP only after lazy IPC finds no socket", async () => {
+    const start = Date.now();
+    expect(await getSecureKeyAsync("openai")).toBe("http-secret");
+    expect(Date.now() - start).toBeLessThan(1_000);
+    expect(getActiveBackendName()).toBe("ces-http");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
 });

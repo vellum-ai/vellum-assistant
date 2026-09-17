@@ -10,7 +10,9 @@ import {
   getEditChatConversationId,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
-import { routes } from "@/utils/routes";
+import { appEntryState } from "@/utils/app-navigation";
+import { currentPathname } from "@/utils/conversation-navigation";
+import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 /**
  * Open an app in the split "edit" view — chat on the left, app on the right —
@@ -18,8 +20,8 @@ import { routes } from "@/utils/routes";
  *
  * Resolves (and persists) the edit conversation for this `(assistant, app)`
  * pair so repeated edits land back in the same thread, loads the app into the
- * viewer if it isn't already there, and navigates to that conversation so
- * `ChatMainPanel` renders the `app-editing` split.
+ * viewer if it isn't already there, and navigates to that conversation's app
+ * URL so `ChatMainPanel` renders the `app-editing` split.
  *
  * On a mobile viewport the split layout doesn't fit, so instead the app is
  * minimized to its bottom strip and the edit conversation becomes the primary
@@ -55,6 +57,7 @@ export function useEditApp(): (app: OpenedAppState) => void {
         createDraftConversationId();
       setEditChatConversationId(assistantId, app.appId, convId);
 
+      // The HTML this caller holds lets `useAppRouteSync` skip a refetch.
       const viewer = useViewerStore.getState();
       if (viewer.activeAppId !== app.appId || !viewer.openedAppState) {
         viewer.openApp(app.appId);
@@ -71,13 +74,26 @@ export function useEditApp(): (app: OpenedAppState) => void {
         viewer.enterAppEditing();
       }
 
-      // The split edit view only renders on the conversation route. Navigate
-      // whenever we aren't already there — comparing the path rather than the
-      // active conversation id, since off-chat routes (e.g. the Library app
-      // view) can still hold a stale matching id without mounting the viewer.
-      const target = routes.conversation(convId);
-      if (pathname !== target) {
-        void navigate(target);
+      // The split edit view only renders on the conversation route, and the
+      // URL names the app it shows. Navigate whenever we aren't already
+      // there. What the path names, read through the parser, because the
+      // browser percent-encodes an id the builder writes raw; the path rather
+      // than the active conversation id, because off-chat routes (e.g. the
+      // Library app view) can hold a stale matching id without mounting the
+      // viewer.
+      if (
+        conversationIdForPath(pathname) !== convId ||
+        appIdForPath(pathname) !== app.appId
+      ) {
+        // Uniform with the view opener, though an Edit lands on its own
+        // conversation and so usually records nothing.
+        void navigate(routes.conversation(convId, app.appId), {
+          state: appEntryState(
+            { pathname: currentPathname(), search: "" },
+            app.appId,
+            convId,
+          ),
+        });
       }
     },
     [assistantId, isMobile, navigate, pathname],

@@ -17,7 +17,12 @@ import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
-import { routes } from "@/utils/routes";
+import { appIdForPath, routes } from "@/utils/routes";
+import { carriedAppEntryState } from "@/utils/app-navigation";
+import {
+  currentEntryState,
+  currentPathname,
+} from "@/utils/conversation-navigation";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
@@ -334,7 +339,11 @@ export function useSendMessage({
       }
       const requestAssistantId = assistantId;
       const requestConversationId = activeConversationId;
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -442,6 +451,7 @@ export function useSendMessage({
                 requestAssistantId,
                 requestConversationId,
                 content,
+                composerSessionGeneration,
               );
           }
           return { status: "ignored" };
@@ -459,6 +469,12 @@ export function useSendMessage({
             ...(postResult.error.code ? { code: postResult.error.code } : {}),
           },
         };
+      }
+      if (
+        composerSessionGeneration !==
+        useComposerStore.getState().sessionGeneration
+      ) {
+        return { status: "ignored" };
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
@@ -724,9 +740,13 @@ export function useSendMessage({
       // from a narrowing that a closure cannot carry. Every other caller runs
       // past that guard, where both are non-null and the extra checks stand
       // true.
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const sendScopeIsCurrent = () =>
         assistantId !== null &&
         activeConversationId !== null &&
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -955,8 +975,19 @@ export function useSendMessage({
             if (!onScreenAtFailure && !isHidden) {
               useComposerStore
                 .getState()
-                .restoreFailedDraft(assistantId, activeConversationId, content);
+                .restoreFailedDraft(
+                  assistantId,
+                  activeConversationId,
+                  content,
+                  composerSessionGeneration,
+                );
             }
+            return;
+          }
+          if (
+            composerSessionGeneration !==
+            useComposerStore.getState().sessionGeneration
+          ) {
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -1049,7 +1080,12 @@ export function useSendMessage({
           if (!onScreenAtThrow && !isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(assistantId, activeConversationId, content);
+              .restoreFailedDraft(
+                assistantId,
+                activeConversationId,
+                content,
+                composerSessionGeneration,
+              );
           }
         }
         return;
@@ -1171,6 +1207,11 @@ export function useSendMessage({
               activeConversationId,
               newConversationId,
             );
+          // Entries pushed before this send still name the draft, which the
+          // daemon has no row for; the loader redirects them onto this id.
+          useConversationStore
+            .getState()
+            .recordDraftReplacement(activeConversationId, newConversationId);
           resolveDraftKey(
             queryClient,
             assistantId,
@@ -1209,9 +1250,23 @@ export function useSendMessage({
             useConversationStore
               .getState()
               .setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId), {
-              replace: true,
-            });
+            // The same conversation under a new id, so the rewrite carries the
+            // segment the URL names and the return path recorded on this entry,
+            // re-keyed to the new id: `keptAppId()` reads the app on screen,
+            // and an overlay covering it would drop the app here.
+            void navigate(
+              routes.conversation(
+                newConversationId,
+                appIdForPath(currentPathname()),
+              ),
+              {
+                replace: true,
+                state: carriedAppEntryState(
+                  currentEntryState(),
+                  newConversationId,
+                ),
+              },
+            );
           }
         } else if (resolvedId && isDraft) {
           // Legacy (pre-0.8.6) assistants echo the client-minted draft id
@@ -1264,7 +1319,12 @@ export function useSendMessage({
         if (!onScreenAtThrow && !isHidden) {
           useComposerStore
             .getState()
-            .restoreFailedDraft(assistantId, activeConversationId, content);
+            .restoreFailedDraft(
+              assistantId,
+              activeConversationId,
+              content,
+              composerSessionGeneration,
+            );
         }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

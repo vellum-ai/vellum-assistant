@@ -103,6 +103,31 @@ describe("parallel-tasks system prompt section", () => {
     }
   });
 
+  test("an explicit rendered state replaces the derivation", () => {
+    // A fork wake replaying its source's recorded surface renders what the
+    // source's live turn rendered, whatever its own scope could spawn.
+    expect(
+      buildSystemPrompt({
+        canSpawnSubagents: false,
+        delegateIndependentTasks: true,
+      }),
+    ).toContain(HEADING);
+    expect(
+      buildSystemPrompt({
+        canSpawnSubagents: true,
+        delegateIndependentTasks: false,
+      }),
+    ).not.toContain(HEADING);
+    // It is the rendered state, not a capability claim: the channel gate has
+    // already been applied by the turn that recorded it.
+    expect(
+      buildSystemPrompt({
+        channelCapabilities: channel("slack"),
+        delegateIndependentTasks: true,
+      }),
+    ).toContain(HEADING);
+  });
+
   test("delegates only independent tasks and keeps small requests inline", () => {
     const prompt = buildSystemPrompt({ canSpawnSubagents: true });
     expect(prompt).toContain("several independent things at once");

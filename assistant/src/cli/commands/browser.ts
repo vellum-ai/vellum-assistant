@@ -28,6 +28,8 @@ import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { browserHelp, toKebab } from "./browser.help.js";
 
+const BROWSER_REQUEST_TIMEOUT_MS = 10 * 60_000;
+
 // ── Naming helpers ───────────────────────────────────────────────────
 
 /**
@@ -116,6 +118,7 @@ function attachOperationAction(
 
   subcmd.action(async (opts: Record<string, unknown>) => {
     const parentOpts = browser.opts() as {
+      desktop?: boolean;
       session?: string;
       json?: boolean;
       browserMode?: string;
@@ -130,6 +133,8 @@ function attachOperationAction(
     // targetClientId) and screenshot ergonomics (output).
     const input: Record<string, unknown> = {};
     const excludeKeys = new Set([
+      "desktop",
+      "virtualDesktop",
       "session",
       "json",
       "output",
@@ -163,9 +168,7 @@ function attachOperationAction(
       }
     }
 
-    // Browser operations can be long-running (page loads, auth
-    // challenges, downloads up to 120s, etc.), so use a generous
-    // IPC timeout that exceeds any server-side operation timeout.
+    // First use can include virtual desktop installation and Chrome startup.
     const ipcResult = await cliIpcCall<BrowserExecuteResult>(
       "browser_execute",
       {
@@ -173,10 +176,11 @@ function attachOperationAction(
           operation: meta.operation,
           input,
           sessionId,
+          ...(parentOpts.desktop ? { desktop: true } : {}),
           ...(conversationId ? { conversationId } : {}),
         },
       },
-      { timeoutMs: 180_000 },
+      { timeoutMs: BROWSER_REQUEST_TIMEOUT_MS, cancelOnDisconnect: true },
     );
 
     if (!ipcResult.ok) {
@@ -328,6 +332,22 @@ export function registerBrowserCommand(program: Command): void {
     description: browserHelp.description,
     build: (browser) => {
       applyCommandHelp(browser, browserHelp);
+      browser.hook("preAction", () => {
+        if (browser.opts().virtualDesktop) {
+          browser.setOptionValue("desktop", true);
+        }
+        const options = browser.opts();
+        if (
+          options.desktop &&
+          (options.targetClientId ||
+            (options.browserMode &&
+              !["auto", "cdp-inspect"].includes(options.browserMode)))
+        ) {
+          throw new Error(
+            "--virtual-desktop cannot be combined with a personal browser target or another browser mode",
+          );
+        }
+      });
 
       // Attach one action per browser operation
       for (const meta of BROWSER_OPERATION_META) {
@@ -339,6 +359,8 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "list").action(async (opts: { pretty?: boolean }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
+          browserMode?: string;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -364,11 +386,15 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "list",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
+              ...(parentOpts.browserMode
+                ? { browserMode: parentOpts.browserMode }
+                : {}),
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
             },
           },
-          { timeoutMs: 30_000 },
+          { timeoutMs: BROWSER_REQUEST_TIMEOUT_MS, cancelOnDisconnect: true },
         );
 
         if (!ipcResult.ok) {
@@ -409,6 +435,8 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "select").action(async (opts: { tabId: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
+          browserMode?: string;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -425,12 +453,16 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "select",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
+              ...(parentOpts.browserMode
+                ? { browserMode: parentOpts.browserMode }
+                : {}),
               tabId,
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
             },
           },
-          { timeoutMs: 30_000 },
+          { timeoutMs: BROWSER_REQUEST_TIMEOUT_MS, cancelOnDisconnect: true },
         );
 
         if (!ipcResult.ok) {
@@ -456,6 +488,8 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "new").action(async (opts: { url?: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
+          browserMode?: string;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -475,12 +509,16 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "new",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
+              ...(parentOpts.browserMode
+                ? { browserMode: parentOpts.browserMode }
+                : {}),
               ...(opts.url ? { url: opts.url } : {}),
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
             },
           },
-          { timeoutMs: 30_000 },
+          { timeoutMs: BROWSER_REQUEST_TIMEOUT_MS, cancelOnDisconnect: true },
         );
 
         if (!ipcResult.ok) {
@@ -512,6 +550,8 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "close").action(async (opts: { tabId: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
+          browserMode?: string;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -532,12 +572,16 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "close",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
+              ...(parentOpts.browserMode
+                ? { browserMode: parentOpts.browserMode }
+                : {}),
               tabId,
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
             },
           },
-          { timeoutMs: 30_000 },
+          { timeoutMs: BROWSER_REQUEST_TIMEOUT_MS, cancelOnDisconnect: true },
         );
 
         if (!ipcResult.ok) {

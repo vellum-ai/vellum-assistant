@@ -1,9 +1,7 @@
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
-  | "native-model"
-  | "provider-request-option"
-  | "unsupported";
+  "native-model" | "provider-request-option" | "unsupported";
 
 export interface CatalogModelPricingTier {
   /**
@@ -75,6 +73,13 @@ export interface CatalogModel {
    */
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that return
+   * answers rather than generated text; those stay out of conversation
+   * pickers and cannot be the conversation model.
+   */
+  supportsText?: boolean;
   supportsEffort?: boolean;
   /**
    * Whether this provider/model serving surface accepts a forced OpenAI
@@ -2527,6 +2532,38 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "Your Poolside API key",
   },
   {
+    id: "jev",
+    displayName: "Jev",
+    subtitle:
+      "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your TypeSafe API key to enable Jev.",
+    envVar: "TYPESAFE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to TypeSafe and create an API key.",
+      url: "https://typesafe.ai",
+      linkLabel: "Open TypeSafe",
+    },
+    models: [
+      {
+        id: "jev-latest",
+        displayName: "Jev",
+        // TypeSafe's published request budget is about 32,000 tokens.
+        contextWindowTokens: 32000,
+        maxOutputTokens: 4096,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: false,
+        supportsText: false,
+        pricing: { inputPer1mTokens: 0.042, outputPer1mTokens: 0 },
+      },
+    ],
+    defaultModel: "jev-latest",
+    apiKeyUrl: "https://typesafe.ai",
+    apiKeyPlaceholder: "Your TypeSafe API key",
+  },
+  {
     id: "vellum",
     displayName: "Vellum",
     subtitle:
@@ -2563,6 +2600,24 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
     // the Platform auth-type dropdown in the clients.
     supportsPlatformAuth: PLATFORM_PROVIDER_META[entry.id]?.managed === true,
   }));
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (typeof provider !== "string" || typeof modelId !== "string") {
+    return true;
+  }
+  const model = PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  );
+  return model?.supportsText !== false;
+}
 
 /** Check if a model ID is in the catalog for a given provider. */
 export function isModelInCatalog(provider: string, modelId: string): boolean {

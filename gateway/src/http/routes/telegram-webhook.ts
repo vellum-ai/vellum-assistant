@@ -10,7 +10,6 @@ import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
 import {
   appendFailedAttachmentNotice,
-  AttachmentTooLargeError,
   ingestAttachments,
 } from "../../attachments/ingest.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -27,8 +26,13 @@ import {
   uploadAttachment,
 } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
+import { createTelegramBotIdentityResolver } from "../../telegram/bot-identity.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
-import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import { createTelegramDropLog } from "../../telegram/drop-log.js";
+import {
+  normalizeTelegramUpdate,
+  telegramUpdateChatType,
+} from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import {
@@ -62,6 +66,8 @@ export function createTelegramWebhookHandler(
   caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   const dedupCache = new DedupCache();
+  const dropLog = createTelegramDropLog();
+  const resolveBotIdentity = createTelegramBotIdentityResolver(caches);
 
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -283,9 +289,41 @@ export function createTelegramWebhookHandler(
       return callbackData.startsWith("apr:");
     };
 
-    // Normalize the update
-    const normalized = normalizeTelegramUpdate(payload);
-    if (!normalized) {
+    // Normalize the update. The bot's own identity is what lets the
+    // admission gate recognise a room message that addresses it, so it is
+    // resolved only for the chat kinds the gate admits on a mention; a
+    // private chat, a channel post, or a malformed update never needs it.
+    // Cached per token, it costs a call only on the first room update after
+    // start or a token rotation.
+    const chatType = telegramUpdateChatType(payload);
+    const bot =
+      chatType === "group" || chatType === "supergroup"
+        ? await resolveBotIdentity()
+        : undefined;
+    const normalization = normalizeTelegramUpdate(payload, { bot });
+    if (normalization.dropped) {
+      // Telegram sees a 200 either way, so this line is the only place the
+      // drop exists. Severity splits by reason and volume is capped at the
+      // first drop per reason and chat; see `telegram/drop-log.ts`.
+      const fields = {
+        updateId,
+        reason: normalization.reason,
+        chatType: normalization.chatType,
+        chatId: normalization.chatId,
+      };
+      const level = dropLog.levelFor(
+        normalization.reason,
+        normalization.chatId,
+      );
+      if (level === "info") {
+        tlog.info(
+          fields,
+          "Telegram update dropped before forwarding. Further drops for " +
+            "this reason and chat log at debug.",
+        );
+      } else {
+        tlog.debug(fields, "Telegram update dropped before forwarding");
+      }
       // If the dropped update was a callback query, acknowledge it so the
       // Telegram button spinner clears (e.g. non-DM callback queries).
       const cbqId =
@@ -297,6 +335,7 @@ export function createTelegramWebhookHandler(
       acknowledgeCallbackQuery(cbqId, "dropped_update");
       return respond({ ok: true });
     }
+    const normalized = normalization.event;
 
     tlog.info(
       {
@@ -309,11 +348,12 @@ export function createTelegramWebhookHandler(
       "Webhook received",
     );
 
-    // Private-chat topic scoping: when the inbound message belongs to a topic,
-    // the reply callback URL carries the thread id (the Telegram analog of
-    // Slack's `?threadTs=`) so the runtime's transport echoes it on outbound
-    // sends, and the gateway's own direct replies target the same topic.
-    // Messages outside a topic keep the bare URL and thread-less sends.
+    // Topic scoping: when the inbound message belongs to a topic (a private
+    // chat's or a forum supergroup's), the reply callback URL carries the
+    // thread id (the Telegram analog of Slack's `?threadTs=`) so the
+    // runtime's transport echoes it on outbound sends, and the gateway's own
+    // direct replies target the same topic. Messages outside a topic keep the
+    // bare URL and thread-less sends.
     const topicThreadId = normalized.source.threadId;
     const threadOpts = topicThreadId
       ? { messageThreadId: topicThreadId }
@@ -619,15 +659,14 @@ export function createTelegramWebhookHandler(
               mode: "rethrow-unless-skippable",
               isSkippableError: (error) =>
                 error instanceof AttachmentValidationError ||
-                error instanceof ContentMismatchError ||
-                error instanceof AttachmentTooLargeError,
+                error instanceof ContentMismatchError,
             },
           },
         );
         attachmentIds = result.attachmentIds;
         normalized.message.content = appendFailedAttachmentNotice(
           normalized.message.content,
-          result.failedAttachmentNames,
+          result,
         );
       } catch (err) {
         // Transient attachment failure — return 500 so Telegram retries.

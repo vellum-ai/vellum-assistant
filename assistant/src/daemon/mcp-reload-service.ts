@@ -14,6 +14,7 @@ import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { signalMcpReloaded } from "../mcp/reload-signal.js";
 import { loadWorkspaceMcpConfig } from "../mcp/workspace-mcp-config.js";
+import { publishMcpChanged } from "../runtime/sync/resource-sync-events.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -80,6 +81,7 @@ export async function reconcilePluginMcpServers(): Promise<void> {
 }
 
 async function doReload(): Promise<McpReloadResult> {
+  let teardownStarted = false;
   try {
     const manager = getMcpServerManager();
 
@@ -98,6 +100,7 @@ async function doReload(): Promise<McpReloadResult> {
     invalidateConfigCache();
 
     // 2. Stop existing MCP servers + unregister their tools
+    teardownStarted = true;
     await manager.stop();
     unregisterAllMcpTools();
 
@@ -113,7 +116,7 @@ async function doReload(): Promise<McpReloadResult> {
     const servers: McpReloadServerResult[] = [];
 
     if (serverIds.length > 0) {
-      const serverToolInfos = await manager.start(mcpConfig);
+      const { servers: serverToolInfos } = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,
@@ -160,5 +163,9 @@ async function doReload(): Promise<McpReloadResult> {
     const error = err instanceof Error ? err.message : String(err);
     log.error({ err }, "MCP reload failed");
     return { success: false, error };
+  } finally {
+    if (teardownStarted) {
+      publishMcpChanged();
+    }
   }
 }

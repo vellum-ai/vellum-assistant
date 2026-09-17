@@ -94,6 +94,27 @@ describe("discoverPluginResidentSkills (via loadSkillCatalog)", () => {
     expect(skill!.owner).toEqual({ kind: "plugin", id: "demo-matched" });
   });
 
+  test("surfaces a skill from a standard-only plugin", () => {
+    const pluginDir = join(getWorkspacePluginsDir(), "standard-plugin");
+    const skillDir = join(pluginDir, "skills", "qa-standard-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(pluginDir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "standard-plugin",
+      }),
+    );
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      "---\nname: qa-standard-skill\ndescription: Standard skill.\n---\n\nBody.\n",
+    );
+
+    const skill = skillById("qa-standard-skill");
+
+    expect(skill?.owner).toEqual({ kind: "plugin", id: "standard-plugin" });
+  });
+
   test("skips a plugin directory that has no package.json", () => {
     writePlugin(
       "no-manifest",

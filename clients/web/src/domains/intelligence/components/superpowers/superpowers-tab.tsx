@@ -29,22 +29,23 @@ import {
   pluginRiskyUpgradeConfirmLabel,
   pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
-import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
+import { showPluginUninstallWarnings } from "@/lib/plugin-uninstall-warnings";
 import type {
   InstalledPlugin,
   PluginCatalogMatch,
   PluginFilter,
   PluginListItem,
-} from "@/domains/intelligence/plugins/types";
+} from "@/lib/plugins/types";
 import {
   SYSTEM_CATEGORY,
   usePluginsList,
-} from "@/domains/intelligence/plugins/use-plugins-list";
+} from "@/hooks/use-plugins-list";
 import {
   filterByStatus,
   matchesQuery,
   shortSha,
-} from "@/domains/intelligence/plugins/utils";
+} from "@/lib/plugins/utils";
 import {
   isInstalledSkill,
   type SkillInfo,
@@ -367,8 +368,10 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
 
   const removeMutation = usePluginsByNameDeleteMutation({
     onMutate: (variables) => setRemovingName(variables.path.name),
-    onSuccess: (_data, variables) =>
-      toast.success(t("pluginToast.removed", { name: variables.path.name })),
+    onSuccess: (result, variables) => {
+      toast.success(t("pluginToast.removed", { name: variables.path.name }));
+      showPluginUninstallWarnings(result.warnings, t);
+    },
     onError: () => toast.error(PLUGIN_REMOVE_ERROR),
     onSettled: (_data, _error, variables) => {
       setRemovingName(null);

@@ -45,6 +45,7 @@ describe("MemoryV3ConfigSchema", () => {
         bm25NormK: null,
         bypassForCore: false,
       },
+      poolLog: { captureInput: false },
     });
   });
 
@@ -201,6 +202,17 @@ describe("MemoryV3ConfigSchema", () => {
     ).toBe(false);
     expect(() =>
       MemoryV3ConfigSchema.parse({ gate: { enabled: "yes" } }),
+    ).toThrow();
+  });
+
+  test("poolLog.captureInput defaults false, accepts true, rejects non-booleans", () => {
+    expect(MemoryV3ConfigSchema.parse({}).poolLog.captureInput).toBe(false);
+    expect(
+      MemoryV3ConfigSchema.parse({ poolLog: { captureInput: true } }).poolLog
+        .captureInput,
+    ).toBe(true);
+    expect(() =>
+      MemoryV3ConfigSchema.parse({ poolLog: { captureInput: "yes" } }),
     ).toThrow();
   });
 

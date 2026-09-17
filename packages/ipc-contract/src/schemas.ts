@@ -33,6 +33,14 @@ import {
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
   COMPANION_DICTATION_OFFER_MAX,
+  COMPANION_POPOVER_ACTIONS_MAX,
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_OPTIONS_MAX,
+  COMPANION_PICKER_VOICES,
+  COMPANION_POPOVER_APPROVALS_MAX,
+  COMPANION_POPOVER_BODY_MAX,
+  COMPANION_POPOVER_PERMISSIONS,
+  COMPANION_POPOVER_SECRET_MAX,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -350,6 +358,113 @@ export const companionCoachmarkSchema = z.discriminatedUnion("kind", [
   companionCoachmarkPointSchema,
 ]);
 
+/**
+ * What the assistant is putting in front of the user beside the surface. Every
+ * string is model output or derived from it, so each is bounded here rather
+ * than trusted to the publisher. See `CompanionPopover`.
+ */
+export const companionPopoverSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("approvals"),
+    id: z.string().min(1).max(4096),
+    items: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          title: z.string().max(300),
+          detail: z.string().max(1000),
+          permission: z.enum(COMPANION_POPOVER_PERMISSIONS).optional(),
+        }),
+      )
+      .min(1)
+      .max(COMPANION_POPOVER_APPROVALS_MAX),
+  }),
+  z.object({
+    kind: z.literal("secret"),
+    id: z.string().min(1).max(128),
+    service: z.string().max(120),
+    providerKey: z.string().max(80).optional(),
+    detail: z.string().max(1000),
+    label: z.string().max(120),
+    placeholder: z.string().max(200),
+  }),
+  z.object({
+    kind: z.literal("card"),
+    id: z.string().min(1).max(128),
+    title: z.string().max(300),
+    subtitle: z.string().max(300),
+    body: z.string().max(COMPANION_POPOVER_BODY_MAX),
+    actions: z
+      .array(
+        z.object({
+          id: z.string().max(128),
+          label: z.string().max(80),
+          style: z.enum(["primary", "secondary", "destructive"]),
+        }),
+      )
+      .max(COMPANION_POPOVER_ACTIONS_MAX),
+  }),
+  z.object({
+    kind: z.literal("surface"),
+    id: z.string().min(1).max(128),
+    title: z.string().max(300),
+  }),
+  z.object({
+    kind: z.literal("microphones"),
+    id: z.literal(COMPANION_PICKER_MICROPHONES),
+    options: z
+      .array(
+        z.object({ id: z.string().max(512), label: z.string().max(200) }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(512),
+    needsPermission: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal("voices"),
+    id: z.literal(COMPANION_PICKER_VOICES),
+    groups: z
+      .array(
+        z.object({
+          accent: z.string().max(120),
+          voices: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(256),
+                label: z.string().max(200),
+                sampleUrl: z.string().max(2048),
+                isDefault: z.boolean(),
+              }),
+            )
+            .max(COMPANION_PICKER_OPTIONS_MAX),
+        }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(256),
+  }),
+]);
+
+/** The pickers the call bar can open. */
+export const companionPickerSchema = z.enum([
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_VOICES,
+]);
+
+/** What the user pressed on the popover. See `CompanionPopoverAnswer`. */
+export const companionPopoverAnswerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("allow"), itemId: z.string().max(128) }),
+  z.object({ kind: z.literal("deny"), itemId: z.string().max(128) }),
+  z.object({ kind: z.literal("settings"), itemId: z.string().max(128) }),
+  z.object({
+    kind: z.literal("secret"),
+    value: z.string().min(1).max(COMPANION_POPOVER_SECRET_MAX),
+  }),
+  z.object({ kind: z.literal("action"), actionId: z.string().max(128) }),
+  z.object({ kind: z.literal("open") }),
+  z.object({ kind: z.literal("dismiss") }),
+  z.object({ kind: z.literal("pick"), optionId: z.string().max(512) }),
+]);
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
@@ -417,6 +532,11 @@ export const companionContextSchema = z.object({
       }),
     ])
     .optional(),
+  // Optional for the reason `dictationOffer` is. Caught rather than refused:
+  // a popover that fails its bounds is one the surface does not draw, which
+  // must not cost the rest of the context.
+  popover: companionPopoverSchema.optional().catch(undefined),
+  voicesPickable: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

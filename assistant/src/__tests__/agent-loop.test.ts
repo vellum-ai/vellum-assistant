@@ -1977,6 +1977,130 @@ describe("AgentLoop", () => {
     expect(calls[0].tools).not.toEqual(dummyTools);
   });
 
+  test("onToolsSent observes the exact tool array of every provider call", async () => {
+    const perCall: ToolDefinition[][] = [
+      [
+        {
+          name: "first",
+          description: "First",
+          input_schema: { type: "object" },
+        },
+      ],
+      [
+        {
+          name: "second",
+          description: "Second",
+          input_schema: { type: "object" },
+        },
+      ],
+    ];
+    let resolveCount = 0;
+    const sent: ToolDefinition[][] = [];
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "first", {}),
+      textResponse("Done"),
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      toolExecutor: async () => ({ content: "result", isError: false }),
+      resolveTools: () => perCall[resolveCount++]!,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // One observation per provider call, each the array that call sent.
+    expect(sent).toHaveLength(2);
+    expect(calls[0].tools).toEqual(sent[0]);
+    expect(calls[1].tools).toEqual(sent[1]);
+    expect(sent.map((tools) => tools.map((t) => t.name))).toEqual([
+      ["first"],
+      ["second"],
+    ]);
+  });
+
+  test("onToolsSent sees the provider-native web_search tool the loop appends", async () => {
+    const dynamicTools: ToolDefinition[] = [
+      {
+        name: "dynamic_tool",
+        description: "Dynamic",
+        input_schema: { type: "object" },
+      },
+    ];
+    const sent: ToolDefinition[][] = [];
+
+    const { provider, calls } = createMockProvider([textResponse("Hi")]);
+    Object.assign(provider, { supportsNativeWebSearch: true });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { enableNativeWebSearch: true },
+      resolveTools: () => dynamicTools,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // The resolver never saw web_search; the observer sees the wire array.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.map((t) => t.name)).toEqual(["dynamic_tool", "web_search"]);
+    expect(calls[0].tools).toEqual(sent[0]);
+  });
+
+  test("onToolsSent does not fire for a call cancelled before the request leaves", async () => {
+    // A pre-model-call hook runs after tool resolution and before the send,
+    // so aborting there is a call whose tools are resolved but never sent.
+    const controller = new AbortController();
+    registerPlugin({
+      manifest: { name: "abort-before-send", version: "0.0.1" },
+      hooks: {
+        "pre-model-call": async (ctx) => {
+          controller.abort();
+          return ctx;
+        },
+      },
+    });
+    const sent: ToolDefinition[][] = [];
+    const { provider } = createMockProvider([textResponse("never")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      resolveTools: () => dummyTools,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+
+    await loop
+      .run({
+        requestId: "test-request",
+        messages: [userMessage],
+        onEvent: () => {},
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        signal: controller.signal,
+      })
+      .catch(() => {});
+
+    expect(sent).toEqual([]);
+  });
+
   // 28. Tool list can change between turns
   test("resolveTools can return different tools on each turn", async () => {
     const toolsPerTurn: ToolDefinition[][] = [
@@ -2424,6 +2548,141 @@ describe("AgentLoop", () => {
         b.type === "text" && b.text.includes("looks recoverable"),
     );
     expect(noRetryNudge).toBeUndefined();
+  });
+
+  // A native web search left deferred by the same assistant turn (a
+  // server_tool_use with no result, alongside the client tool call) runs on
+  // the next request only if that request's tool-result message holds
+  // tool_result blocks alone. The coaching then rides inside the errored
+  // tool_result instead of as a trailing text block.
+  test("folds retry coaching into the tool_result when the assistant turn left a server tool deferred", async () => {
+    const mixedTurn: ProviderResponse = {
+      content: [
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/missing.txt" },
+        },
+        {
+          type: "server_tool_use",
+          id: "srvtoolu_1",
+          name: "web_search",
+          input: { query: "news" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    const { provider, calls } = createMockProvider([
+      mixedTurn,
+      textResponse("Reported the missing file."),
+    ]);
+    const toolExecutor = async () => ({
+      content: "Error: HTTP 404",
+      isError: true,
+    });
+
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor,
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(calls).toHaveLength(2);
+    const followUpMessages = calls[1].messages;
+    const followUp = followUpMessages[followUpMessages.length - 1];
+    expect(followUp.role).toBe("user");
+    expect(followUp.content.map((b) => b.type)).toEqual(["tool_result"]);
+    const erroredToolResult = followUp.content[0] as Extract<
+      ContentBlock,
+      { type: "tool_result" }
+    >;
+    expect(erroredToolResult.is_error).toBe(true);
+    expect(erroredToolResult.content).toContain("Error: HTTP 404");
+    expect(erroredToolResult.content).toContain("looks recoverable");
+  });
+
+  // A deferred search answered by a message with text after the results
+  // (history assembled elsewhere) is rejected by the provider as unpaired.
+  // The ordering-repair retry stamps the synthetic result rather than
+  // re-sending the same history.
+  test("repairs a deferred search rejected as unpaired instead of re-sending the same history", async () => {
+    const mixedTurn: Message = {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/a" },
+        },
+        {
+          type: "server_tool_use",
+          id: "srvtoolu_1",
+          name: "web_search",
+          input: { query: "news" },
+        },
+      ],
+    };
+    const answeredWithText: Message = {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "t1",
+          content: "Error: HTTP 404",
+          is_error: true,
+        },
+        { type: "text", text: "<system_notice>retry</system_notice>" },
+      ],
+    };
+    const { provider, calls } = createMockProvider([
+      new Error(
+        "Anthropic API error (400): messages.1: `web_search` tool use with id `srvtoolu_1` was found without a corresponding `web_search_tool_result` block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage, mixedTurn, answeredWithText],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    // Deep repair stamped the synthetic result on the orphaned search, and the
+    // outbound sanitizer then summarized the answered pair as text, so the
+    // retry carries no unanswered server_tool_use.
+    expect(calls[1].messages[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "text",
+    ]);
+    expect(calls[1].messages[1].content[1]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("results unavailable"),
+    });
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
   });
 
   // Retry coaching stops after a tool fails 3 times in a row — past that the

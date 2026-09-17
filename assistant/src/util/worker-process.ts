@@ -50,13 +50,11 @@ function isEsrchError(err: unknown): boolean {
   );
 }
 
-/**
- * Read a PID file and report liveness. A missing or malformed file reports
- * not_running; a file pointing at a dead process is cleaned up and reported as
- * not_running. Intended for worker-process PID files whose PID is a normal
- * spawned child (never PID 1), so `process.kill(pid, 0)` liveness is reliable.
- */
-export function probeWorkerPidFile(path: string): WorkerProcessStatus {
+/** Kill-0 plus command-line identity for a PID file. */
+function probePidFile(
+  path: string,
+  signature: readonly string[],
+): WorkerProcessStatus {
   if (!existsSync(path)) {
     return { status: "not_running" };
   }
@@ -69,22 +67,49 @@ export function probeWorkerPidFile(path: string): WorkerProcessStatus {
 
   try {
     process.kill(pid, 0);
-    return { status: "running", pid };
   } catch (err: unknown) {
     if (isEsrchError(err)) {
-      // Stale file — clean it up.
-      try {
-        unlinkSync(path);
-      } catch {
-        // best-effort
-      }
+      unlinkPidFileIfNames(path, pid);
       return { status: "not_running" };
     }
     // Any other error (e.g. EPERM: the process exists but this caller may not
-    // signal it) means the process is alive. Report it running rather than
-    // letting the error escape a status probe.
-    return { status: "running", pid };
+    // signal it) means the process is alive. Fall through to the identity
+    // check rather than letting the error escape a status probe.
   }
+
+  const fate = classifyOrphanAfterWait(
+    true,
+    readRawProcessCommand(pid),
+    signature,
+  );
+  if (fate === "gone") {
+    log.info(
+      { pid, pidPath: path },
+      "Worker PID file names a live process this runtime does not recognise as its worker; releasing the slot rather than treating it as running",
+    );
+    unlinkPidFileIfNames(path, pid);
+    return { status: "not_running" };
+  }
+  return { status: "running", pid };
+}
+
+/**
+ * Read a PID file and report whether this worker is actually running there.
+ *
+ * Identity comes from the same `entry` / `packagedEntry` spawn uses. A missing
+ * or malformed file reports not_running. A file pointing at a dead process, or
+ * at a live process whose command line is not this worker (a recycled PID
+ * after a container restart), is cleaned up and reported as not_running. A
+ * live PID whose command line cannot be read is reported running: uncertainty
+ * must not start a second worker next to a maybe-live one, and must not be
+ * treated as a license to signal a stranger.
+ */
+export function probeWorkerPidFile(
+  pidPath: string,
+  entry: URL,
+  packagedEntry?: PackagedWorkerEntry,
+): WorkerProcessStatus {
+  return probePidFile(pidPath, workerKindSignature(entry, packagedEntry));
 }
 
 /** Thrown when a worker process fails to come up within the wait window. */
@@ -394,11 +419,13 @@ async function stopOrphanedWorker(
 /**
  * What to do about the process a worker's PID file currently names.
  *
- *   - `adopt`: reuse it. Either it is this process's own worker, or it belongs
- *     to another live owner, or it is not recognisably one of our workers at
- *     all and must never be signalled.
+ *   - `adopt`: reuse it. It is this process's own worker, it belongs to
+ *     another live owner, or its identity could not be read so a second
+ *     worker must not be started next to a maybe-live one.
  *   - `reclaim`: an orphan left by an owner that is gone. Stop it, then spawn.
- *   - `spawn`: nothing is holding the slot.
+ *   - `spawn`: nothing is holding the slot, including a live PID whose
+ *     command line is not this worker (a recycled PID). Never signal that
+ *     process.
  */
 export type WorkerSlotDecision =
   | { action: "adopt"; pid: number }
@@ -410,9 +437,12 @@ export type WorkerSlotDecision =
  *
  * `reclaim` is the only outcome that signals a process, and it requires two
  * independent things to agree: the command line marks the process as this
- * worker, and parentage says no daemon owns it. A missing row, an unreadable
- * command line, and a command line that does not match all fall back to
- * `adopt`, so an uncertain answer never costs a process its life.
+ * worker, and parentage says no daemon owns it. A missing row and an
+ * unreadable command line fall back to `adopt`, so an uncertain answer never
+ * costs a process its life and never starts a duplicate. A command line that
+ * does not match is `spawn` without a signal: the PID file is stale, and
+ * treating that PID as the worker would leave the slot occupied by a
+ * stranger forever.
  *
  * `isOwnerAlive` is the caller's definition of a legitimate owner. These
  * workers have exactly one, the daemon, so passing a plain liveness probe
@@ -435,7 +465,7 @@ export function decideWorkerSlot(
     return { action: "adopt", pid: status.pid };
   }
   if (!matchesSignature(row.command, signature)) {
-    return { action: "adopt", pid: status.pid };
+    return { action: "spawn" };
   }
   const ownership = classifyWorkerOwnership(
     row,
@@ -458,7 +488,7 @@ function inspectWorkerSlot(
   pidPath: string,
   signature: readonly string[],
 ): WorkerSlotDecision {
-  const status = probeWorkerPidFile(pidPath);
+  const status = probePidFile(pidPath, signature);
   if (status.status !== "running" || status.pid == null) {
     return { action: "spawn" };
   }
@@ -479,11 +509,11 @@ function inspectWorkerSlot(
   if (row && !matchesSignature(row.command, signature)) {
     log.info(
       { pid: row.pid, pidPath },
-      "Worker PID file names a live process this runtime does not recognise as its worker; reusing it rather than signalling it",
+      "Worker PID file names a live process this runtime does not recognise as its worker; releasing the slot rather than treating it as running",
     );
   }
 
-  return decideWorkerSlot(
+  const decision = decideWorkerSlot(
     status,
     row,
     signature,
@@ -491,6 +521,12 @@ function inspectWorkerSlot(
     (pid) => isDaemonCommand(commandOf(pid)),
     pid1OwnsWorkers(commandOf(1)),
   );
+  // A spawn decision while the PID file still names a live stranger would
+  // make waitForWorkerPidFile treat that stale file as readiness.
+  if (decision.action === "spawn") {
+    unlinkPidFileIfNames(pidPath, status.pid);
+  }
+  return decision;
 }
 
 /**
@@ -508,7 +544,7 @@ async function reclaimWorkerSlot(
     // Still running and beyond our reach. One stale worker beats two live ones.
     return pid;
   }
-  const replacement = probeWorkerPidFile(pidPath);
+  const replacement = probePidFile(pidPath, signature);
   return replacement.status === "running" && replacement.pid != null
     ? replacement.pid
     : null;
@@ -519,7 +555,8 @@ async function reclaimWorkerSlot(
  * process, and wait for it to report readiness by writing its PID file. The
  * child is `unref`'d, so the spawning process never blocks on it.
  *
- * If a worker is already running (per the PID file), returns its PID with
+ * If a worker is already running (the PID file names a live process whose
+ * command line matches this worker), returns its PID with
  * `alreadyRunning: true` rather than spawning a second one. Throws
  * {@link WorkerProcessSpawnError} if the child crashes during startup or
  * never writes its PID file within the wait window.
@@ -633,14 +670,19 @@ export async function spawnWorkerProcess(args: {
 
 /**
  * Send SIGTERM to the worker process behind `pidPath` if it is actually
- * running.
+ * this worker.
  *
  * Returns the status observed before signalling, so callers can report
- * whether anything was stopped. Only throws if `process.kill` itself fails
- * (e.g. EPERM) — a not-running worker is a no-op.
+ * whether anything was stopped. A PID file that names a dead process or a
+ * live process that is not this worker is a no-op. Only throws if
+ * `process.kill` itself fails (e.g. EPERM).
  */
-export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
-  const current = probeWorkerPidFile(pidPath);
+export function stopWorkerProcess(
+  pidPath: string,
+  entry: URL,
+  packagedEntry?: PackagedWorkerEntry,
+): WorkerProcessStatus {
+  const current = probeWorkerPidFile(pidPath, entry, packagedEntry);
   if (current.status === "running" && current.pid != null) {
     process.kill(current.pid, "SIGTERM");
   }

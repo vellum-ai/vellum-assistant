@@ -1,21 +1,27 @@
-import { Trash2 } from "lucide-react";
+import { Ellipsis, MailCheck, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { MidlineDot } from "@/components/midline-dot";
 import { useTranslation } from "@/i18n";
-import { Button, Typography } from "@vellumai/design-library";
+import {
+  ActionMenu,
+  Button,
+  Toggle,
+  Typography,
+} from "@vellumai/design-library";
 
 import { NOTIFICATIONS_PANEL_HEADER_CLASS } from "./notifications-bell-detail";
 
 export interface NotificationsBellPanelProps {
-  /** How many notifications the panel holds; shown beside the heading when
-   * there are any. */
+  /** How many notifications the current filter displays. */
   count: number;
-  /** Whether any of them is unread, which is what earns "Mark all as read". */
-  hasUnread: boolean;
+  /** Whether at least one eligible notification can be marked read in bulk. */
+  canMarkAllRead: boolean;
+  /** Whether the list is showing only unread notifications. */
+  unreadOnly: boolean;
+  onUnreadOnlyChange: (unreadOnly: boolean) => void;
   /**
-   * Whether the bulk footer renders at all. The bell withholds it for a
-   * daemon without the bulk status route, and for an empty panel.
+   * Whether the overflow menu renders at all. The bell withholds it for an
+   * assistant without the bulk status route, and when no bulk action can act.
    */
   showsBulkActions: boolean;
   /** True while a bulk mutation is in flight, holding both buttons inert. */
@@ -28,15 +34,18 @@ export interface NotificationsBellPanelProps {
 
 /**
  * The bell's list view: a header naming the panel and counting what is in
- * it, the content between, and a footer of bulk actions. Presentational, so
- * the bell owns every query and mutation and this can be seen on its own.
+ * it, the unread filter and overflow actions, then the content below.
+ * Presentational, so the bell owns every query and mutation and this can be
+ * seen on its own.
  *
- * The heading's accessible name is the panel's alone: the count beside it
- * and the dot between them are decoration outside the heading element.
+ * The heading's accessible name is the panel's alone. The count beside it is
+ * decoration outside the heading element.
  */
 export function NotificationsBellPanel({
   count,
-  hasUnread,
+  canMarkAllRead,
+  unreadOnly,
+  onUnreadOnlyChange,
   showsBulkActions,
   isBulkPending = false,
   onMarkAllRead,
@@ -47,51 +56,78 @@ export function NotificationsBellPanel({
 
   return (
     <>
-      <div className={`${NOTIFICATIONS_PANEL_HEADER_CLASS} gap-[6px]`}>
-        <Typography
-          variant="title-small"
-          as="h2"
-          className="text-[var(--content-emphasised)]"
-        >
-          {t("notificationsBell.heading")}
-        </Typography>
-        {count > 0 ? (
-          <>
-            <MidlineDot />
+      <div
+        className={`${NOTIFICATIONS_PANEL_HEADER_CLASS} justify-between gap-[var(--app-spacing-md)]`}
+      >
+        <div className="flex min-w-0 items-center gap-[var(--app-spacing-sm)]">
+          <Typography
+            variant="title-small"
+            as="h2"
+            className="truncate text-[var(--content-emphasised)]"
+          >
+            {t("notificationsBell.heading")}
+          </Typography>
+          <span className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent-fill,var(--system-positive-weak))] px-2 py-0.5">
             <Typography
-              variant="title-small"
+              variant="body-small-default"
               data-testid="notifications-bell-count"
-              className="text-[var(--content-secondary)]"
+              className="text-[var(--avatar-accent-ink,var(--system-positive-on-weak))]"
             >
               {count}
             </Typography>
-          </>
-        ) : null}
+          </span>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-[var(--app-spacing-sm)]">
+          <Typography
+            variant="body-medium-default"
+            className="text-optical-center text-[var(--content-secondary)]"
+          >
+            {t("notificationsBell.unread")}
+          </Typography>
+          <Toggle
+            size="sm"
+            checked={unreadOnly}
+            onChange={onUnreadOnlyChange}
+            aria-label={t("notificationsBell.unread")}
+            className="flex items-center [&_[role=switch][aria-checked=true]]:bg-[var(--avatar-accent,var(--system-positive-strong))]"
+          />
+          {showsBulkActions ? (
+            <ActionMenu.Root>
+              <ActionMenu.Trigger asChild>
+                <Button
+                  variant="ghost"
+                  iconOnly={<Ellipsis />}
+                  aria-label={t("notificationsBell.actionsTitle")}
+                />
+              </ActionMenu.Trigger>
+              <ActionMenu.Content
+                title={t("notificationsBell.actionsTitle")}
+                side="bottom"
+                align="end"
+              >
+                {canMarkAllRead ? (
+                  <ActionMenu.Item
+                    icon={MailCheck}
+                    label={t("actions.markAllAsRead")}
+                    onSelect={onMarkAllRead}
+                    disabled={isBulkPending}
+                  />
+                ) : null}
+                <ActionMenu.Item
+                  icon={Trash2}
+                  label={t("actions.clearAll")}
+                  onSelect={onClearAll}
+                  disabled={isBulkPending}
+                  tone="destructive"
+                />
+              </ActionMenu.Content>
+            </ActionMenu.Root>
+          ) : null}
+        </div>
       </div>
 
       {children}
-
-      {showsBulkActions ? (
-        <div className="flex items-center justify-end gap-[var(--app-spacing-sm)] border-t border-[var(--border-subtle)] p-[var(--app-spacing-lg)]">
-          {hasUnread ? (
-            <Button
-              variant="ghost"
-              onClick={onMarkAllRead}
-              disabled={isBulkPending}
-            >
-              {t("actions.markAllAsRead")}
-            </Button>
-          ) : null}
-          <Button
-            variant="outlined"
-            leftIcon={<Trash2 />}
-            onClick={onClearAll}
-            disabled={isBulkPending}
-          >
-            {t("actions.clearAll")}
-          </Button>
-        </div>
-      ) : null}
     </>
   );
 }

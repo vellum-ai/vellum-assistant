@@ -1,7 +1,8 @@
 /**
  * Small presentational primitives shared by side-drawer detail panels: the
- * block long content sits on, the `<pre>` code block built on it, and the
- * uppercase section label.
+ * block long content sits on, the `<pre>` code block built on it, the
+ * monospace text every machine value is set in, and the uppercase section
+ * label.
  *
  * Extracted from `tool-detail-panel.tsx` so tool-specific activity renderers
  * (`domains/chat/components/tool-activity/`) can compose them without importing
@@ -9,15 +10,13 @@
  * from here.
  */
 
-import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { Typography, type TypographyAs } from "@vellumai/design-library";
 
+import { CopyButton } from "@/components/copy-button";
 import { useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
-
-const COPIED_RESET_MS = 1500;
+import { cn } from "@/utils/misc";
 
 /**
  * Content longer than this collapses behind "Show more". Roughly a dozen lines
@@ -28,59 +27,6 @@ const CLAMP_CHARS = 700;
 
 /** Collapsed height of a clamped block, in px. */
 const CLAMP_HEIGHT = 260;
-
-/**
- * Small ghost button that copies `text` to the clipboard and shows a transient
- * "Copied" confirmation. Positioned in the top-right corner of the
- * {@link DetailBlock} that holds it.
- */
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: "Couldn't copy.",
-      onCopied: () => {
-        setCopied(true);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-        timeoutRef.current = setTimeout(
-          () => setCopied(false),
-          COPIED_RESET_MS,
-        );
-      },
-    });
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      aria-label={
-        copied ? t("detailPrimitives.copied") : t("detailPrimitives.copy")
-      }
-      className="absolute right-2 top-2 flex items-center gap-1 rounded p-1 text-label-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
-    >
-      {copied ? (
-        <Check className="h-3.5 w-3.5" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
-      {copied ? t("detailPrimitives.copied") : null}
-    </button>
-  );
-}
 
 /**
  * Collapses `children` to a readable height when `length` exceeds the clamp,
@@ -158,9 +104,12 @@ interface DetailBlockProps {
  * when it runs long, with a copy button in its top-right corner when there is
  * text to copy.
  *
- * It owns the two conditions its parts depend on. The clamp's fade is painted in
- * `--surface-overlay`, so the block is that colour, and the copy button is
- * absolutely positioned, so the block is its containing block.
+ * It owns the conditions its parts depend on. The clamp's fade is painted in
+ * `--surface-overlay`, so the block is that colour. The copy button is
+ * absolutely positioned, so the block is its containing block, and it reserves
+ * the button's room so it neither covers text nor overhangs the block: 24px on
+ * the right on desktop, and where the button grows to a 40px touch target,
+ * 40px on the right plus a height that holds it below its 8px inset.
  */
 export function DetailBlock({
   variant = "outlined",
@@ -168,13 +117,98 @@ export function DetailBlock({
   copyText,
   children,
 }: DetailBlockProps) {
+  const { t } = useTranslation();
+  const hasCopy = copyText !== undefined;
+
   return (
     <div
-      className={`relative ${DETAIL_BLOCK_VARIANT_CLASSES[variant]} bg-[var(--surface-overlay)] p-3`}
+      className={cn(
+        "relative bg-[var(--surface-overlay)] p-3",
+        DETAIL_BLOCK_VARIANT_CLASSES[variant],
+        hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
+      )}
     >
       <ClampedContent length={length}>{children}</ClampedContent>
-      {copyText !== undefined && <CopyButton text={copyText} />}
+      {hasCopy && (
+        <CopyButton
+          text={copyText}
+          ariaLabel={t("detailPrimitives.copy")}
+          className="absolute right-2 top-2"
+        />
+      )}
     </div>
+  );
+}
+
+const MACHINE_TEXT_TONE_CLASSES = {
+  default: "text-[var(--content-default)]",
+  muted: "text-[var(--content-tertiary)]",
+  error: "text-[var(--system-negative-strong)]",
+} as const;
+
+type MachineTextTone = keyof typeof MACHINE_TEXT_TONE_CLASSES;
+
+/** The type every machine value in a detail panel is set in, by tone. */
+function machineTextClassName(tone: MachineTextTone): string {
+  return cn("font-mono", MACHINE_TEXT_TONE_CLASSES[tone]);
+}
+
+interface MachineTextProps {
+  as?: TypographyAs;
+  tone?: MachineTextTone;
+  /** Layout and wrapping for this spot, such as `truncate`. */
+  className?: string;
+  title?: string;
+  children: ReactNode;
+}
+
+/**
+ * Text a tool reads or writes: an argument, a path, a command, a tool id. It is
+ * always monospace at the panel's code size, whether it sits inline or in a
+ * {@link CodeBlock}, so a value reads the same wherever it appears and however
+ * long it is. Whether it is shown inline or as a block is the caller's call.
+ */
+export function MachineText({
+  as = "span",
+  tone = "default",
+  className,
+  title,
+  children,
+}: MachineTextProps) {
+  return (
+    <Typography
+      variant="body-small-lighter"
+      as={as}
+      title={title}
+      className={cn(machineTextClassName(tone), className)}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+/**
+ * Preformatted machine text: line breaks and spacing kept, long lines wrapped.
+ * The body of a {@link CodeBlock}, and of any block that frames its own.
+ */
+export function CodePre({
+  text,
+  tone = "default",
+}: {
+  text: string;
+  tone?: Exclude<MachineTextTone, "muted">;
+}) {
+  return (
+    <Typography
+      variant="body-small-lighter"
+      asChild
+      className={cn(
+        machineTextClassName(tone),
+        "whitespace-pre-wrap break-words",
+      )}
+    >
+      <pre>{text}</pre>
+    </Typography>
   );
 }
 
@@ -194,15 +228,7 @@ export function CodeBlock({
 }) {
   return (
     <DetailBlock length={text.length} copyText={text}>
-      <pre
-        className={`font-mono text-xs whitespace-pre-wrap break-words ${
-          tone === "error"
-            ? "text-[var(--system-negative-strong)]"
-            : "text-[var(--content-default)]"
-        }`}
-      >
-        {text}
-      </pre>
+      <CodePre text={text} tone={tone} />
     </DetailBlock>
   );
 }

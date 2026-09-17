@@ -22,6 +22,8 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
+
 // ---------------------------------------------------------------------------
 // Mode detection
 // ---------------------------------------------------------------------------
@@ -90,65 +92,28 @@ export function getCesLogDir(mode?: CesMode): string {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap socket path (managed mode only)
+// CES socket path (local sibling and managed sidecar)
 // ---------------------------------------------------------------------------
 
-/** Default directory for the bootstrap Unix socket shared volume. */
+/** Default directory for the CES Unix socket. */
 const BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 
-/** Default bootstrap socket filename. */
-const BOOTSTRAP_SOCKET_NAME = "ces.sock";
-
 /**
- * Return the path to the bootstrap Unix socket.
+ * Return the path to the CES Unix socket used in every environment.
  *
- * In managed mode, CES listens on this socket for exactly one assistant
- * connection, then unlinks it. The path is on a shared `emptyDir` volume
- * visible to both containers.
+ * Local siblings and managed sidecars share this resolver. The assistant
+ * dials the same path CES binds.
  *
- * Priority:
- * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
- * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
+ * Uses `CES_BOOTSTRAP_SOCKET_DIR` when set, otherwise `/run/ces-bootstrap`.
+ * `ces.sock` is resolved through `resolveIpcEndpoint` so macOS AF_UNIX
+ * limits and Windows named pipes stay consistent.
  *
- * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
- * override is kept for local testing convenience.
+ * The pod template and local CLI export `CES_BOOTSTRAP_SOCKET_DIR`.
  */
 export function getBootstrapSocketPath(): string {
-  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-  if (dir) {
-    return join(dir, BOOTSTRAP_SOCKET_NAME);
-  }
-  return (
-    process.env["CES_BOOTSTRAP_SOCKET"] ??
-    join(BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Local-mode CES socket
-// ---------------------------------------------------------------------------
-
-/** Default local-mode CES socket filename (under the local data root). */
-const LOCAL_SOCKET_NAME = "ces.sock";
-
-/**
- * Return the path to the local-mode CES Unix socket.
- *
- * Used when local CES runs as a CLI-launched sibling process. The socket
- * lives under the CES-private local data root, whose directory permissions
- * are the access boundary.
- *
- * Priority:
- * 1. `CES_LOCAL_SOCKET` env var (full file path override; the CLI sets this
- *    when launching the sibling).
- * 2. Default: `<localDataRoot>/ces.sock`.
- */
-export function getLocalSocketPath(): string {
-  return (
-    process.env["CES_LOCAL_SOCKET"] ??
-    join(getCesDataRoot("local"), LOCAL_SOCKET_NAME)
-  );
+  const dir =
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"]?.trim() || BOOTSTRAP_SOCKET_DIR;
+  return resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
 }
 
 // ---------------------------------------------------------------------------

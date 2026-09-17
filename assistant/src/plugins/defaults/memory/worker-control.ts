@@ -18,13 +18,19 @@ import {
   type WorkerProcessStatus,
 } from "../../../util/worker-process.js";
 
+const MEMORY_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
+
 /**
  * Inspect the PID file to determine whether the worker process is alive.
- * A stale PID file (pointing at a dead process) is cleaned up and reported
- * as not_running.
+ * A stale PID file (pointing at a dead process, or at a live process that
+ * is not this worker) is cleaned up and reported as not_running.
  */
 export function probeMemoryWorker(): WorkerProcessStatus {
-  return probeWorkerPidFile(getMemoryWorkerPidPath());
+  return probeWorkerPidFile(
+    getMemoryWorkerPidPath(),
+    MEMORY_WORKER_ENTRY,
+    "memory",
+  );
 }
 
 export class MemoryWorkerSpawnError extends WorkerProcessSpawnError {}
@@ -50,7 +56,7 @@ export async function spawnMemoryWorkerProcess(
   try {
     return await spawnWorkerProcess({
       pidPath: getMemoryWorkerPidPath(),
-      entry: new URL("./worker.ts", import.meta.url),
+      entry: MEMORY_WORKER_ENTRY,
       packagedEntry: "memory",
       workerLabel: "Memory worker",
       options: opts,
@@ -71,5 +77,9 @@ export async function spawnMemoryWorkerProcess(
  * (e.g. EPERM) — a not-running worker is a no-op.
  */
 export function stopMemoryWorkerProcess(): WorkerProcessStatus {
-  return stopWorkerProcess(getMemoryWorkerPidPath());
+  return stopWorkerProcess(
+    getMemoryWorkerPidPath(),
+    MEMORY_WORKER_ENTRY,
+    "memory",
+  );
 }

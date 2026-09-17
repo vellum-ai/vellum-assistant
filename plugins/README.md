@@ -528,12 +528,16 @@ is relevant. When a tool only matters while one of the plugin's skills is
 active, declare it in that skill's `TOOLS.json` instead: it registers when the
 skill loads, unregisters when the skill deactivates, and is invoked through
 `skill_execute` (its schema is rendered into the `skill_load` output). Skill
-tools in plugin skills must declare `execution_target: "sandbox"` — host
-execution is reserved for first-party bundled skills — and a tool name may be
+tools in plugin skills must declare `execution_target: "sandbox"` (host
+execution is reserved for first-party bundled skills) and a tool name may be
 owned by only one skill, so share a single carrier skill via the parents'
-`includes` rather than duplicating the entry. See the `plugin-builder` skill's
-`references/skills.md` for the manifest shape; `admin-copilot` is the
-reference implementation.
+`includes` rather than duplicating the entry. A plugin-resident skill tool
+and a bash child inherit `VELLUM_PLUGIN_NAME` so `resolveCredential()` from
+`@vellumai/plugin-api` can read credentials under that plugin's service.
+Companion scripts under `skills/<skill>/{scripts,tools}/` also recover the
+plugin name from their path, so raw `bun` works. See the `plugin-builder`
+skill's `references/skills.md` for the manifest shape; `admin-copilot` is
+the reference implementation.
 
 ```ts
 // tools/my_tool.ts

@@ -16,7 +16,7 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
-import { createAbortReason } from "../util/abort-reasons.js";
+import { createAbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("voice-progress-narration");
@@ -164,7 +164,10 @@ async function requestBoundedResponse(args: {
   const timeoutTimer = setTimeout(
     () =>
       timeoutController.abort(
-        createAbortReason("voice_session_aborted", "voice-progress-narration"),
+        createAbortReason(
+          "voice_progress_narration_timeout",
+          "voice-progress-narration",
+        ),
       ),
     args.timeoutMs,
   );
@@ -260,9 +263,19 @@ export function createVoiceProgressNarrator(options: {
         }
         return trimmed;
       } catch (error) {
+        // Why the beat went unspoken, as one greppable field. A narrator whose
+        // budget is below the model's real roundtrip drops every update at the
+        // deadline and reads in the logs as a run of unrelated failures; naming
+        // the outcome is what makes that run legible as "the feature is off".
+        const outcome = isAbortReason(error)
+          ? error.kind === "voice_progress_narration_timeout"
+            ? "timed_out"
+            : "session_ended"
+          : "error";
         log.info(
           {
             error,
+            outcome,
             providerResolveMs,
             totalMs: Math.round(performance.now() - startedAt),
             timeoutMs: options.config.generationTimeoutMs,

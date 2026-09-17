@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
-import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
 import {
   hasLocalEdits as computeHasLocalEdits,
   type PluginDrift,
@@ -9,21 +9,22 @@ import {
 } from "@/domains/intelligence/use-plugin-drift";
 import {
   pluginsByNameGetOptions,
-  usePluginsByNameDeleteMutation,
   usePluginsByNameUpgradePostMutation,
-  usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
+import { usePluginActions } from "@/hooks/use-plugin-actions";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library";
 
-import { shortSha } from "./utils";
+import { shortSha } from "@/lib/plugins/utils";
 
 // Re-exported so this module is also a valid import path for `shortSha`
 // (callers and tests reference it both here and from `./utils`).
 export { shortSha };
 
 interface UsePluginDetailOptions {
+  /** Invoked after a successful installation. */
+  onInstalled?: () => void;
   /**
    * Invoked after a successful removal, when the plugin no longer exists to
    * render. Callers use it to leave the detail view (navigate away or close it).
@@ -70,6 +71,7 @@ export function usePluginDetail(
 ): UsePluginDetailResult {
   const { t } = useTranslation("intelligence");
   const queryClient = useQueryClient();
+  const onInstalled = options?.onInstalled;
   const onRemoved = options?.onRemoved;
 
   const detailQuery = useQuery({
@@ -92,22 +94,9 @@ export function usePluginDetail(
     [assistantId, name, queryClient],
   );
 
-  const installMutation = usePluginsInstallPostMutation({
-    onSuccess: () => {
-      invalidate();
-      toast.success(
-        t("pluginToast.installed", {
-          name: name || t("pluginToast.pluginFallback"),
-        }),
-      );
-    },
-  });
-
-  const removeMutation = usePluginsByNameDeleteMutation({
-    onSuccess: () => {
-      invalidate();
-      onRemoved?.();
-    },
+  const actions = usePluginActions(assistantId, name, {
+    onInstalled,
+    onRemoved,
   });
 
   const upgradeMutation = usePluginsByNameUpgradePostMutation({
@@ -126,19 +115,6 @@ export function usePluginDetail(
     },
   });
 
-  const install = () => {
-    installMutation.mutate({
-      path: { assistant_id: assistantId },
-      body: { name },
-    });
-  };
-
-  const remove = () => {
-    removeMutation.mutate({
-      path: { assistant_id: assistantId, name },
-    });
-  };
-
   const upgrade = () => {
     upgradeMutation.mutate({
       path: { assistant_id: assistantId, name },
@@ -151,14 +127,14 @@ export function usePluginDetail(
     drift,
     isLoading: detailQuery.isLoading,
     isError: detailQuery.isError,
-    install,
-    remove,
+    install: actions.install,
+    remove: actions.remove,
     upgrade,
-    isInstalling: installMutation.isPending,
-    isRemoving: removeMutation.isPending,
+    isInstalling: actions.isInstalling,
+    isRemoving: actions.isRemoving,
     isUpgrading: upgradeMutation.isPending,
-    isInstallError: installMutation.isError,
-    isRemoveError: removeMutation.isError,
+    isInstallError: actions.isInstallError,
+    isRemoveError: actions.isRemoveError,
     isUpgradeError: upgradeMutation.isError,
     hasLocalEdits: computeHasLocalEdits(drift),
   };

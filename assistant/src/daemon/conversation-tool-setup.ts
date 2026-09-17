@@ -7,10 +7,9 @@
  */
 
 import type { AssistantEvent } from "../api/index.js";
+import { shouldUseVirtualDesktopBrowser } from "../browser/virtual-desktop-target.js";
 import {
-  type ClientOs,
   type HostProxyCapability,
-  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
@@ -23,6 +22,11 @@ import {
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  type ConversationToolSurface,
+  hashConversationToolSurface,
+  recordConversationToolSurface,
+} from "../persistence/conversation-tool-surface.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
@@ -46,11 +50,8 @@ import {
   injectActivityField,
   stripActivityField,
 } from "../tools/schema-transforms.js";
-import {
-  augmentSkillExecuteError,
-  recoverSkillExecuteEnvelope,
-  resolveSkillExecuteInput,
-} from "../tools/skills/execute.js";
+import { augmentSkillExecuteError } from "../tools/skills/execute.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
   ProxyApprovalCallback,
@@ -62,10 +63,7 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
-import {
-  injectActivationMomentParam,
-  projectUiToolsForChannel,
-} from "../tools/ui-surface/channel-variants.js";
+import { injectActivationMomentParam } from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -77,6 +75,7 @@ import {
   conversationSupportsGuardianQuestionCards,
 } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
+import { resolveTurnClientOs } from "./conversation-client-surface.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
   restoreSurfaceStateEntry,
@@ -538,23 +537,8 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
-      // Recover an envelope the provider wrapped as unparseable when MiniMax's
-      // coercion failed to JSON-decode a bare-string `input` (see
-      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
-      const envelope = recoverSkillExecuteEnvelope(executionInput);
-      const rawToolName =
-        typeof envelope.tool === "string" ? envelope.tool : "";
-      const innerSchema = rawToolName
-        ? getTool(rawToolName)?.input_schema
-        : undefined;
-      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
-
-      // Clone to avoid mutating shared input objects
-      const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
-        rawToolName,
-        { ...rawToolInput },
-        ctx.allowedToolNames,
-      );
+      const { name: toolName, input: toolInput } =
+        resolveSkillExecuteInvocation(executionInput, ctx.allowedToolNames);
 
       if (!toolName) {
         return {
@@ -744,30 +728,6 @@ export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
 export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
   "delete_memory_page",
 ]);
-
-/**
- * Host OS of the client driving this turn. The Electron renderer reports
- * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
- * the frozen per-turn value and only falls back to a desktop transport.
- */
-function resolveTurnClientOs(ctx: Conversation): {
-  clientOs: ClientOs | undefined;
-  transportInterface: Conversation["transportInterface"];
-} {
-  const pin = ctx.toolContextPin;
-  const transportInterface = pin
-    ? pin.transportInterface
-    : ctx.transportInterface;
-  const clientOs = pin
-    ? pin.clientOs
-    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" ||
-      transportInterface === "windows" ||
-      transportInterface === "linux"
-        ? transportInterface
-        : undefined));
-  return { clientOs, transportInterface };
-}
 
 /**
  * Windows parity gate: skill tools may declare `supported_client_os`; drop
@@ -977,8 +937,12 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
   // executor instead. That is the right answer to "is this tool on the wire"
   // and the wrong one to "could this turn actually spawn": the memory
   // retrospective wake runs in execution mode with an allowlist that names
-  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
-  // is denied after the prompt has already told the model to delegate.
+  // `skill_load` but neither the dispatcher nor the spawn tool, so a spawn is
+  // denied at execution. A wake replaying its source's recorded surface
+  // renders the source's delegation state in place of this answer
+  // (`Conversation.delegateIndependentTasksReplay`): a denied spawn attempt
+  // costs one tool error, a system prompt that differs from the source's
+  // costs the whole cached prefix behind it.
   const allowlist = ctx.subagentAllowedTools;
   return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
     (name) =>
@@ -986,6 +950,57 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
       (allowlist === undefined || allowlist.has(name)) &&
       isToolActiveForContext(name, ctx),
   );
+}
+
+/**
+ * Build the agent loop's `onToolsSent` observer for a conversation: record
+ * the tool array each provider call sends, with the delegation-section state
+ * the prompt build captured for the prompt that call carries
+ * (`Conversation.renderedDelegateIndependentTasks`), so a later fork wake can
+ * replay both (`recordConversationToolSurface`). Only the loop's send boundary sees the
+ * sent array. The resolver is also consulted out of band (the token count
+ * behind `/compact` and `/clean`, compaction estimates), where a read outside
+ * any turn resolves a clientless surface that would overwrite the one the
+ * conversation's turns actually send.
+ *
+ * Arrays that are not the conversation's own surface are skipped: a replaying
+ * wake sends its source's array, an empty array is a tools-disabled call (a
+ * fork replaying it could never call `remember`), and disk-pressure cleanup
+ * mode narrows the wire to cleanup tools. Best-effort: a failed write is
+ * logged and the surface still counts as recorded, so a persistent failure
+ * logs once per distinct surface rather than once per provider call.
+ */
+export function createWireToolSurfaceRecorder(
+  ctx: Conversation,
+): (tools: ToolDefinition[]) => void {
+  return (tools) => {
+    if (
+      !ctx.conversationId ||
+      ctx.wireToolReplay ||
+      tools.length === 0 ||
+      ctx.diskPressureCleanupModeActive === true
+    ) {
+      return;
+    }
+    const surface: ConversationToolSurface = {
+      tools,
+      // Unknown before the first prompt build or for a verbatim override.
+      delegateIndependentTasks: ctx.renderedDelegateIndependentTasks ?? null,
+    };
+    try {
+      ctx.recordedToolSurfaceHash = recordConversationToolSurface(
+        ctx.conversationId,
+        surface,
+        ctx.recordedToolSurfaceHash,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: ctx.conversationId },
+        "failed to record the conversation's wire tool surface; continuing",
+      );
+      ctx.recordedToolSurfaceHash = hashConversationToolSurface(surface);
+    }
+  };
 }
 
 /**
@@ -1147,19 +1162,40 @@ export function createResolveToolsCallback(
         : currentWorkspaceDefs
     ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
-    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
-    // task_progress-only ui_show). Mirrors the pin handling in
-    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
-    // capabilities to undefined, which resolves to the unprojected defs.
-    const channelForUiTools = ctx.toolContextPin
-      ? undefined
-      : ctx.channelCapabilities?.channel;
-    let allBaseDefs = projectUiToolsForChannel(
-      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
-        (d) => !excluded.has(d.name),
-      ),
-      channelForUiTools,
-    );
+    // UI definitions stay identical across channel and background turns.
+    // Channel renderers enforce their supported surface subset at execution,
+    // while background calls persist the full surface content for the next
+    // capable client that opens the conversation. Skill tools stay off this
+    // list (`skill_execute` dispatch) and are a separate disclosure path.
+    let allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
+    if (
+      ctx.transportInterface === "web" &&
+      shouldUseVirtualDesktopBrowser(
+        undefined,
+        {},
+        {
+          workingDir: ctx.workingDir,
+          conversationId: ctx.conversationId,
+          trustClass: ctx.trustContext?.trustClass ?? "unknown",
+          transportInterface: ctx.transportInterface,
+          clientOs: resolveTurnClientOs(ctx).clientOs,
+          sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+        },
+      )
+    ) {
+      allBaseDefs = allBaseDefs.map((definition) =>
+        definition.name === "bash"
+          ? {
+              ...definition,
+              description: `${definition.description} For browser tasks, use assistant browser navigate --url <url> directly. It installs the virtual desktop if needed, starts Chrome, and completes the action in one call. Use timeout_seconds: ${getConfig().timeouts.shellMaxTimeoutSec} for first use; setup progress is visible in the Virtual desktop panel. Use assistant browser --help for other browser actions. Use this managed path even if saved notes describe manual setup. Do not install packages or launch Chrome, X servers, or screenshot scripts yourself.`,
+            }
+          : definition,
+      );
+    }
     // Activation-rail conversations carry the optional `activation_moment`
     // telemetry param on ui_show. The marker is written before the first
     // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
@@ -1261,6 +1297,14 @@ export function createResolveToolsCallback(
 
     ctx.allowedToolNames = turnAllowed;
 
-    return applyActivityField(allBaseDefs);
+    // A wake replaying its source's recorded surface sends that array
+    // verbatim: the wire tool block is the first tier of the provider cache
+    // prefix (tools → system → messages), so only the same bytes read the
+    // source's cached prefix instead of rewriting it. Execution is unaffected:
+    // `allowedToolNames` above and the executor's allowlist gate still decide
+    // what may run.
+    return ctx.wireToolReplay
+      ? [...ctx.wireToolReplay]
+      : applyActivityField(allBaseDefs);
   };
 }

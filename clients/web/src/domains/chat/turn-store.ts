@@ -101,6 +101,11 @@ export function isSending(phase: TurnPhase): boolean {
   );
 }
 
+/** True while activity output can still append to the current response. */
+export function isActivityLive(phase: TurnPhase): boolean {
+  return phase === "queued" || phase === "thinking" || phase === "streaming";
+}
+
 /** True when we are waiting for the first assistant text delta. */
 export function isThinking(phase: TurnPhase): boolean {
   return phase === "thinking";

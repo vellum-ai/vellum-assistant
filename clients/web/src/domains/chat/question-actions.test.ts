@@ -92,6 +92,8 @@ const { useInteractionStore } =
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { useStreamStore } = await import("@/domains/chat/stream-store");
+const { useDesktopPreviewStore } =
+  await import("@/domains/chat/desktop/desktop-preview-store");
 
 function seedPendingQuestion(requestId: string): void {
   useStreamStore.getState().setStreamContext({
@@ -126,7 +128,64 @@ beforeEach(() => {
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
   useStreamStore.getState().setStreamContext(null);
+  useDesktopPreviewStore.setState({ submittedHelpRequests: {} });
 });
+
+it.each(["response", "throw"])(
+  "keeps desktop help locked after an ambiguous %s failure and allows retry",
+  async (failure) => {
+    seedPendingQuestion("q-help");
+    useInteractionStore.getState().showQuestion({
+      requestId: "q-help",
+      entries: [
+        {
+          id: "q1",
+          question: "Complete the verification.",
+          presentation: "virtual_desktop",
+          options: [{ id: "done", label: "Done" }],
+        },
+      ],
+    });
+    onSubmit = () => {
+      expect(
+        useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+          ?.requestId,
+      ).toBe("q-help");
+    };
+    if (failure === "throw") {
+      throwByRequestId.add("q-help");
+    } else {
+      submitQuestionResult = {
+        ok: false,
+        status: 500,
+        error: "Connection lost",
+        transient: true,
+      };
+    }
+    await handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    expect(useInteractionStore.getState().submittingByKind.question).toBeNull();
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "q-help",
+    );
+    expect(
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+        ?.requestId,
+    ).toBe("q-help");
+    throwByRequestId.clear();
+    submitQuestionResult = { ok: true };
+    await handleQuestionResponse([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    expect(submitCalls).toHaveLength(2);
+    expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    expect(
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+        ?.requestId,
+    ).toBeUndefined();
+  },
+);
 
 describe("handleQuestionResponse: stale (404) interaction", () => {
   it("retires the prompt without surfacing a blocking error", async () => {

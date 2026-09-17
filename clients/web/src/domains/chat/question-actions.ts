@@ -11,6 +11,8 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { getDesktopHelpEntry } from "@/domains/chat/desktop/desktop-help";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
 import {
   clearSubmissionFailure,
   captureSubmissionRejection,
@@ -91,12 +93,27 @@ export async function handleQuestionResponse(
     return;
   }
 
+  if (getDesktopHelpEntry(snapshot)) {
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted(
+        ctx.assistantId,
+        snapshot.requestId,
+        ctx.conversationId,
+      );
+  }
+
   try {
     const result = await submitQuestionResponse(
       ctx.assistantId,
       snapshot.requestId,
       { kind: "submit", responses },
     );
+    if (result.ok || result.status === 404) {
+      useDesktopPreviewStore
+        .getState()
+        .resolveHelpSubmission(snapshot.requestId);
+    }
     if (!result.ok) {
       if (result.status === 404) {
         clearStaleQuestion(snapshot.requestId);

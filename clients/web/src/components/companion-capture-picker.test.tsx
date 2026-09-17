@@ -377,3 +377,62 @@ describe("the capture picker", () => {
     ).toBeGreaterThan(0);
   });
 });
+
+describe("the capture picker without Screen Recording", () => {
+  const WITHOUT_GRANT: CompanionCaptureSources = {
+    ...SOURCES,
+    screenRecordingGranted: false,
+  };
+
+  test("asks for the grant in place of the tiles", () => {
+    const asked: WatchCaptureTarget[] = [];
+    const { container } = render(
+      <CompanionCapturePicker
+        sources={WITHOUT_GRANT}
+        captureThumbnail={async (target) => {
+          asked.push(target);
+          return null;
+        }}
+      />,
+    );
+    expect(tiles(container)).toEqual([]);
+    expect(kinds(container)).toEqual([]);
+    expect(
+      container.querySelector('[data-slot="capture-needs-grant"]'),
+    ).not.toBeNull();
+    // Nothing is asked of a helper that could take no picture.
+    expect(asked).toEqual([]);
+  });
+
+  test("the press is the ask", () => {
+    let allowed = 0;
+    const { container } = render(
+      <CompanionCapturePicker
+        sources={WITHOUT_GRANT}
+        onAllowScreenRecording={() => {
+          allowed += 1;
+        }}
+      />,
+    );
+    fireEvent.click(
+      container.querySelector('[data-slot="capture-needs-grant"] button')!,
+    );
+    expect(allowed).toBe(1);
+  });
+
+  test("a list with the grant, or from a shell that does not say, is tiles", () => {
+    for (const sources of [
+      { ...SOURCES, screenRecordingGranted: true },
+      SOURCES,
+    ]) {
+      const { container, unmount } = render(
+        <CompanionCapturePicker sources={sources} />,
+      );
+      expect(tiles(container)).toEqual(["Screen 1", "Screen 2"]);
+      expect(
+        container.querySelector('[data-slot="capture-needs-grant"]'),
+      ).toBeNull();
+      unmount();
+    }
+  });
+});

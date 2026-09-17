@@ -9,8 +9,9 @@ import {
   catalogEnabledFlags,
   getDefaultModelForProvider,
   getModelsForProvider,
-  getVisibleModelsForProvider,
+  getTextGenerationModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
+  providerOffersTextGeneration,
 } from "@/assistant/llm-model-catalog";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type {
@@ -113,7 +114,7 @@ export function CallSiteOverrideRow({
   // disabled with the reason rather than dropped. A new pin still has to be
   // dispatchable, so the default comes from the selectable set.
   const pickableProviders: PickableProvider[] = [
-    ...INFERENCE_PROVIDERS,
+    ...INFERENCE_PROVIDERS.filter(providerOffersTextGeneration),
     ...(hasSubscription ? ([CHATGPT_CONNECTION_PROVIDER] as const) : []),
   ];
   const defaultProvider =
@@ -154,7 +155,7 @@ export function CallSiteOverrideRow({
     connectionsForProvider,
   )
     ? codexServableModels(currentProvider)
-    : getVisibleModelsForProvider(currentProvider, catalogFlags);
+    : getTextGenerationModelsForProvider(currentProvider, catalogFlags);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
@@ -193,8 +194,7 @@ export function CallSiteOverrideRow({
           {
             value: storedProvider,
             label: t("callSiteOverridesRow.unavailableOption", {
-              name:
-                PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
+              name: PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
             }),
           },
         ]

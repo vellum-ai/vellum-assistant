@@ -2,9 +2,33 @@ import { spawn } from "node:child_process";
 
 export {
   buildShellInvocation,
+  buildShellSpawnFlags,
   pathListDelimiter,
   prependUniquePathEntries,
 } from "@vellumai/environments/shell";
+
+export interface ShellProcessStartWatch {
+  didStart(): boolean;
+}
+
+/**
+ * Record whether a spawned child actually started. A `close` with exit 0 and
+ * empty stdio is not proof of execution: Windows can emit that when the
+ * process was never created. Callers must treat `didStart() === false` as a
+ * launch failure.
+ */
+export function watchShellProcessStart(child: {
+  pid?: number;
+  once(event: "spawn", listener: () => void): unknown;
+}): ShellProcessStartWatch {
+  let spawnSeen = child.pid != null;
+  child.once("spawn", () => {
+    spawnSeen = true;
+  });
+  return {
+    didStart: () => spawnSeen || child.pid != null,
+  };
+}
 
 export interface KillableProcess {
   pid?: number;

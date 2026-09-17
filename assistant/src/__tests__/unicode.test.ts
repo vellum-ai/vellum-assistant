@@ -4,6 +4,7 @@ import {
   safeStringSlice,
   stripOrphanedSurrogates,
   stripOrphanedSurrogatesDeep,
+  surrogateSafeWindow,
 } from "../util/unicode.js";
 
 // U+1F389 PARTY POPPER = "\uD83C\uDF89" (a surrogate pair).
@@ -300,5 +301,40 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.changed).toBe(true);
     const json = JSON.stringify(result.value);
     expect(() => JSON.parse(json)).not.toThrow();
+  });
+});
+
+describe("surrogateSafeWindow", () => {
+  const codeAt = (text: string) => (i: number) => text.charCodeAt(i);
+
+  test("a start that lands on a low surrogate backs up to include the pair", () => {
+    const text = `a${EMOJI}b`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 2, 10)).toEqual({
+      start: 1,
+      end: 4,
+    });
+  });
+
+  test("an end that would cut a pair backs off one unit", () => {
+    const text = `ab${EMOJI}cd`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 0, 3)).toEqual({
+      start: 0,
+      end: 2,
+    });
+  });
+
+  test("a one-unit window on a pair takes the whole pair so paging advances", () => {
+    const text = `${EMOJI}x`;
+    expect(surrogateSafeWindow(text.length, codeAt(text), 0, 1)).toEqual({
+      start: 0,
+      end: 2,
+    });
+  });
+
+  test("clamps to the text bounds", () => {
+    expect(surrogateSafeWindow(3, codeAt("abc"), 10, 5)).toEqual({
+      start: 3,
+      end: 3,
+    });
   });
 });

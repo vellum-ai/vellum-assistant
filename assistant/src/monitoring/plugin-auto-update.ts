@@ -155,6 +155,12 @@ function tracksCuratedSource(inspection: PluginInspection): boolean {
   if (!remote) {
     return false;
   }
+  if (source.kind === "local") {
+    return remote.kind === "local" && source.path === remote.path;
+  }
+  if (remote.kind === "local") {
+    return false;
+  }
   return (
     `${source.owner}/${source.repo}`.toLowerCase() ===
       remote.repo.toLowerCase() && (source.path ?? "") === remote.path

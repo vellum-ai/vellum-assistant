@@ -230,6 +230,9 @@ export const PREFIX_PATTERNS: SecretPrefixPattern[] = [
 
   // -- Firecrawl --
   { label: "Firecrawl API Key", regex: /fc-[A-Za-z0-9]{20,}/ },
+  // Resend documents only the `re_` prefix; the segment shape is the observed
+  // key format. Strict on purpose: bare `re_` prefixes ordinary identifiers.
+  { label: "Resend API Key", regex: /re_[A-Za-z0-9]{8}_[A-Za-z0-9]{24,}/ },
 ];
 
 /**
@@ -362,7 +365,7 @@ export function isPlaceholderValue(value: string): boolean {
   // Strip known prefixes to isolate the variable part
   const variablePart = value
     .replace(
-      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
+      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|re_|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
       "",
     )
     .replace(/[^A-Za-z0-9]/g, "");

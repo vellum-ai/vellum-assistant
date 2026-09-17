@@ -5,13 +5,16 @@ import { z } from "zod";
 import type { BackgroundToolCompletedEvent } from "../../api/events/background-tool-completed.js";
 import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -288,6 +291,7 @@ export const shellTool = {
 
     const env = buildSanitizedEnv();
     env.__CONVERSATION_ID = context.conversationId;
+    applyActivePluginName(env, context.conversationId);
     // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
     env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
     // Surface the resolving model to assistant CLI commands so they can tailor
@@ -324,9 +328,9 @@ export const shellTool = {
         cwd: context.workingDir,
         env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child);
 
       const killTree = buildKillTree(child, {
@@ -367,11 +371,13 @@ export const shellTool = {
           timedOut,
         });
 
-        const fmtResult = collector.format(code, timedOut, timeoutSec);
+        const fmtResult = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         const status: BackgroundToolCompletedEvent["status"] = aborted
           ? "cancelled"
-          : timedOut
+          : timedOut || fmtResult.isError
             ? "failed"
             : code === 0
               ? "completed"
@@ -529,9 +535,9 @@ export const shellTool = {
         cwd: context.workingDir,
         env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child, {
         onOutput: context.onOutput,
       });
@@ -573,7 +579,9 @@ export const shellTool = {
           timedOut,
         });
 
-        const fmtResult = collector.format(code, timedOut, timeoutSec);
+        const fmtResult = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         resolve({
           content: fmtResult.content,

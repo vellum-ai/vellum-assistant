@@ -1169,7 +1169,7 @@ describe("channel activity timing", () => {
       externalChatId: channelId,
       trustCtx,
       metadataHints: [],
-      slackBotMentioned: true,
+      botMentioned: true,
       replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
     });
 

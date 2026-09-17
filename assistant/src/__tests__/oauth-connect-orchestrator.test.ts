@@ -105,6 +105,7 @@ type ProviderRow = {
   identityResponsePaths: string | null;
   identityFormat: string | null;
   identityOkField: string | null;
+  responseOkField: string | null;
   featureFlag: string | null;
   createdAt: number;
   updatedAt: number;
@@ -184,6 +185,7 @@ function makeProviderRow(
     identityResponsePaths: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     featureFlag: null,
     createdAt: now,
     updatedAt: now,

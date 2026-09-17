@@ -1,11 +1,6 @@
 /**
- * Admission gate for inbound Discord messages.
- *
- * A bot invited to a community guild sees every message in every channel it
- * can view. This gate decides which of those the gateway acts on, and it is
- * the only thing standing between the assistant and a busy public server, so
- * it is deliberately conservative: a message is dropped unless it is a direct
- * mention of the bot.
+ * Admission gate for inbound Discord messages: the Discord side of the
+ * shared verdict in `channels/room-admission.ts`.
  *
  * Which rooms the bot can see at all is Discord's decision, not ours. A bot
  * without `VIEW_CHANNEL` on a channel cannot read its messages, so the server
@@ -20,19 +15,18 @@
  * is the operator's explicit adoption of the permission model. Nothing
  * writes the list anymore, so no new install ever has one.
  *
- * A DM is the one message that is already addressed to the bot and nobody
- * else, so it is admitted on a separate lane, without a mention: @-ing a bot
- * in its own DM is not how anyone writes. What that lane admits is a *room*, not a
- * person. Who may actually be answered there is the trust-class admission
- * floor's decision downstream, and Discord's floor admits trusted contacts.
- *
- * This is admission of *rooms and intent* — distinct from, and evaluated
- * before, the trust-class admission floor that governs *actors* once an event
- * reaches the runtime.
+ * This is admission of *rooms and intent*, distinct from and evaluated before
+ * the trust-class admission floor that governs *actors* once an event reaches
+ * the runtime.
  *
  * The input is a structural shape rather than a parsed-payload type so the
  * gate stays a pure function over the few fields it reads.
  */
+
+import {
+  admitRoomMessage,
+  type RoomAdmissionVerdict,
+} from "../channels/room-admission.js";
 
 /** The fields of a Discord message this gate reads. */
 export interface AdmissionCandidate {
@@ -63,16 +57,6 @@ export interface AdmissionCandidate {
   mentionedUserIds?: readonly string[];
 }
 
-export type AdmissionDropReason =
-  | "self_authored"
-  | "bot_authored"
-  | "channel_not_allowed"
-  | "bot_not_mentioned";
-
-export type AdmissionVerdict =
-  | { admitted: true }
-  | { admitted: false; reason: AdmissionDropReason };
-
 export interface AdmissionPolicy {
   /** The bot's own user snowflake, used for self-filtering and mention matching. */
   botUserId: string;
@@ -85,77 +69,48 @@ export interface AdmissionPolicy {
   legacyAllowedChannelIds?: ReadonlySet<string>;
 }
 
-const ADMITTED: AdmissionVerdict = { admitted: true };
-
-function drop(reason: AdmissionDropReason): AdmissionVerdict {
-  return { admitted: false, reason };
-}
-
 /**
- * Decide whether a message is one the gateway acts on.
+ * Decide whether a message is one the gateway acts on: Discord's facts,
+ * mapped onto the neutral candidate the shared verdict reads.
  *
- * Checks run cheapest-and-most-decisive first, and every one of them is a
- * denial — there is no branch that admits a message the operator did not ask
- * for.
+ * Discord marks a DM only by the absence of a guild. That makes the absence
+ * load-bearing: it is the only thing standing between "private" and "a public
+ * channel admitted without either control", so the ingress schema collapses a
+ * malformed `guild_id` to a sentinel rather than to `undefined`, and a parse
+ * failure stays on the guild path. Do not relax that without moving this onto
+ * positive evidence of a DM.
+ *
+ * A Discord *group* DM is also guild-less and would be admitted here. This
+ * app cannot be in one: a bot joins a group DM only via the `gdm.join` OAuth
+ * scope, which no install path grants. The fallback invite link requests the
+ * `bot` scope alone, and an app whose own install settings carry `gdm.join`
+ * is warned to remove it at setup, naming this as the reason.
+ *
+ * Requiring the bot's own id in the mentions array is what keeps announcements
+ * out: Discord omits `@everyone` / `@here` and role pings from that array, so
+ * they cannot satisfy the check.
  */
 export function admitDiscordMessage(
   candidate: AdmissionCandidate,
   policy: AdmissionPolicy,
-): AdmissionVerdict {
-  // The bot's own messages come back over the same socket. Processing them is
-  // how a reply loop starts.
-  if (candidate.authorId === policy.botUserId) {
-    return drop("self_authored");
-  }
-
-  // Other bots and webhooks are dropped outright. Two assistants in one
-  // channel that each answer the other is the same loop with more steps.
-  if (candidate.authorIsBot) {
-    return drop("bot_authored");
-  }
-
-  // A DM is already addressed to the bot alone, so the guild mention check
-  // below has nothing to say about it: it needs no mention to be meant for
-  // the bot. The room is admitted; whether this particular person is
-  // answered in it is the runtime's trust-class floor to decide.
-  //
-  // This reads an absent guild as a DM, which makes the absence load-bearing:
-  // it is the only thing standing between "private" and "a public channel
-  // admitted without either control". The ingress schema therefore collapses a
-  // malformed `guild_id` to a sentinel rather than to `undefined`, so a parse
-  // failure stays on the guild path. Do not relax that without moving this
-  // branch onto positive evidence of a DM.
-  //
-  // A Discord *group* DM is also guild-less and would be admitted here. This
-  // app cannot be in one: a bot joins a group DM only via the `gdm.join`
-  // OAuth scope, which no install path grants. The fallback invite link
-  // requests the `bot` scope alone, and an app whose own install settings
-  // carry `gdm.join` is warned to remove it at setup, naming this branch as
-  // the reason. Carrying that scope would need this branch to distinguish
-  // the two first.
-  if (!candidate.guildId) {
-    return ADMITTED;
-  }
-
-  // The legacy fence: a persisted allow-list keeps gating rooms until the
-  // operator clears it. A thread inherits its parent's listing, matching the
-  // model the list was configured under.
-  if (policy.legacyAllowedChannelIds !== undefined) {
-    const channelAllowed =
-      policy.legacyAllowedChannelIds.has(candidate.channelId) ||
-      (candidate.parentChannelId !== undefined &&
-        policy.legacyAllowedChannelIds.has(candidate.parentChannelId));
-    if (!channelAllowed) {
-      return drop("channel_not_allowed");
-    }
-  }
-
-  // Requiring the bot's own id here is what keeps announcements out: Discord
-  // omits `@everyone` / `@here` and role pings from the mentions array, so
-  // they cannot satisfy this check.
-  if (!candidate.mentionedUserIds?.includes(policy.botUserId)) {
-    return drop("bot_not_mentioned");
-  }
-
-  return ADMITTED;
+): RoomAdmissionVerdict {
+  const isDirectChat = candidate.guildId === undefined;
+  // A thread inherits its parent's listing, matching the model the legacy
+  // allow-list was configured under.
+  const roomAllowed =
+    policy.legacyAllowedChannelIds === undefined ||
+    policy.legacyAllowedChannelIds.has(candidate.channelId) ||
+    (candidate.parentChannelId !== undefined &&
+      policy.legacyAllowedChannelIds.has(candidate.parentChannelId));
+  return admitRoomMessage({
+    authorIsSelf: candidate.authorId === policy.botUserId,
+    authorIsBot: candidate.authorIsBot === true,
+    isDirectChat,
+    // Discord delivers only DMs and guild channels the bot can view; there
+    // is no third kind to refuse.
+    chatSupported: true,
+    roomAllowed,
+    addressesBot:
+      candidate.mentionedUserIds?.includes(policy.botUserId) === true,
+  });
 }

@@ -13,6 +13,7 @@
  * Reference: https://www.i18next.com/overview/typescript
  */
 import type account from "@/i18n/locales/en/account.json";
+import type assistantInbox from "@/i18n/locales/en/assistant-inbox.json";
 import type activation from "@/i18n/locales/en/activation.json";
 import type activationTasks from "@/i18n/locales/en/activation-tasks.json";
 import type channels from "@/i18n/locales/en/channels.json";
@@ -53,6 +54,7 @@ declare module "i18next" {
       intelligence: typeof intelligence;
       activation: typeof activation;
       "activation-tasks": typeof activationTasks;
+      "assistant-inbox": typeof assistantInbox;
     };
     returnNull: false;
   }

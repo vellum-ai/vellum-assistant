@@ -145,6 +145,39 @@ describe("isTransientUpstreamStatus mirrors the assistant classifier", () => {
 });
 
 describe("generatePluginIcons (write mode)", () => {
+  test("skips local sources without fetching them", async () => {
+    const png = makePng(32, 32);
+    writeMarketplace([
+      {
+        name: "local-plugin",
+        source: {
+          source: "local",
+          path: "plugins/mcp-catalog/local-plugin",
+          version: "1.0.0",
+        },
+      },
+      pluginEntry("github-plugin", "owner/github-plugin"),
+    ]);
+
+    const requested = [];
+    const fetch = async (url) => {
+      requested.push(url);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        arrayBuffer: async () =>
+          png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength),
+      };
+    };
+
+    const result = await run(fetch);
+
+    expect(requested).toHaveLength(1);
+    expect(requested[0]).toContain("/repos/owner/github-plugin/");
+    expect(result).toEqual({ vendored: ["github-plugin"], skipped: [] });
+  });
+
   test("oversized Content-Length skips+prunes only that plugin, without buffering", async () => {
     // Pre-seed a stale vendored icon for the plugin that will report oversized —
     // it must be pruned, not left stale.

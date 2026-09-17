@@ -200,8 +200,9 @@ function splitInlineThinkingBlocks(
  * blocks collapses into one `activity` group whose `items` preserve interleaved
  * order; consecutive `thinking` blocks merge into one item (text joined with
  * newlines, timing widened to the earliest start / latest completion), matching
- * macOS. A `text` or `surface` block closes the open
- * activity group and passes through unchanged as its own group; the render
+ * macOS. Nonblank `text` and non-pointer `surface` blocks close the open
+ * activity group and pass through unchanged as their own groups. Blank text,
+ * pointer surfaces, and attachment blocks do not separate activity. The render
  * body reads the surface straight off the block's `surface`, narrowed to the
  * display `Surface` at render. `attachment` blocks are skipped — attachments
  * render in their own region from `message.attachments`, and so are pointer
@@ -286,6 +287,9 @@ export function groupContentBlocks(
         toolCall: block.toolCall,
       });
     } else if (block.type === "text") {
+      if (block.text.trim().length === 0) {
+        continue;
+      }
       current = null;
       groups.push(block);
     } else if (block.type === "surface") {

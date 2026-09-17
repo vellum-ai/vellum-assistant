@@ -439,7 +439,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `unix-socket-ndjson`
 - **Auth:** none (bootstrap socket)
-- **Description:** Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.
+- **Description:** Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET_DIR) for RPC in managed/Docker mode.
 
 **Caller files:**
 - `assistant/src/credential-execution/process-manager.ts`

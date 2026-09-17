@@ -16,6 +16,11 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { getLogger } from "../util/logger.js";
 import {
+  mcpOAuthCredentialKey,
+  type McpOAuthCredentialTarget,
+  workspaceMcpOAuthCredentialTarget,
+} from "./credential-target.js";
+import {
   setMcpAuthComplete,
   setMcpAuthError,
   setMcpAuthPending,
@@ -46,8 +51,12 @@ export interface OrchestrateMcpOAuthConnectResult {
 export async function orchestrateMcpOAuthConnect(args: {
   serverId: string;
   transport: McpAuthTransportConfig;
+  credentialTarget?: McpOAuthCredentialTarget;
 }): Promise<OrchestrateMcpOAuthConnectResult> {
   const { serverId, transport } = args;
+  const credentialTarget =
+    args.credentialTarget ?? workspaceMcpOAuthCredentialTarget(serverId);
+  const targetKey = mcpOAuthCredentialKey(credentialTarget, "tokens");
 
   let capturedAuthUrl: string | undefined;
   const provider = new McpOAuthProvider(
@@ -55,6 +64,7 @@ export async function orchestrateMcpOAuthConnect(args: {
     transport.url,
     /* interactive */ false,
     {
+      credentialTarget,
       onAuthorizationUrl: (url) => {
         capturedAuthUrl = url;
       },
@@ -72,7 +82,10 @@ export async function orchestrateMcpOAuthConnect(args: {
   const { codePromise } = await provider.startCallbackServer();
 
   // Resolve effective headers: credential store takes precedence, then config
-  const storedHeaders = await getMcpHeaders(serverId);
+  const storedHeaders =
+    credentialTarget.source === "workspace"
+      ? await getMcpHeaders(serverId)
+      : null;
   const effectiveHeaders = storedHeaders ?? transport.headers;
 
   // Build the MCP transport and client
@@ -126,7 +139,7 @@ export async function orchestrateMcpOAuthConnect(args: {
   // finishes cannot have its slot overwritten by stale completion writes
   // from the older attempt.
   const attemptId = crypto.randomUUID();
-  setMcpAuthPending(serverId, capturedAuthUrl, attemptId);
+  setMcpAuthPending(serverId, capturedAuthUrl, attemptId, targetKey);
 
   // Fire-and-forget background tail — completes the token exchange once
   // the user approves in the browser.
@@ -153,7 +166,7 @@ export async function orchestrateMcpOAuthConnect(args: {
         }),
       ]);
       await mcpTransport.finishAuth(code);
-      const applied = setMcpAuthComplete(serverId, attemptId);
+      const applied = setMcpAuthComplete(serverId, attemptId, targetKey);
       if (!applied) {
         log.info(
           { serverId, attemptId },
@@ -182,7 +195,7 @@ export async function orchestrateMcpOAuthConnect(args: {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const applied = setMcpAuthError(serverId, message, attemptId);
+      const applied = setMcpAuthError(serverId, message, attemptId, targetKey);
       if (!applied) {
         log.info(
           { serverId, attemptId, error: message },

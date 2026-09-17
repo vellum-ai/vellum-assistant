@@ -458,7 +458,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "unix-socket-ndjson",
     auth: "none (bootstrap socket)",
     description:
-      "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.",
+      "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET_DIR) for RPC in managed/Docker mode.",
     callerGlobs: ["assistant/src/credential-execution/process-manager.ts"],
     calleeGlobs: [
       "credential-executor/src/main.ts",

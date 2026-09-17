@@ -49,6 +49,7 @@ import {
   type FileDescriptorMonitorHandle,
   startFileDescriptorMonitor,
 } from "./file-descriptors.js";
+import { type MountWatchHandle, startMountWatch } from "./mount-watch.js";
 import {
   type PluginAutoUpdateHandle,
   startPluginAutoUpdate,
@@ -99,6 +100,7 @@ async function main(): Promise<void> {
 
   let sampler: ResourceSamplerHandle | null = null;
   let fdMonitor: FileDescriptorMonitorHandle | null = null;
+  let mountWatch: MountWatchHandle | null = null;
   let sourceWatch: PluginSourceWatchHandle | null = null;
   let autoUpdate: PluginAutoUpdateHandle | null = null;
   let recovery: RecoveryHandle | null = null;
@@ -125,6 +127,7 @@ async function main(): Promise<void> {
     stopDbIntegritySampler();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     // Bounded final telemetry flush, mirroring the daemon's shutdown. This
@@ -170,6 +173,9 @@ async function main(): Promise<void> {
   // Descriptor exhaustion is per-process and slow-moving, so it polls on its
   // own timer rather than riding the memory sampler's 250ms tick.
   fdMonitor = startFileDescriptorMonitor(config.monitoring);
+  // Assistant-container mount table only (this process's mount namespace).
+  // Warns only when /workspace, /data, or a virtiofs bind actually changes.
+  mountWatch = startMountWatch(config.monitoring);
   sourceWatch = startPluginSourceWatch(
     config.monitoring.pluginSourceScanIntervalMs,
   );
@@ -211,6 +217,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();
@@ -223,6 +230,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();
@@ -234,6 +242,7 @@ async function main(): Promise<void> {
     recovery?.stop();
     autoUpdate?.stop();
     sourceWatch?.stop();
+    mountWatch?.stop();
     fdMonitor?.stop();
     sampler?.stop();
     stopDbIntegritySampler();

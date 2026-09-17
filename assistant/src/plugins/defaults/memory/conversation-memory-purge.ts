@@ -16,6 +16,10 @@ export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "memory_recall_logs",
   "memory_v3_selections",
   "memory_v3_pools",
+  // The pool input capture keys its turn rows here; its companion texts
+  // table is content-addressed and page-derived, so it has no conversation
+  // rows to purge.
+  "memory_v3_pool_inputs",
   "activation_sessions",
   "activation_state",
   "conversation_graph_memory_state",

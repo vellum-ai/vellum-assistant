@@ -1,10 +1,10 @@
 import { ArrowDownToLine, Loader2, Puzzle, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
+import { PluginIcon } from "@/components/plugins/plugin-icon";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
-import type { PluginListItem } from "@/domains/intelligence/plugins/types";
-import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
+import type { PluginListItem } from "@/lib/plugins/types";
+import { usePluginIconSrc } from "@/hooks/use-plugin-icon-src";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import { useTranslation } from "@/i18n";
 import { Button, Card, Tag } from "@vellumai/design-library";

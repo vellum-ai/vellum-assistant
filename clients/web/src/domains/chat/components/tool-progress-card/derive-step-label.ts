@@ -13,7 +13,7 @@
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
-  ACTIVITY_KEYS,
+  ACTIVITY_KEY,
   COMMAND_KEYS,
   FILE_PATH_KEYS,
   readToolInputString,
@@ -48,10 +48,9 @@ export interface StepLabel {
   info: string;
   /**
    * Rich, human-readable activity sentence the daemon attaches to the tool
-   * input (`input.activity`, legacy `input.reason`), mirroring macOS
-   * `reasonDescription`. Empty string when absent. Drives pill/drawer text;
-   * `title` remains the stable phase-grouping key — do NOT fold activity into
-   * `title`.
+   * input (`input.activity`). Empty string when absent. Drives pill/drawer
+   * text; `title` remains the stable phase-grouping key: do NOT fold activity
+   * into `title`.
    */
   activity: string;
   iconName: IconName;
@@ -116,9 +115,9 @@ export function deriveStepLabelFromName(
 
   // Rich activity sentence the daemon attaches to the input. Computed once and
   // spread onto every branch so phase-grouping (`title`/`info`/`iconName`)
-  // stays untouched. `readToolInputString` trims and returns "" when neither
-  // key is set.
-  const activity = readToolInputString(inputBag, ...ACTIVITY_KEYS);
+  // stays untouched. `readToolInputString` trims and returns "" when it is
+  // absent.
+  const activity = readToolInputString(inputBag, ACTIVITY_KEY);
 
   const mcp = parseMcpToolName(toolName);
   if (mcp) {

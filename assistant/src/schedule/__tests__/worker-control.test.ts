@@ -206,19 +206,26 @@ describe("spawnScheduleWorkerProcess", () => {
     }
   });
 
-  test("reuses an already-running worker without spawning", async () => {
+  test("spawns when the PID file names an unrelated live process", async () => {
     writeFileSync(pidPath, String(process.pid));
     let spawned = false;
     const restore = stubBunSpawn(() => {
       spawned = true;
-      return { unref: () => {}, kill: () => {}, pid: 1, exited: neverExits() };
+      writeFileSync(pidPath, "4242");
+      return {
+        unref: () => {},
+        kill: () => {},
+        pid: 4242,
+        exited: neverExits(),
+      };
     });
     try {
       const result = await spawnScheduleWorkerProcess({
-        pidWaitTimeoutMs: 100,
+        pidWaitTimeoutMs: 1_000,
+        pidPollIntervalMs: 10,
       });
-      expect(result).toEqual({ pid: process.pid, alreadyRunning: true });
-      expect(spawned).toBe(false);
+      expect(result).toEqual({ pid: 4242, alreadyRunning: false });
+      expect(spawned).toBe(true);
     } finally {
       restore();
     }
@@ -240,6 +247,11 @@ describe("probeScheduleWorker", () => {
     }
   });
 
+  test("reports not_running when the PID file names a live process that is not this worker", () => {
+    writeFileSync(pidPath, String(process.pid));
+    expect(probeScheduleWorker()).toEqual({ status: "not_running" });
+  });
+
   test("reports running (not throws) when the process exists but is not signalable (EPERM)", () => {
     writeFileSync(pidPath, "4321");
     const restore = stubProcessKill(new Set(), new Set([4321]));
@@ -254,6 +266,25 @@ describe("probeScheduleWorker", () => {
 describe("stopScheduleWorkerProcess", () => {
   test("is a no-op when the worker is not running", () => {
     expect(stopScheduleWorkerProcess()).toEqual({ status: "not_running" });
+  });
+
+  test("does not signal a recycled PID that is not this worker", () => {
+    writeFileSync(pidPath, String(process.pid));
+    const signalled: Array<[number, string | number | undefined]> = [];
+    const original = process.kill.bind(process);
+    process.kill = ((pid: number, signal?: string | number) => {
+      if ((signal ?? 0) === 0) {
+        return original(pid, signal);
+      }
+      signalled.push([pid, signal]);
+      return true;
+    }) as typeof process.kill;
+    try {
+      expect(stopScheduleWorkerProcess()).toEqual({ status: "not_running" });
+      expect(signalled).toEqual([]);
+    } finally {
+      process.kill = original;
+    }
   });
 
   test("signals a running worker and reports its prior state", () => {

@@ -2428,6 +2428,41 @@
       ]
     },
     {
+      "id": "jev",
+      "displayName": "Jev",
+      "subtitle": "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your TypeSafe API key to enable Jev.",
+      "envVar": "TYPESAFE_API_KEY",
+      "apiKeyPlaceholder": "Your TypeSafe API key",
+      "credentialsGuide": {
+        "description": "Sign in to TypeSafe and create an API key.",
+        "url": "https://typesafe.ai",
+        "linkLabel": "Open TypeSafe"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "jev-latest",
+      "models": [
+        {
+          "id": "jev-latest",
+          "displayName": "Jev",
+          "contextWindowTokens": 32000,
+          "maxOutputTokens": 4096,
+          "defaultContextWindowTokens": 32000,
+          "longContextMode": "unsupported",
+          "supportsThinking": false,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": false,
+          "supportsText": false,
+          "pricing": {
+            "inputPer1mTokens": 0.042,
+            "outputPer1mTokens": 0
+          }
+        }
+      ]
+    },
+    {
       "id": "vellum",
       "displayName": "Vellum",
       "subtitle": "Models served on Vellum GPU nodes through the managed connection.",

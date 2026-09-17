@@ -3,6 +3,8 @@
 // messages + interaction state and emits a flat item array that the
 // Transcript component renders via a virtualised list.
 
+import { getDesktopHelpEntry } from "@/domains/chat/desktop/desktop-help";
+import type { PendingQuestionState } from "@/types/interaction-ui-types";
 import type {
   DisplayMessage,
   EphemeralMetaResult,
@@ -20,6 +22,7 @@ import { getMessageRenderKind } from "./message-render-kind";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
+  pendingQuestion?: PendingQuestionState | null;
   pendingSecret: { requestId: string } | null;
   pendingConfirmation: { requestId: string } | null;
   pendingContactRequest?: {
@@ -263,6 +266,14 @@ export function buildTranscriptItems(
       key: "thinking",
       active: isThinking,
       ...(input.thinkingLabel ? { label: input.thinkingLabel } : {}),
+    });
+  }
+
+  if (input.pendingQuestion && getDesktopHelpEntry(input.pendingQuestion)) {
+    items.push({
+      kind: "pendingDesktopHelp",
+      key: `desktop-help-${input.pendingQuestion.requestId}`,
+      requestId: input.pendingQuestion.requestId,
     });
   }
 

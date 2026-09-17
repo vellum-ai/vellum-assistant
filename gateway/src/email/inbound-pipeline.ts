@@ -181,7 +181,7 @@ export async function runEmailInboundPipeline(
       ingested.attachmentIds.length > 0 ? ingested.attachmentIds : undefined;
     gatewayEvent.message.content = appendFailedEmailAttachmentNotice(
       gatewayEvent.message.content,
-      ingested.failedAttachmentNames,
+      ingested,
     );
 
     const result = await handleInbound(config, gatewayEvent, {

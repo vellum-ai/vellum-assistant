@@ -84,7 +84,7 @@ export function phaseFromStep(step: ToolCallCardStep): string {
   }
   // step.kind === "tool"
   const title = step.title;
-  if (title.startsWith("Working")) {
+  if (isWorkingPhaseLabel(title)) {
     return title;
   }
   if (
@@ -101,6 +101,11 @@ export function phaseFromStep(step: ToolCallCardStep): string {
     return title;
   }
   return title;
+}
+
+/** Whether a phase label belongs to the general working phase family. */
+export function isWorkingPhaseLabel(label: string): boolean {
+  return label.startsWith("Working");
 }
 
 /**
@@ -183,7 +188,9 @@ function PhaseDurationLabel({
   }
   return (
     <Tooltip
-      content={t("phaseGroupedStepList.startedAt", { time: formatStartTime(startedAt) })}
+      content={t("phaseGroupedStepList.startedAt", {
+        time: formatStartTime(startedAt),
+      })}
       side="top"
       align="end"
     >
@@ -277,6 +284,8 @@ export interface PhaseGroupedStepListProps {
    * passes a renderer that preserves the favicon / overflow / error chips.
    */
   renderStep?: (step: ToolCallCardStep) => ReactNode;
+  /** Optional content rendered after the final step in each phase section. */
+  renderPhaseFooter?: (section: PhaseSection) => ReactNode;
   /**
    * When `true`, render the sections as a vertical timeline: each phase's
    * status icon sits in a left node column with a connector line running
@@ -292,6 +301,7 @@ export interface PhaseGroupedStepListProps {
 export function PhaseGroupedStepList({
   steps,
   renderStep,
+  renderPhaseFooter,
   timeline = false,
 }: PhaseGroupedStepListProps) {
   if (steps.length === 0) {
@@ -337,6 +347,7 @@ export function PhaseGroupedStepList({
             baseIndex={sectionOffsets[sectionIdx]!}
             isLast={sectionIdx === sections.length - 1}
             renderSectionSteps={renderSectionSteps}
+            renderPhaseFooter={renderPhaseFooter}
           />
         ))}
       </div>
@@ -367,6 +378,7 @@ export function PhaseGroupedStepList({
             />
             <div className="flex min-w-0 flex-col items-start gap-1 pl-[24px]">
               {renderSectionSteps(section, baseIndex)}
+              {renderPhaseFooter?.(section)}
             </div>
           </div>
         );
@@ -395,11 +407,13 @@ function TimelinePhaseSection({
   baseIndex,
   isLast,
   renderSectionSteps,
+  renderPhaseFooter,
 }: {
   section: PhaseSection;
   baseIndex: number;
   isLast: boolean;
   renderSectionSteps: (section: PhaseSection, baseIndex: number) => ReactNode;
+  renderPhaseFooter?: (section: PhaseSection) => ReactNode;
 }) {
   const totalDuration = sumDurationLabels(
     section.steps.map((s) => ("durationLabel" in s ? s.durationLabel : "")),
@@ -452,6 +466,7 @@ function TimelinePhaseSection({
         )}
       >
         {renderSectionSteps(section, baseIndex)}
+        {renderPhaseFooter?.(section)}
       </div>
     </div>
   );
