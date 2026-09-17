@@ -131,6 +131,8 @@ export function WebSearchCard() {
   const configChanged =
     webSearchProvider !== serverWebSearchProvider ||
     (showsApiBase && trimmedApiBase !== serverApiBase.trim());
+  const defaultApiBase =
+    WEB_SEARCH_PROVIDER_DEFAULT_API_BASE[webSearchProvider] ?? "";
   const needsKeyBeforeSave =
     requiresProviderCredential &&
     !isKeylessByok &&
@@ -149,8 +151,6 @@ export function WebSearchCard() {
       t("webSearchCard.apiKeyPlaceholder"),
     webSearchHasStoredKey,
   );
-  const defaultApiBase =
-    WEB_SEARCH_PROVIDER_DEFAULT_API_BASE[webSearchProvider] ?? "";
 
   const handleSave = useCallback(async () => {
     setSaving(true);

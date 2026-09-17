@@ -1167,7 +1167,7 @@ describe("web_search tool", () => {
   test("executes SearXNG search against the instance URL without a key", async () => {
     seedWebSearch("your-own", "searxng", "http://127.0.0.1:8888/");
     let capturedUrl = "";
-    let capturedHeaders: Headers | null = null;
+    let capturedHeaders: any = null;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       capturedUrl = url;
       capturedHeaders = new Headers(init?.headers);
@@ -1200,7 +1200,7 @@ describe("web_search tool", () => {
     seedWebSearch("your-own", "searxng", "http://searx.example.com");
     mockSearxngSecureKey = "searx-token";
     let capturedUrl = "";
-    let capturedHeaders: Headers | null = null;
+    let capturedHeaders: any = null;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       capturedUrl = url;
       capturedHeaders = new Headers(init?.headers);
