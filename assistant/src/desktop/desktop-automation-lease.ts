@@ -1,4 +1,3 @@
-import { getConfig } from "../config/loader.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -39,7 +38,7 @@ export class DesktopAutomationLease {
       manager: () => DesktopSessionManager;
       notify: () => Promise<unknown>;
     } = {
-      enabled: () => isVirtualDesktopEnabled(getConfig()),
+      enabled: isVirtualDesktopEnabled,
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
       ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
       manager: getDesktopSessionManager,

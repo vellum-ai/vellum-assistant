@@ -1,8 +1,10 @@
+import * as fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
+import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { newFakeDesktop, newViewer, settle } from "./__tests__/fake-desktop.js";
 import { DesktopDependencyInstaller } from "./desktop-dependencies.js";
 import {
@@ -13,6 +15,7 @@ import {
   getDesktopSessionManager,
 } from "./desktop-session-manager.js";
 import { DesktopStreamBridge } from "./desktop-stream-bridge.js";
+import { isVirtualDesktopEnabled } from "./virtual-desktop-feature.js";
 
 const profileDir = mkdtempSync(join(tmpdir(), "desktop-bridge-test-"));
 afterAll(() => {
@@ -87,6 +90,58 @@ function slotIsFree(manager: DesktopSessionManager): boolean {
 }
 
 describe("DesktopStreamBridge", () => {
+  test("streams without filesystem reads and immediately observes gateway flag revocation", async () => {
+    const originalContainerized = process.env.IS_CONTAINERIZED;
+    const originalPlatform = process.env.IS_PLATFORM;
+    const h = newFakeDesktop({ profileDir });
+    const b = newBridge(h.manager, async () => {}, isVirtualDesktopEnabled);
+    process.env.IS_CONTAINERIZED = "true";
+    process.env.IS_PLATFORM = "true";
+    setOverridesForTesting({ "assistant-desktop": true });
+    try {
+      b.connectNow();
+      await b.bridge.start();
+      const stat = spyOn(fs, "statSync");
+      const read = spyOn(fs, "readFileSync");
+      try {
+        const frame = new Uint8Array([1, 2, 3]);
+        for (let i = 0; i < 100; i++) {
+          b.bridge.handleClientFrame(frame);
+          b.tcp.handlers.onData(frame);
+          b.tcp.handlers.onDrain();
+        }
+        expect(b.tcp.writes).toHaveLength(100);
+        expect(b.ws.sent).toHaveLength(100);
+        setOverridesForTesting({ "assistant-desktop": false });
+        b.bridge.handleClientFrame(frame);
+        b.tcp.handlers.onData(frame);
+        expect(b.tcp.writes).toHaveLength(100);
+        expect(b.ws.sent).toHaveLength(100);
+        expect(b.ws.closeCode).toBe(4008);
+        expect(b.tcp.ended).toBe(true);
+        expect(stat).not.toHaveBeenCalled();
+        expect(read).not.toHaveBeenCalled();
+      } finally {
+        stat.mockRestore();
+        read.mockRestore();
+      }
+    } finally {
+      b.bridge.handleClose();
+      await h.manager.destroy();
+      setOverridesForTesting({});
+      if (originalContainerized === undefined) {
+        delete process.env.IS_CONTAINERIZED;
+      } else {
+        process.env.IS_CONTAINERIZED = originalContainerized;
+      }
+      if (originalPlatform === undefined) {
+        delete process.env.IS_PLATFORM;
+      } else {
+        process.env.IS_PLATFORM = originalPlatform;
+      }
+    }
+  });
+
   test("refuses a disabled desktop before installation or process startup", async () => {
     const h = newFakeDesktop({ profileDir });
     let installs = 0;
