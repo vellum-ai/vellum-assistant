@@ -1260,27 +1260,27 @@ export class Conversation {
       externalSignal?.addEventListener("abort", relayAbort, { once: true });
     }
 
-    const systemPrompt =
-      options?.systemPrompt ?? this.buildCurrentSystemPrompt();
-    const tools =
-      options?.tools ?? this.agentLoop.getResolvedTools(this.messages);
     const callSite = options?.callSite ?? "mainAgent";
-    const providerConfig = {
-      ...(options?.overrideProfile !== undefined
-        ? { overrideProfile: options.overrideProfile }
-        : {}),
-      ...(options?.forceOverrideProfile !== undefined
-        ? { forceOverrideProfile: options.forceOverrideProfile }
-        : {}),
-      selectionSeed: this.conversationId,
-    };
-
-    const warmMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: "hi" }],
-    };
 
     try {
+      const systemPrompt =
+        options?.systemPrompt ?? this.buildCurrentSystemPrompt();
+      const tools =
+        options?.tools ?? this.agentLoop.getResolvedTools(this.messages);
+      const providerConfig = {
+        ...(options?.overrideProfile !== undefined
+          ? { overrideProfile: options.overrideProfile }
+          : {}),
+        ...(options?.forceOverrideProfile !== undefined
+          ? { forceOverrideProfile: options.forceOverrideProfile }
+          : {}),
+        selectionSeed: this.conversationId,
+      };
+      const warmMessage: Message = {
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+      };
+
       await this.provider.sendMessage([warmMessage], {
         tools: tools.length > 0 ? tools : undefined,
         systemPrompt,

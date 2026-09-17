@@ -2864,6 +2864,7 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
   afterEach(() => {
     unresolvableProviderNames.clear();
     setConfig("llm", {});
+    setConfig("rateLimit", {});
   });
 
   async function runOptionsFor(opts: {
@@ -2945,6 +2946,13 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
       callSite: "callAgent",
       signal: undefined,
     });
+  });
+
+  test("does not warm when requests are rate limited", async () => {
+    setConfig("rateLimit", { maxRequestsPerMinute: 1 });
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.onTurnReady).toBeUndefined();
   });
 
   test("the conversation's own pin wins over the workspace selection", async () => {

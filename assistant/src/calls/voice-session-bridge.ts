@@ -2046,6 +2046,11 @@ export async function startVoiceTurn(
         (needsImagePin
           ? VOICE_IMAGE_PROFILE
           : (conversationProfile?.profile ?? null));
+      // Optional cache traffic must not consume the last admitted request.
+      // A configured cap reserves its whole budget for user-visible calls.
+      const shouldWarmEscalation =
+        opts.routingLeg === "escalated" &&
+        config.rateLimit.maxRequestsPerMinute === 0;
       if (opts.macosDesktopSession === true && !frontDoorToolsSuppressed) {
         const sourceInterface = turnInterfaceContext.userMessageInterface;
         const sourceActorPrincipalId =
@@ -2158,7 +2163,7 @@ export async function startVoiceTurn(
         // Start a speculative warm before memory/context assembly. The warm is
         // deliberately not awaited: a cache miss must never add a second model
         // round trip to the live voice response.
-        ...(opts.routingLeg === "escalated"
+        ...(shouldWarmEscalation
           ? {
               onTurnReady: () => {
                 void conversation.warmPromptCache({

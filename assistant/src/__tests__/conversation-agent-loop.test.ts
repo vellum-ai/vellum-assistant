@@ -715,7 +715,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
-import type { Conversation } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -1098,6 +1098,29 @@ beforeEach(() => {
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
   // instead of hitting the bare terminal.
   resetPluginRegistryAndRegisterDefaults();
+});
+
+describe("prompt cache warming", () => {
+  test("stays non-rejecting when request preparation fails", async () => {
+    const sendMessage = mock(async () => textResponse("unused"));
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: {
+          getResolvedTools: () => {
+            throw new Error("tool resolution failed");
+          },
+        },
+        buildCurrentSystemPrompt: () => "system prompt",
+      },
+    ) as unknown as Conversation;
+
+    await expect(conversation.warmPromptCache()).resolves.toBeUndefined();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe("session-agent-loop", () => {
