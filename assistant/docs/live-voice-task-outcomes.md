@@ -3,9 +3,10 @@
 The conversation's active live-voice session owns delivery of subagent updates
 while the call is open. `injectMessageIntoParent` offers updates carrying
 `subagentNotification` metadata to the existing `LiveVoiceSessionManager` before
-enqueuing a generic parent turn. The manager only routes to a non-closing session
-with the matching conversation ID. Other conversations and closed calls retain
-the ordinary parent delivery path.
+enqueuing a generic parent turn. The manager only routes to its session with the
+matching conversation ID. A closing session holds incoming updates for its
+teardown handoff. Other conversations and fully closed calls retain the ordinary
+parent delivery path.
 
 The session keeps pending updates per subagent. A newer update from the same
 subagent replaces its pending update; independent subagents keep separate entries.
@@ -19,7 +20,9 @@ the normal TTS pipeline. The original notification metadata and cron attribution
 travel with the turn. No synthetic user bubble is echoed. The assistant can read
 additional output or resolve a blocker without starting a competing text turn.
 
-Results remain pending through the estimated playback tail. A barge-in preserves
+Results require forwarded reply audio and remain pending through the estimated
+playback tail. Progress narration alone, empty speech synthesis, and failed speech
+synthesis leave them pending. A barge-in preserves
 the interrupted outcome without creating another worker. A failed launch or an
 explicit stop defers retry until the next user turn or task update. Hang-up returns
 undelivered updates to the ordinary conversation path after the voice turn's

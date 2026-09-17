@@ -603,6 +603,8 @@ type UtteranceStartResult =
 // client in job-list order.
 interface TtsSegmentJob {
   readonly text: string;
+  readonly isReply: boolean;
+  audioSent: boolean;
   // Per-segment language-hint override, preferred over the turn's language.
   // Set on fixed phrases whose localized table lacks the turn's language:
   // the English fallback text carries "en" so an enforcing provider never
@@ -1336,6 +1338,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private subagentAnnouncementTimer: ReturnType<typeof setTimeout> | null =
     null;
   private subagentAnnouncementsDeferred = false;
+  private subagentNotificationsClosing = false;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
   // Host-backed work stays on the parent conversation across barge-ins. An
   // owned task belongs to the tool-capable turn doing the work; a suspended
@@ -1998,6 +2001,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    this.subagentNotificationsClosing = true;
     this.subagentNotifications.interruptPlayback(Date.now());
     const turnTeardown = this.getTurnTeardown?.(this.conversationId);
     this.clearForegroundTask("session_closed");
@@ -3710,6 +3714,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   receiveSubagentNotification(
     notification: SubagentParentNotification,
   ): boolean {
+    if (this.isClosed && this.subagentNotificationsClosing) {
+      this.subagentNotifications.enqueue(notification);
+      return true;
+    }
     if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
       return false;
     }
@@ -3791,13 +3799,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turnTeardown?: Promise<void>,
   ): Promise<void> {
     this.clearSubagentAnnouncementTimer();
-    const notifications = this.subagentNotifications.drain(Date.now());
-    if (notifications.length === 0) {
-      return;
-    }
     // Voice aborts discard the parent queue. Deliver only after its turn settles.
     await turnTeardown;
     const { injectMessageIntoParent } = await import("../subagent/notify.js");
+    const notifications = this.subagentNotifications.drain(Date.now());
+    this.subagentNotificationsClosing = false;
     for (const notification of notifications) {
       injectMessageIntoParent(
         this.conversationId,
@@ -6833,6 +6839,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const job: TtsSegmentJob = {
       text: segment,
+      isReply: options.countsAsFirstSegment ?? true,
+      audioSent: false,
       language: options.language,
       started: false,
       settled: false,
@@ -7019,6 +7027,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!sent) {
         return;
       }
+      job.audioSent = true;
       // Extend the client playback-tail estimate by this chunk's PCM
       // duration (chunks queue gaplessly client-side, so the tail grows
       // from whichever is later: now or the current estimate).
@@ -7292,7 +7301,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     turn.finalized = true;
     if (turn.subagentNotification !== null) {
-      if (status === "completed" && !turn.ttsFailed) {
+      if (
+        status === "completed" &&
+        !turn.ttsFailed &&
+        turn.ttsJobs.some((job) => job.isReply && job.audioSent)
+      ) {
         this.subagentNotifications.finish(
           turn.subagentNotification,
           this.assistantPlaybackTailUntilMs,

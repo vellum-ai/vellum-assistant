@@ -196,6 +196,7 @@ describe("voice parent notification routing", () => {
   test("only the matching active call claims task updates, without starting a generic parent turn", async () => {
     clearCaptured();
     const received: SubagentParentNotification[] = [];
+    let finishClose: (() => void) | undefined;
     const manager = new LiveVoiceSessionManager({
       createSession: (context) => ({
         start: async () => {
@@ -207,7 +208,10 @@ describe("voice parent notification routing", () => {
         },
         handleClientFrame: () => {},
         handleBinaryAudio: () => {},
-        close: () => {},
+        close: () =>
+          new Promise<void>((resolve) => {
+            finishClose = resolve;
+          }),
         receiveSubagentNotification: (notification) => {
           received.push(notification);
           return true;
@@ -258,7 +262,16 @@ describe("voice parent notification routing", () => {
       ]);
       expect(capturedEnqueueCronRunIds.at(-1)).toBe("run-123");
 
-      await manager.endActiveSession("manager_shutdown");
+      const closing = manager.endActiveSession("manager_shutdown");
+      injectMessageIntoParent(
+        "parent-voice",
+        "Finished during hang-up",
+        metadata,
+      );
+      expect(received.at(-1)?.message).toBe("Finished during hang-up");
+      expect(capturedMessages).not.toContain("Finished during hang-up");
+      finishClose?.();
+      await closing;
       injectMessageIntoParent(
         "parent-voice",
         "Finished after hang-up",
@@ -266,6 +279,7 @@ describe("voice parent notification routing", () => {
       );
       expect(capturedMessages.at(-1)).toBe("Finished after hang-up");
     } finally {
+      finishClose?.();
       await manager.endActiveSession("manager_shutdown");
       setLiveVoiceSessionManagerForTesting(null);
       clearCaptured();

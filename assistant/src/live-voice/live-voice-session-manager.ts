@@ -273,11 +273,7 @@ export class LiveVoiceSessionManager {
     notification: SubagentParentNotification,
   ): boolean {
     const active = this.activeSession;
-    if (
-      active === null ||
-      active.closing ||
-      active.holder.conversationId !== conversationId
-    ) {
+    if (active === null || active.holder.conversationId !== conversationId) {
       return false;
     }
     return active.session.receiveSubagentNotification?.(notification) ?? false;
