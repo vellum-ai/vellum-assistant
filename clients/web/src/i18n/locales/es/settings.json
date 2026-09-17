@@ -920,8 +920,7 @@
     "serverLoadFailed": "El plugin está instalado, pero no se pudieron cargar sus servidores MCP.",
     "removeMessage": "¿Eliminar {name}? Esto elimina el plugin, sus skills y {count, plural, one {su # servidor MCP} other {sus # servidores MCP}}.",
     "removePlugin": "Eliminar plugin",
-    "removeTitle": "¿Eliminar {name}?",
-    "setUp": "Configurar"
+    "removeTitle": "¿Eliminar {name}?"
   },
   "integrationsPage": {
     "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",

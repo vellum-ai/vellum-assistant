@@ -130,7 +130,6 @@ function IntegrationsGrid({
           {CONNECTED.map((item) => (
             <IntegrationRow
               key={item.id}
-              layout="row"
               providerKey={item.provider.provider_key}
               displayName={item.name}
               description={item.description}

@@ -62,7 +62,17 @@ export type CallbackUrlState =
 export interface IntegrationConnectModalProps {
   plan: ConnectPlan;
   attempt?: ConnectAttempt | null;
-  /** Manual MCP setup only. */
+  /**
+   * The method to open on, for a caller that already knows which path the
+   * user picked. Without it the dialog opens on what is connected, or on the
+   * path that leads when nothing is.
+   */
+  focusMethodId?: string;
+  /**
+   * Manual MCP setup only, and only where the callback URL is known. Omitted,
+   * the checklist is the provider's own instructions and Connect is not
+   * gated on a URL nobody can show.
+   */
   callbackUrl?: CallbackUrlState;
   callbackCopied?: boolean;
   /** Tools summary per MCP connection id, for the "Tools and details" view. */
@@ -86,7 +96,8 @@ export interface IntegrationConnectModalProps {
   onRetryAttempt: () => void;
   onReconnect: (connection: ConnectionSummary) => void;
   onDisconnect: (connection: ConnectionSummary) => void;
-  onCopyCallbackUrl: (url: string) => void;
+  /** Required by, and only by, a caller that supplies `callbackUrl`. */
+  onCopyCallbackUrl?: (url: string) => void;
   onOpenSetupGuide: (url: string) => void;
   onClose: () => void;
 }
@@ -150,6 +161,7 @@ function ConnectModalHeader({
 export function IntegrationConnectModal({
   plan,
   attempt,
+  focusMethodId,
   callbackUrl,
   callbackCopied = false,
   toolsByConnectionId,
@@ -168,11 +180,14 @@ export function IntegrationConnectModal({
   const methodLabel = useConnectMethodLabel(plan.name);
   const methods = planMethods(plan);
   const connections = planConnections(plan);
-  const [view, setView] = useState<View>(() =>
-    connections.length > 0
+  const [view, setView] = useState<View>(() => {
+    if (focusMethodId) {
+      return { kind: "connect", methodId: focusMethodId };
+    }
+    return connections.length > 0
       ? { kind: "connections" }
-      : { kind: "connect", methodId: plan.primary.id },
-  );
+      : { kind: "connect", methodId: plan.primary.id };
+  });
   const [acknowledged, setAcknowledged] = useState(false);
   const [confirming, setConfirming] = useState<ConnectionSummary | null>(null);
 
@@ -384,16 +399,20 @@ function ConnectView({
   onLogin: () => void;
   onCancelAttempt: () => void;
   onRetryAttempt: () => void;
-  onCopyCallbackUrl: (url: string) => void;
+  onCopyCallbackUrl?: (url: string) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
   const methodAttempt = attempt?.methodId === method.id ? attempt : null;
   const inFlight = methodAttempt !== null && methodAttempt.phase !== "error";
   const loginRequired = method.availability === "login-required";
+  // A checklist only blocks Connect where there is a checklist: without a
+  // callback URL to hand over, the manual path is the provider's own
+  // instructions and the same sign-in every other method runs.
   const manualIncomplete =
     method.kind === "mcp-manual" &&
-    (!acknowledged || callbackUrl?.status !== "ready");
+    callbackUrl !== undefined &&
+    (!acknowledged || callbackUrl.status !== "ready");
   const showBack = method.id !== plan.primary.id || hasConnections;
   const others = methods.filter((candidate) => candidate.id !== method.id);
 
@@ -557,19 +576,26 @@ function ManualSteps({
   callbackCopied: boolean;
   acknowledged: boolean;
   onAcknowledge: (next: boolean) => void;
-  onCopyCallbackUrl: (url: string) => void;
+  onCopyCallbackUrl?: (url: string) => void;
 }) {
   const { t } = useTranslation("settings");
   const url = callbackUrl?.status === "ready" ? callbackUrl.url : undefined;
 
+  const intro = instructions ? (
+    <p className="text-body-medium-default text-[var(--content-secondary)]">
+      {instructions}
+    </p>
+  ) : null;
+
+  // Nothing to allowlist means nothing to walk through: the provider's own
+  // words, and the same Connect the other methods offer.
+  if (!callbackUrl) {
+    return intro;
+  }
 
   return (
     <>
-      {instructions ? (
-        <p className="text-body-medium-default text-[var(--content-secondary)]">
-          {instructions}
-        </p>
-      ) : null}
+      {intro}
       <ol className="space-y-4">
         <ManualStep index={1}>
           <p className="text-body-medium-default">
@@ -580,16 +606,18 @@ function ManualSteps({
               <code className="min-w-0 flex-1 font-mono text-body-small-default [overflow-wrap:anywhere]">
                 {url}
               </code>
-              <Button
-                variant="outlined"
-                size="compact"
-                leftIcon={callbackCopied ? <Check /> : <Copy />}
-                onClick={() => onCopyCallbackUrl(url)}
-              >
-                {callbackCopied
-                  ? t("integrationConnect.copied")
-                  : t("integrationConnect.copy")}
-              </Button>
+              {onCopyCallbackUrl ? (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  leftIcon={callbackCopied ? <Check /> : <Copy />}
+                  onClick={() => onCopyCallbackUrl(url)}
+                >
+                  {callbackCopied
+                    ? t("integrationConnect.copied")
+                    : t("integrationConnect.copy")}
+                </Button>
+              ) : null}
             </div>
           ) : (
             <p className="text-body-small-default text-[var(--content-tertiary)]">

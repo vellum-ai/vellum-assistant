@@ -920,8 +920,7 @@
     "serverLoadFailed": "外掛程式已安裝，但無法載入其 MCP 伺服器。",
     "removeMessage": "移除 {name}？這會移除該外掛程式、其技能以及全部 {count} 個 MCP 伺服器。",
     "removePlugin": "移除外掛程式",
-    "removeTitle": "移除 {name}？",
-    "setUp": "設定"
+    "removeTitle": "移除 {name}？"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 帳號已成功連線。",

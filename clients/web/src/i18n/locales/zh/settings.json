@@ -920,8 +920,7 @@
     "serverLoadFailed": "插件已安装，但无法加载其 MCP 服务器。",
     "removeMessage": "移除 {name}？这将移除该插件、其技能以及全部 {count} 个 MCP 服务器。",
     "removePlugin": "移除插件",
-    "removeTitle": "移除 {name}？",
-    "setUp": "设置"
+    "removeTitle": "移除 {name}？"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 账户连接成功。",

@@ -16,7 +16,6 @@ import {
 import {
   INTEGRATION_ACTION_SIZING,
   IntegrationListRow,
-  type IntegrationListLayout,
 } from "./integration-list-row";
 
 interface IntegrationRowProps {
@@ -27,7 +26,6 @@ interface IntegrationRowProps {
   connections: OAuthConnection[];
   mcpMethods?: McpPluginMethod[];
   disabled?: boolean;
-  layout?: IntegrationListLayout;
   onConfigure: () => void;
 }
 
@@ -39,7 +37,6 @@ export function IntegrationRow({
   connections,
   mcpMethods = [],
   disabled,
-  layout,
   onConfigure,
 }: IntegrationRowProps) {
   const { t } = useTranslation("settings");
@@ -52,7 +49,6 @@ export function IntegrationRow({
 
   return (
     <IntegrationListRow
-      layout={layout}
       icon={
         <IntegrationIcon
           providerKey={providerKey}

@@ -20,6 +20,10 @@ import {
 } from "../integration-items";
 import type { McpServerEntry } from "../mcp/mcp-api";
 import { McpIntegrationIcon } from "../mcp/mcp-integration-icon";
+import {
+  preparePluginMcpConnect,
+  provisionalPluginServerId,
+} from "../mcp/plugin-mcp-connect";
 import { PluginIntegrationIcon } from "../mcp/plugin-integration-icon";
 import type { useMcpConnections } from "../mcp/use-mcp-connections";
 import { IntegrationListRow } from "./integration-list-row";
@@ -130,7 +134,9 @@ function PluginMethodSection({
     onRemoved,
     announceInstall: false,
   });
-  const provisionalServerId = `plugin:${method.definition.pluginName}`;
+  const provisionalServerId = provisionalPluginServerId(
+    method.definition.pluginName,
+  );
   const connecting =
     actions.isInstalling ||
     (connections.auth.isBusy &&
@@ -222,18 +228,10 @@ function PluginMethodSection({
           onClick={() =>
             connections.auth.connect(
               provisionalServerId,
-              async () => {
-                await actions.installAsync();
-                const servers = await onInstalled(method);
-                const authCandidates = servers.filter(
-                  (server) =>
-                    server.transport.type !== "stdio" &&
-                    server.status !== "connected",
-                );
-                return authCandidates.length === 1
-                  ? authCandidates[0]!.id
-                  : null;
-              },
+              preparePluginMcpConnect({
+                install: actions.installAsync,
+                loadPluginServers: () => onInstalled(method),
+              }),
               method.definition.displayName,
             )
           }

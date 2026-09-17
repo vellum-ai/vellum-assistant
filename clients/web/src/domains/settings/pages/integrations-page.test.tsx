@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -32,20 +33,31 @@ let oauthFails = false;
 let mcpFails = false;
 let pluginCatalogFails = false;
 let pluginListFails = false;
+let mcpAuthFails = false;
 let assistantAvailable = true;
 let platformGate = "full";
 let allowAdd = true;
 let hydrated = true;
+let platformHosted = true;
+let managedStatus: "idle" | "attempting" | "connected" = "attempting";
+let managedError: string | null = null;
 let selectedModalProvider: string | null = null;
 let selectedModalTenantHost: unknown = null;
 const setupConversation = mock(() => "draft-conversation");
+const startLogin = mock(async () => {});
+const managedConnect = mock((..._args: unknown[]) => {});
+const managedDismiss = mock(() => {});
+const installedPluginNames: string[] = [];
+const authStarts: string[] = [];
 const getAssistant = mock(async (assistantId?: string) =>
   assistantAvailable
     ? { ok: true, data: { id: assistantId ?? "stale-assistant" } }
     : { ok: false },
 );
 
+const assistantApiActual = await import("@/assistant/api");
 mock.module("@/assistant/api", () => ({
+  ...assistantApiActual,
   getAssistant,
 }));
 mock.module("@/assistant/use-active-assistant-id", () => ({
@@ -76,6 +88,27 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
       return { providers: seededProviders };
     },
   }),
+  // Installing the plugin is what declares its MCP server, so the fake does
+  // both: the connect sequence has nothing to authorize otherwise.
+  usePluginsInstallPostMutation: () => ({
+    mutateAsync: async (variables: { body: { name: string } }) => {
+      const name = variables.body.name;
+      installedPluginNames.push(name);
+      seededPlugins = [...seededPlugins, installedPlugin({ name })];
+      seededServers = [
+        ...seededServers,
+        server({
+          id: `${name}-server`,
+          source: "plugin",
+          pluginName: name,
+          status: "needs-auth",
+        }),
+      ];
+      return {};
+    },
+    isPending: false,
+    isError: false,
+  }),
 }));
 const apiReactQueryActual = await import(
   "@/generated/api/@tanstack/react-query.gen"
@@ -94,8 +127,28 @@ mock.module("@/hooks/use-platform-assistant-id", () => ({
     error: null,
   }),
 }));
+const platformGateActual = await import("@/hooks/use-platform-gate");
 mock.module("@/hooks/use-platform-gate", () => ({
+  ...platformGateActual,
   usePlatformGate: () => platformGate,
+  useActiveAssistantIsPlatformHosted: () => platformHosted,
+}));
+mock.module("@/hooks/use-onboarding-login", () => ({
+  useOnboardingLogin: () => ({
+    loading: false,
+    error: null,
+    login: startLogin,
+    cancel: () => {},
+  }),
+}));
+mock.module("@/hooks/use-managed-oauth-connect", () => ({
+  useManagedOAuthConnect: () => ({
+    connect: managedConnect,
+    dismiss: managedDismiss,
+    status: managedStatus,
+    connection: null,
+    errorMessage: managedError,
+  }),
 }));
 mock.module("@/hooks/use-plugins-list", () => ({
   usePluginsList: () => ({
@@ -108,6 +161,9 @@ mock.module("@/hooks/use-plugins-list", () => ({
   }),
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
+// A desktop shell hands the authorization URL to the OS browser, so the
+// attempt reaches its waiting phase without a popup jsdom cannot open.
+mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 mock.module("@/runtime/browser", () => ({
   openExternalUrl: async () => {},
   openUrlFinishedListener: () => () => {},
@@ -154,10 +210,13 @@ mock.module("@/domains/settings/mcp/mcp-api", () => ({
   addMcpServer: async () => {},
   updateMcpServer: async () => {},
   removeMcpServer: async () => {},
-  startMcpAuth: async () => ({
-    auth_url: "https://example.com/oauth",
-    state: "state-123",
-  }),
+  startMcpAuth: async (_assistantId: string, serverId: string) => {
+    authStarts.push(serverId);
+    if (mcpAuthFails) {
+      throw new Error("MCP auth unavailable");
+    }
+    return { auth_url: "https://example.com/oauth", state: "state-123" };
+  },
   pollMcpAuthStatus: async () => ({ status: "pending" }),
 }));
 
@@ -178,6 +237,16 @@ function Wrapper({
       <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+/**
+ * Let whatever the last assertion started finish inside `act`: a live connect
+ * attempt keeps polling, and a Radix menu measures itself after it opens.
+ */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 function ProviderNavigationButton() {
@@ -286,13 +355,22 @@ afterEach(() => {
   mcpFails = false;
   pluginCatalogFails = false;
   pluginListFails = false;
+  mcpAuthFails = false;
   assistantAvailable = true;
   platformGate = "full";
+  platformHosted = true;
+  managedStatus = "attempting";
+  managedError = null;
   allowAdd = true;
   hydrated = true;
   selectedModalProvider = null;
   selectedModalTenantHost = null;
+  installedPluginNames.length = 0;
+  authStarts.length = 0;
   setupConversation.mockClear();
+  startLogin.mockClear();
+  managedConnect.mockClear();
+  managedDismiss.mockClear();
   getAssistant.mockClear();
 });
 
@@ -380,13 +458,237 @@ describe("IntegrationsPage", () => {
     screen.getByText(/Plugin integrations could not be loaded/);
   });
 
-  test("shows explicit catalog metadata as an available plugin integration", async () => {
+  test("connects an available MCP plugin from its own tile", async () => {
     seededCatalog = [catalogMatch()];
     render(<IntegrationsPage />, { wrapper: Wrapper });
 
     await screen.findByText("Example");
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    await screen.findByText("Methods for Example");
+    const connect = screen.getByRole("button", { name: "Connect Example" });
+    // One action on the tile, and it is the one that connects.
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+
+    fireEvent.click(connect);
+    await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
+    await waitFor(() => expect(authStarts).toContain("example-mcp-server"));
+    await screen.findByText("Finish signing in to Example in your browser.");
+    await settle();
+  });
+
+  test("reports the sign-in in the tile that started it, and only there", async () => {
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+
+    await screen.findByText("Finish signing in to Example in your browser.");
+    screen.getByRole("button", { name: "Cancel" });
+    // The page-level notice is for attempts a custom server card started.
+    expect(
+      screen.queryByText(/Waiting for you to authorize/),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop waiting" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Finish signing in to Example in your browser."),
+      ).toBeNull(),
+    );
+    await settle();
+  });
+
+  test("offers the provider's setup guide when its sign-in fails", async () => {
+    mcpAuthFails = true;
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+
+    await screen.findByRole("button", { name: "Setup guide" });
+    screen.getByRole("button", { name: "Retry connecting Example" });
+    await settle();
+  });
+
+  test("starts a managed authorization from a tile with no other way in", async () => {
+    seededProviders = [provider()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Notion" }));
+
+    await waitFor(() => expect(managedConnect).toHaveBeenCalledTimes(1));
+    await screen.findByText("Finish signing in to Notion in your browser.");
+    await settle();
+  });
+
+  test("gives a self-hosted assistant the split connect action", async () => {
+    platformHosted = false;
+    seededProviders = [provider()];
+    seededCatalog = [
+      catalogMatch({
+        name: "notion-mcp",
+        integration: {
+          ...catalogMatch().integration!,
+          displayName: "Notion",
+          oauthProvider: "notion",
+          logo: "notion.png",
+        },
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    const chevron = await screen.findByRole("button", {
+      name: "Other ways to connect Notion",
+    });
+    screen.getByRole("button", { name: "Connect Notion" });
+
+    // Radix opens a menu on pointer-down, not on a synthetic click.
+    fireEvent.pointerDown(chevron, { button: 0, ctrlKey: false });
+    for (const label of [
+      "Notion MCP server",
+      "Sign in through Vellum",
+      "Use your own OAuth app",
+    ]) {
+      await screen.findByRole("menuitem", { name: label });
+    }
+    await settle();
+  });
+
+  test("leaves a custom server's sign-in on the page-level notice", async () => {
+    seededServers = [server({ id: "custom-mcp", status: "needs-auth" })];
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("custom-mcp");
+    fireEvent.click(screen.getByRole("button", { name: "Finish connecting" }));
+
+    await screen.findByText(
+      "Complete authorization for custom-mcp in the browser, then return here.",
+    );
+    // No tile owns it, so no tile draws it.
+    expect(
+      screen.queryByText("Finish signing in to Example in your browser."),
+    ).toBeNull();
+    await settle();
+  });
+
+  test("hands the sign-in back to the page notice when a search hides its tile", async () => {
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+    await screen.findByText("Finish signing in to Example in your browser.");
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search integrations" }),
+      { target: { value: "nothing matches this" } },
+    );
+
+    await screen.findByText(
+      "Complete authorization for Example in the browser, then return here.",
+    );
+    screen.getByRole("button", { name: "Stop waiting" });
+    await settle();
+  });
+
+  test("holds every other connect action while a managed authorization is open", async () => {
+    seededProviders = [provider()];
+    seededServers = [server({ id: "custom-mcp", status: "needs-auth" })];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Notion" }));
+    await waitFor(() => expect(managedConnect).toHaveBeenCalledTimes(1));
+
+    // The rows and cards that predate the tiles gate on the MCP machine
+    // alone, which a managed authorization never touches.
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Add custom integration",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Finish connecting",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await settle();
+  });
+
+  test("replaces a failed method with the alternative picked after it", async () => {
+    mcpAuthFails = true;
+    seededProviders = [provider()];
+    seededCatalog = [
+      catalogMatch({
+        name: "notion-mcp",
+        integration: {
+          ...catalogMatch().integration!,
+          displayName: "Notion",
+          oauthProvider: "notion",
+          logo: "notion.png",
+        },
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Notion" }));
+    await screen.findByRole("button", { name: "Setup guide" });
+
+    // Radix opens a menu on pointer-down, not on a synthetic click.
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Try another way" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Sign in through Vellum" }),
+    );
+
+    await waitFor(() => expect(managedConnect).toHaveBeenCalledTimes(1));
+    await screen.findByText("Finish signing in to Notion in your browser.");
+    expect(screen.queryByRole("button", { name: "Setup guide" })).toBeNull();
+    await settle();
+  });
+
+  test("keeps the other ways out of sight on a platform-hosted assistant", async () => {
+    seededProviders = [provider()];
+    seededCatalog = [
+      catalogMatch({
+        name: "notion-mcp",
+        integration: {
+          ...catalogMatch().integration!,
+          displayName: "Notion",
+          oauthProvider: "notion",
+          logo: "notion.png",
+        },
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    expect(
+      screen.queryByRole("button", { name: "Other ways to connect Notion" }),
+    ).toBeNull();
+  });
+
+  test("sends a connect with no platform session to the login flow", async () => {
+    platformGate = "disabled";
+    seededProviders = [provider()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Notion");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Notion" }));
+    await waitFor(() => expect(startLogin).toHaveBeenCalledTimes(1));
+    expect(managedConnect).not.toHaveBeenCalled();
   });
 
   test("groups an installed plugin with its mapped provider", async () => {

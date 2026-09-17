@@ -74,6 +74,12 @@ export interface IntegrationTileProps {
    * this says.
    */
   showAlternatives?: boolean;
+  /**
+   * Blocks this tile's connect action while another integration holds the
+   * attempt. There is one sign-in machine per assistant, so a second click
+   * elsewhere would be swallowed rather than served.
+   */
+  disabled?: boolean;
   /** The plan's primary method, or an alternative picked from the menu. */
   onConnect: (method: ConnectMethod) => void;
   onLogin: () => void;
@@ -109,6 +115,7 @@ export function IntegrationTile({
   state,
   layout = "tile",
   showAlternatives = false,
+  disabled = false,
   onConnect,
   onLogin,
   onCancel,
@@ -149,6 +156,7 @@ export function IntegrationTile({
         // list, so a user who opens it does not have to work out which path
         // the plus would have taken.
         menuItems={methodItems(planMethods(plan))}
+        disabled={disabled}
         onClick={() => startMethod(plan.primary)}
       />
     ) : (
@@ -157,6 +165,7 @@ export function IntegrationTile({
         className={INTEGRATION_ACTION_SIZING}
         iconOnly={<Plus />}
         aria-label={t("integrationTile.connect", { name: plan.name })}
+        disabled={disabled}
         onClick={() => startMethod(plan.primary)}
       />
     );
@@ -176,6 +185,7 @@ export function IntegrationTile({
       className={INTEGRATION_ACTION_SIZING}
       iconOnly={<RefreshCw />}
       aria-label={t("integrationTile.retryLabel", { name: plan.name })}
+      disabled={disabled}
       onClick={onRetry}
     />
   ) : (

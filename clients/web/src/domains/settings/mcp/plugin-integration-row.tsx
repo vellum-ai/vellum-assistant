@@ -31,7 +31,6 @@ export function PluginIntegrationRow({
 
   return (
     <IntegrationListRow
-      layout={summary.configured ? "row" : "tile"}
       icon={
         <PluginIntegrationIcon
           assistantId={assistantId}
@@ -46,24 +45,16 @@ export function PluginIntegrationRow({
         ) : undefined
       }
       primaryAction={
-        summary.configured ? (
-          <Button
-            variant="outlined"
-            className={INTEGRATION_ACTION_SIZING}
-            iconOnly={<Settings />}
-            aria-label={t("integrationRow.configureLabel", {
-              name: method.definition.displayName,
-            })}
-            disabled={disabled}
-            onClick={onOpen}
-          />
-        ) : (
-          <Button variant="primary" disabled={disabled} onClick={onOpen}>
-            {method.definition.setup.mode === "manual"
-              ? t("pluginIntegration.setUp")
-              : t("integrationRow.connect")}
-          </Button>
-        )
+        <Button
+          variant="outlined"
+          className={INTEGRATION_ACTION_SIZING}
+          iconOnly={<Settings />}
+          aria-label={t("integrationRow.configureLabel", {
+            name: method.definition.displayName,
+          })}
+          disabled={disabled}
+          onClick={onOpen}
+        />
       }
     />
   );

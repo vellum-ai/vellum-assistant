@@ -70,7 +70,6 @@ describe("IntegrationRow", () => {
         description="Example description"
         logoUrl={null}
         connections={[]}
-        layout="tile"
         onConfigure={() => {}}
       />,
     );

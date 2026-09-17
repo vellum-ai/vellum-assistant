@@ -26,6 +26,22 @@ const handlers = {
   onClose: mock(() => {}),
 };
 
+/** A provider that allowlists a callback URL before sign-in works. */
+const manualPlan = planFor({
+  definitions: [
+    pluginDefinition({
+      pluginName: "ramp-mcp",
+      displayName: "Ramp",
+      description: "Cards, bills, and spend limits from Ramp.",
+      oauthProvider: undefined,
+      setup: {
+        mode: "manual",
+        instructions: "An admin has to allowlist our callback URL first.",
+      },
+    }),
+  ],
+});
+
 /** Notion over both its MCP server and a Vellum-hosted account. */
 const connectedPlan = planFor({
   providers: [NOTION_PROVIDER],
@@ -64,6 +80,50 @@ describe("IntegrationConnectModal", () => {
 
     openMenu("Other ways to connect Notion");
     await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
+  });
+
+  test("opens on the method the caller picked", () => {
+    const own = planFor({
+      providers: [NOTION_PROVIDER],
+      definitions: [pluginDefinition()],
+      ownOAuthAvailable: true,
+    });
+    const ownMethod = own.alternatives.find(
+      (method) => method.kind === "own-oauth",
+    )!;
+    modal({
+      plan: own,
+      focusMethodId: ownMethod.id,
+      ownOAuthContent: <p>Your own OAuth app</p>,
+    });
+
+    screen.getByText("Your own OAuth app");
+  });
+
+  test("walks a manual setup through the callback URL it was given", () => {
+    modal({
+      plan: manualPlan,
+      callbackUrl: {
+        status: "ready",
+        url: "https://assistant.example.com/v1/mcp/callback",
+      },
+      onCopyCallbackUrl: () => {},
+    });
+
+    screen.getByText("https://assistant.example.com/v1/mcp/callback");
+    expect(
+      (screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("offers a plain Connect where there is no callback URL to hand over", () => {
+    modal({ plan: manualPlan });
+
+    screen.getByText("An admin has to allowlist our callback URL first.");
+    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(handlers.onConnect).toHaveBeenCalledTimes(1);
   });
 
   test("opens on what is connected, and chips only what is not working", () => {

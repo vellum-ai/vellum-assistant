@@ -989,8 +989,7 @@
     "serverLoadFailed": "The plugin is installed, but its MCP servers could not be loaded.",
     "removeMessage": "Remove {name}? This removes the plugin, its skills, and {count, plural, one {its # MCP server} other {all # MCP servers}}.",
     "removePlugin": "Remove plugin",
-    "removeTitle": "Remove {name}?",
-    "setUp": "Set up"
+    "removeTitle": "Remove {name}?"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} account connected successfully.",

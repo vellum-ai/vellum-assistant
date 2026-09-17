@@ -906,8 +906,7 @@
     "serverLoadFailed": "Плагин установлен, но не удалось загрузить его серверы MCP.",
     "removeMessage": "Удалить {name}? Будут удалены плагин, его навыки и {count, plural, one {# сервер MCP} few {# сервера MCP} many {# серверов MCP} other {# сервера MCP}}.",
     "removePlugin": "Удалить плагин",
-    "removeTitle": "Удалить {name}?",
-    "setUp": "Настроить"
+    "removeTitle": "Удалить {name}?"
   },
   "integrationsPage": {
     "accountConnectedToast": "Аккаунт {providerLabel} успешно подключён.",
