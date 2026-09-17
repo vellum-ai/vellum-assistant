@@ -27,9 +27,11 @@ cleanup are separate concerns.
 
 ## Diagnostics
 
-The request-scoped query provider installs one asset-query observer. It records
-terminal failures and subsequent recoveries in the bounded lifecycle diagnostic
-ring. Multiple consumers of the same query do not create duplicate events.
+The request-scoped query provider installs one asset-query observer once the
+authentication session settles. Saved events survive a same-user reload while
+the session probe is pending. The observer records terminal failures and
+subsequent recoveries in the bounded lifecycle diagnostic ring. Multiple
+consumers of the same query do not create duplicate events.
 
 Support archives include `web-asset-diagnostics.json`, a current snapshot from
 the same scoped cache used by the UI. Fields are allowlisted: source, endpoint
