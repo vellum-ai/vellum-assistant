@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, fireEvent, screen, userEvent, waitFor } from "storybook/test";
 
 import { Button } from "./button";
 import { ConfirmDialog, type ConfirmDialogProps } from "./confirm-dialog";
+import { Modal } from "./modal";
 
 const meta: Meta<ConfirmDialogProps> = {
   title: "Components/ConfirmDialog",
@@ -125,5 +127,80 @@ export const CustomLabels: Story = {
         />
       </>
     );
+  },
+};
+/**
+ * A confirmation asked from inside another modal answers only for itself.
+ *
+ * The two dialogs are separate layers, and the outer one is told about an
+ * outside press on the click, after React has flushed. The confirmation has
+ * closed itself by then, so its own button reads as a press outside the modal
+ * behind it. Only the backdrop dismisses a modal, which is what keeps the
+ * answer from taking the dialog that asked the question with it.
+ */
+export const InsideModal: Story = {
+  args: {
+    title: "Remove user@example.com?",
+    message: "Are you sure?",
+    confirmLabel: "Remove",
+    destructive: true,
+  },
+  parameters: { controls: { disable: true } },
+  render: function InsideModalStory(args) {
+    const [open, setOpen] = useState(true);
+    const [confirming, setConfirming] = useState(false);
+    const [accounts, setAccounts] = useState([
+      "notion-mcp",
+      "user@example.com",
+    ]);
+    return (
+      <Modal.Root open={open} onOpenChange={setOpen}>
+        <Modal.Content size="md">
+          <Modal.Header>
+            <Modal.Title>Notion</Modal.Title>
+          </Modal.Header>
+          <Modal.Body className="flex flex-col items-start gap-3">
+            <ul className="text-body-medium-default">
+              {accounts.map((account) => (
+                <li key={account}>{account}</li>
+              ))}
+            </ul>
+            <Button variant="outlined" onClick={() => setConfirming(true)}>
+              Remove an account
+            </Button>
+          </Modal.Body>
+        </Modal.Content>
+        <ConfirmDialog
+          {...args}
+          open={confirming}
+          onConfirm={() => {
+            setAccounts((rest) => rest.slice(0, -1));
+            setConfirming(false);
+          }}
+          onCancel={() => setConfirming(false)}
+        />
+      </Modal.Root>
+    );
+  },
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Remove an account" }),
+    );
+
+    // Pressed and released, not clicked: the layer below is told about an
+    // outside press on the click, and it is the press that arms that check.
+    const confirm = await screen.findByRole("button", { name: "Remove" });
+    fireEvent.pointerDown(confirm, { button: 0, ctrlKey: false });
+    fireEvent.pointerUp(confirm, { button: 0 });
+    fireEvent.click(confirm, { button: 0 });
+
+    // The question is answered, and the dialog that asked it is still open on
+    // the account the answer left behind.
+    await waitFor(() => {
+      expect(screen.queryByText("Are you sure?")).toBeNull();
+    });
+    await expect(await screen.findByText("Notion")).toBeVisible();
+    await expect(await screen.findByText("notion-mcp")).toBeVisible();
+    expect(screen.queryByText("user@example.com")).toBeNull();
   },
 };
