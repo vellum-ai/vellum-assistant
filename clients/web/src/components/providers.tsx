@@ -27,6 +27,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { useNativeLaunchScreenReady } from "@/hooks/use-native-launch-screen-ready";
+import { installAssetQueryDiagnostics } from "@/lib/asset-query-diagnostics";
 import { installQueryPressureProbe } from "@/lib/commit-pressure";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useRequestScopeKey } from "@/stores/request-scope";
@@ -56,8 +57,10 @@ function AuthScopedQueryClientProvider({ children }: { children: ReactNode }) {
 
 function RequestScopedQueryClientProvider({
   children,
+  scopeKey,
 }: {
   children: ReactNode;
+  scopeKey: string;
 }) {
   const [queryClient] = useState(() => createQueryClient());
   // Query notifications re-render through `useSyncExternalStore`, so they are
@@ -66,6 +69,10 @@ function RequestScopedQueryClientProvider({
   // live under, and the auth-scoped client above serves a handful of
   // low-frequency reads.
   useEffect(() => installQueryPressureProbe(queryClient), [queryClient]);
+  useEffect(
+    () => installAssetQueryDiagnostics(queryClient, scopeKey),
+    [queryClient, scopeKey],
+  );
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -79,7 +86,7 @@ function ScopeKeyedQueryClientProvider({ children }: { children: ReactNode }) {
   const scopeKey = useRequestScopeKey();
 
   return (
-    <RequestScopedQueryClientProvider key={scopeKey}>
+    <RequestScopedQueryClientProvider key={scopeKey} scopeKey={scopeKey}>
       <ProfileQuickAddProvider>{children}</ProfileQuickAddProvider>
     </RequestScopedQueryClientProvider>
   );

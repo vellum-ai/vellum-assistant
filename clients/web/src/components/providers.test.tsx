@@ -9,6 +9,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { act, cleanup, render } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 
+import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
+import { ApiError } from "@/utils/api-errors";
+
 // The quick-add controller runs a daemon query and pulls in the settings
 // domain's profile editor; neither participates in cache scoping.
 mock.module("@/components/profile-quick-add-provider", () => ({
@@ -79,6 +83,46 @@ afterEach(() => {
 });
 
 describe("AppProviders cache scope", () => {
+  test("removes asset failure diagnostics when the request identity changes", async () => {
+    seedPersistedOrganization(ORGANIZATION_ID);
+    renderProviders();
+    const previousClient = observedClient!;
+    const options = {
+      queryKey: appsGetQueryKey({
+        path: { assistant_id: "assistant-123" },
+        query: { conversationId: "conv-123" },
+      }),
+      queryFn: async () => {
+        throw new ApiError(405, "No list");
+      },
+      retry: false as const,
+    };
+    await expect(previousClient.fetchQuery(options)).rejects.toThrow();
+    expect(
+      getLifecycleDiagnosticsEvents().filter(
+        (event) => event.kind === "asset_query_failed",
+      ),
+    ).toHaveLength(1);
+    act(() => {
+      useOrganizationStore.setState({
+        currentOrganizationId: "org-xyz",
+        persistedOrganizationId: "org-xyz",
+        status: "ready",
+      });
+    });
+    expect(
+      getLifecycleDiagnosticsEvents().filter((event) =>
+        event.kind.startsWith("asset_query_"),
+      ),
+    ).toHaveLength(0);
+    await expect(previousClient.fetchQuery(options)).rejects.toThrow();
+    expect(
+      getLifecycleDiagnosticsEvents().filter((event) =>
+        event.kind.startsWith("asset_query_"),
+      ),
+    ).toHaveLength(0);
+  });
+
   test("drops a persisted org's responses when that org is revoked", () => {
     // The id slice is null throughout: the persisted id is what the request
     // header carries, so this response belongs to that organization.

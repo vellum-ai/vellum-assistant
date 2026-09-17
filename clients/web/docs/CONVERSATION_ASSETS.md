@@ -24,3 +24,24 @@ camera-frame classification is unavailable on that path. Authorization failures,
 The platform exposes attachment collection GET requests through its authenticated
 runtime proxy. POST retains its upload handler. DELETE routing and attachment
 cleanup are separate concerns.
+
+## Diagnostics
+
+The request-scoped query provider installs one asset-query observer. It records
+terminal failures and subsequent recoveries in the bounded lifecycle diagnostic
+ring. Multiple consumers of the same query do not create duplicate events.
+
+Support archives include `web-asset-diagnostics.json`, a current snapshot from
+the same scoped cache used by the UI. Fields are allowlisted: source, endpoint
+template, supported filters and pagination, scoped identifiers, status and error
+category, retry state, and cached-data availability. Request bodies, response
+bodies, credentials, filenames, and file contents are excluded. Collection is
+best-effort, and changing user or organization clears prior asset events.
+
+Pagination diagnostics include loaded offsets and the requested offset for an
+initial load or next page. A multi-page refresh can fail on any loaded page, so
+its failed offset is recorded as unknown. The existing error path does not retain
+upstream request IDs; diagnostics do not infer one from error text or bodies.
+
+These queries use existing retry and reconnect policies. The feature adds no
+background polling or persistent server data.
