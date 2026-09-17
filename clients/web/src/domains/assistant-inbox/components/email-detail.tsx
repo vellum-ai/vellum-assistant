@@ -132,22 +132,26 @@ export function EmailDetail({
           </section>
         ) : null}
 
-        <footer className="flex items-center gap-3 pt-2">
-          {inbound ? (
+        {/* The reply action exists only when something will act on it: a
+            button that looks live and does nothing is worse than none. */}
+        {inbound && onAskToReply ? (
+          <footer className="flex items-center gap-3 pt-2">
             <Button
               variant="outlined"
               leftIcon={<MessageSquareText />}
-              onClick={onAskToReply ? () => onAskToReply(email) : undefined}
+              onClick={() => onAskToReply(email)}
             >
               {t("emailDetail.askToReply", { name: assistantName })}
             </Button>
-          ) : (
+          </footer>
+        ) : !inbound ? (
+          <footer className="flex items-center gap-3 pt-2">
             <span className="flex items-center gap-1.5 text-body-small-lighter text-[var(--content-tertiary)]">
               <Send className="size-3.5" aria-hidden="true" />
               {t("emailDetail.sentBy", { name: assistantName })}
             </span>
-          )}
-        </footer>
+          </footer>
+        ) : null}
       </div>
     </article>
   );

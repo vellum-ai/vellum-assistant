@@ -6,7 +6,7 @@
   "assistantInboxHeader": {
     "title": "{name}'s Inbox",
     "subtitle": "Here are all the emails I've received and sent for you.",
-    "usage": "{sent} sent today · {received} received today"
+    "usage": "{sent, plural, one {# sent} other {# sent}} today · {received, plural, one {# received} other {# received}} today"
   },
   "addressPill": {
     "copyAddress": "Copy email address",

@@ -17,7 +17,7 @@ export const MOCK_ROOT_DOMAIN = "vellum.me";
 export const MOCK_ADDRESS = `hi@${MOCK_ASSISTANT_HANDLE}.${MOCK_ROOT_DOMAIN}`;
 
 const VELLY = { name: MOCK_ASSISTANT_NAME, address: MOCK_ADDRESS };
-const YOU = { name: "Tirman Sidhu", address: "tirman@vellum.ai" };
+const YOU = { name: "Alex Rivera", address: "alex@example.com" };
 
 function at(daysAgo: number, hour: number, minute = 0): string {
   const date = new Date(MOCK_NOW);
@@ -32,25 +32,25 @@ export const MOCK_INBOX: InboxEmail[] = [
     direction: "inbound",
     from: {
       name: "Dr. Patel's Office",
-      address: "front-desk@lakesidedental.com",
+      address: "front-desk@lakeside-dental.example.com",
     },
     to: [VELLY],
     subject: "Reminder: cleaning on Thursday at 9:30",
     snippet:
-      "Hi Velly, this is a reminder that Tirman has a cleaning booked for Thursday...",
-    body: "Hi Velly,\n\nThis is a reminder that Tirman has a cleaning booked for Thursday, September 18 at 9:30am with Dr. Patel.\n\nPlease reply to confirm, or let us know if you need to move it. We hold the slot until Wednesday noon.\n\nThanks,\nLakeside Dental",
+      "Hi Velly, this is a reminder that Alex has a cleaning booked for Thursday...",
+    body: "Hi Velly,\n\nThis is a reminder that Alex has a cleaning booked for Thursday, September 18 at 9:30am with Dr. Patel.\n\nPlease reply to confirm, or let us know if you need to move it. We hold the slot until Wednesday noon.\n\nThanks,\nLakeside Dental",
     createdAt: at(0, 14, 5),
     attachments: [],
   },
   {
     id: "in-2",
     direction: "inbound",
-    from: { name: "Maya Chen", address: "maya@northwind.co" },
+    from: { name: "Maya Chen", address: "maya@northwind.example.org" },
     to: [VELLY],
     subject: "Q4 vendor contract for review",
     snippet:
-      "Attaching the redlined contract and the pricing sheet. Can Tirman take a look before Friday?",
-    body: "Hi Velly,\n\nAttaching the redlined contract and the updated pricing sheet. Can Tirman take a look before Friday? The main change is in section 4, where we moved to net-45 terms.\n\nHappy to jump on a call if anything is unclear.\n\nBest,\nMaya",
+      "Attaching the redlined contract and the pricing sheet. Can Alex take a look before Friday?",
+    body: "Hi Velly,\n\nAttaching the redlined contract and the updated pricing sheet. Can Alex take a look before Friday? The main change is in section 4, where we moved to net-45 terms.\n\nHappy to jump on a call if anything is unclear.\n\nBest,\nMaya",
     createdAt: at(0, 9, 52),
     attachments: [
       {
@@ -71,7 +71,7 @@ export const MOCK_INBOX: InboxEmail[] = [
   {
     id: "in-3",
     direction: "inbound",
-    from: { address: "no-reply@flightaware.example" },
+    from: { address: "no-reply@flights.example.net" },
     to: [VELLY],
     subject: "Your flight SFO to JFK on Sep 22 has a gate change",
     snippet:
@@ -83,19 +83,22 @@ export const MOCK_INBOX: InboxEmail[] = [
   {
     id: "in-4",
     direction: "inbound",
-    from: { name: "Sam Okafor", address: "sam.okafor@gmail.com" },
+    from: { name: "Sam Okafor", address: "sam.okafor@example.com" },
     to: [VELLY],
     subject: "Re: Dinner on the 20th?",
     snippet:
       "Saturday works. Somewhere in the Mission? I can book if you tell me a time.",
-    body: "Saturday works! Somewhere in the Mission? I can book if you tell me a time.\n\nAlso, tell Tirman I still have his charger.\n\nSam",
+    body: "Saturday works! Somewhere in the Mission? I can book if you tell me a time.\n\nAlso, tell Alex I still have his charger.\n\nSam",
     createdAt: at(2, 11, 8),
     attachments: [],
   },
   {
     id: "in-5",
     direction: "inbound",
-    from: { name: "The Weekly Brief", address: "hello@weeklybrief.news" },
+    from: {
+      name: "The Weekly Brief",
+      address: "hello@weeklybrief.example.org",
+    },
     to: [VELLY],
     subject: "This week: the three things worth reading",
     snippet:
@@ -112,11 +115,14 @@ export const MOCK_SENT: InboxEmail[] = [
     direction: "outbound",
     from: VELLY,
     to: [
-      { name: "Dr. Patel's Office", address: "front-desk@lakesidedental.com" },
+      {
+        name: "Dr. Patel's Office",
+        address: "front-desk@lakeside-dental.example.com",
+      },
     ],
     subject: "Re: Reminder: cleaning on Thursday at 9:30",
-    snippet: "Confirmed, thank you. Tirman will be there Thursday at 9:30.",
-    body: "Confirmed, thank you. Tirman will be there Thursday at 9:30.\n\nVelly\nAssistant to Tirman Sidhu",
+    snippet: "Confirmed, thank you. Alex will be there Thursday at 9:30.",
+    body: "Confirmed, thank you. Alex will be there Thursday at 9:30.\n\nVelly\nAssistant to Alex Sidhu",
     createdAt: at(0, 14, 12),
     attachments: [],
   },
@@ -124,11 +130,11 @@ export const MOCK_SENT: InboxEmail[] = [
     id: "out-2",
     direction: "outbound",
     from: VELLY,
-    to: [{ name: "Sam Okafor", address: "sam.okafor@gmail.com" }],
+    to: [{ name: "Sam Okafor", address: "sam.okafor@example.com" }],
     subject: "Re: Dinner on the 20th?",
     snippet:
-      "7:30 on Saturday works for Tirman. Foreign Cinema if they have a table?",
-    body: "7:30 on Saturday works for Tirman. Foreign Cinema if they have a table? If not, anywhere on Valencia is fine.\n\nHe says thanks for holding on to the charger.\n\nVelly",
+      "7:30 on Saturday works for Alex. Foreign Cinema if they have a table?",
+    body: "7:30 on Saturday works for Alex. Foreign Cinema if they have a table? If not, anywhere on Valencia is fine.\n\nHe says thanks for holding on to the charger.\n\nVelly",
     createdAt: at(2, 11, 40),
     attachments: [],
   },

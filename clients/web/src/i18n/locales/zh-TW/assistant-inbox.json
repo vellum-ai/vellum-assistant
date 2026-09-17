@@ -6,7 +6,7 @@
   "assistantInboxHeader": {
     "title": "{name} 的收件匣",
     "subtitle": "這裡是我為你收到和寄出的所有郵件。",
-    "usage": "今天已寄出 {sent} 封 · 已收到 {received} 封"
+    "usage": "今天已寄出 {sent, plural, other {# 封}} · 已收到 {received, plural, other {# 封}}"
   },
   "addressPill": {
     "copyAddress": "複製電子郵件地址",
