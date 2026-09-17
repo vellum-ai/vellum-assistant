@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   applyEvent,
   applyEventsToHistory,
+  emptyHistory,
+  resolveSeed,
   resolveSnapshot,
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -888,5 +890,40 @@ describe("camera-frame echoes", () => {
     expect(replay.messages[1]?.isCameraFrame).toBeUndefined();
     expect(applyEventsToHistory(replay, events)).toEqual(replay);
     expect(SEED.messages).toEqual([]);
+  });
+});
+
+describe("resolveSeed", () => {
+  const liveAt = (seq: number): PaginatedHistoryResult => ({ ...SEED, seq });
+
+  test("seeds when there is no live view to protect", () => {
+    const snapshot = { ...queuedSnapshot(), seq: null };
+    expect(resolveSeed(null, snapshot, null)).toEqual({
+      kind: "seed",
+      history: resolveSnapshot(snapshot, null),
+    });
+    expect(resolveSeed(emptyHistory(), snapshot, null).kind).toBe("seed");
+  });
+
+  test("drops an anchor-less snapshot over a live view that folded events", () => {
+    expect(
+      resolveSeed(liveAt(7), { ...queuedSnapshot(), seq: null }, null),
+    ).toEqual({ kind: "skip_anchorless", liveSeq: 7 });
+  });
+
+  test("drops a stale-anchored snapshot the buffer cannot bridge", () => {
+    expect(resolveSeed(liveAt(7), queuedSnapshot(), null)).toEqual({
+      kind: "skip_stale_anchor",
+      liveSeq: 7,
+      fetchedSeq: 1,
+    });
+  });
+
+  test("seeds a stale-anchored snapshot when the buffered tail bridges it", () => {
+    const tail = [userEcho(2, "u-2", "hello")];
+    expect(resolveSeed(liveAt(7), queuedSnapshot(), tail)).toEqual({
+      kind: "seed",
+      history: resolveSnapshot(queuedSnapshot(), tail),
+    });
   });
 });
