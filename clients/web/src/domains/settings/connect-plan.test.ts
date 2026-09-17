@@ -240,6 +240,50 @@ describe("buildConnectPlan", () => {
       "A Ramp admin must allowlist the callback URL.",
     );
   });
+
+  test("resolves a plugin's logo to the asset it ships, not a bare file name", () => {
+    // The catalog gives a file name. Handed to an `<img>` as-is it resolves
+    // against the page's own path, so the tile 404s on any nested route and
+    // falls back to initials.
+    const plan = planOf(
+      {
+        kind: "plugin",
+        id: "plugin:ashby-mcp",
+        name: "Ashby",
+        description: "The Ashby MCP server.",
+        configured: false,
+        method: pluginMethod({
+          pluginName: "ashby-mcp",
+          oauthProvider: undefined,
+          logo: "ashby-mcp.png",
+        }),
+      },
+      { platformGate: "full", ownOAuthAvailable: false, mcpServersLoaded: true },
+    );
+
+    // Matched on the substring, not the whole string: `publicAsset()` prefixes
+    // `import.meta.env.BASE_URL`, which Vite supplies and the test runner does
+    // not. What matters is that the catalog's bare file name became a path
+    // under `public/` rather than staying relative to the page.
+    expect(plan.logoUrl).toContain("images/integrations/ashby-mcp.png");
+    expect(plan.logoUrl).not.toBe("ashby-mcp.png");
+  });
+
+  test("leaves a plugin that ships no logo without one", () => {
+    const plan = planOf(
+      {
+        kind: "plugin",
+        id: "plugin:ramp-mcp",
+        name: "Ramp",
+        description: "The Ramp MCP server.",
+        configured: false,
+        method: pluginMethod({ pluginName: "ramp-mcp", logo: "" }),
+      },
+      { platformGate: "full", ownOAuthAvailable: false, mcpServersLoaded: true },
+    );
+
+    expect(plan.logoUrl).toBeNull();
+  });
 });
 
 describe("connectableMethods", () => {
