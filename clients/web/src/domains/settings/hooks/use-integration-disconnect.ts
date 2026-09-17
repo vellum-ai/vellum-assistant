@@ -98,8 +98,16 @@ export function useIntegrationDisconnect({
 
   const mutateAccount = disconnectAccount.mutate;
   const removePlugin = uninstall.remove;
+  // One removal at a time. The row stays on screen until the request settles
+  // and the list reloads, so a second confirmation would send the same
+  // uninstall twice and report the second one's "not found" as a failure of
+  // a removal that worked.
+  const busy = uninstall.isRemoving || disconnectAccount.isPending;
   return useCallback(
     (connection: ConnectionSummary, displayName: string) => {
+      if (busy) {
+        return;
+      }
       name.current = displayName;
       if (isMcpMethodKind(connection.methodKind)) {
         if (connection.serverId) {
@@ -125,6 +133,7 @@ export function useIntegrationDisconnect({
       });
     },
     [
+      busy,
       mutateAccount,
       onRemoveServer,
       onStopAuth,

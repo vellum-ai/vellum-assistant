@@ -140,6 +140,28 @@ function mcpConnections(
   });
 }
 
+/**
+ * An installed plugin that declared no MCP server still has to appear, or the
+ * only thing left to do with it (take it away again) has nowhere to live. It
+ * is the plugin itself that is connected here, not a server, so the row has
+ * no endpoint and nothing to sign in to.
+ */
+function installedWithoutServers(
+  definition: McpPluginDefinition,
+  methodId: string,
+  kind: ConnectMethodKind,
+): ConnectionSummary {
+  return {
+    id: `plugin:${definition.pluginName}`,
+    methodId,
+    methodKind: kind,
+    label: null,
+    status: "pending",
+    pluginName: definition.pluginName,
+    canReconnect: false,
+  };
+}
+
 function oauthConnections(
   connections: OAuthConnection[],
   methodId: string,
@@ -166,7 +188,10 @@ function pluginMethod(method: McpPluginMethod): ConnectMethod {
     availability: "available",
     instructions: definition.setup.instructions,
     setupGuideUrl: definition.documentationUrl,
-    connections: mcpConnections(method, id, kind),
+    connections:
+      method.servers.length === 0 && definition.installed
+        ? [installedWithoutServers(definition, id, kind)]
+        : mcpConnections(method, id, kind),
     plugin: definition,
   };
 }

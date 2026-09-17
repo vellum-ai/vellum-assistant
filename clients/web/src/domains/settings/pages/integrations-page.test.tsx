@@ -99,6 +99,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   usePluginsInstallPostMutation: () => ({
     mutateAsync: async (variables: { body: { name: string } }) => {
       const name = variables.body.name;
+      // The daemon refuses an existing install rather than reusing it, so a
+      // path that installs what is already there has to fail here too.
+      if (seededPlugins.some((plugin) => plugin.name === name)) {
+        throw new Error(`Plugin "${name}" is already installed.`);
+      }
       installedPluginNames.push(name);
       seededPlugins = [...seededPlugins, installedPlugin({ name })];
       seededServers = [
@@ -978,6 +983,65 @@ describe("IntegrationsPage", () => {
     await settle();
   });
 
+  test("connect another signs in without reinstalling an installed plugin", async () => {
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    seededServers = [
+      server({
+        id: "example-server",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
+    await screen.findByText("Manage how Vellum connects to Example.");
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Connect another" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Example MCP server" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The install would be refused, so the attempt goes straight to the
+    // server the plugin already declared.
+    await waitFor(() => expect(authStarts).toContain("example-server"));
+    expect(installedPluginNames).toEqual([]);
+    await settle();
+  });
+
+  test("an installed plugin with no servers can still be taken away", async () => {
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
+    await screen.findByText("Manage how Vellum connects to Example.");
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "More actions for Example MCP server",
+      }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Disconnect" }),
+    );
+
+    await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
+    await settle();
+  });
+
   test("closing the dialog gives up the sign-in it was reporting", async () => {
     seededProviders = [provider()];
     seededConnections = [connection({ status: "ERROR", connected: false })];
@@ -1048,35 +1112,6 @@ describe("IntegrationsPage", () => {
 
     await screen.findByRole("button", { name: "search_pages" });
     screen.getByText("https://mcp.example.com/mcp");
-    await settle();
-  });
-
-  test("connect another starts a sign-in from the connections view", async () => {
-    seededCatalog = [catalogMatch()];
-    seededPlugins = [installedPlugin()];
-    seededServers = [
-      server({
-        id: "example-server",
-        source: "plugin",
-        pluginName: "example-mcp",
-      }),
-    ];
-    render(<IntegrationsPage />, { wrapper: Wrapper });
-
-    await screen.findByRole("heading", { name: /Your integrations/ });
-    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
-    await screen.findByText("Manage how Vellum connects to Example.");
-
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Connect another" }),
-      { button: 0, ctrlKey: false },
-    );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Example MCP server" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-    await waitFor(() => expect(authStarts.length).toBeGreaterThan(0));
     await settle();
   });
 

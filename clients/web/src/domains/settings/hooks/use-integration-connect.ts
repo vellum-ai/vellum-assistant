@@ -261,6 +261,12 @@ export function useIntegrationConnect({
       if (!definition || authIsBusy) {
         return;
       }
+      // A plugin that is already installed must not be installed again: the
+      // install refuses an existing copy rather than reusing it, and the
+      // attempt would end on that refusal without reaching the provider. Its
+      // servers are declared already, so the preparation is left with only
+      // the job of naming the one to authorize.
+      const installed = Boolean(definition.installed);
       claimMcp(
         {
           itemId: item.id,
@@ -271,7 +277,9 @@ export function useIntegrationConnect({
         provisionalPluginServerId(definition.pluginName),
         plan.name,
         preparePluginMcpConnect({
-          install: () => installPlugin(definition.pluginName),
+          install: installed
+            ? () => Promise.resolve()
+            : () => installPlugin(definition.pluginName),
           loadPluginServers: () => loadPluginServers(definition.pluginName),
         }),
       );
