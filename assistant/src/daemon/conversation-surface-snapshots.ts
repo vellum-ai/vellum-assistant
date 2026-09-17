@@ -7,8 +7,8 @@
  */
 
 import { coerceSurfaceDataRecord } from "../api/surfaces.js";
-import type { ConversationSurfaceSnapshot } from "../plugin-api/conversation-surfaces.js";
 import { getMessages } from "../persistence/conversation-crud.js";
+import type { ConversationSurfaceSnapshot } from "../plugin-api/conversation-surfaces.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { isPlainObject } from "../util/object.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";

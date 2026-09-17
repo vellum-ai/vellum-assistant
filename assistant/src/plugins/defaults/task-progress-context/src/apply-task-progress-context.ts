@@ -1,4 +1,5 @@
 import {
+  type ContentBlock,
   type ConversationSurfaceSnapshot,
   listConversationSurfaces,
   type Message,
@@ -15,28 +16,33 @@ function stripTaggedBlocksFromText(text: string): string {
 
 function stripActiveTaskProgressBlocks(messages: Message[]): Message[] {
   let changed = false;
-  const next = messages.map((message) => {
+  const next: Message[] = [];
+  for (const message of messages) {
+    const content: ContentBlock[] = [];
     let contentChanged = false;
-    const content = message.content.flatMap((block) => {
+    for (const block of message.content) {
       if (block.type !== "text") {
-        return [block];
+        content.push(block);
+        continue;
       }
       const stripped = stripTaggedBlocksFromText(block.text);
       if (stripped === block.text) {
-        return [block];
+        content.push(block);
+        continue;
       }
       contentChanged = true;
       if (stripped.trim().length === 0) {
-        return [];
+        continue;
       }
-      return [{ ...block, text: stripped }];
-    });
+      content.push({ ...block, text: stripped });
+    }
     if (!contentChanged) {
-      return message;
+      next.push(message);
+      continue;
     }
     changed = true;
-    return { ...message, content };
-  });
+    next.push({ ...message, content });
+  }
   return changed ? next : messages;
 }
 

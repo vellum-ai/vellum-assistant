@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { getTaskProgressDataFromSurfaceData as realParser } from "../../../../runtime/task-progress.js";
 import type { ConversationSurfaceSnapshot } from "../../../../plugin-api/conversation-surfaces.js";
 import type { Message } from "../../../../providers/types.js";
+import { getTaskProgressDataFromSurfaceData as realParser } from "../../../../runtime/task-progress.js";
 
 let listImpl: (
   conversationId: string,
