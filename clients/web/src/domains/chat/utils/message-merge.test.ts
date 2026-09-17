@@ -148,31 +148,41 @@ describe("mergeAdjacentAssistantMessages · standalone rows", () => {
   });
 });
 
+/** The turn row a `react_to_message` call leaves behind: activity, no text. */
+function makeReactToolTurn(id: string, timestamp: number): DisplayMessage {
+  return makeAssistant({
+    id,
+    timestamp,
+    toolCalls: [{ id: "tu-1", name: "react_to_message", input: {} }],
+    contentOrder: [{ type: "tool", id: "0" }],
+  });
+}
+
+/** The assistant's own reaction record as `/messages` serves it. */
+function makeReactionRow(id: string, timestamp: number): DisplayMessage {
+  return makeAssistant({
+    id,
+    ...textBody("[reaction]"),
+    timestamp,
+    reaction: {
+      emoji: "eyes",
+      emojiKind: "unicode",
+      emojiName: "👀",
+      op: "added",
+      targetMessageId: "1700000000.111111",
+      selfAuthored: true,
+    },
+  });
+}
+
 describe("mergeAdjacentAssistantMessages · reaction rows", () => {
   test("a reaction row never folds, in either direction", () => {
     // The fold keeps only the survivor's fields: folded into the preceding
     // turn, the row's reaction fact is dropped and its stored sentinel text
     // renders as assistant speech under that turn's activity.
     const messages = [
-      makeAssistant({
-        id: "a-1",
-        timestamp: 1000,
-        toolCalls: [{ id: "tu-1", name: "react_to_message", input: {} }],
-        contentOrder: [{ type: "tool", id: "0" }],
-      }),
-      makeAssistant({
-        id: "react-1",
-        ...textBody("[reaction]"),
-        timestamp: 1010,
-        reaction: {
-          emoji: "eyes",
-          emojiKind: "unicode",
-          emojiName: "👀",
-          op: "added",
-          targetMessageId: "1700000000.111111",
-          selfAuthored: true,
-        },
-      }),
+      makeReactToolTurn("a-1", 1000),
+      makeReactionRow("react-1", 1010),
       makeAssistant({ id: "a-2", ...textBody("later"), timestamp: 1020 }),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
@@ -214,12 +224,7 @@ describe("mergeAdjacentAssistantMessages · no-response rows", () => {
     // and the turn shows its activity with no sign the assistant chose
     // silence.
     const messages = [
-      makeAssistant({
-        id: "a-1",
-        timestamp: 1000,
-        toolCalls: [{ id: "tu-1", name: "react_to_message", input: {} }],
-        contentOrder: [{ type: "tool", id: "0" }],
-      }),
+      makeReactToolTurn("a-1", 1000),
       makeAssistant({ id: "quiet-1", timestamp: 1010, isNoResponse: true }),
       makeAssistant({ id: "a-2", ...textBody("later"), timestamp: 1020 }),
     ];
@@ -232,24 +237,9 @@ describe("mergeAdjacentAssistantMessages · no-response rows", () => {
     // The rows a reaction-only channel turn persists, as the daemon serves
     // them: the tool call, the silence marker, then the reaction record.
     const messages = [
-      makeAssistant({
-        id: "a-1",
-        timestamp: 1000,
-        toolCalls: [{ id: "tu-1", name: "react_to_message", input: {} }],
-        contentOrder: [{ type: "tool", id: "0" }],
-      }),
+      makeReactToolTurn("a-1", 1000),
       makeAssistant({ id: "quiet-1", timestamp: 1010, isNoResponse: true }),
-      makeAssistant({
-        id: "react-1",
-        ...textBody("[reaction]"),
-        timestamp: 1020,
-        reaction: {
-          emoji: "eyes",
-          op: "added",
-          targetMessageId: "1700000000.111111",
-          selfAuthored: true,
-        },
-      }),
+      makeReactionRow("react-1", 1020),
     ];
     const result = mergeAdjacentAssistantMessages(messages);
     expect(result).toBe(messages);
