@@ -12,6 +12,7 @@
 import { createRequire } from "node:module";
 
 import { isSessionGroupsEnabled } from "../config/session-groups-gate.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getLogger } from "../util/logger.js";
 import { LiveVoiceSessionManager } from "./live-voice-session-manager.js";
 
@@ -24,6 +25,15 @@ type LiveVoiceSessionFactory =
 
 let manager: LiveVoiceSessionManager | null = null;
 let bundledSessionFactory: LiveVoiceSessionFactory | null = null;
+
+export function deliverSubagentNotificationToLiveVoice(
+  conversationId: string,
+  notification: SubagentParentNotification,
+): boolean {
+  return (
+    manager?.deliverSubagentNotification(conversationId, notification) ?? false
+  );
+}
 
 export function setBundledLiveVoiceSessionFactory(
   factory: LiveVoiceSessionFactory | null,

@@ -11,7 +11,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
 | Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
 | Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
-| Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)                 |
+| Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)               |
 | Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
@@ -768,6 +768,27 @@ graph TB
 - **Routes** (read/abort/resume surfaces): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`, `POST /v1/workflows/runs/:id/resume` (the resume route refuses a side-effecting run in normal posture and proceeds at full access).
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
+
+## Live Voice Task Outcomes
+
+Subagent updates for a conversation with an active live-voice call are claimed by
+the session manager before generic parent-turn injection. The voice session queues
+updates per task and delivers them through hidden voice turns once user speech,
+the current response and queued playback have yielded the floor. Interrupted
+announcements stay pending; hang-up returns undelivered outcomes to the conversation.
+See [live voice task outcomes](assistant/docs/live-voice-task-outcomes.md) for routing,
+attribution and playback semantics.
+
+```mermaid
+flowchart LR
+    Worker[Subagent update] --> Router[Parent notification router]
+    Router -->|Matching live call| Queue[Per-task voice queue]
+    Router -->|No matching call| Parent[Parent conversation queue]
+    Queue -->|Floor available| Voice[Hidden voice turn]
+    Voice -->|Useful new outcome| Speech[Paced TTS]
+    Voice -->|Silent acknowledgement| Done[Update consumed]
+    Queue -->|Hang-up after teardown| Parent
+```
 
 ## Live Voice Input Diagnostics
 

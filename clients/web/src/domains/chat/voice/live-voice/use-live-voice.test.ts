@@ -2875,53 +2875,55 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
   // don't wait real seconds, and sleep just past the first delay (20ms).
   const FAST_BACKOFF = [20, 40, 60];
 
-  test("reconnects to the same conversation on a retryable close (1013) instead of ending", async () => {
-    const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
-    await startListening(h, { handsFree: true });
-    expect(h.view.result.current.state).toBe("listening");
+  test.each([1013, 4013])(
+    "reconnects to the same conversation on retryable close %i",
+    async (code) => {
+      const h = renderController({ reconnectBackoffMs: FAST_BACKOFF });
+      await startListening(h, { handsFree: true });
+      expect(h.view.result.current.state).toBe("listening");
 
-    // velay drops its tunnel to the assistant mid-session → retryable 1013.
-    await act(async () => {
-      h.client.emit("closed", {
-        code: 1013,
-        reason: "assistant tunnel disconnected",
+      await act(async () => {
+        h.client.emit("closed", {
+          code,
+          reason: "assistant tunnel disconnected",
+        });
       });
-    });
-    // Not idle: the surface shows a reconnect, and a stop control stays live so
-    // the user can still bail during the gap.
-    expect(h.view.result.current.state).toBe("connecting");
-    expect(useLiveVoiceStore.getState().controls).not.toBeNull();
-    expect(h.player.disposeCount).toBe(0);
+      // Not idle: the surface shows a reconnect, and a stop control stays live so
+      // the user can still bail during the gap.
+      expect(h.view.result.current.state).toBe("connecting");
+      expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+      expect(h.player.disposeCount).toBe(0);
 
-    // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
-    // overrides, since none were set). The player remains the one prewarmed by
-    // the original user gesture, so its iOS MediaStream route stays active.
-    await act(async () => {
-      await sleep(80);
-    });
-    expect(h.getPlayerCreateCount()).toBe(1);
-    expect(h.player.disposeCount).toBe(0);
-    expect(h.client.connectArgs).toEqual({
-      sessionControls: ["end", "mute"],
-      assistantId: "assistant-1",
-      conversationId: "conv-1",
-      turnDetection: "server_vad",
-    });
-
-    // The reconnected session's `ready` resumes listening (a torn-down session
-    // would be idle with no handlers, so `ready` would be a no-op).
-    await act(async () => {
-      h.client.emit("ready", {
-        type: "ready",
-        seq: 1,
-        sessionId: "s2",
+      // Backoff elapses → a fresh connect to the SAME conversation (no turn-taking
+      // overrides, since none were set). The player remains the one prewarmed by
+      // the original user gesture, so its iOS MediaStream route stays active.
+      await act(async () => {
+        await sleep(80);
+      });
+      expect(h.getPlayerCreateCount()).toBe(1);
+      expect(h.player.disposeCount).toBe(0);
+      expect(h.client.connectArgs).toEqual({
+        sessionControls: ["end", "mute"],
+        assistantId: "assistant-1",
         conversationId: "conv-1",
         turnDetection: "server_vad",
       });
-      await Promise.resolve();
-    });
-    expect(h.view.result.current.state).toBe("listening");
-  });
+
+      // The reconnected session's `ready` resumes listening (a torn-down session
+      // would be idle with no handlers, so `ready` would be a no-op).
+      await act(async () => {
+        h.client.emit("ready", {
+          type: "ready",
+          seq: 1,
+          sessionId: "s2",
+          conversationId: "conv-1",
+          turnDetection: "server_vad",
+        });
+        await Promise.resolve();
+      });
+      expect(h.view.result.current.state).toBe("listening");
+    },
+  );
 
   test("does not reconnect on a non-retryable far-side close", async () => {
     const h = renderController();

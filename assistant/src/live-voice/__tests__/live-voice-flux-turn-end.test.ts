@@ -118,6 +118,7 @@ function createHarness(options: {
   providerId?: SttProviderId;
   fluxConfig?: Partial<LiveVoiceFluxConfig>;
   silenceThresholdMs?: number;
+  continuationAnnounceSilenceMs?: number;
   startVoiceTurn?: (options: VoiceTurnOptions) => Promise<{
     turnId: string;
     abort: () => void;
@@ -168,6 +169,7 @@ function createHarness(options: {
     streamTtsAudio: options.streamTtsAudio ?? null,
     emitMetrics: options.emitMetrics ?? false,
     archiveAudio: options.archiveAudio,
+    continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
     spawnBackgroundContinuation: mock(async () => ""),
     turnDetectorConfig: {
       silenceThresholdMs: options.silenceThresholdMs ?? 40,
@@ -290,6 +292,89 @@ const FLUX_OFF = {
 } as const satisfies Partial<LiveVoiceFluxConfig>;
 
 describe("LiveVoiceSession Flux end-of-turn", () => {
+  test("holds a task outcome through a Flux pause and reply, then announces over idle input", async () => {
+    const completeTurn = autoCompletingTurn(
+      "The investigation found the cause.",
+    );
+    const { session, transcribers, turnCalls, frames } = createHarness({
+      fluxConfig: { ...FLUX_ON, eotTimeoutMs: 2_000 },
+      silenceThresholdMs: 30,
+      continuationAnnounceSilenceMs: 10,
+      startVoiceTurn: async (options) => {
+        if (options.subagentNotification) {
+          return completeTurn(options);
+        }
+        return { turnId: "question-turn", abort: mock() };
+      },
+      streamTtsAudio: async (options) => {
+        const audio = pcm(100);
+        options.onAudioChunk({
+          type: "tts_audio",
+          contentType: "audio/pcm",
+          sampleRate: SAMPLE_RATE,
+          dataBase64: Buffer.from(audio).toString("base64"),
+        });
+        return {
+          provider: "fish-audio",
+          contentType: "audio/pcm",
+          sampleRate: SAMPLE_RATE,
+          chunks: 1,
+          bytes: audio.byteLength,
+        };
+      },
+    });
+    const feedQuietAudio = async () => {
+      for (let index = 0; index < 12; index += 1) {
+        await session.handleBinaryAudio(pcm(100));
+        await sleep(10);
+      }
+    };
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const transcriber = transcribers[0]!;
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.startOfTurn(0);
+      transcriber.emit({ type: "partial", text: "Could you explain" });
+      session.receiveSubagentNotification({
+        taskId: "task-1",
+        message: "The investigation found the cause.",
+        metadata: {
+          subagentNotification: {
+            subagentId: "task-1",
+            label: "Investigation",
+            status: "completed",
+          },
+        },
+      });
+
+      const submittedBeforePause = transcriber.received.length;
+      await feedQuietAudio();
+      expect(transcriber.received.length - submittedBeforePause).toBe(12);
+      expect(turnCalls).toHaveLength(0);
+
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.endOfTurn("Could you explain how this works?", 0);
+      await waitFor(() => turnCalls.length === 1);
+      expect(turnCalls[0]?.content).toBe("Could you explain how this works?");
+      await feedQuietAudio();
+      expect(turnCalls).toHaveLength(1);
+
+      turnCalls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Here is how it works."),
+      );
+      turnCalls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await feedQuietAudio();
+      await waitFor(() => countFrames(frames, "tts_done") === 2);
+      expect(turnCalls).toHaveLength(2);
+      expect(turnCalls[1]?.hiddenSyntheticPrompt).toBe(true);
+      expect(turnCalls[1]?.subagentNotification?.taskId).toBe("task-1");
+      expect(transcribers).toHaveLength(1);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
   test("keeps continuous idle audio out of the request recording", async () => {
     const recordings: Buffer[] = [];
     const { session, transcribers } = createHarness({
