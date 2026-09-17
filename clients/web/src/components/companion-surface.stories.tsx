@@ -127,6 +127,19 @@ type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
    * enough to look at it properly, let alone screenshot it.
    */
   introGreeted?: boolean;
+  /**
+   * How many presses of the real key the drawn keycap is told about.
+   *
+   * A control for the reason `introGreeted` is: the cap's lit and filled states
+   * are answers to a key on a physical keyboard, which a story has none of, and
+   * they are the states most worth looking at on the two beats that draw it.
+   *
+   * Sent to the card once the beat is up rather than with it, which is how they
+   * arrive on a desktop: the card counts from the beat it is on, so a total
+   * handed to it at the first paint is a total it discounts as history. Moving
+   * the control sends that many presses again.
+   */
+  introTaps?: number;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -170,6 +183,7 @@ const meta: Meta<StoryArgs> = {
       options: COMPANION_INTRO_BEATS,
     },
     introGreeted: { control: "boolean" },
+    introTaps: { control: { type: "range", min: 0, max: 2, step: 1 } },
   },
   args: {
     phase: "resting",
@@ -1244,7 +1258,12 @@ function DemoReelPlayer(args: StoryArgs) {
  * that it has been seen and there is no way back into it from the app; this is
  * a story, and a story that could only be watched once would be useless.
  */
-function IntroWalkthrough({ introBeat, introGreeted, ...args }: StoryArgs) {
+function IntroWalkthrough({
+  introBeat,
+  introGreeted,
+  introTaps,
+  ...args
+}: StoryArgs) {
   const [beat, setBeat] = useState<CompanionIntroBeat | null>(
     introBeat ?? COMPANION_INTRO_BEATS[0],
   );
@@ -1264,6 +1283,13 @@ function IntroWalkthrough({ introBeat, introGreeted, ...args }: StoryArgs) {
   useEffect(() => {
     setGreeted(introGreeted ?? false);
   }, [beat, introGreeted]);
+  // The presses the card is told about, as the running total a desktop sends.
+  // Pushed up after the beat has painted rather than handed over with it, since
+  // the card measures presses from the beat it is on.
+  const [taps, setTaps] = useState(0);
+  useEffect(() => {
+    setTaps((total) => total + (introTaps ?? 0));
+  }, [beat, introTaps]);
   // The pill's element, which the card measures its beak against.
   const pillRef = useRef<HTMLDivElement | null>(null);
   // The creature's own element, so the story can tell a pointer on the creature
@@ -1324,6 +1350,7 @@ function IntroWalkthrough({ introBeat, introGreeted, ...args }: StoryArgs) {
               // for the microphone is reviewable without a desktop.
               micGranted={false}
               greeted={greeted}
+              voiceKeyTaps={taps}
               // The assistant's own name, which the greeting cards use. A real
               // surface is told one by the app's window; clear it here to see
               // the cold-launch cards, which greet with no name at all.
@@ -1366,6 +1393,7 @@ export const Introduction: Story = {
   args: {
     phase: "resting",
     introBeat: COMPANION_INTRO_BEATS[0],
+    introTaps: 0,
     assistantName: "Quill",
     // The sizes a real user actually has: `DEFAULT_COMPANION_SIZE` is medium on
     // both tables, which is a creature half again as big as the one this layout

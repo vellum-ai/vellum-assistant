@@ -80,17 +80,32 @@ describe("voice key gestures", () => {
   });
 
   /**
-   * A single tap is nothing on purpose. The key belongs to the user and to the
-   * OS's own answer to tapping it, and a hold that never armed is exactly
-   * the chord-in-flight case the delay exists for.
+   * A single tap asks for nothing on purpose. The key belongs to the user and
+   * to the OS's own answer to tapping it, and a hold that never armed is
+   * exactly the chord-in-flight case the delay exists for. It is still reported
+   * as the touch it was, for a listener that only wants to show the key
+   * working.
    */
-  test("a single tap is nothing", () => {
+  test("a single tap is a tap and nothing more", () => {
     const { clock, gestures, tap } = setup();
 
     tap();
     clock.advance(DOUBLE_TAP_GAP_MS * 2);
 
-    expect(gestures).toEqual([]);
+    expect(gestures).toEqual(["tap"]);
+  });
+
+  /**
+   * Reported on the release rather than held back to see whether a second tap
+   * follows: waiting would put the double tap's whole gap between the finger
+   * and any answer to it.
+   */
+  test("a tap lands before the gap it might pair inside", () => {
+    const { gestures, tap } = setup();
+
+    tap();
+
+    expect(gestures).toEqual(["tap"]);
   });
 
   test("two taps inside the gap are a double tap, reported on the second release", () => {
@@ -99,21 +114,21 @@ describe("voice key gestures", () => {
     tap();
     clock.advance(DOUBLE_TAP_GAP_MS);
     press();
-    expect(gestures).toEqual([]);
+    expect(gestures).toEqual(["tap"]);
     clock.advance(HOLD_ARMING_MS / 4);
     release();
 
-    expect(gestures).toEqual(["doubleTap"]);
+    expect(gestures).toEqual(["tap", "tap", "doubleTap"]);
   });
 
-  test("two taps outside the gap are two nothings", () => {
+  test("two taps outside the gap pair with nothing", () => {
     const { clock, gestures, tap } = setup();
 
     tap();
     clock.advance(DOUBLE_TAP_GAP_MS + 1);
     tap();
 
-    expect(gestures).toEqual([]);
+    expect(gestures).toEqual(["tap", "tap"]);
   });
 
   /** Three taps are one double tap and one tap, never two double taps. */
@@ -126,7 +141,7 @@ describe("voice key gestures", () => {
     clock.advance(DOUBLE_TAP_GAP_MS / 2);
     tap();
 
-    expect(gestures).toEqual(["doubleTap"]);
+    expect(gestures).toEqual(["tap", "tap", "doubleTap", "tap"]);
   });
 
   /**
@@ -141,7 +156,9 @@ describe("voice key gestures", () => {
     chord();
     clock.advance(DOUBLE_TAP_GAP_MS / 2);
     tap();
-    expect(gestures).toEqual([]);
+    // A chord is a shortcut passing through rather than a touch of this key, so
+    // only the tap after it is reported, and it pairs with nothing.
+    expect(gestures).toEqual(["tap"]);
 
     // The other order: a tap, then a chord inside the gap.
     clock.advance(DOUBLE_TAP_GAP_MS * 2);
@@ -150,7 +167,7 @@ describe("voice key gestures", () => {
     press();
     clock.advance(HOLD_ARMING_MS / 4);
     chord();
-    expect(gestures).toEqual([]);
+    expect(gestures).toEqual(["tap", "tap"]);
   });
 
   test("a second press held long is a hold, not a double tap", () => {
@@ -162,7 +179,7 @@ describe("voice key gestures", () => {
     clock.advance(HOLD_ARMING_MS);
     release();
 
-    expect(gestures).toEqual(["holdStart", "holdEnd"]);
+    expect(gestures).toEqual(["tap", "holdStart", "holdEnd"]);
   });
 
   test("a hold pairs with no tap after it", () => {
@@ -174,7 +191,7 @@ describe("voice key gestures", () => {
     clock.advance(DOUBLE_TAP_GAP_MS / 2);
     tap();
 
-    expect(gestures).toEqual(["holdStart", "holdEnd"]);
+    expect(gestures).toEqual(["holdStart", "holdEnd", "tap"]);
   });
 
   test("a hold cut short by a chord still closes", () => {
@@ -202,7 +219,7 @@ describe("voice key gestures", () => {
     clock.advance(HOLD_ARMING_MS / 4);
     classifier.feed({ state: "up" });
 
-    expect(gestures).toEqual(["doubleTap"]);
+    expect(gestures).toEqual(["tap", "tap", "doubleTap"]);
   });
 
   test("cancel closes an open hold and forgets a pending tap", () => {
@@ -217,7 +234,8 @@ describe("voice key gestures", () => {
     classifier.cancel();
     clock.advance(DOUBLE_TAP_GAP_MS / 2);
     tap();
-    expect(gestures).toEqual(["holdStart", "holdEnd"]);
+    // Both touches are reported; what `cancel` forgot is that they could pair.
+    expect(gestures).toEqual(["holdStart", "holdEnd", "tap", "tap"]);
   });
 
   test("a stray up, and a second down, change nothing", () => {

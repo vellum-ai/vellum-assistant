@@ -2971,6 +2971,22 @@ describe("the watch session main relays", () => {
   });
 
   /**
+   * Taps of the voice key, which the introduction's drawn keycap answers. The
+   * key's edges reach only the window that claimed the binding, so this count
+   * is the surface's only evidence that the real key was pressed.
+   */
+  test("carries the voice key's taps into pushed state", () => {
+    send("vellum:companion:setContext", context({ voiceKeyTaps: 2 }));
+    expect(state().voiceKeyTaps).toBe(2);
+  });
+
+  /** A publisher that reports no taps has reported none. */
+  test("reads a context with no taps as no taps", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().voiceKeyTaps).toBe(0);
+  });
+
+  /**
    * One channel carries the whole snapshot, so a context that flips watching is
    * a single push. Pushing the fact separately from the context it arrived with
    * would send the surface two states for one publish, the first of them stale.

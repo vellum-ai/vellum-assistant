@@ -817,6 +817,7 @@ let context: CompanionContext = {
   working: false,
   watching: false,
   captureCount: 0,
+  voiceKeyTaps: 0,
 };
 
 /**
@@ -869,6 +870,10 @@ const currentState = (): CompanionSurfaceState => {
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
     captureCount: context.captureCount ?? 0,
+    // Settled to zero the same way, and for the same reason: the introduction
+    // reads a step in this as the real key having been pressed, and a publisher
+    // that reports no taps has reported none.
+    voiceKeyTaps: context.voiceKeyTaps ?? 0,
     // Passed through as it arrived, for the reason `watchRetro` is: every
     // shape it can hold names something being read, and absence is the whole
     // screen.

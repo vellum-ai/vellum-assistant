@@ -2294,6 +2294,25 @@ export interface CompanionContext {
    * bar draws its voice chevron. Absent is a publisher that predates it.
    */
   voicesPickable?: boolean;
+  /**
+   * How many times the voice key has been tapped since the publishing window
+   * loaded.
+   *
+   * Raw key edges reach only the window that claimed the binding, which is
+   * never the surface's, so a tap is invisible to the one surface that has
+   * anything to say about it: the introduction, which draws the key and asks
+   * for it to be pressed.
+   *
+   * A running count rather than an event, the way `captureCount` is, and for
+   * the same reason: a number that goes up is the only shape that survives the
+   * crossing and still says "that was another one" to a renderer that repaints
+   * on its own schedule. Never reset, so a reader measuring taps since some
+   * moment of its own subtracts the value it saw then.
+   *
+   * Optional and defaulted, the bargain `captureCount` makes: a publisher that
+   * reports no taps has reported none.
+   */
+  voiceKeyTaps?: number;
 }
 
 /**
@@ -2779,6 +2798,18 @@ export interface CompanionSurfaceState {
    * renderer never has to decide whether a run is due.
    */
   intro: CompanionIntroBeat | null;
+  /**
+   * Taps of the voice key, counted by the window that holds the binding. See
+   * {@link CompanionContext.voiceKeyTaps}.
+   *
+   * What the introduction's drawn keycap answers with: the beat asks for the
+   * real key, and a step in this number is the only evidence this window has
+   * that the user pressed it.
+   *
+   * Optional, and absence reads as no taps, the same bargain
+   * {@link CompanionSurfaceState.captureCount} makes with absence.
+   */
+  voiceKeyTaps?: number;
 }
 
 // ---------------------------------------------------------------------------
