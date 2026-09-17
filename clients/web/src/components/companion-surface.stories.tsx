@@ -1310,6 +1310,12 @@ function IntroWalkthrough({ introBeat, introGreeted, ...args }: StoryArgs) {
               // for the microphone is reviewable without a desktop.
               micGranted={false}
               greeted={greeted}
+              // The assistant's own name, which the greeting cards use. A real
+              // surface is told one by the app's window; clear it here to see
+              // the cold-launch cards, which greet with no name at all.
+              assistantName={
+                args.assistantName === "" ? undefined : args.assistantName
+              }
               growth={args.growth}
               cardGrowth={args.cardGrowth}
               // The same pair the surface is drawn at, so a mixed one shows the
@@ -1346,6 +1352,7 @@ export const Introduction: Story = {
   args: {
     phase: "resting",
     introBeat: COMPANION_INTRO_BEATS[0],
+    assistantName: "Quill",
     // The sizes a real user actually has: `DEFAULT_COMPANION_SIZE` is medium on
     // both tables, which is a creature half again as big as the one this layout
     // is authored at. Reviewing the run at the authored size was reviewing a

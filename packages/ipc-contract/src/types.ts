@@ -2146,6 +2146,26 @@ export const COMPANION_INTRO_BEATS = [
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 
 /**
+ * Which introduction this is, counted up whenever the run is rewritten enough
+ * that somebody who has already seen one is owed the new one.
+ *
+ * **1** was the four beats the surface shipped with (`meet`, `talk`, `type`,
+ * `tray`): the creature, a voice conversation, a composer the surface no
+ * longer draws, and where to switch the thing off.
+ *
+ * **2** is this run. It keeps only the first of those subjects and adds what a
+ * call can do (the screen, the marks, the mutes), the key that starts a
+ * conversation from anywhere, and a press that starts one for real. Nobody who
+ * saw the first run has been told any of that, so they are shown this one.
+ *
+ * The desktop records the highest version it has run (`window-state.ts`), so a
+ * bump is the whole of what it takes to introduce the surface again. Bumping it
+ * for a copy edit would be re-explaining the desktop to someone who understood
+ * it the first time, which is the cost this number exists to make deliberate.
+ */
+export const COMPANION_INTRO_VERSION = 2;
+
+/**
  * The subjects the beats belong to, in order, which is what the run's progress
  * is drawn from.
  *

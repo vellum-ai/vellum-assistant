@@ -1379,7 +1379,7 @@ describe("the companion's introduction", () => {
     // one the user meets before they know there is a creature in there at all.
     // The surface is the one place it appears with none of the app around it to
     // say whose it is.
-    expect(card.textContent).toContain("Hey, it’s me, Ziggy");
+    expect(card.textContent).toContain("Hey, it’s Ziggy");
   });
 
   /**

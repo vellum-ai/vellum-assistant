@@ -27,6 +27,7 @@ import {
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_VERSION,
   companionBoxFor,
   companionCardSideFor,
   companionDockIsSide,
@@ -66,7 +67,7 @@ import {
   clearCompanionIntroSeen,
   readCompanionCallDock,
   readCompanionHidden,
-  readCompanionIntroSeen,
+  readCompanionIntroSeenVersion,
   readCompanionSize,
   writeCompanionCallDock,
   writeCompanionIntroSeen,
@@ -537,7 +538,7 @@ const finishIntro = (): void => {
     return;
   }
   intro = null;
-  writeCompanionIntroSeen();
+  writeCompanionIntroSeen(COMPANION_INTRO_VERSION);
   if (introStaged) {
     landIntroHome();
   }
@@ -3406,7 +3407,7 @@ export const openCompanionWindow = (): void => {
   // being introduced is there to be pointed at. Set before the window is
   // created so the state its route pulls on mount already carries the beat,
   // rather than the surface appearing plain and being annotated a frame later.
-  if (!readCompanionIntroSeen()) {
+  if (readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION) {
     intro = COMPANION_INTRO_BEATS[0];
     // Held in front and stood over the app's window for the run, rather than
     // opening where it lives and being hidden a frame later by the frontmost

@@ -109,19 +109,26 @@ const PERCH_CARD_GAP = 6;
  * checks against nothing, which is how a renamed beat becomes a card printing
  * its own key path at someone.
  *
- * `key` repeats Talk's title on purpose. It is the same subject, split because
- * one card holding both ways in plus the permission ran to four lines, and a
- * second title would make the split read as a new topic rather than as the rest
- * of the one before it. It carries no body: what it has to say is a picture of
- * a key and the line above it.
+ * **Titles repeat where the subject does.** `meet` keeps the greeting `idle`
+ * opens with and `key` keeps Talk's title, because each pair is one subject
+ * split across two cards: a fresh title on the second would read as a new topic
+ * rather than as the rest of the one before it. `key` carries no body either,
+ * since what it has to say is a picture of a key and the line above it.
+ *
+ * `titleNamed` is the version for an assistant whose name this window has been
+ * told. Two keys rather than one with an empty argument: a sentence built
+ * around a name that is not there reads as a bug, and the unnamed version is a
+ * different sentence rather than the same one with a hole in it.
  */
 const INTRO_COPY_KEYS = {
   idle: {
     title: "companionIntro.idle.title",
+    titleNamed: "companionIntro.idle.titleNamed",
     body: "companionIntro.idle.body",
   },
   meet: {
-    title: "companionIntro.meet.title",
+    title: "companionIntro.idle.title",
+    titleNamed: "companionIntro.idle.titleNamed",
     body: "companionIntro.meet.body",
   },
   talk: {
@@ -149,7 +156,7 @@ const INTRO_COPY_KEYS = {
   },
 } as const satisfies Record<
   CompanionIntroBeat,
-  { title: string; body?: string }
+  { title: string; titleNamed?: string; body?: string }
 >;
 
 /**
@@ -485,15 +492,11 @@ export function CompanionIntro({
             so a title free to wrap is a title free to push the rest of the beat
             out of it. Two lines holds every name worth reading. */}
         <p className="pr-6 text-[13px] leading-tight font-medium text-white">
-          {/* The first beat is the greeting, so it is the one that says the
-              name: it is the only card the user meets before they know there is
-              a creature in there at all. Two keys rather than one with an empty
-              argument: a sentence built around a name that is not there reads
-              as a bug, and the unnamed version is a different sentence rather
-              than the same one with a hole in it. */}
+          {/* The cards that greet say the name, where this window has been
+              told one. See {@link INTRO_COPY_KEYS}. */}
           <span className="line-clamp-2">
-            {beat === "idle" && assistantName !== undefined
-              ? t("companionIntro.idle.titleNamed", { name: assistantName })
+            {"titleNamed" in copy && assistantName !== undefined
+              ? t(copy.titleNamed, { name: assistantName })
               : t(copy.title)}
           </span>
         </p>

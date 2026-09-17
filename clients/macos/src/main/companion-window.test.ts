@@ -566,7 +566,7 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   // Stubbed rather than omitted, like every other export here: the module
   // under test imports these, and one missing from a whole-module mock is a
   // load-time failure for the file rather than a failing case.
-  readCompanionIntroSeen: () => true,
+  readCompanionIntroSeenVersion: () => Number.MAX_SAFE_INTEGER,
   writeCompanionIntroSeen: () => {},
   clearCompanionIntroSeen: () => {},
 }));

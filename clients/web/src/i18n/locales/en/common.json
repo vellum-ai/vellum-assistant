@@ -153,14 +153,13 @@
     "idle": {
       "body": "Hover me and I’ll come out.",
       "title": "Hey, it’s me",
-      "titleNamed": "Hey, it’s me, {name}"
+      "titleNamed": "Hey, it’s {name}"
     },
     "key": {
       "scolded": "No, the button on your keyboard"
     },
     "meet": {
-      "body": "I stay on your desktop, even when Vellum isn’t visible.",
-      "title": "This is me"
+      "body": "I stay on your desktop, even when Vellum isn’t visible."
     },
     "mute": {
       "body": "Click the mic to mute yourself or the speaker to mute me",

@@ -153,14 +153,13 @@
     "idle": {
       "body": "把光标移到我上面，我就出来。",
       "title": "嘿，是我",
-      "titleNamed": "嘿，是我，{name}"
+      "titleNamed": "嘿，我是 {name}"
     },
     "key": {
       "scolded": "不是这个，是键盘上的那个键"
     },
     "meet": {
-      "body": "我会在您的桌面上，即使 Vellum 不可见。",
-      "title": "这就是我"
+      "body": "我会在您的桌面上，即使 Vellum 不可见。"
     },
     "mute": {
       "body": "点击麦克风把自己静音，点击喇叭把我静音",

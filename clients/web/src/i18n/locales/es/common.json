@@ -153,14 +153,13 @@
     "idle": {
       "body": "Pasa el cursor por encima y saldré.",
       "title": "Hola, soy yo",
-      "titleNamed": "Hola, soy yo, {name}"
+      "titleNamed": "Hola, soy {name}"
     },
     "key": {
       "scolded": "No, la tecla de tu teclado"
     },
     "meet": {
-      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista.",
-      "title": "Este soy yo"
+      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
     },
     "mute": {
       "body": "Toca el micrófono para silenciarte o el altavoz para silenciarme",
