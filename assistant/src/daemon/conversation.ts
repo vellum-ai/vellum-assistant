@@ -1288,7 +1288,7 @@ export class Conversation {
           max_tokens: 1,
           callSite,
           ...providerConfig,
-          usageTracking: "manual",
+          conversationId: this.conversationId,
         },
         signal: abort.signal,
       });
