@@ -895,7 +895,6 @@
   "integrationConnect": {
     "attemptConnecting": "Connecting to {name}...",
     "attemptFailed": "Vellum could not connect to {name}.",
-    "attemptRequirements": "This usually means one of the following:",
     "attemptStarting": "Starting the connection to {name}...",
     "attemptWaiting": "Finish signing in to {name} in your browser, then come back here.",
     "back": "Back",

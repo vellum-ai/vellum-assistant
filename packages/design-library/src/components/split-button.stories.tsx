@@ -63,8 +63,20 @@ type Story = StoryObj<typeof SplitButton>;
 
 export const Default: Story = {};
 
-/** No alternatives, so no chevron: the plain `Button` the props already describe. */
+/** No alternatives, so no chevron, but the same root the menu version has. */
 export const NoMenu: Story = { args: { menuItems: undefined } };
+
+/** The pair stretches; the chevron keeps its square icon width. */
+export const FullWidth: Story = {
+  args: { fullWidth: true },
+  decorators: [
+    (Story) => (
+      <div className="w-100">
+        <Story />
+      </div>
+    ),
+  ],
+};
 
 export const Outlined: Story = { args: { variant: "outlined" } };
 

@@ -84,11 +84,9 @@ const INLINE_ERROR_MAX_LENGTH = 60;
 /**
  * One integration, connectable where it sits.
  *
- * Connecting used to mean opening a modal to press a button that opened a
- * browser: the modal explained the plumbing and then got out of the way. Here
- * the whole happy path is a single `+`, and the waiting and the failing happen
- * in the tile rather than in a dialog the user has to keep open. The modal is
- * left with the two jobs that genuinely need a page of their own: the manual
+ * The whole happy path is a single `+`: the waiting and the failing both land
+ * in the tile rather than in a dialog the user has to keep open to watch. A
+ * modal is for the two jobs that need a page of their own, the manual
  * allowlisting steps and the bring-your-own OAuth form.
  *
  * On a platform-hosted assistant the other ways to connect stay out of sight

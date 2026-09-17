@@ -48,11 +48,15 @@ export interface ConnectAttempt {
   canCancel: boolean;
 }
 
-/** The callback URL a manual MCP setup asks an admin to allowlist. */
-export interface CallbackUrlState {
-  status: "loading" | "ready" | "error";
-  url?: string;
-}
+/**
+ * The callback URL a manual MCP setup asks an admin to allowlist. `ready`
+ * carries the URL, so nothing downstream has to ask whether a ready state
+ * actually has one to show or to gate Connect on.
+ */
+export type CallbackUrlState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; url: string };
 
 export interface IntegrationConnectModalProps {
   plan: ConnectPlan;
@@ -128,12 +132,15 @@ function ConnectModalHeader({
 /**
  * One modal for every way an integration connects.
  *
- * The old flow stacked three modals to make one decision: a chooser, a
- * managed-versus-own segmented detail sheet, and a server inspector. Each
- * asked the user to understand our plumbing before they could sign in. This
- * one puts the recommended path under a single Connect button, keeps the
- * alternatives behind its chevron, and moves what a connection *is* (its
- * endpoint, its tools, its token cost) behind the row it belongs to.
+ * One decision, on one surface: the recommended path sits under a single
+ * Connect button, the alternatives wait behind its chevron, and what a
+ * connection *is* (its endpoint, its tools, its token cost) lives behind the
+ * row it belongs to. A user should not have to understand our plumbing to
+ * sign in to their own account.
+ *
+ * Three views, one dialog. It opens on the connections when there are any and
+ * on the connect view when there are none, because the first question differs:
+ * "what is already connected" against "how do I connect".
  *
  * Purely presentational: every side effect is a prop, so the surface can be
  * reviewed in Storybook against the plan {@link buildConnectPlan} derives from
@@ -167,10 +174,6 @@ export function IntegrationConnectModal({
   );
   const [acknowledged, setAcknowledged] = useState(false);
   const [confirming, setConfirming] = useState<ConnectionSummary | null>(null);
-
-  const setupGuideUrl = methods.find(
-    (method) => method.setupGuideUrl,
-  )?.setupGuideUrl;
 
   function methodTag(method: ConnectMethod): string {
     switch (method.kind) {
@@ -218,16 +221,33 @@ export function IntegrationConnectModal({
       ? connections.find((candidate) => candidate.id === view.connectionId)
       : undefined;
 
-  const setupGuideButton = setupGuideUrl ? (
-    <Button
-      variant="ghost"
-      className="mr-auto min-h-11"
-      leftIcon={<ExternalLink />}
-      onClick={() => onOpenSetupGuide(setupGuideUrl)}
-    >
-      {t("integrationConnect.setupGuide")}
-    </Button>
-  ) : null;
+  // A method the plan no longer offers (the catalog changed under an open
+  // modal) falls back to the one that leads, rather than emptying the view.
+  const connectMethod =
+    view.kind === "connect"
+      ? (methods.find((candidate) => candidate.id === view.methodId) ??
+        plan.primary)
+      : plan.primary;
+
+  // The guide belongs to the method it documents. A plan can carry several,
+  // and the provider's MCP docs are no help to someone registering their own
+  // OAuth app, so only the method on screen offers one.
+  function setupGuideFor(method: ConnectMethod) {
+    const url = method.setupGuideUrl;
+    if (!url) {
+      return null;
+    }
+    return (
+      <Button
+        variant="ghost"
+        className="mr-auto min-h-11"
+        leftIcon={<ExternalLink />}
+        onClick={() => onOpenSetupGuide(url)}
+      >
+        {t("integrationConnect.setupGuide")}
+      </Button>
+    );
+  }
 
   return (
     <Modal.Root
@@ -242,10 +262,8 @@ export function IntegrationConnectModal({
         {view.kind === "connect" ? (
           <ConnectView
             plan={plan}
-            method={
-              methods.find((candidate) => candidate.id === view.methodId) ??
-              plan.primary
-            }
+            method={connectMethod}
+            setupGuide={setupGuideFor(connectMethod)}
             methods={methods}
             attempt={attempt}
             callbackUrl={callbackUrl}
@@ -253,7 +271,6 @@ export function IntegrationConnectModal({
             ownOAuthContent={ownOAuthContent}
             acknowledged={acknowledged}
             hasConnections={connections.length > 0}
-            setupGuide={setupGuideButton}
             methodItems={methodItems}
             onAcknowledge={setAcknowledged}
             onPickMethod={openConnect}
@@ -284,7 +301,6 @@ export function IntegrationConnectModal({
             connectionTitle={connectionTitle}
             methodTag={methodTag}
             methodItems={methodItems}
-            setupGuide={setupGuideButton}
             onPickMethod={openConnect}
             onOpenTools={(connection) =>
               setView({ kind: "tools", connectionId: connection.id })
@@ -412,7 +428,6 @@ function ConnectView({
           <AttemptNotice
             name={plan.name}
             attempt={methodAttempt}
-            requirements={method.requirements}
             onCancel={onCancelAttempt}
             onRetry={onRetryAttempt}
           />
@@ -420,7 +435,7 @@ function ConnectView({
 
         {method.kind === "mcp-manual" ? (
           <ManualSteps
-            hint={method.hint}
+            instructions={method.instructions}
             name={plan.name}
             callbackUrl={callbackUrl}
             callbackCopied={callbackCopied}
@@ -432,7 +447,7 @@ function ConnectView({
           ownOAuthContent
         ) : (
           <p className="text-body-medium-default text-[var(--content-secondary)]">
-            {method.hint ??
+            {method.instructions ??
               t("integrationConnect.browserHint", { name: plan.name })}
           </p>
         )}
@@ -474,13 +489,11 @@ function ConnectView({
 function AttemptNotice({
   name,
   attempt,
-  requirements,
   onCancel,
   onRetry,
 }: {
   name: string;
   attempt: ConnectAttempt;
-  requirements: string[];
   onCancel: () => void;
   onRetry: () => void;
 }) {
@@ -503,21 +516,7 @@ function AttemptNotice({
           </div>
         }
       >
-        <div className="space-y-2">
-          <p>
-            {attempt.error ?? t("integrationConnect.attemptFailed", { name })}
-          </p>
-          {requirements.length > 0 ? (
-            <>
-              <p>{t("integrationConnect.attemptRequirements")}</p>
-              <ul className="list-disc space-y-1 pl-5">
-                {requirements.map((requirement) => (
-                  <li key={requirement}>{requirement}</li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-        </div>
+        <p>{attempt.error ?? t("integrationConnect.attemptFailed", { name })}</p>
       </Notice>
     );
   }
@@ -547,7 +546,7 @@ function AttemptNotice({
 }
 
 function ManualSteps({
-  hint,
+  instructions,
   name,
   callbackUrl,
   callbackCopied,
@@ -555,7 +554,7 @@ function ManualSteps({
   onAcknowledge,
   onCopyCallbackUrl,
 }: {
-  hint?: string;
+  instructions?: string;
   name: string;
   callbackUrl?: CallbackUrlState;
   callbackCopied: boolean;
@@ -566,11 +565,12 @@ function ManualSteps({
   const { t } = useTranslation("settings");
   const url = callbackUrl?.status === "ready" ? callbackUrl.url : undefined;
 
+
   return (
     <>
-      {hint ? (
+      {instructions ? (
         <p className="text-body-medium-default text-[var(--content-secondary)]">
-          {hint}
+          {instructions}
         </p>
       ) : null}
       <ol className="space-y-4">
@@ -649,7 +649,6 @@ function ConnectionsView({
   connectionTitle,
   methodTag,
   methodItems,
-  setupGuide,
   onPickMethod,
   onOpenTools,
   onReconnect,
@@ -665,7 +664,6 @@ function ConnectionsView({
     visible: ConnectMethod[],
     onPick: (method: ConnectMethod) => void,
   ) => ReactNode[];
-  setupGuide: ReactNode;
   onPickMethod: (method: ConnectMethod) => void;
   onOpenTools: (connection: ConnectionSummary) => void;
   onReconnect: (connection: ConnectionSummary) => void;
@@ -761,7 +759,6 @@ function ConnectionsView({
       </Modal.Body>
 
       <Modal.Footer>
-        {setupGuide}
         <ActionMenu.Root>
           <ActionMenu.Trigger asChild>
             <Button

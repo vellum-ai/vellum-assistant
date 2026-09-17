@@ -39,7 +39,7 @@ const ACTION_SLOT = [
   // The slot wraps rather than shrinks: its children are fixed-size targets,
   // and a phone-width card with a verb on its action has to put the overflow
   // menu on a second line instead of off the card.
-  "flex flex-wrap items-start justify-end gap-2 [&>*]:shrink-0",
+  "flex flex-wrap items-start gap-2 [&>*]:shrink-0",
   "[&_button]:max-w-full [&_button]:whitespace-normal",
   "[&_button]:pointer-coarse:min-h-11",
 ].join(" ");
@@ -62,7 +62,7 @@ export function IntegrationListRow({
       >
         <div className="flex items-start justify-between gap-2">
           {icon}
-          <div className={ACTION_SLOT}>
+          <div className={`${ACTION_SLOT} justify-end`}>
             {primaryAction}
             {actionMenu}
           </div>
@@ -91,21 +91,24 @@ export function IntegrationListRow({
   /*
    * The row is the tile turned on its side: logo, then everything the card
    * has to say, then the action in the same top-right corner at the same
-   * size. The action holds that corner at every width rather than dropping
-   * under the text on a narrow card, so a page of rows and tiles side by side
-   * reads as one list with one action column.
+   * size, so a page of rows and tiles side by side reads as one list with one
+   * action column.
    */
   return (
-    <Card.Root>
+    <Card.Root className="@container">
       {/*
-       * The text column keeps a floor of its own: the action beside it is
-       * usually a 32px glyph, but the states that still carry a verb ("Finish
-       * connecting") would otherwise take the width they want on a phone and
-       * leave the title a letter per line.
+       * The action takes that corner once the card can spare the width for
+       * it. Below 28rem it drops under the text instead: the resting action
+       * is a 32px glyph and would fit, but the states that still carry a verb
+       * ("Finish connecting") plus an overflow menu would not, and a column
+       * that narrow leaves the title a word per line.
+       *
+       * The text column keeps a floor of its own at the wider size for the
+       * same reason.
        */}
       <Card.Body
         padding="md"
-        className="grid grid-cols-[2rem_minmax(8rem,1fr)_auto] items-start gap-x-3"
+        className="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 @[28rem]:grid-cols-[2rem_minmax(8rem,1fr)_auto]"
       >
         {icon}
         <div className="min-w-0 space-y-1">
@@ -122,7 +125,9 @@ export function IntegrationListRow({
           ) : null}
           {footer}
         </div>
-        <div className={ACTION_SLOT}>
+        <div
+          className={`${ACTION_SLOT} col-start-2 @[28rem]:col-start-3 @[28rem]:row-start-1 @[28rem]:justify-end`}
+        >
           {primaryAction}
           {actionMenu}
         </div>

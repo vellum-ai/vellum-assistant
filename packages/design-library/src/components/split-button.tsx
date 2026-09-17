@@ -62,16 +62,19 @@ export interface SplitButtonProps
  *
  * The menu is an {@link ActionMenu}, so the alternatives arrive as a bottom
  * sheet under a thumb and an anchored dropdown under a pointer without the
- * caller checking. With no items the chevron is not drawn at all: a menu that
- * opens on nothing is worse than no menu, and the button then renders as the
- * plain `Button` it already is.
+ * caller checking. With no items the chevron is not drawn at all, because a
+ * menu that opens on nothing is worse than no menu. The `split-button` root
+ * stays either way, so a consumer's CSS hook does not come and go with the
+ * length of the menu.
  *
  * Both halves share `variant`, `size`, and `expandOnMobile`, because a split
  * button whose halves disagree reads as two controls that happen to touch.
  * `expandOnMobile` defaults to `false` for that reason: the touch-mobile
  * circle it grows an icon button into would apply to an icon-only main half
  * and not to the chevron, splitting the pair in two. A surface that needs a
- * bigger target on touch sizes both halves through `className`.
+ * bigger target on touch sizes both halves through `className`. `fullWidth`
+ * stretches the pair rather than the main half, leaving the chevron at its
+ * square icon width.
  *
  * @see https://spectrum.adobe.com/page/split-button/
  */
@@ -84,6 +87,7 @@ export function SplitButton({
   variant = "primary",
   size = "regular",
   disabled,
+  fullWidth = false,
   expandOnMobile = false,
   className,
   children,
@@ -94,58 +98,55 @@ export function SplitButton({
   // lands on the plain-button branch rather than drawing a dead chevron.
   const hasMenu = Children.toArray(menuItems).length > 0;
 
-  if (!hasMenu) {
-    return (
-      <Button
-        {...rest}
-        data-slot="split-button"
-        variant={variant}
-        size={size}
-        disabled={disabled}
-        expandOnMobile={expandOnMobile}
-        className={className}
-      >
-        {children}
-      </Button>
-    );
-  }
+  // The root is the component's styling hook, so it is the same element
+  // whether or not there are alternatives. `Button` writes its own
+  // `data-slot`, so the two cannot share one.
+  const main = (
+    <Button
+      {...rest}
+      variant={variant}
+      size={size}
+      disabled={disabled}
+      fullWidth={fullWidth}
+      expandOnMobile={expandOnMobile}
+      className={cn(className, hasMenu && "rounded-r-none")}
+    >
+      {children}
+    </Button>
+  );
 
   return (
-    <span data-slot="split-button" className="inline-flex items-stretch">
-      <Button
-        {...rest}
-        variant={variant}
-        size={size}
-        disabled={disabled}
-        expandOnMobile={expandOnMobile}
-        className={cn(className, "rounded-r-none")}
-      >
-        {children}
-      </Button>
-      <ActionMenu.Root>
-        <ActionMenu.Trigger asChild>
-          <Button
-            variant={variant}
-            size={size}
-            disabled={menuDisabled ?? disabled}
-            aria-label={menuTriggerLabel}
-            iconOnly={<ChevronDown />}
-            expandOnMobile={expandOnMobile}
-            // The seam is what says there are two targets here rather than one
-            // wide button. It is mixed from the half's own foreground, so it
-            // reads on a filled variant and on an outlined one without a
-            // second colour to keep in step.
-            className={cn(
-              className,
-              "-ml-px rounded-l-none",
-              "border-l-[color:color-mix(in_srgb,var(--vbtn-fg)_35%,transparent)]",
-            )}
-          />
-        </ActionMenu.Trigger>
-        <ActionMenu.Content title={menuTitle} align={menuAlign}>
-          {menuItems}
-        </ActionMenu.Content>
-      </ActionMenu.Root>
+    <span
+      data-slot="split-button"
+      className={cn("inline-flex items-stretch", fullWidth && "w-full")}
+    >
+      {main}
+      {hasMenu ? (
+        <ActionMenu.Root>
+          <ActionMenu.Trigger asChild>
+            <Button
+              variant={variant}
+              size={size}
+              disabled={menuDisabled ?? disabled}
+              aria-label={menuTriggerLabel}
+              iconOnly={<ChevronDown />}
+              expandOnMobile={expandOnMobile}
+              // The seam is what says there are two targets here rather than
+              // one wide button. It is mixed from the half's own foreground,
+              // so it reads on a filled variant and on an outlined one
+              // without a second colour to keep in step.
+              className={cn(
+                className,
+                "-ml-px shrink-0 rounded-l-none",
+                "border-l-[color:color-mix(in_srgb,var(--vbtn-fg)_35%,transparent)]",
+              )}
+            />
+          </ActionMenu.Trigger>
+          <ActionMenu.Content title={menuTitle} align={menuAlign}>
+            {menuItems}
+          </ActionMenu.Content>
+        </ActionMenu.Root>
+      ) : null}
     </span>
   );
 }

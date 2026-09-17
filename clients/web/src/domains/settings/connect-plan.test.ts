@@ -4,7 +4,6 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 
 import {
   buildConnectPlan,
-  classifySetupInstructions,
   planMethods,
   type ConnectPlan,
   type ConnectPlanContext,
@@ -187,27 +186,8 @@ describe("buildConnectPlan", () => {
     );
 
     expect(plan.primary.kind).toBe("mcp-manual");
-    expect(plan.primary.requirements).toEqual([]);
-    expect(plan.primary.hint).toBe(
+    expect(plan.primary.instructions).toBe(
       "A Ramp admin must allowlist the callback URL.",
     );
-  });
-});
-
-describe("classifySetupInstructions", () => {
-  test("splits preconditions away from sign-in guidance", () => {
-    const { requirements, hint } = classifySetupInstructions(
-      "Sign in with the workspace you want Vellum to use. An organization admin must enable MCP. The server is unavailable on free plans.",
-    );
-
-    expect(requirements).toEqual([
-      "An organization admin must enable MCP.",
-      "The server is unavailable on free plans.",
-    ]);
-    expect(hint).toBe("Sign in with the workspace you want Vellum to use.");
-  });
-
-  test("returns nothing to show when there are no instructions", () => {
-    expect(classifySetupInstructions()).toEqual({ requirements: [] });
   });
 });

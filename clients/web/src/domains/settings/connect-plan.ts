@@ -61,10 +61,13 @@ export interface ConnectMethod {
   id: string;
   kind: ConnectMethodKind;
   availability: ConnectAvailability;
-  /** Conditions the user must satisfy outside Vellum before this method works. */
-  requirements: string[];
-  /** One sentence of guidance shown beside the connect action. */
-  hint?: string;
+  /**
+   * The catalog's own setup text for this method, verbatim. It mixes sign-in
+   * guidance with provider preconditions in one free-text field, and nothing
+   * here guesses which is which: splitting prose by keyword decides, on the
+   * user's behalf, what to hide from them.
+   */
+  instructions?: string;
   setupGuideUrl?: string;
   connections: ConnectionSummary[];
   plugin?: McpPluginDefinition;
@@ -91,48 +94,6 @@ export type ConnectableIntegrationItem = Exclude<
   IntegrationItem,
   { kind: "mcp" }
 >;
-
-/**
- * Sentences that describe a precondition rather than sign-in guidance.
- *
- * The catalog has one free-text `setup.instructions` slot that mixes
- * "sign in with the account you want" with "an admin must enable MCP".
- * Until the catalog schema splits those, classify per sentence so the
- * modal can hold requirements back until a connect attempt fails.
- */
-const REQUIREMENT_PATTERN =
-  /\b(must|requires?|required|not supported|unavailable|may need|plan\b|subscription|role in|consume|count against|allowlist|regional endpoint|serves|depend on|experimental|units)\b/i;
-
-export function classifySetupInstructions(instructions?: string): {
-  requirements: string[];
-  hint?: string;
-} {
-  if (!instructions) {
-    return { requirements: [] };
-  }
-  const sentences = instructions
-    .split(/(?<=[.;!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-    .map((sentence) =>
-      sentence.endsWith(";")
-        ? `${sentence.slice(0, -1)}.`
-        : /[.!?]$/.test(sentence)
-          ? sentence
-          : `${sentence}.`,
-    )
-    .map((sentence) => sentence.charAt(0).toUpperCase() + sentence.slice(1));
-  const requirements = sentences.filter((sentence) =>
-    REQUIREMENT_PATTERN.test(sentence),
-  );
-  const hints = sentences.filter(
-    (sentence) => !REQUIREMENT_PATTERN.test(sentence),
-  );
-  return {
-    requirements,
-    hint: hints.length > 0 ? hints.join(" ") : undefined,
-  };
-}
 
 function mcpConnectionStatus(server: McpServerEntry): ConnectionStatus {
   switch (server.status) {
@@ -192,18 +153,11 @@ function pluginMethod(method: McpPluginMethod): ConnectMethod {
   const kind: ConnectMethodKind =
     definition.setup.mode === "manual" ? "mcp-manual" : "mcp-oauth";
   const id = `mcp:${definition.pluginName}`;
-  // Manual setup renders its instructions as the allowlisting step, so they
-  // are guidance there rather than a warning above it.
-  const { requirements, hint } =
-    kind === "mcp-manual"
-      ? { requirements: [], hint: definition.setup.instructions }
-      : classifySetupInstructions(definition.setup.instructions);
   return {
     id,
     kind,
     availability: "available",
-    requirements,
-    hint,
+    instructions: definition.setup.instructions,
     setupGuideUrl: definition.documentationUrl,
     connections: mcpConnections(method, id, kind),
     plugin: definition,
@@ -246,7 +200,6 @@ export function buildConnectPlan(
         kind: "managed-oauth",
         availability:
           context.platformGate === "full" ? "available" : "login-required",
-        requirements: [],
         connections: oauthConnections(item.connections, managedId),
       });
     }
@@ -255,7 +208,6 @@ export function buildConnectPlan(
         id: `own:${item.provider.provider_key}`,
         kind: "own-oauth",
         availability: "available",
-        requirements: [],
         setupGuideUrl: item.provider.dashboard_url ?? undefined,
         connections: [],
       });
