@@ -22,6 +22,11 @@ export {
   TableHead,
   TableHeader,
   TableRow,
+  type TableAlign,
+  type TableCellProps,
+  type TableDensity,
+  type TableDividers,
+  type TableHeadProps,
   type TableProps,
   type TableRowProps,
 } from "./components/table";

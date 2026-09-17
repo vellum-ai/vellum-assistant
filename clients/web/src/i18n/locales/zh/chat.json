@@ -1717,7 +1717,8 @@
   "tableSurface": {
     "copied": "已复制",
     "copy": "复制",
-    "copyAria": "将表格复制为 Markdown"
+    "copyAria": "将表格复制为 Markdown",
+    "copyFailed": "无法复制表格。"
   },
   "taskPreferencesSurface": {
     "continue": "继续",

@@ -1679,7 +1679,8 @@
   "tableSurface": {
     "copied": "Copiado",
     "copy": "Copiar",
-    "copyAria": "Copiar tabla como markdown"
+    "copyAria": "Copiar tabla como markdown",
+    "copyFailed": "No se pudo copiar la tabla."
   },
   "taskPreferencesSurface": {
     "continue": "Continuar",
