@@ -415,7 +415,8 @@ const meta = {
   argTypes: {
     accent: {
       name: "Assistant color",
-      description: "Active assistant avatar color shared by the count and toggle.",
+      description:
+        "Active assistant avatar color shared by the count and toggle.",
       options: AVATAR_ACCENT_OPTIONS,
       mapping: AVATAR_ACCENT_MAPPING,
       control: { type: "select", labels: AVATAR_ACCENT_LABELS },
@@ -442,7 +443,7 @@ type Story = StoryObj<typeof meta>;
  */
 export const Default: Story = {};
 
-/** A light assistant accent uses dark contrast ink for the checked knob. */
+/** A light assistant accent keeps a white knob and gives the count dark contrast ink. */
 export const LightAccent: Story = {
   args: {
     accent: "yellow",
