@@ -294,6 +294,7 @@ export class OpenAIResponsesProvider implements Provider {
       configObj.promptCacheKey.length > 0
         ? (configObj.promptCacheKey as string)
         : undefined;
+    let inspectableRequest: unknown | undefined;
 
     try {
       const effectiveModel = modelOverride ?? this.model;
@@ -428,6 +429,7 @@ export class OpenAIResponsesProvider implements Provider {
       }
 
       Object.assign(params, this.buildExtraCreateParams(options));
+      inspectableRequest = params;
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
@@ -750,6 +752,7 @@ export class OpenAIResponsesProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          rawRequest?: unknown;
           reason?: ProviderErrorReason;
         } = { cause: error };
         if (retryAfterMs !== undefined) {
@@ -776,6 +779,9 @@ export class OpenAIResponsesProvider implements Provider {
         if (normalized.reason) {
           errorOptions.reason = normalized.reason;
         }
+        if (inspectableRequest !== undefined) {
+          errorOptions.rawRequest = inspectableRequest;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -789,7 +795,20 @@ export class OpenAIResponsesProvider implements Provider {
         }`,
         this.name,
         undefined,
-        abortReason ? { cause: error, abortReason } : { cause: error },
+        abortReason
+          ? {
+              cause: error,
+              abortReason,
+              ...(inspectableRequest !== undefined
+                ? { rawRequest: inspectableRequest }
+                : {}),
+            }
+          : {
+              cause: error,
+              ...(inspectableRequest !== undefined
+                ? { rawRequest: inspectableRequest }
+                : {}),
+            },
       );
     }
   }

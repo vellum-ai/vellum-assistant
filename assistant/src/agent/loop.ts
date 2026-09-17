@@ -443,18 +443,19 @@ export type AgentEvent =
       /**
        * Emitted when the provider call throws — i.e. the provider
        * rejected the request before returning a usable response. Carries
-       * the loop-level raw request we attempted to send (messages, tools,
-       * system prompt, provider-agnostic config) plus the thrown error.
+       * the wire request we attempted to send plus the thrown error.
        * Consumers (`handleProviderError` in the daemon handlers, the
        * `onEvent` in `agent-wake`) persist these as `llm_request_logs`
        * rows so failed calls are queryable in the LLM inspector instead
        * of only surfacing in pino logs.
        *
-       * `rawRequest` is the loop-level abstract shape rather than the
-       * provider-specific payload (which the provider builds internally
-       * and never returns when it throws). `actualProvider` echoes the
-       * `ProviderError.provider` tag when available so the persisted row
-       * has the same `provider` column value as a successful `usage` row.
+       * `rawRequest` prefers `ProviderError.rawRequest` (the provider's
+       * inspectable SDK/wire payload, including extra body fields such as
+       * `directions`) and falls back to the loop-level abstract shape when
+       * the throw happens before that payload exists. `actualProvider` and
+       * the fallback snapshot's `provider` field echo `ProviderError.provider`
+       * so a routed invocation (e.g. Vellum via a Fireworks default wrapper)
+       * is attributed to the transport that actually ran.
        *
        * Re-thrown by the inner LLM-call try/catch after emission so the
        * outer agent-loop catch still handles abort, the existing `error`
@@ -2280,22 +2281,28 @@ export class AgentLoop {
             // before snapshotting. `onEvent` is a closure with side effects
             // and `signal` is an AbortSignal — neither is meaningful in a
             // persisted log row, and `JSON.stringify` would silently drop or
-            // misrepresent both.
-            const rawRequest = {
-              provider: this.provider.name,
-              messages: sanitizedHistory,
-              tools: providerOptions.tools,
-              systemPrompt: providerOptions.systemPrompt,
-              config: providerOptions.config,
-            };
+            // misrepresent both. Prefer the provider's inspectable wire
+            // payload when the throw carried one.
+            const invocationProvider =
+              errInstance instanceof ProviderError
+                ? errInstance.provider
+                : this.provider.name;
+            const rawRequest =
+              errInstance instanceof ProviderError &&
+              errInstance.rawRequest !== undefined
+                ? errInstance.rawRequest
+                : {
+                    provider: invocationProvider,
+                    messages: sanitizedHistory,
+                    tools: providerOptions.tools,
+                    systemPrompt: providerOptions.systemPrompt,
+                    config: providerOptions.config,
+                  };
             onEvent({
               type: "provider_error",
               rawRequest,
               error: errInstance,
-              actualProvider:
-                errInstance instanceof ProviderError
-                  ? errInstance.provider
-                  : this.provider.name,
+              actualProvider: invocationProvider,
             });
           }
           providerCallError = llmCallError;

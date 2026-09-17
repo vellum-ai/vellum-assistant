@@ -157,6 +157,12 @@ export class ProviderError extends AssistantError {
    */
   public readonly rawBody?: string;
   /**
+   * Wire payload the provider actually sent (or was about to send). The agent
+   * loop prefers this over its own abstract snapshot so 4xx inspector rows
+   * show the same request shape as a successful `usage` row.
+   */
+  public readonly rawRequest?: unknown;
+  /**
    * Tagged daemon-owned abort reason carried over from the AbortSignal that
    * triggered this error. Untyped here to avoid a daemon→util import cycle;
    * `AbortReason` from `util/abort-reasons.ts` is the only producer and
@@ -181,6 +187,7 @@ export class ProviderError extends AssistantError {
       apiErrorParam?: string;
       requestId?: string;
       rawBody?: string;
+      rawRequest?: unknown;
       reason?: ProviderErrorReason;
     },
   ) {
@@ -192,6 +199,7 @@ export class ProviderError extends AssistantError {
     this.apiErrorParam = options?.apiErrorParam;
     this.requestId = options?.requestId;
     this.rawBody = options?.rawBody;
+    this.rawRequest = options?.rawRequest;
     this.abortReason = options?.abortReason;
     this.reason = options?.reason;
   }
