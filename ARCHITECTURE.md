@@ -766,6 +766,12 @@ graph TB
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
+## Live Voice Input Diagnostics
+
+Hands-free voice records applied browser microphone settings and playback transitions through the client diagnostics ring and Electron renderer logs. The live-voice session records bounded signal summaries, barge-in decisions, and transcription outcomes in the assistant log, linked by session, speech generation, and input-turn identifiers. These observations do not alter speech classification or cancellation and add no raw audio or transcript content.
+
+See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.

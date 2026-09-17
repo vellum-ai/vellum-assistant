@@ -173,6 +173,7 @@ import {
   requestedSessionControl,
   sessionControlTeaching,
 } from "./session-controls.js";
+import { VoiceInputDiagnostics } from "./voice-input-diagnostics.js";
 
 const log = getLogger("live-voice-session");
 
@@ -1256,6 +1257,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // what echoEnergyEma is for). Raises the base gate in a noisy room so the
   // room itself stops reading as speech.
   private readonly roomNoiseFloor = new RoomNoiseFloor();
+  private readonly inputDiagnostics = new VoiceInputDiagnostics();
+  private diagnosticEchoCorrelation: number | null = null;
+  private diagnosticTtsSampleRate: number | null = null;
   private readonly echoBargeInMargin: number;
   private readonly echoEmaHalfLifeMs: number;
   private readonly echoDrainSlackMs: number;
@@ -1294,6 +1298,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The shared sustained-speech accounting (gap tolerance, duty-cycle
     // ceiling, threshold).
     guard: BargeInGuard;
+    armedAtMs: number;
+    resets: number;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -1611,6 +1617,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // surfaces as a non-recoverable error frame instead of a start rejection.
     this.state = "active";
     this.reachedActive = true;
+    if (this.turnDetector) {
+      this.logInputDiagnostic("voice_input_started");
+    }
     void this.armUtterance().catch(() => {});
     this.metrics.markReady();
     await this.sendFrame({
@@ -1926,6 +1935,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (frame.bargeInMinSpeechMs !== undefined) {
       this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
     }
+    this.logInputDiagnostic("voice_input_config_updated");
   }
 
   async handleBinaryAudio(chunk: Uint8Array): Promise<void> {
@@ -1935,6 +1945,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
+    }
+
+    if (this.turnDetector) {
+      this.logInputDiagnostic("voice_input_closed", {
+        reason,
+        summary: this.inputDiagnostics.flush(),
+      });
     }
 
     // Recorded first, and independently of `shouldEmitSessionEndMetrics`
@@ -2372,9 +2389,100 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    for (const classified of this.classifyVadEnergy(chunk)) {
+    const receivedAtMs = Date.now();
+    const sampleRate = this.context.startFrame.audio.sampleRate;
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    const before = {
+      baseThreshold: this.effectiveBaseThreshold(),
+      roomNoiseFloor: this.roomNoiseFloor.floor,
+      echoEnergy: this.echoEnergyEma,
+      echoOnsetLapsed: this.echoOnsetLapsed,
+      echoWindowMs: this.echoWindowTotalAudioMs,
+      echoGuardCarryover: this.echoWindowGuardCarryover,
+      echoReferenceMs: pcm16DurationMs(
+        this.echoReferenceAudio.byteLength,
+        sampleRate,
+      ),
+      playbackRemainingMs: Math.max(
+        0,
+        this.assistantPlaybackTailUntilMs - receivedAtMs,
+      ),
+      playbackEchoPossible: this.isAssistantPlaybackEchoPossible(),
+    };
+    this.diagnosticEchoCorrelation = null;
+    const classifiedChunks = this.classifyVadEnergy(chunk, meanAmplitude);
+    const durations = { speechMs: 0, silenceMs: 0, echoMs: 0 };
+    for (const classified of classifiedChunks) {
+      durations[`${classified.classification}Ms`] += pcm16DurationMs(
+        classified.chunk.byteLength,
+        sampleRate,
+      );
+    }
+    const summary = this.inputDiagnostics.observe({
+      receivedAtMs,
+      chunkMs: pcm16DurationMs(chunk.byteLength, sampleRate),
+      meanAmplitude,
+      ...before,
+      ...durations,
+      echoProbeMs: pcm16DurationMs(
+        this.echoProbeChunks.reduce(
+          (bytes, entry) => bytes + entry.byteLength,
+          0,
+        ),
+        sampleRate,
+      ),
+      echoCorrelation: this.diagnosticEchoCorrelation,
+    });
+    if (summary) {
+      this.logInputDiagnostic("voice_input_window", { summary });
+    }
+
+    for (const classified of classifiedChunks) {
       await this.handleClassifiedVadAudio(detector, classified);
     }
+  }
+
+  private logInputDiagnostic(
+    event: string,
+    details: Record<string, unknown> = {},
+  ): void {
+    if (!this.turnDetector) {
+      return;
+    }
+    const turn = this.activeAssistantTurn;
+    const task = this.foregroundTaskState;
+    log.info(
+      {
+        event,
+        sessionId: this.context.sessionId,
+        conversationId: this.conversationId,
+        speechGeneration: this.vadSpeechGeneration,
+        inputTurnId: this.currentUtterance?.turnId ?? null,
+        assistantTurnId: turn?.turnId ?? null,
+        assistantCompleted: turn?.assistantCompleted ?? null,
+        ttsAudioStarted: turn?.ttsAudioStarted ?? false,
+        foregroundTaskPhase: task?.phase ?? null,
+        hostToolStarted: task?.hostToolStarted ?? null,
+        inputSampleRate: this.context.startFrame.audio.sampleRate,
+        ttsSampleRate: this.diagnosticTtsSampleRate,
+        configuredThreshold:
+          this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD,
+        effectiveThreshold: this.effectiveBaseThreshold(),
+        roomNoiseFloor: this.roomNoiseFloor.floor,
+        noiseFloorMargin: this.noiseFloorMargin,
+        echoMargin: this.echoBargeInMargin,
+        echoEnergy: this.echoEnergyEma,
+        echoOnsetLapsed: this.echoOnsetLapsed,
+        playbackRemainingMs: Math.max(
+          0,
+          this.assistantPlaybackTailUntilMs - Date.now(),
+        ),
+        echoDrainSlackMs: this.echoDrainSlackMs,
+        bargeInMinSpeechMs: this.bargeInMinSpeechMs,
+        ...details,
+      },
+      "Live voice input diagnostics",
+    );
   }
 
   private async handleClassifiedVadAudio(
@@ -2489,8 +2597,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * onset is neither learned as echo nor lost. Once seeded, the EMA follows
    * confirmed echo while speech above the learned margin remains frozen out.
    */
-  private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
-    const meanAmplitude = pcm16MeanAmplitude(chunk);
+  private classifyVadEnergy(
+    chunk: Buffer,
+    meanAmplitude: number,
+  ): VadClassifiedChunk[] {
     const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
@@ -2612,12 +2722,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       chunk.byteLength,
       Math.ceil((sampleRate * ECHO_CORRELATION_PROBE_MS * 2) / 1_000),
     );
-    return (
-      pcm16MaxNormalizedCorrelation(
-        chunk.subarray(0, probeByteLength),
-        this.echoReferenceAudio,
-      ) >= ECHO_CORRELATION_THRESHOLD
+    const correlation = pcm16MaxNormalizedCorrelation(
+      chunk.subarray(0, probeByteLength),
+      this.echoReferenceAudio,
     );
+    this.diagnosticEchoCorrelation = correlation;
+    return correlation >= ECHO_CORRELATION_THRESHOLD;
   }
 
   private updateEchoEnergy(meanAmplitude: number, chunkMs: number): void {
@@ -2682,6 +2792,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private appendEchoReference(chunk: LiveVoiceTtsAudioChunk): void {
+    this.diagnosticTtsSampleRate = chunk.sampleRate ?? null;
     if (
       chunk.contentType.split(";", 1)[0]?.trim().toLowerCase() !==
         "audio/pcm" ||
@@ -2859,10 +2970,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.pendingBargeIn = {
         turn: bargeableTurn,
         guard: createBargeInGuard(this.bargeInMinSpeechMs),
+        armedAtMs: Date.now(),
+        resets: 0,
       };
+      this.logInputDiagnostic("voice_input_barge_in_armed");
       return;
     }
 
+    this.logInputDiagnostic("voice_input_speech_started", {
+      interruptsTurn: bargeableTurn !== null,
+      trace: this.inputDiagnostics.snapshot(Date.now()),
+    });
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     this.sendSpeechStarted();
@@ -2899,6 +3017,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     const step = pending.guard.track(classification, chunkMs);
     if (step === "reset") {
+      pending.resets += 1;
       if (this.echoWindowGuardCarryover) {
         this.echoWindowGuardCarryover = false;
         this.echoEnergyEma = 0;
@@ -2909,6 +3028,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (step !== "fired") {
       return;
     }
+    this.logInputDiagnostic("voice_input_barge_in_fired", {
+      armedAtMs: pending.armedAtMs,
+      guardResets: pending.resets,
+      accumulatedSpeechMs: pending.guard.speechMs,
+      trace: this.inputDiagnostics.snapshot(Date.now()),
+    });
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     this.sendSpeechStarted();
@@ -4294,6 +4419,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.vadSpeechStartPending = false;
       // The detector turn is over: an untripped guard was noise, not
       // barge-in — leave playback untouched.
+      if (this.pendingBargeIn) {
+        this.logInputDiagnostic("voice_input_barge_in_expired", {
+          reason,
+          armedAtMs: this.pendingBargeIn.armedAtMs,
+          guardResets: this.pendingBargeIn.resets,
+          accumulatedSpeechMs: this.pendingBargeIn.guard.speechMs,
+        });
+      }
       this.pendingBargeIn = null;
       if (reason === "max-duration") {
         // A max-duration boundary always releases: drop any pending hold
@@ -6914,6 +7047,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.markUtteranceMetric(utterance, "speechStartAtMs", (turnId) =>
       this.metrics.markSpeechStart(turnId),
     );
+    this.logInputDiagnostic("voice_input_speech_routed", {
+      inputTurnId: utterance.turnId,
+    });
   }
 
   /**
@@ -6965,6 +7101,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.markUtteranceMetric(utterance, "finalTranscriptAtMs", (turnId) =>
       this.metrics.markFinalTranscript(turnId),
     );
+    this.logInputDiagnostic("voice_input_transcript", {
+      inputTurnId: utterance.turnId,
+      sttProvider: utterance.dialedSttProvider,
+      transcriptChars: utterance.finalTranscriptSegments.join(" ").trim()
+        .length,
+    });
   }
 
   // Records the mark on the utterance's metrics turn, or — while a previous
@@ -7105,6 +7247,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     reason: string,
   ): Promise<void> {
+    this.logInputDiagnostic("voice_input_utterance_discarded", {
+      inputTurnId: utterance.turnId,
+      reason,
+      sttProvider: utterance.dialedSttProvider,
+      transcriptChars: utterance.finalTranscriptSegments.join(" ").trim()
+        .length,
+      hasPartialAtDiscard: utterance.latestPartialText !== null,
+    });
     // An utterance that finalizes here never became a turn (empty transcript,
     // client interrupt, transcriber close, error), so it ends the window a
     // barge-in's merge context was waiting to attach to. Drop that context so
