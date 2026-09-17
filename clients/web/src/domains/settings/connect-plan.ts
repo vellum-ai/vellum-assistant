@@ -54,6 +54,8 @@ export interface ConnectionSummary {
   /** Set for MCP servers a plugin owns. Disconnecting removes that plugin. */
   pluginName?: string;
   serverId?: string;
+  /** Set for managed accounts: the platform connection this row stands for. */
+  accountId?: string;
   canReconnect: boolean;
 }
 
@@ -143,6 +145,7 @@ function oauthConnections(
     methodId,
     methodKind: "managed-oauth",
     label: connection.account_label,
+    accountId: connection.id,
     status: connection.connected ? "connected" : "needs-attention",
     canReconnect: !connection.connected,
   }));

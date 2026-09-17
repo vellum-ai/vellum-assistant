@@ -12,10 +12,12 @@ import type { ConnectAttempt } from "../components/integration-connect-modal";
 import type { TileConnectState } from "../components/integration-tile";
 import {
   isMcpMethodKind,
+  planMethods,
   type ConnectMethod,
   type ConnectMethodKind,
   type ConnectPlan,
   type ConnectableIntegrationItem,
+  type ConnectionSummary,
 } from "../connect-plan";
 import { mcpServersForPlugin } from "../integration-items";
 import {
@@ -41,25 +43,29 @@ export interface ManagedAttemptRecord {
   methodId: string;
   providerKey: string;
   providerLabel: string;
+  /** The host a per-tenant provider's authorization has to be opened on. */
+  tenantHost?: string;
   /** Bumped by a retry, so the controller starts a fresh authorization. */
   restartToken: number;
 }
 
-/** The alternative path that needs a page of its own. */
+/** The integration whose connect dialog is open. */
 export interface ConnectModalTarget {
   itemId: string;
-  methodId: string;
+  /** The method to open on. Without one the dialog decides for itself. */
+  methodId?: string;
 }
 
 export interface UseIntegrationConnectOptions {
   /** The assistant the MCP servers and plugins belong to. */
   assistantId: string;
   mcp: ReturnType<typeof useMcpConnections>;
-  /**
-   * Where a managed connect goes when the tile cannot carry it: a per-tenant
-   * provider needs a host typed in before the authorization can start.
-   */
-  onOpenProviderDetail: (providerKey: string) => void;
+}
+
+/** What a surface with room to ask can supply along with the method. */
+export interface ConnectRunOptions {
+  /** The host a per-tenant provider's authorization has to be opened on. */
+  tenantHost?: string;
 }
 
 export interface IntegrationConnect {
@@ -74,6 +80,13 @@ export interface IntegrationConnect {
     item: ConnectableIntegrationItem,
     plan: ConnectPlan,
     method: ConnectMethod,
+    options?: ConnectRunOptions,
+  ) => void;
+  /** Sign in again on a connection that already exists. */
+  reconnect: (
+    item: ConnectableIntegrationItem,
+    plan: ConnectPlan,
+    connection: ConnectionSummary,
   ) => void;
   cancel: () => void;
   retry: () => void;
@@ -94,6 +107,8 @@ export interface IntegrationConnect {
   managed: ManagedAttemptRecord | null;
   onManagedReport: (report: ManagedConnectReport) => void;
   modal: ConnectModalTarget | null;
+  /** Open the connect dialog for an integration, on a method or on its own. */
+  openModal: (itemId: string, methodId?: string) => void;
   closeModal: () => void;
 }
 
@@ -114,7 +129,6 @@ export interface IntegrationConnect {
 export function useIntegrationConnect({
   assistantId,
   mcp,
-  onOpenProviderDetail,
 }: UseIntegrationConnectOptions): IntegrationConnect {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
@@ -216,6 +230,27 @@ export function useIntegrationConnect({
     setManagedReport(null);
   }, [authStopWaiting, mcpAttempt]);
 
+  /**
+   * Hand an MCP sign-in to the machine and record that this hook asked for it,
+   * so the attempt it mints on the next render is drawn where it was started.
+   */
+  const claimMcp = useCallback(
+    (
+      record: Omit<McpAttemptRecord, "operationId">,
+      serverId: string,
+      displayName: string,
+      prepare?: () => Promise<string | null>,
+    ) => {
+      cancel();
+      pendingMcp.current = {
+        ...record,
+        priorOperationId: authAttempt?.operationId ?? null,
+      };
+      authConnect(serverId, prepare, displayName);
+    },
+    [authAttempt, authConnect, cancel],
+  );
+
   const startMcp = useCallback(
     (
       item: ConnectableIntegrationItem,
@@ -226,31 +261,22 @@ export function useIntegrationConnect({
       if (!definition || authIsBusy) {
         return;
       }
-      cancel();
-      pendingMcp.current = {
-        itemId: item.id,
-        methodId: method.id,
-        methodKind: method.kind,
-        setupGuideUrl: method.setupGuideUrl,
-        priorOperationId: authAttempt?.operationId ?? null,
-      };
-      authConnect(
+      claimMcp(
+        {
+          itemId: item.id,
+          methodId: method.id,
+          methodKind: method.kind,
+          setupGuideUrl: method.setupGuideUrl,
+        },
         provisionalPluginServerId(definition.pluginName),
+        plan.name,
         preparePluginMcpConnect({
           install: () => installPlugin(definition.pluginName),
           loadPluginServers: () => loadPluginServers(definition.pluginName),
         }),
-        plan.name,
       );
     },
-    [
-      authAttempt,
-      authConnect,
-      authIsBusy,
-      cancel,
-      installPlugin,
-      loadPluginServers,
-    ],
+    [authIsBusy, claimMcp, installPlugin, loadPluginServers],
   );
 
   const startManaged = useCallback(
@@ -258,13 +284,20 @@ export function useIntegrationConnect({
       item: ConnectableIntegrationItem,
       plan: ConnectPlan,
       method: ConnectMethod,
+      options?: ConnectRunOptions,
     ) => {
       if (item.kind !== "oauth" || authIsBusy) {
         return;
       }
       const { provider } = item;
-      if (requiresTenantHost(provider.provider_key, provider.tenant_host)) {
-        onOpenProviderDetail(provider.provider_key);
+      // A tile has nowhere to ask for the customer's own domain, so a
+      // per-tenant provider goes to the dialog that does rather than opening
+      // an authorization that cannot succeed.
+      if (
+        !options?.tenantHost &&
+        requiresTenantHost(provider.provider_key, provider.tenant_host)
+      ) {
+        setModal({ itemId: item.id, methodId: method.id });
         return;
       }
       cancel();
@@ -273,10 +306,11 @@ export function useIntegrationConnect({
         methodId: method.id,
         providerKey: provider.provider_key,
         providerLabel: plan.name,
+        tenantHost: options?.tenantHost,
         restartToken: 0,
       });
     },
-    [authIsBusy, cancel, onOpenProviderDetail],
+    [authIsBusy, cancel],
   );
 
   const run = useCallback(
@@ -284,16 +318,54 @@ export function useIntegrationConnect({
       item: ConnectableIntegrationItem,
       plan: ConnectPlan,
       method: ConnectMethod,
+      options?: ConnectRunOptions,
     ) => {
       if (isMcpMethodKind(method.kind)) {
         startMcp(item, plan, method);
         return;
       }
       if (method.kind === "managed-oauth") {
-        startManaged(item, plan, method);
+        startManaged(item, plan, method, options);
       }
     },
     [startManaged, startMcp],
+  );
+
+  /**
+   * A connection that exists already needs its own server signed in to, not a
+   * fresh install: the plugin is there and only the grant has lapsed. The
+   * attempt is claimed the same way, so the dialog that asked for it draws it.
+   */
+  const reconnect = useCallback(
+    (
+      item: ConnectableIntegrationItem,
+      plan: ConnectPlan,
+      connection: ConnectionSummary,
+    ) => {
+      const method = planMethods(plan).find(
+        (candidate) => candidate.id === connection.methodId,
+      );
+      if (!isMcpMethodKind(connection.methodKind)) {
+        if (method) {
+          startManaged(item, plan, method);
+        }
+        return;
+      }
+      if (!connection.serverId || authIsBusy) {
+        return;
+      }
+      claimMcp(
+        {
+          itemId: item.id,
+          methodId: connection.methodId,
+          methodKind: connection.methodKind,
+          setupGuideUrl: method?.setupGuideUrl,
+        },
+        connection.serverId,
+        plan.name,
+      );
+    },
+    [authIsBusy, claimMcp, startManaged],
   );
 
   const start = useCallback(
@@ -401,11 +473,16 @@ export function useIntegrationConnect({
     [authIsBusy, managed, mcpAttempt],
   );
 
+  const openModal = useCallback(
+    (itemId: string, methodId?: string) => setModal({ itemId, methodId }),
+    [],
+  );
   const closeModal = useCallback(() => setModal(null), []);
 
   return {
     start,
     run,
+    reconnect,
     cancel,
     retry,
     stateFor,
@@ -416,6 +493,7 @@ export function useIntegrationConnect({
     managed,
     onManagedReport: setManagedReport,
     modal,
+    openModal,
     closeModal,
   };
 }

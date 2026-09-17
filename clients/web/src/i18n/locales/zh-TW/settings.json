@@ -885,42 +885,11 @@
     "title": "圖片生成",
     "vellumNote": "圖片生成透過您的 Vellum 帳號執行。"
   },
-  "integrationDetailModal": {
-    "accountFallback": "{name} 帳號",
-    "close": "關閉",
-    "confirm": "確認",
-    "disconnect": "中斷連線",
-    "disconnectFailedToast": "中斷 {name} 帳號連線失敗。",
-    "disconnectMessage": "中斷 {account} 的連線？您可以稍後重新連線。",
-    "disconnectTitle": "中斷 {name} 的連線？",
-    "disconnectedToast": "{name} 帳號已中斷連線。",
-    "loginNotice": "登入 Vellum 平台以管理 OAuth 連線。",
-    "managedTab": "已管理",
-    "oauthModeAriaLabel": "OAuth 模式",
-    "subtitle": "設定 {name} OAuth",
-    "subtitleWithDescription": "為 {description} 設定 {name} OAuth",
-    "title": "{name} OAuth",
-    "yourOwnTab": "您的"
-  },
   "integrationRow": {
     "configureLabel": "設定 {name}",
     "connect": "連線",
-    "connected": "已連線",
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
     "needsAttention": "需要處理"
-  },
-  "pluginIntegration": {
-    "actionFailed": "無法更新外掛程式。請再試一次。",
-    "chooseMethod": "選擇連接此整合的方式。",
-    "localServer": "本機 MCP 伺服器",
-    "noServers": "外掛程式已安裝，但未提供任何 MCP 伺服器。",
-    "openDocumentation": "開啟設定指南",
-    "providerAccount": "{name} 帳戶",
-    "remoteServer": "遠端 MCP 伺服器",
-    "serverLoadFailed": "外掛程式已安裝，但無法載入其 MCP 伺服器。",
-    "removeMessage": "移除 {name}？這會移除該外掛程式、其技能以及全部 {count} 個 MCP 伺服器。",
-    "removePlugin": "移除外掛程式",
-    "removeTitle": "移除 {name}？"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 帳號已成功連線。",
@@ -1009,18 +978,6 @@
     "summaryThreeClauses": "「{display}」 {clause1}、{clause2} 和 {clause3}。請在下方選擇一個替換項目，這些參考將移至該替換項目，然後「{display}」將被刪除。",
     "summaryTwoClauses": "「{display}」 {clause1} 和 {clause2}。請在下方選擇一個替換項目，這些參考將移至該替換項目，然後「{display}」將被刪除。",
     "title": "選擇一個替換設定檔"
-  },
-  "managedOauthTab": {
-    "accountFallback": "{name} 帳號",
-    "cancel": "取消",
-    "connectAccount": "連接帳號",
-    "connectAccountLower": "連接帳號",
-    "connectToContinue": "連接帳號以繼續",
-    "disconnectAriaLabel": "中斷 {account} 連線",
-    "statusConnected": "已連線",
-    "statusNeedsAttention": "需要處理",
-    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
-    "waitingForAuthorization": "正在等待授權..."
   },
   "mcpAddServerModal": {
     "addServer": "新增伺服器",

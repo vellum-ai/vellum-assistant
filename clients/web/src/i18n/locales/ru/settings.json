@@ -871,42 +871,11 @@
     "title": "Генерация изображений",
     "vellumNote": "Генерация изображений идёт через аккаунт Vellum."
   },
-  "integrationDetailModal": {
-    "accountFallback": "Аккаунт {name}",
-    "close": "Закрыть",
-    "confirm": "Подтвердить",
-    "disconnect": "Отключить",
-    "disconnectFailedToast": "Не удалось отключить аккаунт {name}.",
-    "disconnectMessage": "Отключить {account}? Потом можно подключить снова.",
-    "disconnectTitle": "Отключить {name}?",
-    "disconnectedToast": "Аккаунт {name} отключён.",
-    "loginNotice": "Вход на платформу Vellum для управления подключениями OAuth.",
-    "managedTab": "Управляемые",
-    "oauthModeAriaLabel": "Режим OAuth",
-    "subtitle": "Настроить OAuth {name}",
-    "subtitleWithDescription": "Настроить OAuth {name} для {description}",
-    "title": "OAuth {name}",
-    "yourOwnTab": "Свои"
-  },
   "integrationRow": {
     "configureLabel": "Настроить {name}",
     "connect": "Подключить",
-    "connected": "Подключено",
     "connectedAccounts": "{count, plural, one {# подключённый аккаунт} few {# подключённых аккаунта} many {# подключённых аккаунтов} other {# подключённого аккаунта}}",
     "needsAttention": "Требует внимания"
-  },
-  "pluginIntegration": {
-    "actionFailed": "Не удалось обновить плагин. Повторите попытку.",
-    "chooseMethod": "Выберите способ подключения интеграции.",
-    "localServer": "Локальный сервер MCP",
-    "noServers": "Плагин установлен, но не предоставил серверы MCP.",
-    "openDocumentation": "Открыть руководство по настройке",
-    "providerAccount": "Учетная запись {name}",
-    "remoteServer": "Удаленный сервер MCP",
-    "serverLoadFailed": "Плагин установлен, но не удалось загрузить его серверы MCP.",
-    "removeMessage": "Удалить {name}? Будут удалены плагин, его навыки и {count, plural, one {# сервер MCP} few {# сервера MCP} many {# серверов MCP} other {# сервера MCP}}.",
-    "removePlugin": "Удалить плагин",
-    "removeTitle": "Удалить {name}?"
   },
   "integrationsPage": {
     "accountConnectedToast": "Аккаунт {providerLabel} успешно подключён.",
@@ -995,18 +964,6 @@
     "summaryThreeClauses": "\"{display}\" {clause1}, {clause2} и {clause3}. Выбор замены ниже: эти ссылки перейдут на неё, затем \"{display}\" будет удалён.",
     "summaryTwoClauses": "\"{display}\" {clause1} и {clause2}. Выбор замены ниже: эти ссылки перейдут на неё, затем \"{display}\" будет удалён.",
     "title": "Выбор профиля на замену"
-  },
-  "managedOauthTab": {
-    "accountFallback": "Аккаунт {name}",
-    "cancel": "Отмена",
-    "connectAccount": "Подключить аккаунт",
-    "connectAccountLower": "Подключить аккаунт",
-    "connectToContinue": "Подключение аккаунта для продолжения",
-    "disconnectAriaLabel": "Отключить {account}",
-    "statusConnected": "Подключено",
-    "statusNeedsAttention": "Требует внимания",
-    "tenantHostInvalid": "Введите корректный {label}, например {placeholder}",
-    "waitingForAuthorization": "Ожидание авторизации..."
   },
   "mcpAddServerModal": {
     "addServer": "Добавить сервер",

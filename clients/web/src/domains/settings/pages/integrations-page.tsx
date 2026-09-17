@@ -26,6 +26,7 @@ import {
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { usePluginsList } from "@/hooks/use-plugins-list";
+import { useTenantHostRequirement } from "@/hooks/use-tenant-host-requirement";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openExternalUrl } from "@/runtime/browser";
@@ -34,14 +35,17 @@ import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 import { IntegrationConnectModal } from "../components/integration-connect-modal";
-import { IntegrationDetailModal } from "../components/integration-detail-modal";
-import { IntegrationMethodsModal } from "../components/integration-methods-modal";
 import { IntegrationRow } from "../components/integration-row";
 import { IntegrationTile } from "../components/integration-tile";
 import { ManagedConnectController } from "../components/managed-connect-controller";
 import { YourOwnTab } from "../components/your-own-oauth-tab";
-import { buildConnectPlan, type ConnectPlan } from "../connect-plan";
+import {
+  buildConnectPlan,
+  planConnections,
+  type ConnectPlan,
+} from "../connect-plan";
 import { useIntegrationConnect } from "../hooks/use-integration-connect";
+import { useIntegrationDisconnect } from "../hooks/use-integration-disconnect";
 import {
   buildIntegrationItems,
   filterIntegrationItems,
@@ -113,18 +117,10 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const [assistantLoading, setAssistantLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
   const providerParam = searchParams.get("provider");
-  const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(
-    providerParam,
-  );
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const previousProviderParam = useRef(providerParam);
+  const handledProviderParam = useRef<string | null>(null);
   const mcp = useMcpConnections(mcpAssistantId);
   const plugins = usePluginsList(mcpAssistantId);
-  const connect = useIntegrationConnect({
-    assistantId: mcpAssistantId,
-    mcp,
-    onOpenProviderDetail: setSelectedProviderKey,
-  });
+  const connect = useIntegrationConnect({ assistantId: mcpAssistantId, mcp });
 
   useEffect(() => {
     let active = true;
@@ -147,14 +143,6 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     };
   }, [mcpAssistantId]);
 
-  useEffect(() => {
-    if (providerParam === previousProviderParam.current) {
-      return;
-    }
-    previousProviderParam.current = providerParam;
-    setSelectedProviderKey(providerParam);
-  }, [providerParam]);
-
   // The same login PlatformLoginNotice offers, returning to this page with
   // its query intact so a deep-linked provider survives the round trip.
   const { login } = useOnboardingLogin(
@@ -162,15 +150,18 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   );
   const startLogin = useCallback(() => void login(), [login]);
 
-  const closeProvider = useCallback(() => {
-    setSelectedProviderKey(null);
+  const dismissConnectModal = connect.closeModal;
+  const setToolsServerId = mcp.setToolsServerId;
+  const closeConnectModal = useCallback(() => {
+    dismissConnectModal();
+    setToolsServerId(null);
     if (!searchParams.has("provider")) {
       return;
     }
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete("provider");
     setSearchParams(nextSearchParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [dismissConnectModal, searchParams, setSearchParams, setToolsServerId]);
 
   const {
     platformAssistantId,
@@ -253,17 +244,14 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     () => filterIntegrationItems(allItems, searchText),
     [allItems, searchText],
   );
-  // What is still to connect, plus whatever is being connected right now: a
-  // plugin counts as configured the moment it installs, and an integration
-  // must not change section while the user is watching its sign-in.
   const connectingItemId = connect.attemptItemId;
+  // Every way each integration connects, connected or not: the same plan
+  // drives the tile that offers a first connection and the dialog that
+  // manages the ones an integration already has.
   const plans = useMemo(() => {
     const byItemId = new Map<string, ConnectPlan>();
     for (const item of allItems) {
       if (item.kind === "mcp") {
-        continue;
-      }
-      if (item.configured && item.id !== connectingItemId) {
         continue;
       }
       const plan = buildConnectPlan(item, {
@@ -275,9 +263,19 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
       }
     }
     return byItemId;
-  }, [allItems, connectingItemId, isPlatformHosted, platformGate]);
+  }, [allItems, isPlatformHosted, platformGate]);
+  // A tile is for what is still to connect, plus whatever is being connected
+  // right now with no dialog of its own to report it: a plugin counts as
+  // configured the moment it installs, and an integration must not change
+  // section while the user is watching its sign-in. An integration that is
+  // already connected keeps its place, because the dialog the user opened it
+  // from is the surface drawing that attempt.
+  const showsTile = (item: IntegrationItem) =>
+    plans.has(item.id) &&
+    (!item.configured ||
+      (item.id === connectingItemId && connect.modal?.itemId !== item.id));
   const isAvailable = (item: IntegrationItem) =>
-    !item.configured || plans.has(item.id);
+    !item.configured || showsTile(item);
   const configuredItems = items.filter((item) => !isAvailable(item));
   // Alphabetical, and nothing else. The shared sort puts what is configured
   // first, which would jump the tile being connected to the head of the grid
@@ -287,10 +285,6 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     .sort(
       (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
     );
-  const selectedProvider = providers.data?.find(
-    (provider) => provider.provider_key === selectedProviderKey,
-  );
-  const selectedItem = allItems.find((item) => item.id === selectedItemId);
   const loading =
     assistantLoading ||
     providers.isLoading ||
@@ -314,13 +308,79 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
     connect.ownsMcpAttempt &&
     connectingItemId !== null &&
     (connect.modal?.itemId === connectingItemId ||
-      items.some((item) => item.id === connectingItemId && plans.has(item.id)));
+      items.some((item) => item.id === connectingItemId && showsTile(item)));
   const connectModalItem = connect.modal
     ? allItems.find((item) => item.id === connect.modal?.itemId)
     : undefined;
   const connectModalPlan = connectModalItem
     ? plans.get(connectModalItem.id)
     : undefined;
+  const connectModalProvider =
+    connectModalItem?.kind === "oauth" ? connectModalItem.provider : undefined;
+  const connectModalTenantHost = useTenantHostRequirement(
+    connectModalProvider?.provider_key ?? "",
+    connectModalProvider?.tenant_host,
+  );
+
+  // A deep link names a provider, not an item, and the catalog it belongs to
+  // arrives after the page mounts. The link is answered once the item it names
+  // exists, and again only when the query changes.
+  const openConnectModal = connect.openModal;
+  useEffect(() => {
+    if (!providerParam) {
+      handledProviderParam.current = null;
+      return;
+    }
+    if (providerParam === handledProviderParam.current) {
+      return;
+    }
+    const target = allItems.find(
+      (item) =>
+        item.kind === "oauth" && item.provider.provider_key === providerParam,
+    );
+    if (!target) {
+      return;
+    }
+    handledProviderParam.current = providerParam;
+    openConnectModal(target.id);
+  }, [allItems, openConnectModal, providerParam]);
+
+  // The tools summary covers every server at once, so the dialog asks for one
+  // server and the row it belongs to is found in the plan on screen.
+  const toolsServerId = mcp.toolsServerId;
+  const toolsServer = mcp.list.data?.servers.find(
+    (entry) => entry.id === toolsServerId,
+  );
+  const toolsConnection =
+    connectModalPlan && toolsServerId
+      ? planConnections(connectModalPlan).find(
+          (candidate) => candidate.serverId === toolsServerId,
+        )
+      : undefined;
+  const toolsByConnectionId = toolsConnection
+    ? {
+        [toolsConnection.id]: {
+          loading: mcp.details.isFetching,
+          error: mcp.details.isError,
+          summary: mcp.details.data?.servers.find(
+            (entry) => entry.serverId === toolsServerId,
+          ),
+          endpointUrl: toolsServer?.transport.url,
+        },
+      }
+    : undefined;
+
+  const disconnectIntegration = useIntegrationDisconnect({
+    assistantId: mcpAssistantId,
+    platformAssistantId,
+    onStopAuth: (serverId) => {
+      if (mcp.auth.attempt?.serverId === serverId) {
+        mcp.auth.stopWaiting();
+      }
+    },
+    onRemoveServer: mcp.setRemoveServerId,
+    onPluginRemoved: () => void mcp.list.refetch(),
+  });
 
   const addCustom = () => {
     if (allowAdd) {
@@ -332,7 +392,7 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
 
   const renderItem = (item: IntegrationItem) => {
     const plan = item.kind === "mcp" ? undefined : plans.get(item.id);
-    if (item.kind !== "mcp" && plan) {
+    if (item.kind !== "mcp" && plan && showsTile(item)) {
       return (
         <IntegrationTile
           key={item.id}
@@ -364,14 +424,8 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           logoUrl={item.provider.logo_url}
           connections={item.connections}
           mcpMethods={item.methods}
-          disabled={oauthDisabled}
-          onConfigure={() => {
-            if (item.methods.length > 0) {
-              setSelectedItemId(item.id);
-            } else {
-              setSelectedProviderKey(item.provider.provider_key);
-            }
-          }}
+          disabled={oauthDisabled || !plan}
+          onConfigure={() => connect.openModal(item.id)}
         />
       );
     }
@@ -381,8 +435,8 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           key={item.id}
           assistantId={mcpAssistantId}
           method={item.method}
-          disabled={authBusy}
-          onOpen={() => setSelectedItemId(item.id)}
+          disabled={authBusy || !plan}
+          onOpen={() => connect.openModal(item.id)}
         />
       );
     }
@@ -463,6 +517,7 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           assistantId={assistant.id}
           providerKey={connect.managed.providerKey}
           providerLabel={connect.managed.providerLabel}
+          tenantHost={connect.managed.tenantHost}
           restartToken={connect.managed.restartToken}
           onReport={connect.onManagedReport}
         />
@@ -506,31 +561,17 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
         </p>
       ) : null}
 
-      {selectedProvider &&
-      assistant &&
-      (platformGate !== "full" || platformAssistantId) ? (
-        <IntegrationDetailModal
-          assistantId={assistant.id}
-          platformAssistantId={platformAssistantId ?? assistant.id}
-          providerKey={selectedProvider.provider_key}
-          displayName={
-            selectedProvider.display_name ?? selectedProvider.provider_key
-          }
-          description={selectedProvider.description}
-          logoUrl={selectedProvider.logo_url}
-          platformGate={platformGate}
-          tenantHost={selectedProvider.tenant_host}
-          onClose={closeProvider}
-        />
-      ) : null}
       {connect.modal &&
       connectModalPlan &&
       connectModalItem &&
       connectModalItem.kind !== "mcp" ? (
         <IntegrationConnectModal
+          key={connectModalItem.id}
           plan={connectModalPlan}
           focusMethodId={connect.modal.methodId}
           attempt={connect.attemptFor(connectModalItem.id)}
+          tenantHost={connectModalTenantHost}
+          toolsByConnectionId={toolsByConnectionId}
           ownOAuthContent={
             assistant && connectModalItem.kind === "oauth" ? (
               <YourOwnTab
@@ -541,45 +582,23 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
               />
             ) : null
           }
-          onConnect={(method) =>
-            connect.run(connectModalItem, connectModalPlan, method)
+          onConnect={(method, options) =>
+            connect.run(connectModalItem, connectModalPlan, method, options)
           }
           onLogin={startLogin}
           onCancelAttempt={connect.cancel}
           onRetryAttempt={connect.retry}
-          onReconnect={(connection) => {
-            if (connection.serverId) {
-              mcp.auth.connect(
-                connection.serverId,
-                undefined,
-                connectModalPlan.name,
-              );
-            }
-          }}
-          onDisconnect={(connection) => {
-            if (connection.serverId) {
-              mcp.setRemoveServerId(connection.serverId);
-            }
-          }}
-          onOpenSetupGuide={(url) => void openExternalUrl(url)}
-          onClose={connect.closeModal}
-        />
-      ) : null}
-      {selectedItem && selectedItem.kind !== "mcp" ? (
-        <IntegrationMethodsModal
-          assistantId={mcpAssistantId}
-          item={selectedItem}
-          connections={mcp}
-          oauthDisabled={
-            assistantLoading ||
-            !assistant ||
-            (platformGate === "full" && !platformAssistantId)
+          onReconnect={(connection) =>
+            connect.reconnect(connectModalItem, connectModalPlan, connection)
           }
-          onOAuth={(providerKey) => {
-            setSelectedItemId(null);
-            setSelectedProviderKey(providerKey);
-          }}
-          onClose={() => setSelectedItemId(null)}
+          onOpenTools={(connection) =>
+            mcp.setToolsServerId(connection.serverId ?? null)
+          }
+          onDisconnect={(connection) =>
+            disconnectIntegration(connection, connectModalPlan.name)
+          }
+          onOpenSetupGuide={(url) => void openExternalUrl(url)}
+          onClose={closeConnectModal}
         />
       ) : null}
     </div>

@@ -17,6 +17,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Checkbox } from "@vellumai/design-library/components/checkbox";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -24,6 +25,10 @@ import { SplitButton } from "@vellumai/design-library/components/split-button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import {
+  useTenantHostInput,
+  type TenantHostRequirement,
+} from "@/hooks/use-tenant-host-input";
 import { useTranslation } from "@/i18n";
 
 import {
@@ -87,15 +92,27 @@ export interface IntegrationConnectModalProps {
   >;
   /** The bring-your-own OAuth form, rendered when that path is picked. */
   ownOAuthContent?: ReactNode;
+  /**
+   * Per-tenant providers (Shopify): the host the managed sign-in has to be
+   * pointed at, because the provider's OAuth endpoints live on the customer's
+   * own domain. Absent for providers with one global host.
+   */
+  tenantHost?: TenantHostRequirement | null;
   onConnect: (
     method: ConnectMethod,
-    options?: { acknowledged?: boolean },
+    options?: { acknowledged?: boolean; tenantHost?: string },
   ) => void;
   onLogin: () => void;
   onCancelAttempt: () => void;
   onRetryAttempt: () => void;
   onReconnect: (connection: ConnectionSummary) => void;
   onDisconnect: (connection: ConnectionSummary) => void;
+  /**
+   * The tools view has been opened on this connection. The summary itself
+   * arrives back through `toolsByConnectionId`, so the caller can fetch it
+   * only once a user asks for it.
+   */
+  onOpenTools?: (connection: ConnectionSummary) => void;
   /** Required by, and only by, a caller that supplies `callbackUrl`. */
   onCopyCallbackUrl?: (url: string) => void;
   onOpenSetupGuide: (url: string) => void;
@@ -166,12 +183,14 @@ export function IntegrationConnectModal({
   callbackCopied = false,
   toolsByConnectionId,
   ownOAuthContent,
+  tenantHost,
   onConnect,
   onLogin,
   onCancelAttempt,
   onRetryAttempt,
   onReconnect,
   onDisconnect,
+  onOpenTools,
   onCopyCallbackUrl,
   onOpenSetupGuide,
   onClose,
@@ -180,7 +199,7 @@ export function IntegrationConnectModal({
   const methodLabel = useConnectMethodLabel(plan.name);
   const methods = planMethods(plan);
   const connections = planConnections(plan);
-  const [view, setView] = useState<View>(() => {
+  const [requestedView, setView] = useState<View>(() => {
     if (focusMethodId) {
       return { kind: "connect", methodId: focusMethodId };
     }
@@ -190,6 +209,28 @@ export function IntegrationConnectModal({
   });
   const [acknowledged, setAcknowledged] = useState(false);
   const [confirming, setConfirming] = useState<ConnectionSummary | null>(null);
+
+  /**
+   * A disconnect can empty the list under an open dialog, and can take the row
+   * a tools view is reading with it. The view follows the plan rather than the
+   * click that opened it, because the question has changed: not "what is
+   * connected" any more, but "how do I connect".
+   */
+  function resolveView(requested: View): View {
+    if (requested.kind === "connect") {
+      return requested;
+    }
+    if (connections.length === 0) {
+      return { kind: "connect", methodId: plan.primary.id };
+    }
+    const gone =
+      requested.kind === "tools" &&
+      !connections.some(
+        (candidate) => candidate.id === requested.connectionId,
+      );
+    return gone ? { kind: "connections" } : requested;
+  }
+  const view = resolveView(requestedView);
 
   function methodTag(method: ConnectMethod): string {
     switch (method.kind) {
@@ -285,6 +326,7 @@ export function IntegrationConnectModal({
             callbackUrl={callbackUrl}
             callbackCopied={callbackCopied}
             ownOAuthContent={ownOAuthContent}
+            tenantHost={tenantHost}
             acknowledged={acknowledged}
             hasConnections={connections.length > 0}
             methodItems={methodItems}
@@ -318,10 +360,16 @@ export function IntegrationConnectModal({
             methodTag={methodTag}
             methodItems={methodItems}
             onPickMethod={openConnect}
-            onOpenTools={(connection) =>
-              setView({ kind: "tools", connectionId: connection.id })
-            }
-            onReconnect={onReconnect}
+            onOpenTools={(connection) => {
+              onOpenTools?.(connection);
+              setView({ kind: "tools", connectionId: connection.id });
+            }}
+            onReconnect={(connection) => {
+              onReconnect(connection);
+              // The sign-in it starts is drawn on the method's own page, the
+              // one surface in here with a progress line and a way out of it.
+              setView({ kind: "connect", methodId: connection.methodId });
+            }}
             onRequestDisconnect={setConfirming}
             onClose={onClose}
           />
@@ -361,6 +409,7 @@ function ConnectView({
   callbackUrl,
   callbackCopied,
   ownOAuthContent,
+  tenantHost,
   acknowledged,
   hasConnections,
   setupGuide,
@@ -382,6 +431,7 @@ function ConnectView({
   callbackUrl?: CallbackUrlState;
   callbackCopied: boolean;
   ownOAuthContent?: ReactNode;
+  tenantHost?: TenantHostRequirement | null;
   acknowledged: boolean;
   hasConnections: boolean;
   setupGuide: ReactNode;
@@ -394,7 +444,7 @@ function ConnectView({
   onBack: () => void;
   onConnect: (
     method: ConnectMethod,
-    options?: { acknowledged?: boolean },
+    options?: { acknowledged?: boolean; tenantHost?: string },
   ) => void;
   onLogin: () => void;
   onCancelAttempt: () => void;
@@ -403,6 +453,11 @@ function ConnectView({
   onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
+  // Only the managed path opens an authorization on the provider's own
+  // domain, so only it has to ask which one. The hook is inert without a
+  // requirement, so every other method passes its result straight through.
+  const hostNeeded = method.kind === "managed-oauth" ? tenantHost : null;
+  const hostInput = useTenantHostInput(hostNeeded);
   const methodAttempt = attempt?.methodId === method.id ? attempt : null;
   const inFlight = methodAttempt !== null && methodAttempt.phase !== "error";
   const loginRequired = method.availability === "login-required";
@@ -449,6 +504,30 @@ function ConnectView({
           />
         ) : null}
 
+        {hostNeeded ? (
+          <Input
+            label={hostNeeded.label}
+            type="text"
+            value={hostInput.value}
+            onChange={(event) => hostInput.setValue(event.target.value)}
+            placeholder={hostNeeded.placeholder}
+            aria-invalid={hostInput.showsInvalid || undefined}
+            helperText={
+              hostInput.showsInvalid
+                ? t("integrationConnect.tenantHostInvalid", {
+                    label: hostNeeded.label,
+                    placeholder: hostNeeded.placeholder,
+                  })
+                : undefined
+            }
+            disabled={inFlight}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            fullWidth
+          />
+        ) : null}
+
         {method.kind === "mcp-manual" ? (
           <ManualSteps
             instructions={method.instructions}
@@ -477,7 +556,7 @@ function ConnectView({
         {method.kind === "own-oauth" ? null : (
           <SplitButton
             className="min-h-11"
-            disabled={inFlight || manualIncomplete}
+            disabled={inFlight || manualIncomplete || !hostInput.valid}
             // The steps above are what blocks Connect, and picking another way
             // in is one of the ways out of them, so the chevron stays live
             // while the main half waits.
@@ -489,7 +568,12 @@ function ConnectView({
             })}
             menuItems={methodItems(others, onPickMethod)}
             onClick={() =>
-              loginRequired ? onLogin() : onConnect(method, { acknowledged })
+              loginRequired
+                ? onLogin()
+                : onConnect(method, {
+                    acknowledged,
+                    tenantHost: hostInput.normalized,
+                  })
             }
           >
             {loginRequired

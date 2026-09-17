@@ -4,9 +4,9 @@ import type { McpServerEntry } from "./mcp-api";
  * Installing a catalog plugin and signing in to the server it brings.
  *
  * Two surfaces start the same sequence: the tile on the integrations page and
- * the methods modal. It lives here so the order of the steps, the id the
- * attempt carries while the plugin installs, and the rule for which server to
- * authorize are decided once.
+ * the connect dialog over it. It lives here so the order of the steps, the id
+ * the attempt carries while the plugin installs, and the rule for which server
+ * to authorize are decided once.
  */
 
 /**

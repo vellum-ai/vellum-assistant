@@ -885,42 +885,11 @@
     "title": "图像生成",
     "vellumNote": "图像生成通过您的 Vellum 账户运行。"
   },
-  "integrationDetailModal": {
-    "accountFallback": "{name} 账户",
-    "close": "关闭",
-    "confirm": "确认",
-    "disconnect": "断开连接",
-    "disconnectFailedToast": "断开 {name} 账户连接失败。",
-    "disconnectMessage": "断开 {account} 的连接？您可以稍后重新连接。",
-    "disconnectTitle": "断开 {name} 的连接？",
-    "disconnectedToast": "{name} 账户已断开连接。",
-    "loginNotice": "登录 Vellum 平台以管理 OAuth 连接。",
-    "managedTab": "已管理",
-    "oauthModeAriaLabel": "OAuth 模式",
-    "subtitle": "配置 {name} OAuth",
-    "subtitleWithDescription": "为 {description} 配置 {name} OAuth",
-    "title": "{name} OAuth",
-    "yourOwnTab": "您自己的"
-  },
   "integrationRow": {
     "configureLabel": "配置 {name}",
     "connect": "连接",
-    "connected": "已连接",
     "connectedAccounts": "{count, plural, other {# 个已连接账号}}",
     "needsAttention": "需要处理"
-  },
-  "pluginIntegration": {
-    "actionFailed": "无法更新插件。请重试。",
-    "chooseMethod": "选择连接此集成的方式。",
-    "localServer": "本地 MCP 服务器",
-    "noServers": "插件已安装，但未提供任何 MCP 服务器。",
-    "openDocumentation": "打开设置指南",
-    "providerAccount": "{name} 账户",
-    "remoteServer": "远程 MCP 服务器",
-    "serverLoadFailed": "插件已安装，但无法加载其 MCP 服务器。",
-    "removeMessage": "移除 {name}？这将移除该插件、其技能以及全部 {count} 个 MCP 服务器。",
-    "removePlugin": "移除插件",
-    "removeTitle": "移除 {name}？"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 账户连接成功。",
@@ -1009,18 +978,6 @@
     "summaryThreeClauses": "“{display}” {clause1}、{clause2} 和 {clause3}。请在下方选择一个替换项，这些引用将移至该替换项，然后“{display}”将被删除。",
     "summaryTwoClauses": "“{display}” {clause1} 和 {clause2}。请在下方选择一个替换项，这些引用将移至该替换项，然后“{display}”将被删除。",
     "title": "选择一个替换配置文件"
-  },
-  "managedOauthTab": {
-    "accountFallback": "{name} 账户",
-    "cancel": "取消",
-    "connectAccount": "连接账户",
-    "connectAccountLower": "连接账户",
-    "connectToContinue": "连接账户以继续",
-    "disconnectAriaLabel": "断开 {account}",
-    "statusConnected": "已连接",
-    "statusNeedsAttention": "需要处理",
-    "tenantHostInvalid": "请输入有效的{label}，例如 {placeholder}",
-    "waitingForAuthorization": "正在等待授权..."
   },
   "mcpAddServerModal": {
     "addServer": "添加服务器",

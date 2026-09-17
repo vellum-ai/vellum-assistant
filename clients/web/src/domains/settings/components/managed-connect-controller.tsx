@@ -16,6 +16,11 @@ export interface ManagedConnectControllerProps {
   providerKey: string;
   /** Provider name for the failure copy the hook composes. */
   providerLabel: string;
+  /**
+   * The customer's own host, for a per-tenant provider whose OAuth endpoints
+   * do not live on one global domain. Absent for every other provider.
+   */
+  tenantHost?: string;
   /** Bumped to start the authorization again after a failure. */
   restartToken: number;
   onReport: (report: ManagedConnectReport) => void;
@@ -38,6 +43,7 @@ export function ManagedConnectController({
   assistantId,
   providerKey,
   providerLabel,
+  tenantHost,
   restartToken,
   onReport,
 }: ManagedConnectControllerProps) {
@@ -52,11 +58,13 @@ export function ManagedConnectController({
   // A layout effect commits inside the click's own task; a passive effect can
   // be deferred past it.
   const connectRef = useRef(connect);
+  const tenantHostRef = useRef(tenantHost);
   useLayoutEffect(() => {
     connectRef.current = connect;
+    tenantHostRef.current = tenantHost;
   });
   useLayoutEffect(() => {
-    connectRef.current();
+    connectRef.current(undefined, tenantHostRef.current);
   }, [restartToken]);
 
   useEffect(() => dismiss, [dismiss]);

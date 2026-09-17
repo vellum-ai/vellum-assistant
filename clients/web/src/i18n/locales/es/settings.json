@@ -885,42 +885,11 @@
     "title": "Generación de imágenes",
     "vellumNote": "La generación de imágenes se ejecuta a través de tu cuenta de Vellum."
   },
-  "integrationDetailModal": {
-    "accountFallback": "Cuenta de {name}",
-    "close": "Cerrar",
-    "confirm": "Confirmar",
-    "disconnect": "Desconectar",
-    "disconnectFailedToast": "No se pudo desconectar la cuenta de {name}.",
-    "disconnectMessage": "¿Desconectar {account}? Puedes volver a conectarla más tarde.",
-    "disconnectTitle": "¿Desconectar {name}?",
-    "disconnectedToast": "Cuenta de {name} desconectada.",
-    "loginNotice": "Inicia sesión en la plataforma Vellum para administrar las conexiones OAuth.",
-    "managedTab": "Administrada",
-    "oauthModeAriaLabel": "Modo OAuth",
-    "subtitle": "Configurar OAuth de {name}",
-    "subtitleWithDescription": "Configurar OAuth de {name} para {description}",
-    "title": "OAuth de {name}",
-    "yourOwnTab": "Propia"
-  },
   "integrationRow": {
     "configureLabel": "Configurar {name}",
     "connect": "Conectar",
-    "connected": "Conectada",
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",
     "needsAttention": "Requiere atención"
-  },
-  "pluginIntegration": {
-    "actionFailed": "No se pudo actualizar el plugin. Inténtalo de nuevo.",
-    "chooseMethod": "Elige cómo conectar esta integración.",
-    "localServer": "Servidor MCP local",
-    "noServers": "El plugin está instalado, pero no proporcionó ningún servidor MCP.",
-    "openDocumentation": "Abrir guía de configuración",
-    "providerAccount": "Cuenta de {name}",
-    "remoteServer": "Servidor MCP remoto",
-    "serverLoadFailed": "El plugin está instalado, pero no se pudieron cargar sus servidores MCP.",
-    "removeMessage": "¿Eliminar {name}? Esto elimina el plugin, sus skills y {count, plural, one {su # servidor MCP} other {sus # servidores MCP}}.",
-    "removePlugin": "Eliminar plugin",
-    "removeTitle": "¿Eliminar {name}?"
   },
   "integrationsPage": {
     "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",
@@ -1009,18 +978,6 @@
     "summaryThreeClauses": "\"{display}\" {clause1}, {clause2} y {clause3}. Elige un reemplazo abajo y esas referencias se moverán a él; después se eliminará \"{display}\".",
     "summaryTwoClauses": "\"{display}\" {clause1} y {clause2}. Elige un reemplazo abajo y esas referencias se moverán a él; después se eliminará \"{display}\".",
     "title": "Elige un perfil de reemplazo"
-  },
-  "managedOauthTab": {
-    "accountFallback": "Cuenta de {name}",
-    "cancel": "Cancelar",
-    "connectAccount": "Conectar cuenta",
-    "connectAccountLower": "Conectar cuenta",
-    "connectToContinue": "Conecta una cuenta para continuar",
-    "disconnectAriaLabel": "Desconectar {account}",
-    "statusConnected": "Conectada",
-    "statusNeedsAttention": "Requiere atención",
-    "tenantHostInvalid": "Introduce un {label} válido, por ejemplo {placeholder}",
-    "waitingForAuthorization": "Esperando autorización..."
   },
   "mcpAddServerModal": {
     "addServer": "Agregar servidor",
