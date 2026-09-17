@@ -87,7 +87,8 @@ later can't be ring-replayed. The recovery path is a refetch:
   it replays the buffered event tail with `seq > snapshot.seq` onto the fresh
   server snapshot (`resolveSnapshot`), so events that raced the fetch aren't
   lost. The drop rules below live in `resolveSeed`, a pure function in
-  `rolling-snapshot.ts`, so any view seeded the same way applies the same rule. A buffer gap (eviction) falls back to the fetched snapshot alone.
+  `rolling-snapshot.ts`, so any view seeded the same way applies the same
+  rule. A buffer gap (eviction) falls back to the fetched snapshot alone.
   An **anchor-less** fetch (`seq: null` — the daemon has persisted no stream
   content yet, e.g. a fresh conversation's first turn racing the 1s
   partial-persist debounce) is **dropped** when the live view has already
