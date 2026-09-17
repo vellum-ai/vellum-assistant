@@ -457,14 +457,23 @@ const RECIPE_LABEL = /^Set up a morning briefing/;
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
+/**
+ * One timestamp for every fixture item, read once here rather than on each
+ * call. Relative, so the bell's recency treatment is exercised, but shared,
+ * because `sortFeedItems` orders items of equal priority by `createdAt`
+ * descending: two items built on either side of a millisecond tick sort by
+ * which one the clock stamped later, and an assertion naming items in list
+ * order then passes or fails on that. Equal timestamps leave the sort stable,
+ * so a test's items hold the order it declares them in.
+ */
+const FIXTURE_TIMESTAMP = new Date(Date.now() - THREE_HOURS_MS).toISOString();
+
 function bellItem(overrides: Partial<FeedItem>): FeedItem {
-  // Relative so the bell's recency treatment is exercised.
-  const timestamp = new Date(Date.now() - THREE_HOURS_MS).toISOString();
   return feedItem({
     id: "item-1",
     summary: "Something happened",
-    timestamp,
-    createdAt: timestamp,
+    timestamp: FIXTURE_TIMESTAMP,
+    createdAt: FIXTURE_TIMESTAMP,
     ...overrides,
   });
 }
