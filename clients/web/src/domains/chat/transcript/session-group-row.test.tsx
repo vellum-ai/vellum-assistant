@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { changeLocale } from "@/i18n";
 
 import {
+  SessionGroupContinuation,
   SessionGroupRow,
   type SessionGroupRowProps,
 } from "./session-group-row";
@@ -350,6 +351,103 @@ describe("SessionGroupRow", () => {
     );
     expect(document.activeElement).toBe(trigger);
   });
+
+  test("one disclosure controls both separated regions and unmounts the tail", () => {
+    function SplitRow() {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <SessionGroupRow
+            mode="liveVision"
+            summary={COMPLETED_SUMMARY}
+            open={open}
+            onOpenChange={setOpen}
+            continuationId="live-tail"
+          >
+            <div>Earlier exchange</div>
+          </SessionGroupRow>
+          <SessionGroupContinuation
+            id="live-tail"
+            mode="liveVision"
+            open={open}
+          >
+            <input aria-label="Current exchange" />
+          </SessionGroupContinuation>
+          <div>Unowned prompt</div>
+        </>
+      );
+    }
+
+    const {
+      getByRole,
+      getAllByRole,
+      getByLabelText,
+      getByText,
+      queryByLabelText,
+    } = render(<SplitRow />);
+    const trigger = getByRole("button", { name: /Live vision session/ });
+    const regions = getAllByRole("region", { name: /Live vision session/ });
+    expect(regions.map((region) => region.id)).toEqual([
+      "live-tail-prefix",
+      "live-tail",
+    ]);
+    expect(trigger.getAttribute("aria-controls")).toBe(
+      "live-tail-prefix live-tail",
+    );
+    expect(getAllByRole("button")).toHaveLength(1);
+
+    getByLabelText("Current exchange").focus();
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(trigger);
+    expect(queryByLabelText("Current exchange")).toBeNull();
+    expect(getByText("Unowned prompt")).toBeTruthy();
+    fireEvent.click(trigger);
+    expect(getByLabelText("Current exchange")).toBeTruthy();
+  });
+
+  test.each([true, false])(
+    "external collapse returns tail focus only when it owns focus (%s)",
+    (focusTail) => {
+      function SplitRow({ open }: { open: boolean }) {
+        return (
+          <>
+            <SessionGroupRow
+              mode="liveVision"
+              summary={COMPLETED_SUMMARY}
+              open={open}
+              onOpenChange={() => {}}
+              continuationId="controlled-tail"
+            >
+              <div>Earlier exchange</div>
+            </SessionGroupRow>
+            <SessionGroupContinuation
+              id="controlled-tail"
+              mode="liveVision"
+              open={open}
+            >
+              <input aria-label="Tail field" />
+            </SessionGroupContinuation>
+            <input aria-label="Outside field" />
+          </>
+        );
+      }
+
+      const { getByRole, getByLabelText, queryByLabelText, rerender } = render(
+        <SplitRow open />,
+      );
+      const trigger = getByRole("button");
+      getByLabelText("Tail field").focus();
+      if (!focusTail) {
+        getByLabelText("Outside field").focus();
+      }
+
+      rerender(<SplitRow open={false} />);
+      expect(queryByLabelText("Tail field")).toBeNull();
+      expect(document.activeElement).toBe(
+        focusTail ? trigger : getByLabelText("Outside field"),
+      );
+    },
+  );
 
   test("uses the shared exit motion and reduced-motion escape hatch", () => {
     const { getByTestId } = render(

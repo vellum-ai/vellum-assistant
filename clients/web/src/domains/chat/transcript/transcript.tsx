@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -50,6 +51,7 @@ import {
 import { useSessionDurationClock } from "@/domains/chat/transcript/use-session-duration-clock";
 import {
   SessionGroupRow,
+  SessionGroupContinuation,
   type SessionGroupMode,
 } from "@/domains/chat/transcript/session-group-row";
 import type { SessionGroupSummaryInput } from "@/domains/chat/transcript/session-group-summary";
@@ -247,6 +249,7 @@ function SessionSegment({
   onBeforeToggle,
   clockConnected = true,
   clockNow,
+  continuationId,
 }: {
   segment?: SessionGroupSegment;
   descriptor?: ModeSessionDescriptor;
@@ -255,6 +258,7 @@ function SessionSegment({
   onBeforeToggle?: () => void;
   clockConnected?: boolean;
   clockNow?: number;
+  continuationId?: string;
 }) {
   const open = segment
     ? disclosure.isSessionOpen(segment.modeSession.id)
@@ -288,6 +292,7 @@ function SessionSegment({
         disclosure.setSessionOpen(segment.modeSession.id, nextOpen);
       }}
       headerVisible={Boolean(segment && descriptor)}
+      continuationId={continuationId}
     >
       {children}
     </SessionGroupRow>
@@ -374,6 +379,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const latestEdgeSpacerRef = useRef<HTMLDivElement | null>(null);
+    const sessionContinuationId = useId();
     // Pending removal of the transient deep-link highlight class.
     const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
@@ -502,6 +508,18 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       sessionGroupsOn,
       summariesById,
     ]);
+    const firstLatest = grouped.latest[0];
+    const anchorGroup =
+      firstLatest?.kind === "sessionGroup" &&
+      firstLatest.items.includes(partition.anchorMessage!)
+        ? firstLatest
+        : null;
+    const anchorGroupIndex = anchorGroup
+      ? anchorGroup.items.indexOf(partition.anchorMessage!)
+      : -1;
+    const anchorVisible =
+      partition.anchorMessage &&
+      (!anchorGroup || disclosure.isSessionOpen(anchorGroup.modeSession.id));
     useEffect(() => {
       const segments = sessionGroupsOn
         ? [...grouped.history, ...grouped.latest]
@@ -738,8 +756,15 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 onBeforeToggle={rest.onBeforeSessionDisclosureToggle}
                 clockConnected={rest.sessionClockConnected}
                 clockNow={rest.sessionClockNow}
+                continuationId={
+                  item === anchorGroup ? sessionContinuationId : undefined
+                }
               >
-                {renderHistoryRows(item.items)}
+                {renderHistoryRows(
+                  item === anchorGroup
+                    ? item.items.slice(0, anchorGroupIndex)
+                    : item.items,
+                )}
               </SessionSegment>
             </TranscriptColumn>
           );
@@ -809,6 +834,18 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       }
       return grouped.latest.map((item) => {
         if (item.kind === "sessionGroup") {
+          if (item === anchorGroup) {
+            return (
+              <SessionGroupContinuation
+                key={item.key}
+                id={sessionContinuationId}
+                mode={MODE_PRESENTATION[item.modeSession.mode]}
+                open={disclosure.isSessionOpen(item.modeSession.id)}
+              >
+                {renderLatestRows(item.items.slice(anchorGroupIndex))}
+              </SessionGroupContinuation>
+            );
+          }
           const descriptor = descriptorsById.get(item.modeSession.id);
           if (descriptor) {
             const preservesLatestResponse =
@@ -899,10 +936,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  the flag skips past them. With an anchor present the latest
            *  turn owns the flag instead (see `LatestTurnRow`). */}
           {grouped.history.map(renderGroupedHistoryItem)}
+          {anchorGroup ? renderGroupedHistoryItem(anchorGroup) : null}
           {/* Latest-edge region: contains the latest-turn cluster and the
            *  assistant avatar. Two layout modes:
            *
-           *  1. Anchor present — `minHeight: viewportMinHeight` pins the
+           *  1. Anchor visible: `minHeight: viewportMinHeight` pins the
            *     anchor user message to the viewport top. The avatar
            *     renders directly below the response items so it follows
            *     the conversation flow visually. The `flex-1` spacer then
@@ -932,9 +970,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           {(partition.anchorMessage || rest.renderAvatar) && (
             <TranscriptColumn
               className="flex flex-col"
-              minHeight={
-                partition.anchorMessage ? viewportMinHeight : undefined
-              }
+              minHeight={anchorVisible ? viewportMinHeight : undefined}
             >
               {partition.anchorMessage && !sessionGroupsOn && (
                 <LatestTurnRow

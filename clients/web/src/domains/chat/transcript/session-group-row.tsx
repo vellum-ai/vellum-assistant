@@ -20,9 +20,14 @@ import {
 } from "./session-group-summary";
 
 const SESSION_VALUE = "session";
+const SESSION_RAIL_CLASS =
+  "ml-[7px] border-l border-[var(--border-element)] pl-4";
 
 export type SessionGroupMode =
-  "computerUse" | "browser" | "liveVision" | "ambient";
+  | "computerUse"
+  | "browser"
+  | "liveVision"
+  | "ambient";
 
 const MODE_ICONS: Record<SessionGroupMode, LucideIcon> = {
   computerUse: Monitor,
@@ -60,7 +65,49 @@ export interface SessionGroupRowProps {
   onOpenChange: (open: boolean) => void;
   /** Keeps the reply subtree mounted while its grouping header arrives. */
   headerVisible?: boolean;
+  continuationId?: string;
   children: ReactNode;
+}
+
+export function SessionGroupContinuation({
+  id,
+  mode,
+  open,
+  children,
+}: {
+  id: string;
+  mode: SessionGroupMode;
+  open: boolean;
+  children: ReactNode;
+}) {
+  const focused = useRef(false);
+  useLayoutEffect(() => {
+    if (!open && focused.current) {
+      document.getElementById(`${id}-trigger`)?.focus();
+      focused.current = false;
+    }
+  }, [id, open]);
+
+  return (
+    <div
+      id={id}
+      role="region"
+      aria-labelledby={`${id}-trigger`}
+      hidden={!open}
+      data-session-continuation={mode}
+      onFocusCapture={() => {
+        focused.current = true;
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          focused.current = false;
+        }
+      }}
+      className={cn("flex flex-col pb-1", SESSION_RAIL_CLASS)}
+    >
+      {open ? children : null}
+    </div>
+  );
 }
 
 type ChatTranslate = ReturnType<typeof useTranslation<"chat">>["t"];
@@ -175,6 +222,7 @@ export function SessionGroupRow({
   open,
   onOpenChange,
   headerVisible = true,
+  continuationId,
   children,
 }: SessionGroupRowProps) {
   const { t, i18n } = useTranslation("chat");
@@ -192,11 +240,13 @@ export function SessionGroupRow({
     const activeElement = document.activeElement;
     if (
       activeElement instanceof HTMLElement &&
-      contentRef.current?.contains(activeElement)
+      (contentRef.current?.contains(activeElement) ||
+        (continuationId &&
+          document.getElementById(continuationId)?.contains(activeElement)))
     ) {
       triggerRef.current?.focus();
     }
-  }, []);
+  }, [continuationId]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -224,6 +274,12 @@ export function SessionGroupRow({
       <Collapsible.Item value={SESSION_VALUE}>
         <Collapsible.Trigger
           ref={triggerRef}
+          {...(continuationId
+            ? {
+                id: `${continuationId}-trigger`,
+                "aria-controls": `${continuationId}-prefix ${continuationId}`,
+              }
+            : {})}
           hidden={!headerVisible}
           disabled={!headerVisible}
           aria-hidden={!headerVisible}
@@ -270,15 +326,22 @@ export function SessionGroupRow({
         </Collapsible.Trigger>
         <Collapsible.Content
           ref={contentRef}
+          {...(continuationId
+            ? {
+                id: `${continuationId}-prefix`,
+                "aria-labelledby": `${continuationId}-trigger`,
+              }
+            : {})}
           data-testid="session-group-content"
           style={{ animationDuration: "var(--anim-standard)" }}
           className="origin-top transition-[opacity,transform] ease-[var(--anim-spring)] data-[state=closed]:-translate-y-1 data-[state=closed]:opacity-0 data-[state=open]:translate-y-0 data-[state=open]:opacity-100 motion-reduce:translate-y-0 motion-reduce:animate-none motion-reduce:transition-none"
         >
           <div
             className={cn(
-              "flex flex-col pb-1",
+              "flex flex-col",
+              !continuationId && "pb-1",
               headerVisible
-                ? "ml-[7px] border-l border-[var(--border-element)] pl-4 pt-3"
+                ? cn(SESSION_RAIL_CLASS, "pt-3")
                 : "ml-0 border-l border-transparent pl-0 pt-0",
             )}
           >

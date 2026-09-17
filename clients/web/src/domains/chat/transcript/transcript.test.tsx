@@ -117,6 +117,13 @@ function sessionMessage(
   };
 }
 
+function controlledRegions(header: HTMLElement): HTMLElement[] {
+  return (header.getAttribute("aria-controls") ?? "")
+    .split(/\s+/)
+    .map((id) => document.getElementById(id))
+    .filter((region): region is HTMLElement => region !== null);
+}
+
 const noop = () => {};
 const openDisclosure: SessionDisclosureState = {
   isSessionOpen: () => true,
@@ -257,7 +264,7 @@ describe("Transcript", () => {
     const { getAllByRole, getByText, queryByText, rerender } = render(
       view([firstUser, firstReply]),
     );
-    const header = getAllByRole("button", { name: /Live vision session/ })[0];
+    const header = getAllByRole("button", { name: /Live vision session/ })[0]!;
     for (const items of [
       [firstUser, firstReply, nextUser],
       [firstUser, firstReply, nextUser, nextReply],
@@ -268,9 +275,13 @@ describe("Transcript", () => {
       expect(headers[0]).toBe(header);
       expect(header?.textContent).toContain("Working");
       expect(queryByText(/Ended/)).toBeNull();
-      expect(
-        getByText("Next question").closest('[data-header-visible="true"]'),
-      ).toBe(getByText("First answer").closest('[data-header-visible="true"]'));
+      for (const text of ["Next question", "First answer"]) {
+        expect(
+          controlledRegions(header).some((region) =>
+            region.contains(getByText(text)),
+          ),
+        ).toBe(true);
+      }
     }
     const completed: ModeSessionDescriptor = {
       summary: {
@@ -360,13 +371,16 @@ describe("Transcript", () => {
       const { getByText, getAllByTestId, rerender } = render(
         view([first, answer]),
       );
-      const group = getByText("Choose an option").closest(
-        '[data-header-visible="true"]',
-      );
-      expect(group).not.toBeNull();
-      expect(
-        getByText("Chosen option").closest('[data-header-visible="true"]'),
-      ).toBe(group);
+      const header = getAllByTestId("session-group-trigger").find(
+        (trigger) => !trigger.hidden,
+      )!;
+      for (const text of ["Choose an option", "Chosen option"]) {
+        expect(
+          controlledRegions(header).some((region) =>
+            region.contains(getByText(text)),
+          ),
+        ).toBe(true);
+      }
       expect(
         getAllByTestId("session-group-trigger").filter(
           (trigger) => !trigger.hidden,
@@ -374,10 +388,10 @@ describe("Transcript", () => {
       ).toHaveLength(1);
       rerender(view([first, answer, reply]));
       expect(
-        getByText("Continuing the task").closest(
-          '[data-header-visible="true"]',
+        controlledRegions(header).some((region) =>
+          region.contains(getByText("Continuing the task")),
         ),
-      ).toBe(group);
+      ).toBe(true);
       expect(
         getAllByTestId("session-group-trigger").filter(
           (trigger) => !trigger.hidden,
@@ -386,14 +400,130 @@ describe("Transcript", () => {
       rerender(
         view([first, answer, reply, userMessage("u3", "Unrelated question")]),
       );
+      const settledHeader = getAllByTestId("session-group-trigger").find(
+        (trigger) => !trigger.hidden,
+      )!;
       expect(
-        getByText("Unrelated question").closest('[data-header-visible="true"]'),
-      ).toBeNull();
+        controlledRegions(settledHeader).some((region) =>
+          region.contains(getByText("Unrelated question")),
+        ),
+      ).toBe(false);
       expect(
-        getByText("Chosen option").closest('[data-header-visible="true"]'),
-      ).not.toBeNull();
+        controlledRegions(settledHeader).some((region) =>
+          region.contains(getByText("Chosen option")),
+        ),
+      ).toBe(true);
     },
   );
+
+  test("keeps the session prefix above the latest viewport and closes only owned content", () => {
+    const view = (includeTrailing: boolean) => (
+      <Transcript
+        items={[
+          sessionMessage(userMessage("u1", "Earlier question"), "live_vision"),
+          sessionMessage(
+            assistantMessage("a1", "Earlier answer"),
+            "live_vision",
+          ),
+          sessionMessage(userMessage("u2", "Current question"), "live_vision"),
+          sessionMessage(
+            assistantMessage("a2", "Current answer"),
+            "live_vision",
+          ),
+          ...(includeTrailing
+            ? [
+                assistantMessage("unowned", "Independent reply"),
+                {
+                  kind: "thinking",
+                  key: "pending-work",
+                  active: true,
+                  label: "Pending work",
+                } satisfies TranscriptItem,
+              ]
+            : []),
+        ]}
+        conversationId="conv-1"
+        modeSessionDescriptors={[
+          {
+            summary: {
+              ...activeDescriptor("session-1", "u1").summary,
+              mode: "live_vision",
+            },
+          },
+        ]}
+        sessionGroupsEnabled
+        onSurfaceAction={noop}
+        renderAvatar={() => <span>Avatar marker</span>}
+      />
+    );
+    const { container, getByRole, getByText, queryByText, rerender } = render(
+      view(true),
+    );
+    const header = getByRole("button", { name: /Live vision session/ });
+    fireEvent.click(header);
+    const regions = controlledRegions(header);
+    expect(regions).toHaveLength(2);
+    for (const region of regions) {
+      expect(region.getAttribute("aria-labelledby")).toBe(header.id);
+    }
+    const sentinel = container.querySelector('[data-latest-edge="true"]')!;
+    const viewport = sentinel.parentElement!;
+    const avatar = container.querySelector(
+      '[data-latest-assistant-avatar="true"]',
+    )!;
+    const spacer = container.querySelector('[data-latest-edge-spacer="true"]')!;
+    const independent = getByText("Independent reply");
+    const pending = getByText("Pending work");
+    expect(viewport.style.minHeight).not.toBe("");
+    expect(viewport.contains(header)).toBe(false);
+    expect(viewport.contains(getByText("Earlier answer"))).toBe(false);
+    expect(
+      viewport
+        .querySelector("[data-message-id]")
+        ?.getAttribute("data-message-id"),
+    ).toBe("u2");
+    for (const node of [independent, pending]) {
+      expect(viewport.contains(node)).toBe(true);
+      expect(regions.some((region) => region.contains(node))).toBe(false);
+    }
+    for (const open of [false, true]) {
+      fireEvent.click(header);
+      expect(header.getAttribute("aria-expanded")).toBe(String(open));
+      expect(viewport.style.minHeight !== "").toBe(open);
+      for (const text of [
+        "Earlier question",
+        "Earlier answer",
+        "Current question",
+        "Current answer",
+      ]) {
+        expect(queryByText(text) !== null).toBe(open);
+      }
+      expect(getByText("Independent reply")).toBe(independent);
+      expect(getByText("Pending work")).toBe(pending);
+      for (const node of [independent, pending]) {
+        expect(node.closest('[hidden], [aria-hidden="true"]')).toBeNull();
+      }
+      for (const [selector, node] of [
+        ['[data-latest-assistant-avatar="true"]', avatar],
+        ['[data-latest-edge-spacer="true"]', spacer],
+        ['[data-latest-edge="true"]', sentinel],
+      ] as const) {
+        expect(container.querySelectorAll(selector)).toHaveLength(1);
+        expect(container.querySelector(selector)).toBe(node);
+      }
+    }
+    rerender(view(false));
+    expect(queryByText("Independent reply")).toBeNull();
+    expect(queryByText("Pending work")).toBeNull();
+    for (const open of [false, true]) {
+      fireEvent.click(header);
+      expect(viewport.style.minHeight !== "").toBe(open);
+      expect(queryByText("Current question") !== null).toBe(open);
+      expect(container.querySelector('[data-latest-edge-spacer="true"]')).toBe(
+        spacer,
+      );
+    }
+  });
 
   test("keeps the latest reply DOM mounted while its session header appears", () => {
     const anchor = userMessage("u-session", "Open the page");
