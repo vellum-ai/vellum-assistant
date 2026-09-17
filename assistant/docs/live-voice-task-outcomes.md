@@ -22,11 +22,12 @@ additional output or resolve a blocker without starting a competing text turn.
 
 Results require forwarded reply audio and remain pending through the estimated
 playback tail. Progress narration alone, empty speech synthesis, and failed speech
-synthesis leave them pending. A barge-in preserves
-the interrupted outcome without creating another worker. A failed launch or an
+synthesis leave them pending. A barge-in preserves the interrupted outcome without
+creating another worker. A failed launch or an
 explicit stop defers retry until the next user turn or task update. Hang-up returns
-undelivered updates to the ordinary conversation path after the voice turn's
-teardown settles, since its abort clears the parent queue. The handoff bypasses
+undelivered updates to the ordinary conversation path after pending voice starts
+and the voice turn's teardown settle, since its abort clears the parent queue.
+The handoff bypasses
 voice routing so a replacement call cannot reclaim it during teardown.
 
 The pending queue is session-local; this does not add a durable notification ledger

@@ -777,6 +777,60 @@ describe("LiveVoiceSession subagent outcomes", () => {
     );
   });
 
+  test.each(["resolved", "rejected"])(
+    "hang-up waits for pending startup (%s) before handing back results",
+    async (mode) => {
+      let finishStartup!: () => void;
+      const startup = new Promise<void>((resolve) => {
+        finishStartup = resolve;
+      });
+      let finishTeardown!: () => void;
+      const teardown = new Promise<void>((resolve) => {
+        finishTeardown = resolve;
+      });
+      let registeredTeardown: Promise<void> | undefined;
+      let turn: VoiceTurnOptions | undefined;
+      const abort = mock(() => {});
+      const { session } = createHarness({
+        startVoiceTurn: async (options) => {
+          turn = options;
+          await startup;
+          if (mode === "rejected") {
+            throw new Error("startup unavailable");
+          }
+          registeredTeardown = teardown;
+          return { turnId: "turn-1", abort };
+        },
+        getTurnTeardown: () => registeredTeardown,
+        continuationAnnounceSilenceMs: 10,
+      });
+      await session.start();
+      const first = outcome("task-1");
+      const before = injectMessageIntoParentMock.mock.calls.length;
+      session.receiveSubagentNotification(first);
+      await waitFor(() => turn !== undefined);
+      const closing = session.close("client_end");
+      await waitFor(() => turn?.signal?.aborted === true);
+      expect(registeredTeardown).toBeUndefined();
+      expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+      finishStartup();
+      if (mode === "resolved") {
+        await waitFor(() => abort.mock.calls.length > 0);
+        expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+      }
+      finishTeardown();
+      await closing;
+      expect(injectMessageIntoParentMock.mock.calls.slice(before)).toEqual([
+        [
+          "conversation-123",
+          first.message,
+          first.metadata,
+          { cronRunId: "run-123", bypassLiveVoice: true },
+        ],
+      ]);
+    },
+  );
+
   test("a failed announcement waits for a user turn before retrying", async () => {
     const calls: VoiceTurnOptions[] = [];
     const { session, frames } = createHarness({

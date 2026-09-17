@@ -1207,6 +1207,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
+  private readonly pendingAssistantStarts = new Set<Promise<void>>();
   private sessionEndMetricsEmitted = false;
   /**
    * Protocol error code of the failure that killed the session, latched by
@@ -3800,7 +3801,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): Promise<void> {
     this.clearSubagentAnnouncementTimer();
     // Voice aborts discard the parent queue. Deliver only after its turn settles.
+    await Promise.allSettled(this.pendingAssistantStarts);
     await turnTeardown;
+    await this.getTurnTeardown?.(this.conversationId);
     const { injectMessageIntoParent } = await import("../subagent/notify.js");
     const notifications = this.subagentNotifications.drain(Date.now());
     this.subagentNotificationsClosing = false;
@@ -6001,7 +6004,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       attachments?: readonly string[];
     },
   ): Promise<boolean> {
-    if (!this.startVoiceTurn) {
+    if (
+      !this.startVoiceTurn ||
+      this.isClosed ||
+      activeTurn.abortController.signal.aborted
+    ) {
       return false;
     }
     const { token, utterance, turnId } = activeTurn;
@@ -6087,6 +6094,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn.frontDoor = coordinator;
     }
 
+    let finishStart!: () => void;
+    const startup = new Promise<void>((resolve) => {
+      finishStart = resolve;
+    });
+    this.pendingAssistantStarts.add(startup);
     try {
       // Latched before the await, not after: this flag only decides whether the
       // end event carries a silence classification, and the dashboard decides
@@ -6494,6 +6506,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
       this.scheduleRearmAfterTurn();
       return false;
+    } finally {
+      this.pendingAssistantStarts.delete(startup);
+      finishStart();
     }
   }
 
