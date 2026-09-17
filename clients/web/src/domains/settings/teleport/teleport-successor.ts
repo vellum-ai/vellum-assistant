@@ -9,7 +9,11 @@
  * them to an assistant it already knows about.
  */
 
-import { resolvePlatformAssistantId } from "@/lib/platform-assistant-id";
+import {
+  isUuid,
+  resolveLocalAssistantPlatformIdentity,
+} from "@/lib/local-platform-identity";
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
 
 export interface TeleportSuccessorTarget {
   id: string;
@@ -18,8 +22,12 @@ export interface TeleportSuccessorTarget {
 
 /**
  * The successor's platform id, or null when a local target could not be
- * registered in time. Callers retire without a successor in that case; the
+ * registered. Callers retire without a successor in that case; the
  * connections are lost with the source rather than the switch being blocked.
+ *
+ * A registration that exists but whose credential injection failed still
+ * yields the id: the platform can move the connections to it, and the
+ * retrying bootstrap completes the local side afterwards.
  */
 export async function resolveTeleportSuccessorId(
   target: TeleportSuccessorTarget,
@@ -27,5 +35,15 @@ export async function resolveTeleportSuccessorId(
   if (target.kind === "managed") {
     return target.id;
   }
-  return resolvePlatformAssistantId(target.id);
+  try {
+    const resolved = await resolveLocalAssistantPlatformIdentity(target.id, {
+      allowGatewayRepair: false,
+    });
+    return isUuid(resolved) ? resolved : null;
+  } catch (error) {
+    if (error instanceof PlatformIdentityInjectionError) {
+      return error.platformAssistantId;
+    }
+    return null;
+  }
 }

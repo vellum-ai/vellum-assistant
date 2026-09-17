@@ -209,13 +209,18 @@ export function useTeleport(): TeleportController {
         // OAuth connections, and the platform can only hand them to an
         // assistant it already knows.
         successorAssistantId = await resolveTeleportSuccessorId(target);
-        if (successorAssistantId === null && target.kind === "local") {
-          // Registration failed once; keep the switch going and let the
-          // retrying bootstrap repair the identity in the background. The
-          // OAuth connections stay behind with the retired source.
-          captureError(new Error("teleport successor could not be resolved"), {
-            context: "teleport-successor-unresolved",
-          });
+        if (target.kind === "local") {
+          if (successorAssistantId === null) {
+            // The switch still proceeds; the OAuth connections stay behind
+            // with the retired source.
+            captureError(
+              new Error("teleport successor could not be resolved"),
+              { context: "teleport-successor-unresolved" },
+            );
+          }
+          // Completes or retries the local side of the bootstrap in the
+          // background. A fully resolved identity is served from the cache,
+          // so this is a no-op on the happy path.
           bootstrapLocalAssistantPlatformIdentity(target.id, {
             onError: (error) =>
               captureError(error, {
