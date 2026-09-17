@@ -89,12 +89,6 @@ export interface IntegrationTileProps {
 }
 
 /**
- * Past this, a provider's message is a paragraph rather than a line, and the
- * tile would grow a block of prose next to five neighbours that have none.
- */
-const INLINE_ERROR_MAX_LENGTH = 60;
-
-/**
  * One integration, connectable where it sits.
  *
  * The whole happy path is a single `+`: the waiting and the failing both land
@@ -286,12 +280,13 @@ function ProgressLine({
 }
 
 /**
- * A failure costs the tile one line.
+ * A failure costs the tile a few lines, not a dialog.
  *
  * A boxed notice inside a 15rem tile is most of the tile, and six of them on
- * one page is a wall. The state is carried by the colour of the line and by
- * the retry sitting where the connect action was, and what the provider
- * requires is left to its own setup guide.
+ * one page is a wall. The state is carried by the colour of the text and by
+ * the retry sitting where the connect action was, so the room that buys goes
+ * to the message itself: three lines of it, the rest on the title attribute,
+ * and the provider's own setup guide beside it.
  */
 function FailureLine({
   name,
@@ -308,19 +303,27 @@ function FailureLine({
   const setupGuideUrl = isMcpMethodKind(state.methodKind)
     ? state.setupGuideUrl
     : undefined;
-  const message =
-    state.error.length <= INLINE_ERROR_MAX_LENGTH
-      ? state.error
-      : t("integrationTile.failedGeneric", { name });
+  // Whatever the provider said, in its own words. It is the only thing on
+  // screen that can tell the user why, and often the only thing that tells
+  // them what to do instead, so the tile gives it the height it needs and
+  // clamps what is left over rather than trading it for a line that says
+  // nothing. The generic sentence is for a failure that arrived with no
+  // message at all.
+  const message = state.error || t("integrationTile.failedGeneric", { name });
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1">
       <p
         role="alert"
-        className="flex min-w-0 items-center gap-1.5 text-body-small-default text-[var(--system-negative-strong)]"
+        className="flex min-w-0 items-start gap-1.5 text-body-small-default text-[var(--system-negative-strong)]"
       >
-        <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
-        <span className="min-w-0 [overflow-wrap:anywhere]">{message}</span>
+        <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+        <span
+          title={state.error || undefined}
+          className="line-clamp-3 min-w-0 [overflow-wrap:anywhere]"
+        >
+          {message}
+        </span>
       </p>
       {setupGuideUrl ? (
         <Button

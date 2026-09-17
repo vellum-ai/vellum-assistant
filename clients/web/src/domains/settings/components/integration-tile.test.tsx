@@ -198,6 +198,53 @@ describe("IntegrationTile", () => {
     await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
   });
 
+  test("says what went wrong in the words it was given", () => {
+    // The whole fix for this failure is in the sentence, so the tile carries
+    // it rather than replacing it with a line that explains nothing.
+    const popupBlocked =
+      "Your browser blocked the sign-in window. Allow pop-ups and try again.";
+    tile({
+      state: {
+        phase: "failed",
+        error: popupBlocked,
+        methodKind: "managed-oauth",
+      },
+    });
+
+    screen.getByText(popupBlocked);
+  });
+
+  test("clamps a paragraph of provider prose rather than dropping it", () => {
+    const paragraph =
+      "Google rejected the sign-in because the workspace administrator " +
+      "has not granted this application access to the account yet.";
+    tile({
+      state: {
+        phase: "failed",
+        error: paragraph,
+        methodKind: "managed-oauth",
+      },
+    });
+
+    // On screen in full, held to three lines, and reachable whole from the
+    // title for the rest.
+    const message = screen.getByText(paragraph);
+    expect(message.className).toContain("line-clamp-3");
+    expect(message.getAttribute("title")).toBe(paragraph);
+    expect(
+      screen.queryByText("Sign-in to Google did not complete."),
+    ).toBeNull();
+  });
+
+  test("falls back to its own line for a failure that arrived with no message", () => {
+    tile({
+      state: { phase: "failed", error: "", methodKind: "managed-oauth" },
+    });
+
+    const message = screen.getByText("Sign-in to Google did not complete.");
+    expect(message.getAttribute("title")).toBeNull();
+  });
+
   test("leaves out a setup guide and a menu that lead nowhere", () => {
     tile({
       state: {
