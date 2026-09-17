@@ -7,12 +7,11 @@ import { toggleVoiceFromSurface } from "@/domains/chat/voice/live-voice/start-vo
 import { useNativeChordRegistration } from "@/domains/chat/voice/use-native-chord-registration";
 import {
   LS_VOICE_MODE_ACTIVATION_KEY,
-  eventMatchesVoiceModeActivator,
   readVoiceModeActivator,
   supportsBareModifierVoiceMode,
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
-import { type PTTModifier } from "@/utils/ptt-activator";
+import { type PTTModifier, eventActivatesPTT } from "@/utils/ptt-activator";
 import type { VoiceModeChord } from "@vellumai/ipc-contract";
 import { type HotkeyEvent, subscribeToHotkeyEvents } from "@/runtime/hotkey";
 import { watchSetting } from "@/utils/local-settings";
@@ -123,7 +122,7 @@ export function useVoiceModeHotkey({
         return;
       }
       if (isBareModifierActivator(activator)) {
-        if (eventMatchesVoiceModeActivator(event, activator)) {
+        if (eventActivatesPTT(event, activator)) {
           bareTapArmed = true;
           // Keep Alt from shifting focus to the menu bar mid-tap.
           event.preventDefault();
@@ -148,7 +147,7 @@ export function useVoiceModeHotkey({
       ) {
         return;
       }
-      if (!eventMatchesVoiceModeActivator(event, activator)) {
+      if (!eventActivatesPTT(event, activator)) {
         return;
       }
       event.preventDefault();
