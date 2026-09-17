@@ -356,6 +356,33 @@ describe("assistant-audio activity", () => {
   });
 });
 
+describe("structured response activity", () => {
+  test("tracks escalation until the next response starts", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 3,
+        turnId: "t1",
+        label: "Working on that",
+        kind: "escalation",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 4, turnId: "t2" });
+    });
+    expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Barge-in
 // ---------------------------------------------------------------------------

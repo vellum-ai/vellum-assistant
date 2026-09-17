@@ -2919,6 +2919,26 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     return runOptions;
   }
 
+  function reportPreparedTarget(
+    runOptions: Record<string, unknown>,
+    overrideProfile: string,
+  ): void {
+    const onPrepared = runOptions.onFirstModelCallPrepared as (prepared: {
+      callSite: "mainAgent";
+      overrideProfile: string;
+      forceOverrideProfile: boolean;
+      systemPrompt: string;
+      tools: [];
+    }) => void;
+    onPrepared({
+      callSite: "mainAgent",
+      overrideProfile,
+      forceOverrideProfile: true,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
+  }
+
   test("with no chat-model selection the leg keeps the call-site profile", async () => {
     const runOptions = await runOptionsFor({});
 
@@ -2981,6 +3001,56 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     });
   });
 
+  test("reports the conversation profile selected for the handoff", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "quality-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "quality-optimized",
+      source: "conversation",
+    });
+  });
+
+  test("reports the concrete profile selected from a mix", async () => {
+    setConfig("llm", {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    });
+    let selectedProfile: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      overrideProfile: "voice-mix",
+      forceOverrideProfile: true,
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        selectedProfile = chosenProfile;
+      },
+    });
+    const onEscalationTargetResolved = mock();
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+
+    reportPreparedTarget(runOptions, "voice-mix");
+
+    expect(selectedProfile).toBeDefined();
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: selectedProfile,
+      source: "conversation",
+    });
+  });
+
   test("warms the main-agent route when the conversation has no profile pin", async () => {
     const runOptions = await runOptionsFor({});
     const warmPromptCache = mock(async () => {});
@@ -3026,8 +3096,27 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
   test("does not warm when requests are rate limited", async () => {
     setConfig("rateLimit", { maxRequestsPerMinute: 1 });
     const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
 
-    expect(runOptions.onFirstModelCallPrepared).toBeUndefined();
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+    reportPreparedTarget(runOptions, "quality-optimized");
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
+  test("reports a profile selected by final pre-model routing", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "cost-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "cost-optimized",
+      source: "pre_model_hook",
+    });
   });
 
   test("the conversation's own pin wins over the workspace selection", async () => {

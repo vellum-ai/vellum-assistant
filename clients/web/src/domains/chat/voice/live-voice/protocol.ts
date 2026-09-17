@@ -83,11 +83,7 @@ export type LiveVoiceTurnDetectionMode = "manual" | "server_vad";
  * unknown downstream rather than failing the session.
  */
 export type LiveVoiceEntry =
-  | "composer"
-  | "companion"
-  | "voice_key"
-  | "voice_key_ask"
-  | "deep_link";
+  "composer" | "companion" | "voice_key" | "voice_key_ask" | "deep_link";
 
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
@@ -157,11 +153,7 @@ export interface LiveVoiceClientStartFrame {
 
 /** A session control this client carries out on the assistant's behalf. */
 export type LiveVoiceSessionControl =
-  | "end"
-  | "mute"
-  | "look_screen"
-  | "look_camera"
-  | "look_stop";
+  "end" | "mute" | "look_screen" | "look_camera" | "look_stop";
 
 export interface LiveVoiceClientPttReleaseFrame {
   readonly type: "ptt_release";
@@ -360,14 +352,26 @@ export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
  *
  * The wording is the daemon's, not this layer's, and that is deliberate: the
  * iOS Live Activity is driven both by this socket and by an APNs push the
- * daemon dispatches when this web layer is suspended, the two must carry
- * identical content state, and handing both the same string is the only way to
- * guarantee it. See `assistant/src/live-voice/activity-label.ts`.
+ * daemon dispatches when this web layer is suspended. Structured kinds let
+ * in-conversation surfaces use localized copy while system-level surfaces can
+ * suppress internal detail. See
+ * `assistant/src/live-voice/activity-label.ts`.
  */
 export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "activity";
   readonly turnId: string;
   readonly label: string;
+  /** Structured reason for the activity, when a client needs custom display. */
+  readonly kind?: "escalation";
+  /** Selected inference profile for diagnostics, never default UI copy. */
+  readonly profile?: string;
+  /** Why the selected profile won for this leg. */
+  readonly profileSource?:
+    | "conversation"
+    | "turn_override"
+    | "image_compatibility"
+    | "pre_model_hook"
+    | "call_site";
   /**
    * The confirmation this turn is blocked on, when the label describes a wait
    * rather than work in flight. Absent otherwise, including on the frame that

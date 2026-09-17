@@ -125,11 +125,9 @@ function toActivityContent(
     // push registration, which has no `outputMuted` in it. See the field's
     // docs in `native-live-activity.ts`.
     outputMuted: session.outputMuted,
-    // The daemon's wording, verbatim, for the same reason the phase label is
-    // the room's wording verbatim: the island has a second driver (the APNs
-    // push the daemon dispatches while this layer is suspended) and the two
-    // must render the same thing.
-    detail: session.activityLabel,
+    // Escalation is an in-conversation status. Keep the assistant's English
+    // activity label out of the system-level Live Activity surface.
+    detail: session.responsePhase === "escalated" ? "" : session.activityLabel,
     // Arrives on the same frame as the line above and is the other half of the
     // same fact: `detail` says the turn is waiting, this says which decision
     // it is waiting on, and only the second one makes the island's buttons

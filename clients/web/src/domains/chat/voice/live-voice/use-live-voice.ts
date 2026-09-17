@@ -1310,6 +1310,7 @@ export function useLiveVoice(
           session.player.resetPlaybackProgress();
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
+          s.setResponsePhase(null);
           s.setState("thinking");
         }),
         client.on("activity", (frame) => {
@@ -1324,9 +1325,9 @@ export function useLiveVoice(
           // than leaving it — the daemon retires a wait by sending the line
           // without it, so treating absence as "unchanged" would strand the
           // island's Approve/Deny buttons on a decision already made.
-          useLiveVoiceStore
-            .getState()
-            .setActivityLabel(frame.label, frame.approvalRequestId ?? null);
+          const s = useLiveVoiceStore.getState();
+          s.setActivityLabel(frame.label, frame.approvalRequestId ?? null);
+          s.setResponsePhase(frame.kind === "escalation" ? "escalated" : null);
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {
@@ -1418,6 +1419,7 @@ export function useLiveVoice(
           });
           // A cancelled turn's control goes with it.
           session.pendingSessionControl = null;
+          useLiveVoiceStore.getState().setResponsePhase(null);
           // Drop the cancelled turn's bound stamp so the next response's
           // audio can't pair against it. The unbound `speechEndedAtMs` is
           // left alone — it belongs to a newer overlapping utterance whose

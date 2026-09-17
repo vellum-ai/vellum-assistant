@@ -553,7 +553,8 @@
     "muted": "Без звука",
     "reconnecting": "Переподключение…",
     "speaking": "Говорит…",
-    "thinking": "Думает…"
+    "thinking": "Думает…",
+    "working": "Работаю над этим…"
   },
   "llmCallErrorCard": {
     "chipCode": "Код",

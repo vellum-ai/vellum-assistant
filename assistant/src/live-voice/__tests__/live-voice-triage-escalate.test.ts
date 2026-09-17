@@ -107,6 +107,12 @@ function scriptedStartVoiceTurn(script: {
   const escalatedAbort = mock();
   const starter = mock(async (options: VoiceTurnOptions) => {
     const isEscalated = options.content === ESCALATION_CONTINUATION_CONTENT;
+    if (isEscalated) {
+      options.onEscalationTargetResolved?.({
+        profile: "quality-optimized",
+        source: "conversation",
+      });
+    }
     if (isEscalated && script.holdEscalated) {
       return { turnId: "bridge-escalated", abort: escalatedAbort };
     }
@@ -200,6 +206,15 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        kind: "escalation",
+        label: "",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      }),
+    );
   });
 
   test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {

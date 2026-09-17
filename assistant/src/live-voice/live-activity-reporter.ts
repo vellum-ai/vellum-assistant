@@ -88,6 +88,10 @@ export function phaseForFrame(
       // Unconditional, unlike `stt_final`: the session sends this frame
       // precisely when it has committed to a turn.
       return "thinking";
+    case "activity":
+      // Keep model-routing detail inside the conversation, while ensuring a
+      // silent escalation leaves any preceding speaking phase behind.
+      return frame.kind === "escalation" ? "thinking" : null;
     case "tts_audio":
       return "speaking";
     case "tts_done":
@@ -128,10 +132,14 @@ export class LiveActivityReporter {
       return;
     }
     const phase = phaseForFrame(frame, this.lastPhase);
-    // The session sends this frame only on a change it wants surfaced, and
-    // sends an empty label when the turn stops working, so it is taken
-    // verbatim rather than derived.
-    const detail = frame.type === "activity" ? frame.label : this.lastDetail;
+    // Tool and approval activity is server-owned wording. Escalation is an
+    // in-conversation status, so keep it out of the system-level Live Activity.
+    const detail =
+      frame.type === "activity"
+        ? frame.kind === "escalation"
+          ? ""
+          : frame.label
+        : this.lastDetail;
     const phaseMoved = phase !== null && phase !== this.lastPhase;
     if (!phaseMoved && detail === this.lastDetail) {
       return;

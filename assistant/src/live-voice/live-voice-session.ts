@@ -4091,14 +4091,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * conversation may wait on one.
    *
    * Callers whose line depends on turn state go through
-   * {@link refreshActivity}; this is called directly only to clear the line
-   * outright, which a cancelled or finished turn does regardless of what it
-   * was waiting on.
+   * {@link refreshActivity}. Structured transition events call this directly
+   * because their meaning is not captured by the label alone.
    */
   private publishActivity(
     turn: ActiveAssistantTurn,
     label: string,
     approvalRequestId?: string,
+    detail?: Pick<
+      Extract<LiveVoiceServerFramePayload, { type: "activity" }>,
+      "kind" | "profile" | "profileSource"
+    >,
   ): void {
     // De-duplicated on the request id as well as the wording. The two move
     // independently: a wait can be entered and left without the tool line
@@ -4106,6 +4109,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // retires the approval — leaving the island's buttons up with nothing
     // behind them.
     if (
+      detail === undefined &&
       turn.activityLabel === label &&
       turn.publishedApprovalRequestId === (approvalRequestId ?? null)
     ) {
@@ -4119,6 +4123,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         turnId: turn.turnId,
         label,
         ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+        ...detail,
       },
       () => !this.isClosed,
     );
@@ -6187,6 +6192,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         onApprovalsResolved: () => {
           this.clearAwaitingApproval(activeTurn);
         },
+        ...(leg.routingLeg === "escalated"
+          ? {
+              onEscalationTargetResolved: (target) => {
+                if (!this.isActiveAssistantTurn(token)) {
+                  return;
+                }
+                this.publishActivity(activeTurn, "", undefined, {
+                  kind: "escalation",
+                  profile: target.profile,
+                  profileSource: target.source,
+                });
+              },
+            }
+          : {}),
         content: leg.content,
         ...(leg.attachments ? { attachments: leg.attachments } : {}),
         isInbound: true,
