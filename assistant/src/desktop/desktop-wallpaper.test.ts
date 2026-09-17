@@ -5,6 +5,7 @@ import {
   afterEach,
   beforeEach,
   expect,
+  mock,
   setDefaultTimeout,
   test,
 } from "bun:test";
@@ -14,11 +15,10 @@ import sharp from "sharp";
 import {
   __resetResvgCacheForTests,
   __setResvgCacheForTests,
+  getResvg,
 } from "../avatar/resvg-lazy.js";
-import {
-  renderCurrentDesktopWallpaper,
-  renderDesktopWallpaper,
-} from "./desktop-wallpaper.js";
+import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { renderDesktopWallpaper } from "./desktop-wallpaper-renderer.js";
 
 // Native resvg renders scan the system font database per instance, and on a
 // loaded CI runner the file's first render runs past bun's 5s default. Each
@@ -199,4 +199,18 @@ test("names containing XML are rendered as text without injecting SVG shapes", a
     await sharp(fallback).extract(top).raw().toBuffer(),
   );
   expect((await wordmarkPixels(png)).length).toBeGreaterThan(0);
+});
+
+test("renders in a child without invoking the assistant's native rasterizer", async () => {
+  const render = mock(() => {
+    throw new Error("Rendering must not run on the assistant event loop");
+  });
+  __setResvgCacheForTests({
+    available: true,
+    Resvg: render as unknown as ReturnType<typeof getResvg>,
+  });
+  const png = await renderCurrentDesktopWallpaper(1600, 900);
+  expect(render).not.toHaveBeenCalled();
+  const metadata = await sharp(png!).metadata();
+  expect([metadata.width, metadata.height]).toEqual([1600, 900]);
 });
