@@ -1,11 +1,15 @@
 import { readAvatarState } from "../avatar/avatar-manifest.js";
+import { readContainedAvatarRaster } from "../avatar/ensure-raster.js";
 import {
   renderNotificationAvatarPng,
   resolveNotificationAccentHex,
 } from "../avatar/notification-avatar.js";
+import { renderCharacterPng } from "../avatar/png-renderer.js";
 import { getResvg, isResvgAvailable } from "../avatar/resvg-lazy.js";
 import { isTemplatePlaceholder } from "../daemon/handlers/identity.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
+import { getLogger } from "../util/logger.js";
+import { getAvatarImagePath } from "../util/platform.js";
 import { escapeXmlContent } from "../util/xml.js";
 
 function wallpaperWordmark(
@@ -103,10 +107,25 @@ export async function renderCurrentDesktopWallpaper(
   }
   const state = readAvatarState();
   const name = getAssistantName();
+  let raster = readContainedAvatarRaster(getAvatarImagePath());
+  if (!raster && state.kind === "character" && state.traits) {
+    try {
+      raster = renderCharacterPng(
+        state.traits.bodyShape,
+        state.traits.eyeStyle,
+        state.traits.color,
+      );
+    } catch (err) {
+      getLogger("desktop-wallpaper").warn(
+        { err },
+        "Could not render wallpaper avatar",
+      );
+    }
+  }
   return renderDesktopWallpaper(
     width,
     height,
-    await renderNotificationAvatarPng(state),
+    raster ? await renderNotificationAvatarPng(state, raster) : null,
     resolveNotificationAccentHex(state),
     name,
   );

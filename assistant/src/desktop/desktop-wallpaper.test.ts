@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -81,7 +88,7 @@ test("renders the current uploaded avatar into an opaque desktop wallpaper", asy
   expect((await sharp(result).stats()).isOpaque).toBe(true);
 });
 
-test("regenerates a character from current traits when its raster is missing", async () => {
+test("renders a missing character raster without changing persisted avatar files", async () => {
   manifest({
     kind: "character",
     source: "pool",
@@ -89,9 +96,18 @@ test("regenerates a character from current traits when its raster is missing", a
     image: null,
     accent: null,
   });
+  const avatarDir = join(workspace, "data/avatar");
+  writeFileSync(join(avatarDir, "character-traits.json"), "preserve traits");
+  writeFileSync(join(avatarDir, "character-ascii.txt"), "preserve ASCII");
+  const snapshot = () =>
+    readdirSync(avatarDir)
+      .sort()
+      .map((file) => [file, readFileSync(join(avatarDir, file))]);
+  const before = snapshot();
   const result = (await renderCurrentDesktopWallpaper(480, 300))!;
   const empty = renderDesktopWallpaper(480, 300, null, null);
   expect(await centerPixel(result)).not.toEqual(await centerPixel(empty));
+  expect(snapshot()).toEqual(before);
 });
 
 test("missing and unreadable avatars produce the same neutral background", async () => {
