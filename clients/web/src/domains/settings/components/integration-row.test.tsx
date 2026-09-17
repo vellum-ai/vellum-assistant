@@ -39,7 +39,9 @@ describe("IntegrationRow", () => {
     screen.getByText("1 connected account");
     expect(screen.queryByText("Connected")).toBeNull();
     screen.getByText("Needs attention");
-    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Configure Example Integration" }),
+    );
     expect(configure).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
   });
@@ -57,7 +59,7 @@ describe("IntegrationRow", () => {
     );
 
     screen.getByText("Needs attention");
-    screen.getByRole("button", { name: "Configure" });
+    screen.getByRole("button", { name: "Configure Example Integration" });
   });
 
   test("offers Connect for an available provider", () => {

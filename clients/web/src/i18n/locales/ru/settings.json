@@ -889,7 +889,6 @@
     "yourOwnTab": "Свои"
   },
   "integrationRow": {
-    "configure": "Настроить",
     "connect": "Подключить",
     "connected": "Подключено",
     "connectedAccounts": "{count, plural, one {# подключённый аккаунт} few {# подключённых аккаунта} many {# подключённых аккаунтов} other {# подключённого аккаунта}}",

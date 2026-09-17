@@ -1,0 +1,937 @@
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  Loader2,
+  MoreHorizontal,
+  RefreshCw,
+  Unplug,
+  Wrench,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
+
+import { ActionMenu } from "@vellumai/design-library/components/action-menu";
+import { Button } from "@vellumai/design-library/components/button";
+import { Checkbox } from "@vellumai/design-library/components/checkbox";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { ListRow } from "@vellumai/design-library/components/list-row";
+import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { SplitButton } from "@vellumai/design-library/components/split-button";
+import { Tag } from "@vellumai/design-library/components/tag";
+
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import { useTranslation } from "@/i18n";
+
+import {
+  connectMethodMenuItems,
+  useConnectMethodLabel,
+} from "../connect-method-display";
+import {
+  isMcpMethodKind,
+  planConnections,
+  planMethods,
+  type ConnectMethod,
+  type ConnectPlan,
+  type ConnectionSummary,
+} from "../connect-plan";
+import type { McpToolsSummaryServer } from "../mcp/mcp-api";
+
+/** A connect attempt the caller has in flight, or the failure it ended in. */
+export interface ConnectAttempt {
+  methodId: string;
+  phase: "starting" | "authorizing" | "waiting" | "connecting" | "error";
+  error?: string;
+  canCancel: boolean;
+}
+
+/** The callback URL a manual MCP setup asks an admin to allowlist. */
+export interface CallbackUrlState {
+  status: "loading" | "ready" | "error";
+  url?: string;
+}
+
+export interface IntegrationConnectModalProps {
+  plan: ConnectPlan;
+  attempt?: ConnectAttempt | null;
+  /** Manual MCP setup only. */
+  callbackUrl?: CallbackUrlState;
+  callbackCopied?: boolean;
+  /** Tools summary per MCP connection id, for the "Tools and details" view. */
+  toolsByConnectionId?: Record<
+    string,
+    {
+      loading?: boolean;
+      error?: boolean;
+      summary?: McpToolsSummaryServer;
+      endpointUrl?: string;
+    }
+  >;
+  /** The bring-your-own OAuth form, rendered when that path is picked. */
+  ownOAuthContent?: ReactNode;
+  onConnect: (
+    method: ConnectMethod,
+    options?: { acknowledged?: boolean },
+  ) => void;
+  onLogin: () => void;
+  onCancelAttempt: () => void;
+  onRetryAttempt: () => void;
+  onReconnect: (connection: ConnectionSummary) => void;
+  onDisconnect: (connection: ConnectionSummary) => void;
+  onCopyCallbackUrl: (url: string) => void;
+  onOpenSetupGuide: (url: string) => void;
+  onClose: () => void;
+}
+
+type View =
+  | { kind: "connect"; methodId: string }
+  | { kind: "connections" }
+  | { kind: "tools"; connectionId: string };
+
+/**
+ * Whose integration this is, on every view. The icon and the name are what
+ * tells the user the back button moved them inside one integration rather
+ * than out of it.
+ */
+function ConnectModalHeader({
+  plan,
+  title,
+  description,
+}: {
+  plan: ConnectPlan;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Modal.Header>
+      <div className="flex items-center gap-3">
+        <IntegrationIcon
+          providerKey={plan.iconKey}
+          displayName={plan.name}
+          logoUrl={plan.logoUrl}
+          size={40}
+        />
+        <div className="flex min-w-0 flex-col">
+          <Modal.Title className="[&>span]:whitespace-normal">
+            {title}
+          </Modal.Title>
+          <Modal.Description>{description}</Modal.Description>
+        </div>
+      </div>
+    </Modal.Header>
+  );
+}
+
+/**
+ * One modal for every way an integration connects.
+ *
+ * The old flow stacked three modals to make one decision: a chooser, a
+ * managed-versus-own segmented detail sheet, and a server inspector. Each
+ * asked the user to understand our plumbing before they could sign in. This
+ * one puts the recommended path under a single Connect button, keeps the
+ * alternatives behind its chevron, and moves what a connection *is* (its
+ * endpoint, its tools, its token cost) behind the row it belongs to.
+ *
+ * Purely presentational: every side effect is a prop, so the surface can be
+ * reviewed in Storybook against the plan {@link buildConnectPlan} derives from
+ * the real catalog.
+ */
+export function IntegrationConnectModal({
+  plan,
+  attempt,
+  callbackUrl,
+  callbackCopied = false,
+  toolsByConnectionId,
+  ownOAuthContent,
+  onConnect,
+  onLogin,
+  onCancelAttempt,
+  onRetryAttempt,
+  onReconnect,
+  onDisconnect,
+  onCopyCallbackUrl,
+  onOpenSetupGuide,
+  onClose,
+}: IntegrationConnectModalProps) {
+  const { t } = useTranslation("settings");
+  const methodLabel = useConnectMethodLabel(plan.name);
+  const methods = planMethods(plan);
+  const connections = planConnections(plan);
+  const [view, setView] = useState<View>(() =>
+    connections.length > 0
+      ? { kind: "connections" }
+      : { kind: "connect", methodId: plan.primary.id },
+  );
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [confirming, setConfirming] = useState<ConnectionSummary | null>(null);
+
+  const setupGuideUrl = methods.find(
+    (method) => method.setupGuideUrl,
+  )?.setupGuideUrl;
+
+  function methodTag(method: ConnectMethod): string {
+    switch (method.kind) {
+      case "mcp-oauth":
+      case "mcp-manual":
+        return t("integrationConnect.tagMcp");
+      case "managed-oauth":
+        return t("integrationConnect.tagVellum");
+      case "own-oauth":
+        return t("integrationConnect.tagOwnApp");
+    }
+  }
+
+  function connectionTitle(connection: ConnectionSummary): string {
+    if (connection.label) {
+      return connection.label;
+    }
+    return isMcpMethodKind(connection.methodKind)
+      ? t("integrationConnect.connectionMcpLabel", { name: plan.name })
+      : t("integrationConnect.connectionAccountLabel", { name: plan.name });
+  }
+
+  function methodItems(
+    visible: ConnectMethod[],
+    onPick: (method: ConnectMethod) => void,
+  ): ReactNode[] {
+    return connectMethodMenuItems(visible, methodLabel, onPick);
+  }
+
+  function openConnect(method: ConnectMethod) {
+    setAcknowledged(false);
+    setView({ kind: "connect", methodId: method.id });
+  }
+
+  function leaveConnect() {
+    if (connections.length > 0) {
+      setView({ kind: "connections" });
+      return;
+    }
+    setView({ kind: "connect", methodId: plan.primary.id });
+  }
+
+  const toolsConnection =
+    view.kind === "tools"
+      ? connections.find((candidate) => candidate.id === view.connectionId)
+      : undefined;
+
+  const setupGuideButton = setupGuideUrl ? (
+    <Button
+      variant="ghost"
+      className="mr-auto min-h-11"
+      leftIcon={<ExternalLink />}
+      onClick={() => onOpenSetupGuide(setupGuideUrl)}
+    >
+      {t("integrationConnect.setupGuide")}
+    </Button>
+  ) : null;
+
+  return (
+    <Modal.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) {
+          onClose();
+        }
+      }}
+    >
+      <Modal.Content size="md">
+        {view.kind === "connect" ? (
+          <ConnectView
+            plan={plan}
+            method={
+              methods.find((candidate) => candidate.id === view.methodId) ??
+              plan.primary
+            }
+            methods={methods}
+            attempt={attempt}
+            callbackUrl={callbackUrl}
+            callbackCopied={callbackCopied}
+            ownOAuthContent={ownOAuthContent}
+            acknowledged={acknowledged}
+            hasConnections={connections.length > 0}
+            setupGuide={setupGuideButton}
+            methodItems={methodItems}
+            onAcknowledge={setAcknowledged}
+            onPickMethod={openConnect}
+            onBack={leaveConnect}
+            onConnect={onConnect}
+            onLogin={onLogin}
+            onCancelAttempt={onCancelAttempt}
+            onRetryAttempt={onRetryAttempt}
+            onCopyCallbackUrl={onCopyCallbackUrl}
+            onClose={onClose}
+          />
+        ) : view.kind === "tools" ? (
+          <ToolsView
+            plan={plan}
+            connection={toolsConnection}
+            title={
+              toolsConnection ? connectionTitle(toolsConnection) : plan.name
+            }
+            tools={toolsByConnectionId?.[view.connectionId]}
+            onBack={() => setView({ kind: "connections" })}
+            onClose={onClose}
+          />
+        ) : (
+          <ConnectionsView
+            plan={plan}
+            methods={methods}
+            connections={connections}
+            connectionTitle={connectionTitle}
+            methodTag={methodTag}
+            methodItems={methodItems}
+            setupGuide={setupGuideButton}
+            onPickMethod={openConnect}
+            onOpenTools={(connection) =>
+              setView({ kind: "tools", connectionId: connection.id })
+            }
+            onReconnect={onReconnect}
+            onRequestDisconnect={setConfirming}
+            onClose={onClose}
+          />
+        )}
+      </Modal.Content>
+
+      <ConfirmDialog
+        open={confirming !== null}
+        destructive
+        title={t("integrationConnect.disconnectTitle", {
+          label: confirming ? connectionTitle(confirming) : "",
+        })}
+        message={
+          confirming && isMcpMethodKind(confirming.methodKind)
+            ? t("integrationConnect.disconnectMessageMcp", { name: plan.name })
+            : t("integrationConnect.disconnectMessageManaged")
+        }
+        confirmLabel={t("integrationConnect.disconnect")}
+        cancelLabel={t("integrationConnect.cancel")}
+        onConfirm={() => {
+          if (confirming) {
+            onDisconnect(confirming);
+          }
+          setConfirming(null);
+        }}
+        onCancel={() => setConfirming(null)}
+      />
+    </Modal.Root>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connect view
+// ---------------------------------------------------------------------------
+
+function ConnectView({
+  plan,
+  method,
+  methods,
+  attempt,
+  callbackUrl,
+  callbackCopied,
+  ownOAuthContent,
+  acknowledged,
+  hasConnections,
+  setupGuide,
+  methodItems,
+  onAcknowledge,
+  onPickMethod,
+  onBack,
+  onConnect,
+  onLogin,
+  onCancelAttempt,
+  onRetryAttempt,
+  onCopyCallbackUrl,
+  onClose,
+}: {
+  plan: ConnectPlan;
+  method: ConnectMethod;
+  methods: ConnectMethod[];
+  attempt?: ConnectAttempt | null;
+  callbackUrl?: CallbackUrlState;
+  callbackCopied: boolean;
+  ownOAuthContent?: ReactNode;
+  acknowledged: boolean;
+  hasConnections: boolean;
+  setupGuide: ReactNode;
+  methodItems: (
+    visible: ConnectMethod[],
+    onPick: (method: ConnectMethod) => void,
+  ) => ReactNode[];
+  onAcknowledge: (next: boolean) => void;
+  onPickMethod: (method: ConnectMethod) => void;
+  onBack: () => void;
+  onConnect: (
+    method: ConnectMethod,
+    options?: { acknowledged?: boolean },
+  ) => void;
+  onLogin: () => void;
+  onCancelAttempt: () => void;
+  onRetryAttempt: () => void;
+  onCopyCallbackUrl: (url: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("settings");
+  const methodAttempt = attempt?.methodId === method.id ? attempt : null;
+  const inFlight = methodAttempt !== null && methodAttempt.phase !== "error";
+  const loginRequired = method.availability === "login-required";
+  const manualIncomplete =
+    method.kind === "mcp-manual" &&
+    (!acknowledged || callbackUrl?.status !== "ready");
+  const showBack = method.id !== plan.primary.id || hasConnections;
+  const others = methods.filter((candidate) => candidate.id !== method.id);
+
+  return (
+    <>
+      <ConnectModalHeader
+        plan={plan}
+        title={t("integrationConnect.connectTitle", { name: plan.name })}
+        description={
+          plan.description ??
+          t("integrationConnect.connectDescription", { name: plan.name })
+        }
+      />
+
+      <Modal.Body className="space-y-4">
+        {showBack ? (
+          <Button variant="ghost" leftIcon={<ArrowLeft />} onClick={onBack}>
+            {t("integrationConnect.back")}
+          </Button>
+        ) : null}
+
+        {loginRequired ? (
+          <Notice tone="info">
+            {t("integrationConnect.loginRequired", { name: plan.name })}
+          </Notice>
+        ) : null}
+
+        {methodAttempt ? (
+          <AttemptNotice
+            name={plan.name}
+            attempt={methodAttempt}
+            requirements={method.requirements}
+            onCancel={onCancelAttempt}
+            onRetry={onRetryAttempt}
+          />
+        ) : null}
+
+        {method.kind === "mcp-manual" ? (
+          <ManualSteps
+            hint={method.hint}
+            name={plan.name}
+            callbackUrl={callbackUrl}
+            callbackCopied={callbackCopied}
+            acknowledged={acknowledged}
+            onAcknowledge={onAcknowledge}
+            onCopyCallbackUrl={onCopyCallbackUrl}
+          />
+        ) : method.kind === "own-oauth" ? (
+          ownOAuthContent
+        ) : (
+          <p className="text-body-medium-default text-[var(--content-secondary)]">
+            {method.hint ??
+              t("integrationConnect.browserHint", { name: plan.name })}
+          </p>
+        )}
+      </Modal.Body>
+
+      <Modal.Footer>
+        {setupGuide}
+        <Button variant="ghost" className="min-h-11" onClick={onClose}>
+          {t("integrationConnect.cancel")}
+        </Button>
+        {method.kind === "own-oauth" ? null : (
+          <SplitButton
+            className="min-h-11"
+            disabled={inFlight || manualIncomplete}
+            // The steps above are what blocks Connect, and picking another way
+            // in is one of the ways out of them, so the chevron stays live
+            // while the main half waits.
+            menuDisabled={inFlight}
+            leftIcon={inFlight ? <Loader2 className="animate-spin" /> : null}
+            menuTitle={t("integrationConnect.otherWays")}
+            menuTriggerLabel={t("connectMethod.otherWaysLabel", {
+              name: plan.name,
+            })}
+            menuItems={methodItems(others, onPickMethod)}
+            onClick={() =>
+              loginRequired ? onLogin() : onConnect(method, { acknowledged })
+            }
+          >
+            {loginRequired
+              ? t("integrationConnect.loginToConnect")
+              : t("integrationConnect.connect")}
+          </SplitButton>
+        )}
+      </Modal.Footer>
+    </>
+  );
+}
+
+function AttemptNotice({
+  name,
+  attempt,
+  requirements,
+  onCancel,
+  onRetry,
+}: {
+  name: string;
+  attempt: ConnectAttempt;
+  requirements: string[];
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation("settings");
+
+  if (attempt.phase === "error") {
+    return (
+      <Notice
+        tone="error"
+        actions={
+          <div className="flex gap-2">
+            <Button variant="outlined" onClick={onRetry}>
+              {t("integrationConnect.retry")}
+            </Button>
+            <Button variant="ghost" onClick={onCancel}>
+              {attempt.canCancel
+                ? t("integrationConnect.stopWaiting")
+                : t("integrationConnect.cancel")}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-2">
+          <p>
+            {attempt.error ?? t("integrationConnect.attemptFailed", { name })}
+          </p>
+          {requirements.length > 0 ? (
+            <>
+              <p>{t("integrationConnect.attemptRequirements")}</p>
+              <ul className="list-disc space-y-1 pl-5">
+                {requirements.map((requirement) => (
+                  <li key={requirement}>{requirement}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </div>
+      </Notice>
+    );
+  }
+
+  const message =
+    attempt.phase === "starting"
+      ? t("integrationConnect.attemptStarting", { name })
+      : attempt.phase === "connecting"
+        ? t("integrationConnect.attemptConnecting", { name })
+        : t("integrationConnect.attemptWaiting", { name });
+
+  return (
+    <Notice
+      tone="info"
+      icon={<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+      actions={
+        attempt.canCancel ? (
+          <Button variant="ghost" onClick={onCancel}>
+            {t("integrationConnect.stopWaiting")}
+          </Button>
+        ) : undefined
+      }
+    >
+      {message}
+    </Notice>
+  );
+}
+
+function ManualSteps({
+  hint,
+  name,
+  callbackUrl,
+  callbackCopied,
+  acknowledged,
+  onAcknowledge,
+  onCopyCallbackUrl,
+}: {
+  hint?: string;
+  name: string;
+  callbackUrl?: CallbackUrlState;
+  callbackCopied: boolean;
+  acknowledged: boolean;
+  onAcknowledge: (next: boolean) => void;
+  onCopyCallbackUrl: (url: string) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const url = callbackUrl?.status === "ready" ? callbackUrl.url : undefined;
+
+  return (
+    <>
+      {hint ? (
+        <p className="text-body-medium-default text-[var(--content-secondary)]">
+          {hint}
+        </p>
+      ) : null}
+      <ol className="space-y-4">
+        <ManualStep index={1}>
+          <p className="text-body-medium-default">
+            {t("integrationConnect.manualStep1")}
+          </p>
+          {url ? (
+            <div className="flex items-center gap-2 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-2">
+              <code className="min-w-0 flex-1 font-mono text-body-small-default [overflow-wrap:anywhere]">
+                {url}
+              </code>
+              <Button
+                variant="outlined"
+                size="compact"
+                leftIcon={callbackCopied ? <Check /> : <Copy />}
+                onClick={() => onCopyCallbackUrl(url)}
+              >
+                {callbackCopied
+                  ? t("integrationConnect.copied")
+                  : t("integrationConnect.copy")}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-body-small-default text-[var(--content-tertiary)]">
+              {callbackUrl?.status === "error"
+                ? t("integrationConnect.callbackError")
+                : t("integrationConnect.callbackLoading")}
+            </p>
+          )}
+        </ManualStep>
+        <ManualStep index={2}>
+          <p className="text-body-medium-default">
+            {t("integrationConnect.manualStep2", { name })}
+          </p>
+        </ManualStep>
+        <ManualStep index={3}>
+          <Checkbox
+            checked={acknowledged}
+            onCheckedChange={(next) => onAcknowledge(next === true)}
+            label={t("integrationConnect.manualStep3")}
+          />
+        </ManualStep>
+      </ol>
+    </>
+  );
+}
+
+/** One numbered step, with the number in a column of its own so the step
+ * bodies line up however tall each one grows. */
+function ManualStep({
+  index,
+  children,
+}: {
+  index: number;
+  children: ReactNode;
+}) {
+  return (
+    <li className="flex gap-3">
+      <span className="w-3 shrink-0 text-body-medium-default text-[var(--content-tertiary)]">
+        {index}
+      </span>
+      <div className="min-w-0 flex-1 space-y-2">{children}</div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connections view
+// ---------------------------------------------------------------------------
+
+function ConnectionsView({
+  plan,
+  methods,
+  connections,
+  connectionTitle,
+  methodTag,
+  methodItems,
+  setupGuide,
+  onPickMethod,
+  onOpenTools,
+  onReconnect,
+  onRequestDisconnect,
+  onClose,
+}: {
+  plan: ConnectPlan;
+  methods: ConnectMethod[];
+  connections: ConnectionSummary[];
+  connectionTitle: (connection: ConnectionSummary) => string;
+  methodTag: (method: ConnectMethod) => string;
+  methodItems: (
+    visible: ConnectMethod[],
+    onPick: (method: ConnectMethod) => void,
+  ) => ReactNode[];
+  setupGuide: ReactNode;
+  onPickMethod: (method: ConnectMethod) => void;
+  onOpenTools: (connection: ConnectionSummary) => void;
+  onReconnect: (connection: ConnectionSummary) => void;
+  onRequestDisconnect: (connection: ConnectionSummary) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("settings");
+
+  function subtitle(connection: ConnectionSummary): string | undefined {
+    const method = methods.find(
+      (candidate) => candidate.id === connection.methodId,
+    );
+    if (methods.length < 2 || !method) {
+      return connection.detail;
+    }
+    const tag = methodTag(method);
+    return connection.detail
+      ? t("integrationConnect.connectionSubtitle", {
+          method: tag,
+          detail: connection.detail,
+        })
+      : tag;
+  }
+
+  return (
+    <>
+      <ConnectModalHeader
+        plan={plan}
+        title={plan.name}
+        description={t("integrationConnect.connectionsDescription", {
+          name: plan.name,
+        })}
+      />
+
+      <Modal.Body>
+        <div className="rounded-lg border border-[var(--border-base)]">
+          {connections.map((connection) => (
+            <ListRow
+              key={connection.id}
+              title={connectionTitle(connection)}
+              subtitle={subtitle(connection)}
+              trailingInteractive
+              trailing={
+                <div className="flex items-center gap-2">
+                  <ConnectionStatusTag status={connection.status} />
+                  {connection.canReconnect ? (
+                    <Button
+                      variant="outlined"
+                      size="compact"
+                      leftIcon={<RefreshCw />}
+                      onClick={() => onReconnect(connection)}
+                    >
+                      {connection.status === "pending"
+                        ? t("integrationConnect.finishConnecting")
+                        : t("integrationConnect.reconnect")}
+                    </Button>
+                  ) : null}
+                  <ActionMenu.Root>
+                    <ActionMenu.Trigger asChild>
+                      <Button
+                        variant="ghost"
+                        iconOnly={<MoreHorizontal />}
+                        aria-label={t("integrationConnect.moreActions", {
+                          label: connectionTitle(connection),
+                        })}
+                      />
+                    </ActionMenu.Trigger>
+                    <ActionMenu.Content
+                      title={t("integrationConnect.moreActions", {
+                        label: connectionTitle(connection),
+                      })}
+                    >
+                      {isMcpMethodKind(connection.methodKind) ? (
+                        <ActionMenu.Item
+                          icon={Wrench}
+                          label={t("integrationConnect.toolsAndDetails")}
+                          onSelect={() => onOpenTools(connection)}
+                        />
+                      ) : null}
+                      <ActionMenu.Item
+                        icon={Unplug}
+                        tone="destructive"
+                        label={t("integrationConnect.disconnect")}
+                        onSelect={() => onRequestDisconnect(connection)}
+                      />
+                    </ActionMenu.Content>
+                  </ActionMenu.Root>
+                </div>
+              }
+            />
+          ))}
+        </div>
+      </Modal.Body>
+
+      <Modal.Footer>
+        {setupGuide}
+        <ActionMenu.Root>
+          <ActionMenu.Trigger asChild>
+            <Button
+              variant="outlined"
+              className="min-h-11"
+              rightIcon={<ChevronDown />}
+            >
+              {t("integrationConnect.connectAnother")}
+            </Button>
+          </ActionMenu.Trigger>
+          <ActionMenu.Content title={t("integrationConnect.connectAnother")}>
+            {methodItems(methods, onPickMethod)}
+          </ActionMenu.Content>
+        </ActionMenu.Root>
+        <Button className="min-h-11" onClick={onClose}>
+          {t("integrationConnect.done")}
+        </Button>
+      </Modal.Footer>
+    </>
+  );
+}
+
+/**
+ * Connected is the default and gets no chip: a row that says "Connected" on
+ * every healthy connection trains the eye to skip the one that does not.
+ */
+function ConnectionStatusTag({
+  status,
+}: {
+  status: ConnectionSummary["status"];
+}) {
+  const { t } = useTranslation("settings");
+  switch (status) {
+    case "needs-attention":
+      return (
+        <Tag tone="negative">
+          {t("integrationConnect.statusNeedsAttention")}
+        </Tag>
+      );
+    case "connecting":
+      return <Tag>{t("integrationConnect.statusConnecting")}</Tag>;
+    case "pending":
+      return <Tag>{t("integrationConnect.statusPending")}</Tag>;
+    case "connected":
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tools and details view
+// ---------------------------------------------------------------------------
+
+function ToolsView({
+  plan,
+  connection,
+  title,
+  tools,
+  onBack,
+  onClose,
+}: {
+  plan: ConnectPlan;
+  connection?: ConnectionSummary;
+  title: string;
+  tools?: {
+    loading?: boolean;
+    error?: boolean;
+    summary?: McpToolsSummaryServer;
+    endpointUrl?: string;
+  };
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("settings");
+  const summary = tools?.summary;
+
+  return (
+    <>
+      <ConnectModalHeader
+        plan={plan}
+        title={title}
+        description={t("integrationConnect.toolsAndDetails")}
+      />
+
+      <Modal.Body className="space-y-4">
+        <Button variant="ghost" leftIcon={<ArrowLeft />} onClick={onBack}>
+          {t("integrationConnect.back")}
+        </Button>
+
+        <dl className="space-y-1">
+          <dt className="text-body-small-default text-[var(--content-secondary)]">
+            {t("integrationConnect.endpoint")}
+          </dt>
+          <dd className="font-mono text-body-small-default text-[var(--content-tertiary)] [overflow-wrap:anywhere]">
+            {tools?.endpointUrl ??
+              connection?.detail ??
+              t("integrationConnect.endpointUnknown")}
+          </dd>
+        </dl>
+
+        {tools?.loading ? (
+          <p
+            role="status"
+            className="text-body-small-default text-[var(--content-tertiary)]"
+          >
+            {t("integrationConnect.toolsLoading")}
+          </p>
+        ) : tools?.error ? (
+          <p
+            role="alert"
+            className="text-body-small-default text-[var(--content-tertiary)]"
+          >
+            {t("integrationConnect.toolsError")}
+          </p>
+        ) : summary && summary.tools.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-body-small-default text-[var(--content-secondary)]">
+              {t("integrationConnect.toolsSummary", {
+                count: summary.toolCount,
+                tokens: summary.estimatedTokens,
+              })}
+            </p>
+            <Collapsible.Root
+              type="multiple"
+              className="rounded-lg border border-[var(--border-base)]"
+            >
+              {summary.tools.map((tool) => (
+                <Collapsible.Item
+                  key={tool.name}
+                  value={tool.name}
+                  className="border-b border-[var(--border-base)] last:border-b-0"
+                >
+                  <Collapsible.Trigger className="justify-between gap-2 px-3 py-2.5 text-left [&[data-state=open]>svg]:rotate-180">
+                    <span className="min-w-0 flex-1 truncate font-mono text-body-small-default">
+                      {tool.name}
+                    </span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform duration-150"
+                    />
+                  </Collapsible.Trigger>
+                  <Collapsible.Content>
+                    <div className="space-y-1 px-3 pb-3">
+                      {tool.description ? (
+                        <p className="whitespace-pre-wrap text-body-small-default text-[var(--content-secondary)] [overflow-wrap:anywhere]">
+                          {tool.description}
+                        </p>
+                      ) : null}
+                      <p className="text-body-small-default text-[var(--content-tertiary)]">
+                        {t("integrationConnect.toolTokens", {
+                          tokens: tool.estimatedTokens,
+                        })}
+                      </p>
+                    </div>
+                  </Collapsible.Content>
+                </Collapsible.Item>
+              ))}
+            </Collapsible.Root>
+          </div>
+        ) : (
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            {t("integrationConnect.toolsEmpty")}
+          </p>
+        )}
+      </Modal.Body>
+
+      <Modal.Footer>
+        <Button className="min-h-11" onClick={onClose}>
+          {t("integrationConnect.done")}
+        </Button>
+      </Modal.Footer>
+    </>
+  );
+}

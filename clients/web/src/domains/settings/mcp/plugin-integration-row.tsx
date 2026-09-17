@@ -1,9 +1,14 @@
+import { Settings } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import { useTranslation } from "@/i18n";
 
-import { IntegrationListRow } from "../components/integration-list-row";
+import {
+  INTEGRATION_ACTION_SIZING,
+  IntegrationListRow,
+} from "../components/integration-list-row";
 import {
   summarizeIntegrationConnections,
   type McpPluginMethod,
@@ -41,17 +46,24 @@ export function PluginIntegrationRow({
         ) : undefined
       }
       primaryAction={
-        <Button
-          variant={summary.configured ? "outlined" : "primary"}
-          disabled={disabled}
-          onClick={onOpen}
-        >
-          {summary.configured
-            ? t("integrationRow.configure")
-            : method.definition.setup.mode === "manual"
+        summary.configured ? (
+          <Button
+            variant="outlined"
+            className={INTEGRATION_ACTION_SIZING}
+            iconOnly={<Settings />}
+            aria-label={t("integrationRow.configureLabel", {
+              name: method.definition.displayName,
+            })}
+            disabled={disabled}
+            onClick={onOpen}
+          />
+        ) : (
+          <Button variant="primary" disabled={disabled} onClick={onOpen}>
+            {method.definition.setup.mode === "manual"
               ? t("pluginIntegration.setUp")
               : t("integrationRow.connect")}
-        </Button>
+          </Button>
+        )
       }
     />
   );

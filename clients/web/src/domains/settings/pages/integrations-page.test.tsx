@@ -415,7 +415,7 @@ describe("IntegrationsPage", () => {
 
     await screen.findByText("Notion");
     expect(screen.getAllByText("Notion")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    fireEvent.click(screen.getByRole("button", { name: "Configure Notion" }));
     await screen.findByText("Methods for Notion");
   });
 
@@ -424,7 +424,7 @@ describe("IntegrationsPage", () => {
     seededServers = [server()];
     render(<IntegrationsPage />, { wrapper: Wrapper });
     await screen.findByText("example-integration");
-    screen.getByRole("button", { name: "Configure" });
+    screen.getByRole("button", { name: "Configure example-integration" });
   });
 
   test("search covers both sources", async () => {

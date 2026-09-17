@@ -903,7 +903,6 @@
     "yourOwnTab": "Propia"
   },
   "integrationRow": {
-    "configure": "Configurar",
     "connect": "Conectar",
     "connected": "Conectada",
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",

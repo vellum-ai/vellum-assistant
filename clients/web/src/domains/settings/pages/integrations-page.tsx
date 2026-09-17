@@ -44,12 +44,14 @@ import { useMcpConnections } from "../mcp/use-mcp-connections";
 
 type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
-const CONFIGURED_GRID =
+/** Connected integrations, wide enough for a row's status and its actions. */
+export const CONFIGURED_GRID =
   "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]";
-const AVAILABLE_GRID =
+/** Everything still to connect, at the tile width the catalog is browsed in. */
+export const AVAILABLE_GRID =
   "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr))]";
 
-function IntegrationSection({
+export function IntegrationSection({
   title,
   count,
   gridClassName,

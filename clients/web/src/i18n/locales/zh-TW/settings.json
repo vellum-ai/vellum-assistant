@@ -903,7 +903,6 @@
     "yourOwnTab": "您的"
   },
   "integrationRow": {
-    "configure": "設定",
     "connect": "連線",
     "connected": "已連線",
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
