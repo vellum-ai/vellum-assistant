@@ -18,8 +18,13 @@ export interface UseIntegrationDisconnectOptions {
   assistantId: string;
   /** The platform assistant the managed connections belong to. */
   platformAssistantId: string | null;
-  /** Ends a sign-in still waiting on the server being taken away. */
-  onStopAuth: (serverId: string) => void;
+  /**
+   * Ends a sign-in the removal would strand. It is handed the whole row
+   * rather than one server id, because uninstalling a plugin takes every
+   * server it declared, including one a sign-in is waiting on that the user
+   * did not click.
+   */
+  onStopAuth: (connection: ConnectionSummary) => void;
   /** Removes an MCP server that no plugin owns. */
   onRemoveServer: (serverId: string) => void;
   /**
@@ -110,9 +115,7 @@ export function useIntegrationDisconnect({
       }
       name.current = displayName;
       if (isMcpMethodKind(connection.methodKind)) {
-        if (connection.serverId) {
-          onStopAuth(connection.serverId);
-        }
+        onStopAuth(connection);
         if (connection.pluginName) {
           removePlugin(connection.pluginName);
           return;

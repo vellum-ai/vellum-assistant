@@ -54,6 +54,7 @@ import {
 import { McpConnectionDialogs } from "../mcp/mcp-connection-dialogs";
 import { buildMcpPluginDefinitions } from "../mcp/mcp-plugin-definitions";
 import { McpServerCard } from "../mcp/mcp-server-card";
+import { provisionalPluginServerId } from "../mcp/plugin-mcp-connect";
 import { PluginIntegrationRow } from "../mcp/plugin-integration-row";
 import { useMcpConnections } from "../mcp/use-mcp-connections";
 
@@ -390,8 +391,21 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const disconnectIntegration = useIntegrationDisconnect({
     assistantId: mcpAssistantId,
     platformAssistantId,
-    onStopAuth: (serverId) => {
-      if (mcp.auth.attempt?.serverId === serverId) {
+    onStopAuth: (connection) => {
+      const waitingOn = mcp.auth.attempt?.serverId;
+      if (!waitingOn) {
+        return;
+      }
+      // An uninstall takes every server the plugin declared, so a sign-in
+      // waiting on a sibling is stranded by it just as surely as one waiting
+      // on the row that was clicked. The provisional id an attempt carries
+      // while its plugin installs belongs to the plugin too.
+      const strandedByPlugin =
+        connection.pluginName !== undefined &&
+        (waitingOn === provisionalPluginServerId(connection.pluginName) ||
+          mcp.list.data?.servers.find((entry) => entry.id === waitingOn)
+            ?.pluginName === connection.pluginName);
+      if (waitingOn === connection.serverId || strandedByPlugin) {
         mcp.auth.stopWaiting();
       }
     },
@@ -441,7 +455,9 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           logoUrl={item.provider.logo_url}
           connections={item.connections}
           mcpMethods={item.methods}
-          disabled={oauthDisabled || !plan}
+          disabled={
+            oauthDisabled || !plan || connect.isBusyElsewhere(item.id)
+          }
           onConfigure={() => connect.openModal(item.id)}
         />
       );
@@ -452,7 +468,7 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           key={item.id}
           assistantId={mcpAssistantId}
           method={item.method}
-          disabled={authBusy || !plan}
+          disabled={!plan || connect.isBusyElsewhere(item.id)}
           onOpen={() => connect.openModal(item.id)}
         />
       );

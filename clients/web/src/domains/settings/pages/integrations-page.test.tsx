@@ -1042,6 +1042,91 @@ describe("IntegrationsPage", () => {
     await settle();
   });
 
+  test("removing a plugin stops a sign-in waiting on its sibling", async () => {
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    seededServers = [
+      server({
+        id: "example-a",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+      }),
+      server({
+        id: "example-b",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
+    // Sign in to one server, then take the plugin away from the other row.
+    fireEvent.click(
+      (await screen.findAllByRole("button", { name: "Reconnect" }))[0]!,
+    );
+    await waitFor(() => expect(authStarts).toEqual(["example-a"]));
+    await screen.findByText(
+      "Finish signing in to Example in your browser, then come back here.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "More actions for example-b" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Disconnect" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
+    // The uninstall took example-a too, so nothing is left waiting on it.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Finish signing in to Example in your browser, then come back here.",
+        ),
+      ).toBeNull(),
+    );
+    await settle();
+  });
+
+  test("a configured row cannot start a second attempt over a live one", async () => {
+    seededProviders = [provider()];
+    seededConnections = [connection()];
+    seededCatalog = [
+      catalogMatch({
+        name: "gamma-mcp",
+        integration: {
+          ...catalogMatch().integration!,
+          displayName: "Gamma",
+          logo: "gamma.png",
+        },
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Gamma");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Gamma" }));
+    await screen.findByText("Finish signing in to Gamma in your browser.");
+
+    // Notion is connected and draws as a row, which was the one entry point
+    // that did not honour the page's one-attempt-at-a-time rule.
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Configure Notion",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(true),
+    );
+    await settle();
+  });
+
   test("closing the dialog gives up the sign-in it was reporting", async () => {
     seededProviders = [provider()];
     seededConnections = [connection({ status: "ERROR", connected: false })];
