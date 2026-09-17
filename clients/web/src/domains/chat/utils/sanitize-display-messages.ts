@@ -16,6 +16,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
+import { isStandaloneAssistantMessage } from "@/domains/chat/utils/is-standalone-assistant-message";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -137,10 +138,14 @@ function removeDuplicateTrailingAssistant(
   if (last.role !== "assistant" || prev.role !== "assistant") {
     return messages;
   }
-  // A row deleted on its channel is a standalone boundary the daemon and the
-  // cross-page fold both keep; dropping either side here would hide the
-  // tombstone or the reply the channel still shows.
-  if (isChannelDeleted(last) || isChannelDeleted(prev)) {
+  // A standalone row (a tombstone, a reaction record, a silence marker) is a
+  // boundary the daemon and the cross-page fold both keep; dropping either
+  // side here would hide it or the reply beside it. Two reaction records in
+  // a row share the same stored sentinel text, so they read as twins.
+  if (
+    isStandaloneAssistantMessage(last) ||
+    isStandaloneAssistantMessage(prev)
+  ) {
     return messages;
   }
   if (!hasSubstantiveContent(last)) {
