@@ -95,7 +95,7 @@ function withBootstrapDir(dir: string): () => void {
   };
 }
 
-describe("managed CES discovery", () => {
+describe("CES discovery", () => {
   test("returns unavailable when bootstrap socket does not exist", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-missing-"));
     const restore = withBootstrapDir(bootstrapDir);

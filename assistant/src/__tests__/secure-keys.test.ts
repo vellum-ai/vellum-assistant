@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +11,8 @@ import {
   expect,
   test,
 } from "bun:test";
+
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 
 // ---------------------------------------------------------------------------
 // Mock logger (no-op — compatible with other test files' identical mock)
@@ -600,6 +603,45 @@ describe("secure-keys", () => {
       const result = await getSecureKeyResultAsync("openai");
       expect(result.value).toBeUndefined();
       expect(result.unreachable).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Session ownership: boot claims reconnect before identity reads
+  // -----------------------------------------------------------------------
+  describe("CES session owner skips a second open", () => {
+    test("a registered reconnect owner does not handshake a live CES socket", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "ces-owner-"));
+      const socketPath = resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
+      const savedDir = process.env.CES_BOOTSTRAP_SOCKET_DIR;
+      process.env.CES_BOOTSTRAP_SOCKET_DIR = dir;
+
+      const connections: Array<import("node:net").Socket> = [];
+      const server: Server = createServer((socket) => {
+        connections.push(socket);
+        socket.on("error", () => {});
+      });
+      await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+
+      try {
+        setCesReconnect(async () => undefined);
+        const start = Date.now();
+        await getSecureKeyAsync("openai");
+        expect(Date.now() - start).toBeLessThan(1_000);
+        expect(getActiveBackendName()).toBe("encrypted-store");
+        expect(connections.length).toBe(0);
+      } finally {
+        for (const sock of connections) {
+          sock.destroy();
+        }
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        if (savedDir !== undefined) {
+          process.env.CES_BOOTSTRAP_SOCKET_DIR = savedDir;
+        } else {
+          delete process.env.CES_BOOTSTRAP_SOCKET_DIR;
+        }
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 });
