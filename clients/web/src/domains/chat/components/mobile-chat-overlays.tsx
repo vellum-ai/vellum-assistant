@@ -12,6 +12,7 @@
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
+import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useDeployStore } from "@/stores/deploy-store";
@@ -179,7 +180,7 @@ export function MobileChatOverlays() {
   }
 
   return createPortal(
-    <>
+    <PortalContainerProvider container={overlayTarget}>
       <MobileAppOverlay
         openedAppState={mainView === "app" ? openedAppState : null}
         isAppMinimized={isAppMinimized}
@@ -272,7 +273,7 @@ export function MobileChatOverlays() {
         }
         onClose={handleCloseChannelTranscript}
       />
-    </>,
+    </PortalContainerProvider>,
     overlayTarget,
   );
 }

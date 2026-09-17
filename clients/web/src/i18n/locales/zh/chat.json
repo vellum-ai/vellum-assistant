@@ -61,6 +61,9 @@
     "takingLonger": "您的助手响应时间超出预期。",
     "tryAgain": "重试"
   },
+  "mobileDetailSheet": {
+    "title": "活动详情"
+  },
   "activityStepsPanel": {
     "backAria": "返回所有步骤",
     "backTooltip": "所有步骤",

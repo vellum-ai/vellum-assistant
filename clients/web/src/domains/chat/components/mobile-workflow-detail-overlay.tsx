@@ -1,8 +1,6 @@
 import { lazy } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
-import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { MobileDetailSheet } from "@/domains/chat/components/mobile-detail-sheet";
 import type { WorkflowEntry } from "@/domains/chat/workflow-store";
 
 const WorkflowDetailPanel = lazy(() =>
@@ -12,7 +10,7 @@ const WorkflowDetailPanel = lazy(() =>
 );
 
 interface MobileWorkflowDetailOverlayProps {
-  /** When `null`, the overlay renders nothing. */
+  /** When `null`, closes the sheet. */
   entry: WorkflowEntry | null;
   /** Closes the overlay. */
   onClose: () => void;
@@ -22,47 +20,23 @@ interface MobileWorkflowDetailOverlayProps {
   onRequestJournal?: (runId: string) => void;
 }
 
-/**
- * Mobile-only full-screen overlay that hosts the workflow detail panel.
- *
- * **Mounting constraint**: must render inside `RootLayout`'s
- * `#viewport-overlays` portal, outside the main content wrapper.
- */
+/** Mobile detail presentation, mounted under the viewport portal provider. */
 export function MobileWorkflowDetailOverlay({
   entry,
   onClose,
   onStop,
   onRequestJournal,
 }: MobileWorkflowDetailOverlayProps) {
-  const reduce = useReducedMotion();
-  const shellStyle = useMobileOverlayViewportStyle();
-
   return (
-    <AnimatePresence>
-      {entry && (
-        <motion.div
-          key="mobile-detail-overlay"
-          className="fixed inset-x-0 z-30"
-          style={shellStyle}
-          initial={{ y: "100%", opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: "100%", opacity: 0 }}
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
-          }
-        >
-          <LazyBoundary>
-            <WorkflowDetailPanel
-              entry={entry}
-              onClose={onClose}
-              onStop={onStop}
-              onRequestJournal={onRequestJournal}
-            />
-          </LazyBoundary>
-        </motion.div>
+    <MobileDetailSheet data={entry} onClose={onClose}>
+      {(value) => (
+        <WorkflowDetailPanel
+          entry={value}
+          onClose={onClose}
+          onStop={onStop}
+          onRequestJournal={onRequestJournal}
+        />
       )}
-    </AnimatePresence>
+    </MobileDetailSheet>
   );
 }

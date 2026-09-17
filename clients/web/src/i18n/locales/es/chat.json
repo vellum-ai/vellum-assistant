@@ -61,6 +61,9 @@
     "takingLonger": "Tu asistente está tardando más de lo esperado.",
     "tryAgain": "Reintentar"
   },
+  "mobileDetailSheet": {
+    "title": "Detalles de la actividad"
+  },
   "activityStepsPanel": {
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos",

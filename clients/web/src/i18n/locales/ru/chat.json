@@ -21,6 +21,9 @@
   "acpRunChatView": {
     "modelLabel": "Модель"
   },
+  "mobileDetailSheet": {
+    "title": "Сведения о действии"
+  },
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",
     "backTooltip": "Все шаги",

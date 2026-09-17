@@ -31,6 +31,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { Trans, useTranslation } from "@/i18n";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
 /**
  * Hard character cap for the thinking text shown in the collapsed header's
@@ -443,7 +444,7 @@ function UnifiedMultiActivityGroup(
         stepCount={cardData.stepCount}
         // Clicking anywhere on the header toggles the steps side panel — the
         // timeline no longer expands in place beneath the header.
-        onHeaderClick={() => toggleActivitySteps(payload)}
+        onHeaderClick={(event) => openDetailSheetFromTrigger(event, () => toggleActivitySteps(payload))}
         headerAriaLabel={t("multiActivityGroup.viewSteps")}
         headerActive={headerActive}
       />

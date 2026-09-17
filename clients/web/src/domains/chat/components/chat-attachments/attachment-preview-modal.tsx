@@ -8,6 +8,7 @@ import {
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePortalContainer } from "@vellumai/design-library/utils/portal-container";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -96,6 +97,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const portalContainer = usePortalContainer();
 
   // Focus the overlay itself (not a child button) on open so the keydown
   // handler receives ArrowLeft/ArrowRight reliably — a focused child can steal
@@ -371,7 +373,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       // Focusable so the overlay can hold keyboard focus for the arrow-key
       // handler; the ring is suppressed since the dialog is the whole screen.
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
+      className="pointer-events-auto fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 outline-none [-webkit-app-region:no-drag]"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
         paddingBottom:
@@ -466,6 +468,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         </div>
       )}
     </div>,
-    document.body,
+    portalContainer ?? document.body,
   );
 };

@@ -1,5 +1,6 @@
 
 import { useTranslation } from "@/i18n";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 /**
  * Inline single-activity link — the lone affordance for ONE step of agent work,
  * in one of three variants:
@@ -296,7 +297,7 @@ export function SingleActivity(props: SingleActivityProps) {
       data-testid={view.dataTestId}
       data-active={view.active ? "true" : "false"}
       aria-label={view.ariaLabel}
-      onClick={view.onClick}
+      onClick={(event) => openDetailSheetFromTrigger(event, view.onClick)}
       className={cn(
         "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",

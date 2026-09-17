@@ -60,7 +60,7 @@ test("preview swipe and Escape leave the mobile steps overlay open", async () =>
     { timeout: 5_000 },
   );
   fireEvent.click(tile);
-  const dialog = screen.getByRole("dialog");
+  const dialog = screen.getByRole("dialog", { name: /Preview/ });
   expect(screen.getByText("2 / 2")).toBeTruthy();
 
   const swipeTarget = dialog.querySelector<HTMLElement>(
@@ -68,9 +68,11 @@ test("preview swipe and Escape leave the mobile steps overlay open", async () =>
   )!;
   fireEvent.touchStart(swipeTarget, {
     touches: [{ identifier: 1, clientX: 200, clientY: 100 }],
+    changedTouches: [{ identifier: 1, clientX: 200, clientY: 100 }],
   });
   fireEvent.touchMove(swipeTarget, {
     touches: [{ identifier: 1, clientX: 300, clientY: 100 }],
+    changedTouches: [{ identifier: 1, clientX: 300, clientY: 100 }],
   });
   fireEvent.touchEnd(swipeTarget, {
     touches: [],
@@ -78,8 +80,9 @@ test("preview swipe and Escape leave the mobile steps overlay open", async () =>
   });
   expect(screen.getByText("1 / 2")).toBeTruthy();
 
-  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: /Preview/ })).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Activity details" })).toBeTruthy();
   expect(screen.getByTestId("mobile-activity-steps-overlay")).toBeTruthy();
   expect(screen.getByLabelText("Close steps")).toBeTruthy();
 });

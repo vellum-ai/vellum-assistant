@@ -435,6 +435,8 @@ export function ChatBody({
 
   return (
     <div
+      data-slot="chat-body"
+      tabIndex={-1}
       className={outerClass}
       style={bottomInset ? { paddingBottom: bottomInset } : undefined}
       onDragEnter={dragHandlers.onDragEnter}

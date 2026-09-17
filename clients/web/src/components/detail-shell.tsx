@@ -187,7 +187,7 @@ export function DetailShell({
   ...headerProps
 }: DetailShellProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+    <div data-slot="detail-shell" className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {headerAbove}
       <DetailShellHeader {...headerProps} />
 

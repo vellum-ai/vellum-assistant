@@ -200,6 +200,20 @@ reason a variant cannot cover.
 
 ---
 
+## Mobile chat detail sheets
+
+Tool calls, grouped activity, subagents, background tasks, workflows, and ACP runs share
+`MobileDetailSheet` in the chat domain. It adapts viewer data and viewport safe areas to the design
+library's `BottomSheet.Content variant="detail"`: a 90% surface with a visible conversation margin,
+handle-only drag dismissal, and reduced-motion-aware enter/exit animations. The transcript stays
+mounted, and focus returns to the originating row without scrolling it into view.
+
+The adapter uses the viewport portal host and provides its content element as the portal host for
+nested previews. Nested dialogs consume Escape before the sheet. Android Back uses the existing
+dialog dismissal path, and the sheet registers as an edge-swipe back owner for its mounted lifetime.
+The retained payload belongs to the exiting sheet so clearing viewer state can animate dismissal
+without delaying store updates or closing a subsequently opened panel.
+
 ## Navigation depth and back affordances
 
 Adaptive layout has a second failure mode beyond overlays: a route that is a detail pane beside its

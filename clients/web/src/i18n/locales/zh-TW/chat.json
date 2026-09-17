@@ -61,6 +61,9 @@
     "takingLonger": "您的助理回應時間超出預期。",
     "tryAgain": "再試一次"
   },
+  "mobileDetailSheet": {
+    "title": "活動詳細資訊"
+  },
   "activityStepsPanel": {
     "backAria": "返回所有步驟",
     "backTooltip": "所有步驟",
