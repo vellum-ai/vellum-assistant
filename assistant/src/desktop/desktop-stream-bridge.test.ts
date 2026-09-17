@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { newFakeDesktop, newViewer, settle } from "./__tests__/fake-desktop.js";
@@ -90,17 +90,20 @@ function slotIsFree(manager: DesktopSessionManager): boolean {
 }
 
 describe("DesktopStreamBridge", () => {
-  test("streams without filesystem reads and immediately observes gateway flag revocation", async () => {
+  test("streams without flag or filesystem checks after connecting", async () => {
     const originalContainerized = process.env.IS_CONTAINERIZED;
     const originalPlatform = process.env.IS_PLATFORM;
     const h = newFakeDesktop({ profileDir });
-    const b = newBridge(h.manager, async () => {}, isVirtualDesktopEnabled);
+    const isEnabled = mock(isVirtualDesktopEnabled);
+    const b = newBridge(h.manager, async () => {}, isEnabled);
     process.env.IS_CONTAINERIZED = "true";
     process.env.IS_PLATFORM = "true";
     setOverridesForTesting({ "assistant-desktop": true });
     try {
       b.connectNow();
       await b.bridge.start();
+      expect(isEnabled).toHaveBeenCalled();
+      isEnabled.mockClear();
       const stat = spyOn(fs, "statSync");
       const read = spyOn(fs, "readFileSync");
       try {
@@ -115,10 +118,12 @@ describe("DesktopStreamBridge", () => {
         setOverridesForTesting({ "assistant-desktop": false });
         b.bridge.handleClientFrame(frame);
         b.tcp.handlers.onData(frame);
-        expect(b.tcp.writes).toHaveLength(100);
-        expect(b.ws.sent).toHaveLength(100);
-        expect(b.ws.closeCode).toBe(4008);
-        expect(b.tcp.ended).toBe(true);
+        b.tcp.handlers.onDrain();
+        expect(b.tcp.writes).toHaveLength(101);
+        expect(b.ws.sent).toHaveLength(101);
+        expect(b.ws.closeCode).toBeNull();
+        expect(b.tcp.ended).toBe(false);
+        expect(isEnabled).not.toHaveBeenCalled();
         expect(stat).not.toHaveBeenCalled();
         expect(read).not.toHaveBeenCalled();
       } finally {
@@ -179,24 +184,19 @@ describe("DesktopStreamBridge", () => {
   });
 
   for (const direction of ["viewer", "desktop"] as const) {
-    test(`blocks ${direction} frames when the flag is disabled after connection`, async () => {
+    test(`ignores ${direction} frames after the stream closes`, async () => {
       const h = newFakeDesktop({ profileDir });
-      let enabled = true;
-      const b = newBridge(
-        h.manager,
-        async () => {},
-        () => enabled,
-      );
+      const b = newBridge(h.manager);
       b.connectNow();
       await b.bridge.start();
-      enabled = false;
+      b.bridge.handleClose();
       const frame = new Uint8Array([1, 2, 3]);
       if (direction === "viewer") {
         b.bridge.handleClientFrame(frame);
       } else {
         b.tcp.handlers.onData(frame);
       }
-      expect(b.ws.closeCode).toBe(4008);
+      expect(b.ws.closeCode).toBeNull();
       expect(b.ws.sent).toHaveLength(0);
       expect(b.tcp.writes).toHaveLength(0);
       expect(b.tcp.ended).toBe(true);
