@@ -457,14 +457,21 @@ const RECIPE_LABEL = /^Set up a morning briefing/;
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
+/**
+ * Three hours before this file loaded, and the same instant for every item it
+ * builds: the bell's recency treatment reads it as "3h ago", and
+ * `sortFeedItems`, which orders by `createdAt` descending, sees a tie and so
+ * leaves items in the order the test listed them. A test that needs one item
+ * older than another passes `createdAt` itself.
+ */
+const BELL_ITEM_TIMESTAMP = new Date(Date.now() - THREE_HOURS_MS).toISOString();
+
 function bellItem(overrides: Partial<FeedItem>): FeedItem {
-  // Relative so the bell's recency treatment is exercised.
-  const timestamp = new Date(Date.now() - THREE_HOURS_MS).toISOString();
   return feedItem({
     id: "item-1",
     summary: "Something happened",
-    timestamp,
-    createdAt: timestamp,
+    timestamp: BELL_ITEM_TIMESTAMP,
+    createdAt: BELL_ITEM_TIMESTAMP,
     ...overrides,
   });
 }
