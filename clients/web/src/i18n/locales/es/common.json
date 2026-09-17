@@ -163,8 +163,8 @@
       "title": "Este soy yo"
     },
     "mute": {
-      "body": "Silénciate aquí, o silénciame con el altavoz de al lado.",
-      "title": "Silencia a cualquiera de los dos"
+      "body": "Toca el micrófono para silenciarte o el altavoz para silenciarme",
+      "title": "Silenciar"
     },
     "next": "Siguiente",
     "share": {

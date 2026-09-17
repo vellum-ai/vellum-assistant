@@ -163,8 +163,8 @@
       "title": "This is me"
     },
     "mute": {
-      "body": "Mute yourself here, or mute me with the speaker beside it.",
-      "title": "Mute either of us"
+      "body": "Click the mic to mute yourself or the speaker to mute me",
+      "title": "Mute"
     },
     "next": "Next",
     "share": {
