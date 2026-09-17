@@ -204,9 +204,10 @@ export function useTeleport(): TeleportController {
         // credentials, so the freshly-imported local has no platform identity.
         // Now that it's the active assistant, register it with the platform and
         // inject those credentials (the web equivalent of the CLI's post-import
-        // injection). This is awaited, not fire-and-forget: the retire below
-        // names the target as the successor for the source's OAuth connections,
-        // and the platform can only hand them to an assistant it already knows.
+        // injection). Successor resolution must finish before the retire
+        // below runs: it names the target as the successor for the source's
+        // OAuth connections, and the platform can only hand them to an
+        // assistant it already knows.
         successorAssistantId = await resolveTeleportSuccessorId(target);
         if (successorAssistantId === null && target.kind === "local") {
           // Registration failed once; keep the switch going and let the
