@@ -3,7 +3,7 @@
  * Managed / Your Own mode toggle is gone — Vellum is a provider):
  *
  *   1. No mode segmented-control renders; the picker offers Vellum,
- *      Gemini, OpenAI, and OpenRouter when the assistant supports it.
+ *      Gemini, OpenAI, and OpenRouter.
  *   2. Vellum needs no API key, lists every model, and saves as a
  *      provider+mode pair for old-daemon compatibility.
  *   3. Gemini gates on a key and lists only gemini models.
@@ -97,16 +97,6 @@ mock.module(
     supportsImageGenVellumProvider: () => daemonSupportsVellumProvider,
   }),
 );
-let daemonSupportsOpenRouterProvider = true;
-mock.module(
-  "@/lib/backwards-compat/use-supports-image-gen-openrouter-provider",
-  () => ({
-    MIN_VERSION: "0.12.1-dev.0",
-    supportsImageGenOpenRouterProvider: () => daemonSupportsOpenRouterProvider,
-    useSupportsImageGenOpenRouterProvider: () =>
-      daemonSupportsOpenRouterProvider,
-  }),
-);
 mock.module("@/lib/backwards-compat/utils", () => ({
   whenAssistantVersionKnown: () => Promise.resolve(),
 }));
@@ -175,7 +165,6 @@ describe("ImageGenerationCard — provider-only configuration", () => {
     modelPutCalls.length = 0;
     provisionedKeys.length = 0;
     daemonSupportsVellumProvider = true;
-    daemonSupportsOpenRouterProvider = true;
     daemonConfigData = { services: {} };
   });
 
@@ -202,14 +191,6 @@ describe("ImageGenerationCard — provider-only configuration", () => {
       "OpenAI",
       "OpenRouter",
     ]);
-  });
-
-  test("the provider picker hides OpenRouter on unsupported assistants", () => {
-    daemonSupportsOpenRouterProvider = false;
-    renderCard();
-
-    fireEvent.click(trigger("Image generation provider"));
-    expect(visibleOptions()).toEqual(["Vellum", "Gemini", "OpenAI"]);
   });
 
   test("Vellum hides the key field, lists every model, and saves the pair", async () => {
@@ -479,34 +460,6 @@ describe("ImageGenerationCard — provider-only configuration", () => {
         "image-generation": { provider: "openrouter", mode: "your-own" },
       },
     });
-  });
-
-  test("does not write OpenRouter against an unsupported assistant", async () => {
-    daemonSupportsOpenRouterProvider = false;
-    daemonConfigData = {
-      services: {
-        "image-generation": {
-          mode: "your-own",
-          provider: "openrouter",
-          model: "google/gemini-3.1-flash-image-preview",
-        },
-      },
-    };
-    renderCard();
-
-    expect(trigger("Image generation provider").textContent).toContain(
-      "OpenRouter",
-    );
-    const keyInput = screen.getByPlaceholderText(
-      "Enter your OpenRouter API key",
-    );
-    fireEvent.change(keyInput, { target: { value: "or-secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(configPatchCalls).toHaveLength(0);
-    expect(modelPutCalls).toHaveLength(0);
-    expect(provisionedKeys).toHaveLength(0);
   });
 
   test("an OpenRouter daemon config renders the saved slug", () => {

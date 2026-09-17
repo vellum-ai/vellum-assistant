@@ -43,10 +43,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
-import {
-  supportsImageGenOpenRouterProvider,
-  useSupportsImageGenOpenRouterProvider,
-} from "@/lib/backwards-compat/use-supports-image-gen-openrouter-provider";
 import { supportsImageGenVellumProvider } from "@/lib/backwards-compat/use-supports-image-gen-vellum-provider";
 import { whenAssistantVersionKnown } from "@/lib/backwards-compat/utils";
 
@@ -64,7 +60,6 @@ export function ImageGenerationCard() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const supportsOpenRouter = useSupportsImageGenOpenRouterProvider();
 
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -135,12 +130,7 @@ export function ImageGenerationCard() {
   const [imageGenApiKey, setImageGenApiKey] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const providerOptions = IMAGE_GEN_PROVIDERS.filter((id) => {
-    if (id === "openrouter") {
-      return supportsOpenRouter || provider === "openrouter";
-    }
-    return true;
-  }).map((id) => ({
+  const providerOptions = IMAGE_GEN_PROVIDERS.map((id) => ({
     value: id,
     label: IMAGE_GEN_PROVIDER_DISPLAY_NAMES[id] ?? id,
   }));
@@ -189,11 +179,6 @@ export function ImageGenerationCard() {
       // legacy managed mode alone (the read bridge renders that pair as
       // Vellum), while BYOK providers keep their explicit provider write.
       await whenAssistantVersionKnown();
-      if (provider === "openrouter" && !supportsImageGenOpenRouterProvider()) {
-        toast.error(t("imageGenerationCard.configUpdateFailedToast"));
-        setSaving(false);
-        return;
-      }
       if (hasUserKey) {
         await provisionProviderKey(
           apiKeyProvider(provider, effectiveModel),
