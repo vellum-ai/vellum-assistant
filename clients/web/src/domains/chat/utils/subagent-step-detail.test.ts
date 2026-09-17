@@ -93,6 +93,20 @@ describe("resolveSubagentStepDetail", () => {
     expect(detail?.searchResults).toEqual(sources);
   });
 
+  test("derives the labels from the input the events filled in", () => {
+    const detail = resolveSubagentStepDetail(
+      { id: "tu-1", name: "bash", input: {} },
+      eventDetail({
+        input: { command: "ls", activity: "Listing the project files" },
+      }),
+    );
+    expect(detail?.input).toEqual({
+      command: "ls",
+      activity: "Listing the project files",
+    });
+    expect(detail?.activity).toBe("Listing the project files");
+  });
+
   test("takes the more final status of the two", () => {
     expect(
       resolveSubagentStepDetail(

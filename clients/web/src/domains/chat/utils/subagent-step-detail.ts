@@ -10,7 +10,8 @@
  * older than the timeline, or a call force-completed without its result).
  *
  * So the two are merged rather than one chosen: the canonical call is the base,
- * every field it leaves empty is filled from the event-built copy, and the
+ * every field it leaves empty is filled from the event-built copy (its input
+ * before the labels are derived, so they describe the input shown), and the
  * status is the more final of the two. Nothing either copy knows is discarded,
  * and the merge is remade on every render from the live canonical call, so the
  * detail tracks the history as it fills in.
@@ -38,8 +39,6 @@ function mergeDetails(
   return {
     ...canonical,
     kind: canonical.kind ?? event.kind,
-    input:
-      Object.keys(canonical.input).length > 0 ? canonical.input : event.input,
     result: canonical.result ?? event.result,
     streamedOutput: canonical.streamedOutput ?? event.streamedOutput,
     durationLabel: canonical.durationLabel || event.durationLabel,
@@ -61,6 +60,15 @@ export function resolveSubagentStepDetail(
   if (!canonicalCall) {
     return eventDetail;
   }
-  const canonical = toolDetailPayloadFromToolCall(canonicalCall);
-  return eventDetail ? mergeDetails(canonical, eventDetail) : canonical;
+  if (!eventDetail) {
+    return toolDetailPayloadFromToolCall(canonicalCall);
+  }
+  // The input is filled on the call, before the payload is built, so the title
+  // and activity derive from the input the detail shows: a canonical copy from
+  // a streaming preview can still hold an empty input the events have filled.
+  const call =
+    Object.keys(canonicalCall.input).length > 0
+      ? canonicalCall
+      : { ...canonicalCall, input: eventDetail.input };
+  return mergeDetails(toolDetailPayloadFromToolCall(call), eventDetail);
 }
