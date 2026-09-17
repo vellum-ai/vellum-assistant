@@ -56,6 +56,8 @@ import {
   type CompanionContext,
   type CompanionIntroAction,
   type CompanionIntroBeat,
+  type CompanionIntroEvent,
+  type CompanionIntroReport,
   type CompanionPopover,
   type CompanionPopoverView,
   type CompanionSize,
@@ -481,6 +483,68 @@ const INTRO_LANDING_GRACE_MS = 1_500;
 let introLanding: ReturnType<typeof setTimeout> | null = null;
 
 /**
+ * How many reports are kept for an app window that is not there to take them.
+ *
+ * A run is eight beats and cannot produce more moments than it has cards plus
+ * an ending, so this is room for a whole run and then some. It exists for the
+ * one ending that genuinely happens with no window to send to: the tray's hide,
+ * which a user reaches with the app's window closed.
+ */
+const INTRO_REPORT_BUFFER = 16;
+
+/** Reports the app's window has not been handed yet, oldest first. */
+const introReports: CompanionIntroReport[] = [];
+
+/**
+ * Report a moment of the run to the app's own window, which sends it on.
+ *
+ * **Main decides, the app's window transports.** Main is the only side that
+ * sees every moment: the run is due before the surface's window exists, the
+ * tray's hide is answered here, and a session started by a double tap on the
+ * voice key reaches neither renderer. But main has no telemetry path of its own
+ * and no way to read the consent the user gave, which lives in the app
+ * window's storage. So main names what happened and the app's window is what
+ * decides whether and how to report it.
+ *
+ * The app's window and not the surface's. The surface's route is registered
+ * outside the app's auth middleware, so it has no user to attribute a row to
+ * and its own session id for a funnel that would then not join to the rest of
+ * onboarding, and the consent it would read is a default rather than an answer.
+ *
+ * A report with no window to take it is held rather than dropped, since the
+ * moment worth holding is exactly the one that happens with the app put away.
+ * A window that is still loading is not sent to either: the push would land
+ * before the renderer subscribes, which is the same drop with extra steps. What
+ * is held is handed over by the pull the renderer makes on mount.
+ */
+const reportIntro = (
+  event: CompanionIntroEvent,
+  beat: CompanionIntroBeat,
+): void => {
+  const report: CompanionIntroReport = {
+    event,
+    beat,
+    introVersion: COMPANION_INTRO_VERSION,
+    // Read here rather than taken from the surface's renderer, which polls the
+    // same answer for its own copy: main can ask the system directly, and a
+    // fact the report is stamped with must not depend on a window being up.
+    micGranted:
+      systemPreferences.getMediaAccessStatus("microphone") === "granted",
+  };
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed() || win.webContents.isLoading()) {
+    introReports.push(report);
+    // Oldest first out, so what survives a run nobody collected is the end of
+    // it: the ending is the row the funnel cannot infer from the others.
+    if (introReports.length > INTRO_REPORT_BUFFER) {
+      introReports.shift();
+    }
+    return;
+  }
+  win.webContents.send("vellum:companion:introReport", report);
+};
+
+/**
  * Tell the app's window whether a run is staged on it, so it can dim itself
  * for the length of one.
  *
@@ -593,7 +657,38 @@ const finishIntroOnSession = (): void => {
   if (!introEndsOnSession(intro)) {
     return;
   }
-  finishIntro();
+  // **The offer taken the other way.** The press on the last beat is counted
+  // where the press lands; this is the same offer accepted by a double tap on
+  // the key, and the beat it names is the same one, so the two read as one
+  // number that the path is not lost from.
+  if (intro !== null) {
+    reportIntro("offer_taken", intro);
+  }
+  finishIntro("offer");
+};
+
+/**
+ * How a run ended, which is the one fact about the ending that the beat it
+ * ended on cannot say.
+ *
+ * `end` is the last card walked off; `offer` is that card's offer taken
+ * instead, by a press on it or by a session started while it was up; `dismiss`
+ * is the run's own way out; `hidden` is the surface put away from the tray
+ * mid-run, which is an answer to the introduction rather than a step in it.
+ */
+type IntroEnding = "end" | "offer" | "dismiss" | "hidden";
+
+/**
+ * The ending a press that ran the run out of beats makes.
+ *
+ * `back` cannot reach here, since it holds at the first beat rather than
+ * walking off it, so it takes the same answer as `next`: a card walked off.
+ */
+const introEndingFor = (action: CompanionIntroAction): IntroEnding => {
+  if (action === "dismiss") {
+    return "dismiss";
+  }
+  return action === "try" ? "offer" : "end";
 };
 
 /**
@@ -603,11 +698,22 @@ const finishIntroOnSession = (): void => {
  * that are not a press on it: hiding the surface from the tray is an answer to
  * the introduction as much as skipping it is, and a user who has just put the
  * thing away must not be introduced to it again when they bring it back.
+ *
+ * Which is why the ending is passed in rather than worked out here: from inside
+ * this function every one of them looks the same, and the difference between a
+ * run somebody finished and a run somebody switched off is the whole of what
+ * the funnel is for.
  */
-const finishIntro = (): void => {
+const finishIntro = (ending: IntroEnding): void => {
   if (intro === null) {
     return;
   }
+  // Reported before the beat is cleared, since the beat a run ended on is what
+  // makes an ending a place rather than a count.
+  reportIntro(
+    ending === "end" || ending === "offer" ? "completed" : "dismissed",
+    intro,
+  );
   intro = null;
   writeCompanionIntroSeen(COMPANION_INTRO_VERSION);
   if (introStaged) {
@@ -3772,11 +3878,23 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
+      const from = intro;
       const next = introOnAdvance(intro, action);
+      // **The offer is counted where it is taken, not where it lands.** A `try`
+      // on the last beat ends the run and a `try` before it does not, so the
+      // beat it was taken on is the only place the two are told apart, and that
+      // beat is gone a line later.
+      if (action === "try") {
+        reportIntro("offer_taken", from);
+      }
       if (next === null) {
-        finishIntro();
+        finishIntro(introEndingFor(action));
       } else {
         intro = next;
+        // `try` mid-run holds the beat, and a beat held is not a beat reached.
+        if (next !== from) {
+          reportIntro("advanced", next);
+        }
       }
       pushState();
       // **A `try` is a press on Talk, made from the card.** Started here the
@@ -4033,6 +4151,14 @@ export const installCompanionWindow = (): void => {
   // "not dimmed", because it is not.
   handle("vellum:companion:getIntroStage", z.tuple([]), () => introScrim);
 
+  // The reports that had no window to go to, handed over on the pull the app's
+  // window makes once it is listening. Taken rather than read: a report handed
+  // over twice is a funnel row counted twice, and the window that asked is the
+  // one that is now subscribed for the rest.
+  handle("vellum:companion:takeIntroReports", z.tuple([]), () =>
+    introReports.splice(0, introReports.length),
+  );
+
   // Registered once here rather than per window: `refreshGrowth` no-ops
   // while no surface exists, and the surface can be closed and reopened from
   // the tray, which must not stack duplicate listeners. A display added,
@@ -4156,6 +4282,13 @@ export const openCompanionWindow = (): void => {
   // is actually on screen.
   if (introStaged) {
     setIntroScrim(true);
+    // **Counted from here rather than from the decision above.** A run is
+    // exposure once the thing it introduces is on the screen, and everything
+    // between the two is a window being built, which can fail. Nothing between
+    // them can move the beat, so this is still the first card.
+    if (intro !== null) {
+      reportIntro("exposed", intro);
+    }
   }
   // A surface shown mid-call is the call's from its first frame, and one
   // shown mid-session has the frame beside it rather than under the cursor.
@@ -4192,7 +4325,7 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   // Putting the surface away mid-introduction is an answer to it. Recorded, so
   // bringing it back later does not start explaining it again to someone who
   // has already decided what they think.
-  finishIntro();
+  finishIntro("hidden");
   closeCompanionWindow();
 };
 

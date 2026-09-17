@@ -7,6 +7,8 @@ import {
   companionAnnotationToolSchema,
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
+  COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_VERSION,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_BASE_RESTING_PILL_HEIGHT,
@@ -19,6 +21,7 @@ import {
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionDock,
+  type CompanionIntroReport,
   type CompanionSize,
   type CompanionSizeAxis,
   type CompanionSurfaceState,
@@ -69,12 +72,27 @@ let mainWindowVisible = true;
 let companionOpen = true;
 
 /**
+ * Whether the app's window is still loading its document, which is what decides
+ * whether a report is pushed to it or held for the pull it makes on mount.
+ */
+let mainWindowLoading = false;
+
+/** Every channel main has sent the app's window, most recent last. */
+const mainSends: { channel: string; payload: unknown }[] = [];
+
+/**
  * The app's window, as far as this module reads it: whether it exists and
  * whether it is showing. One object, so a focus event can name it by identity.
  */
 const mainWindow = {
   isDestroyed: () => false,
   isVisible: () => mainWindowVisible,
+  webContents: {
+    isLoading: () => mainWindowLoading,
+    send: (channel: string, payload: unknown) => {
+      mainSends.push({ channel, payload });
+    },
+  },
 };
 
 /** Where the canvas's origin is, which is what the window reports and moves. */
@@ -162,6 +180,13 @@ const register =
 let reducedMotion = true;
 
 /**
+ * What the system answers about the microphone, which every report of the
+ * introduction is stamped with: the run says different things about the Talk
+ * and the last beat depending on it.
+ */
+let micStatus = "granted";
+
+/**
  * The display the window server answers for whatever point it is asked, the
  * one the surface is placed against. Mutable so a case can change the display
  * under a surface that is mid-move, as unplugging or rescaling one does.
@@ -191,6 +216,7 @@ mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
   systemPreferences: {
     getAnimationSettings: () => ({ prefersReducedMotion: reducedMotion }),
+    getMediaAccessStatus: () => micStatus,
   },
   app: {
     on: (event: string, listener: (...args: unknown[]) => void) => {
@@ -619,6 +645,14 @@ const sizes: Record<CompanionSizeAxis, CompanionSize> = {
  */
 let storedDock: CompanionDock = "bottom";
 
+/**
+ * The highest introduction the install has been through, which is the whole of
+ * what decides whether a surface reaching the screen is due a run. Held here
+ * rather than answered once, so a case can owe this install a run and then
+ * watch the record close behind it.
+ */
+let introSeen = Number.MAX_SAFE_INTEGER;
+
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
   readCompanionHidden: () => false,
@@ -633,9 +667,13 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   // Stubbed rather than omitted, like every other export here: the module
   // under test imports these, and one missing from a whole-module mock is a
   // load-time failure for the file rather than a failing case.
-  readCompanionIntroSeenVersion: () => Number.MAX_SAFE_INTEGER,
-  writeCompanionIntroSeen: () => {},
-  clearCompanionIntroSeen: () => {},
+  readCompanionIntroSeenVersion: () => introSeen,
+  writeCompanionIntroSeen: (version: number) => {
+    introSeen = version;
+  },
+  clearCompanionIntroSeen: () => {
+    introSeen = 0;
+  },
 }));
 
 // Dynamic, so the mocks above are installed before the module graph loads:
@@ -658,6 +696,8 @@ const {
   glideProgress,
   introEndsOnSession,
   introOnAdvance,
+  openCompanionWindow,
+  setCompanionSurfaceVisible,
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
@@ -722,7 +762,14 @@ beforeEach(() => {
   // them: the state the surface exists for.
   mainWindowOpen = true;
   mainWindowVisible = true;
+  mainWindowLoading = false;
+  mainSends.length = 0;
   companionOpen = true;
+  // Introduced already, which is what every case that is not about the run
+  // needs: a run due would stage the surface over the app's window and move
+  // every placement case's answer.
+  introSeen = Number.MAX_SAFE_INTEGER;
+  micStatus = "granted";
   fireAppEvent("did-resign-active");
   surface.visible = true;
 });
@@ -749,6 +796,20 @@ const send = (channel: string, ...args: unknown[]): void => {
     throw new Error(`No listener registered for ${channel}`);
   }
   listener(args);
+};
+
+/**
+ * The reports main held for a window that was not there to take them, as the
+ * app's window pulls them on mount.
+ */
+const takeReports = (): CompanionIntroReport[] => {
+  const pull = invocable.get("vellum:companion:takeIntroReports");
+  if (!pull) {
+    throw new Error(
+      "No handler registered for vellum:companion:takeIntroReports",
+    );
+  }
+  return pull([]) as CompanionIntroReport[];
 };
 
 /** The state a renderer mounting on the surface would pull. */
@@ -5639,5 +5700,255 @@ describe("companion window: pointing at what is shared", () => {
     expect(
       many.every((m) => companionCoachmarkSchema.safeParse(m).success),
     ).toBe(true);
+  });
+});
+
+/**
+ * What main reports about a run, which is the whole of what anybody will ever
+ * know about how the introduction went.
+ *
+ * Main is the reporting side because it is the only side that sees a whole run:
+ * the run is due before the surface's window exists, the tray's hide is
+ * answered here, and a session started by a double tap on the voice key reaches
+ * neither renderer. The app's own window carries the reports out, so what these
+ * cases watch is what main sends it.
+ */
+describe("the introduction's reports", () => {
+  /** Every report main has handed the app's window, most recent last. */
+  const reports = (): CompanionIntroReport[] =>
+    mainSends
+      .filter((sent) => sent.channel === "vellum:companion:introReport")
+      .map((sent) => sent.payload as CompanionIntroReport);
+
+  /**
+   * An install owed a run, with the surface reaching the screen. The surface is
+   * closed first because a run is only decided as one opens, which is the one
+   * moment the introduction is ever due.
+   */
+  const startIntro = (): void => {
+    introSeen = 0;
+    companionOpen = false;
+    openCompanionWindow();
+  };
+
+  /**
+   * A dial, a session or a run left going here would outlive the case that
+   * started it, and the next case's reports are read off the same list.
+   *
+   * The run is ended through the tray's own path because main holds the beat
+   * across a window closing: only an answer to the introduction clears it, and
+   * this file's surface has no window server to fire a `closed` at.
+   */
+  afterEach(() => {
+    send("vellum:voiceActivity:end");
+    setCompanionSurfaceVisible(false);
+    takeReports();
+    mainSends.length = 0;
+  });
+
+  test("reports the run exposed once the surface is on the screen", () => {
+    startIntro();
+
+    expect(reports()).toEqual([
+      {
+        event: "exposed",
+        beat: "idle",
+        introVersion: COMPANION_INTRO_VERSION,
+        micGranted: true,
+      },
+    ]);
+  });
+
+  // An install that has already been introduced is not exposed to anything.
+  test("says nothing for a surface with no run due", () => {
+    companionOpen = false;
+    openCompanionWindow();
+
+    expect(reports()).toEqual([]);
+  });
+
+  /**
+   * The beat the run moved *to*, which is what makes drop-off a card rather
+   * than a run: the question every one of these rows answers is how many people
+   * got this far.
+   */
+  test("reports each beat the run reaches", () => {
+    startIntro();
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "next");
+    send("vellum:companion:advanceIntro", "next");
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["advanced", "meet"],
+      ["advanced", "talk"],
+    ]);
+  });
+
+  // A step back is a card reached again, and reported as one: how far a user
+  // got is a distinct count per beat, not a sum of rows.
+  test("reports a step back as the beat it lands on", () => {
+    startIntro();
+    send("vellum:companion:advanceIntro", "next");
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "back");
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["advanced", "idle"],
+    ]);
+  });
+
+  test("reports the run completed when the last card is walked off", () => {
+    startIntro();
+    for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "next");
+
+    expect(reports()).toEqual([
+      {
+        event: "completed",
+        beat: "try",
+        introVersion: COMPANION_INTRO_VERSION,
+        micGranted: true,
+      },
+    ]);
+  });
+
+  // The beat a run was refused on is the whole of what a dismissal says.
+  test("reports a dismissal on the beat it was made from", () => {
+    startIntro();
+    send("vellum:companion:advanceIntro", "next");
+    send("vellum:companion:advanceIntro", "next");
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["dismissed", "talk"],
+    ]);
+  });
+
+  /**
+   * Putting the surface away from the tray mid-run is an answer to the
+   * introduction, and main already records it as one. So it reports as one too:
+   * a run nobody ever came back to is not a run that completed.
+   */
+  test("reports the surface being put away as a dismissal", () => {
+    startIntro();
+    mainSends.length = 0;
+
+    setCompanionSurfaceVisible(false);
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["dismissed", "idle"],
+    ]);
+  });
+
+  /**
+   * The last beat's press is the one thing in the run that does what it
+   * describes, so it is both the offer taken and the finish. Two rows, because
+   * they are two questions: how many people took it, and how many got here.
+   */
+  test("reports the offer taken and the run finished on the last beat", () => {
+    startIntro();
+    for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "try");
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["offer_taken", "try"],
+      ["completed", "try"],
+    ]);
+  });
+
+  /**
+   * The same offer taken the other way: a double tap on the voice key starts a
+   * session without anything coming back through the run, and main finishes the
+   * run on the session itself. The report has to follow it there, or the only
+   * users counted as having taken the offer are the ones who pressed the card.
+   */
+  test("reports a session on the last beat as the offer taken", () => {
+    startIntro();
+    for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    mainSends.length = 0;
+
+    send("vellum:voiceActivity:start", START);
+
+    expect(reports().map((report) => [report.event, report.beat])).toEqual([
+      ["offer_taken", "try"],
+      ["completed", "try"],
+    ]);
+  });
+
+  // A session started from anywhere else is the user's own business
+  // interrupting the run, which main holds the beat through.
+  test("says nothing for a session started mid-run", () => {
+    startIntro();
+    send("vellum:companion:advanceIntro", "next");
+    mainSends.length = 0;
+
+    send("vellum:voiceActivity:start", START);
+
+    expect(reports()).toEqual([]);
+  });
+
+  /**
+   * Both facts a row has to be read against ride every report: which
+   * introduction this was, and whether the microphone was already granted. The
+   * second changes what two of the beats say, so a run without it is a
+   * different run.
+   */
+  test("stamps every report with the run and the microphone", () => {
+    micStatus = "denied";
+    startIntro();
+    send("vellum:companion:advanceIntro", "next");
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    expect(reports().length).toBe(3);
+    for (const report of reports()) {
+      expect(report.introVersion).toBe(COMPANION_INTRO_VERSION);
+      expect(report.micGranted).toBe(false);
+    }
+  });
+
+  /**
+   * The ending that happens with nobody to tell. A user reaching the tray has
+   * often put the app's window away first, and the run's ending is the one row
+   * the funnel cannot infer from the others, so it is held for the window that
+   * comes back rather than dropped.
+   */
+  test("holds a report made with no window to take it", () => {
+    startIntro();
+    mainSends.length = 0;
+    mainWindowOpen = false;
+
+    setCompanionSurfaceVisible(false);
+
+    expect(reports()).toEqual([]);
+    const held = takeReports();
+    expect(held.map((report) => [report.event, report.beat])).toEqual([
+      ["dismissed", "idle"],
+    ]);
+    // Taken, not read: a second window must not report the same moment again.
+    expect(takeReports()).toEqual([]);
+  });
+
+  // A window mid-load is a window whose renderer has not subscribed yet, so a
+  // push to it is the same drop with extra steps.
+  test("holds a report made while the app's window is still loading", () => {
+    mainWindowLoading = true;
+    startIntro();
+
+    expect(reports()).toEqual([]);
+    expect(takeReports().map((report) => report.event)).toEqual(["exposed"]);
   });
 });

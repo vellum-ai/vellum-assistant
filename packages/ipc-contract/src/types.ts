@@ -2474,6 +2474,54 @@ export const COMPANION_INTRO_ACTIONS = [
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
+/**
+ * The moments of a run worth counting.
+ *
+ * **Main is the only side that sees all of them.** The run starting is decided
+ * before the surface's window exists, the tray's hide is answered in main, and
+ * a session started by the voice key never passes through either renderer. So
+ * these are named here, reported by main, and carried to the app's window,
+ * which is the only window with a telemetry path and a consent answer.
+ *
+ * `advanced` names the beat the run moved *to*, including a step back, so how
+ * far a user got is a distinct count of runs per beat rather than a sum of
+ * rows: a user who reads a card twice has still reached it once.
+ *
+ * `offer_taken` is the run's own offer of a conversation being taken up,
+ * whichever way. It names the beat it was taken on, which is what separates the
+ * rehearsal the Talk beat asks for from the real call the last beat starts.
+ */
+export const COMPANION_INTRO_EVENTS = [
+  "exposed",
+  "advanced",
+  "completed",
+  "dismissed",
+  "offer_taken",
+] as const;
+
+export type CompanionIntroEvent = (typeof COMPANION_INTRO_EVENTS)[number];
+
+/** One such moment, as main hands it to the app's window to report. */
+export interface CompanionIntroReport {
+  event: CompanionIntroEvent;
+  /** The beat the run was on when this happened. */
+  beat: CompanionIntroBeat;
+  /**
+   * Which introduction this was: {@link COMPANION_INTRO_VERSION} as the
+   * install ran it. Carried on every report so the eight-beat run is separable
+   * from the four-beat one it replaced, which shares this funnel.
+   */
+  introVersion: number;
+  /**
+   * Whether the microphone was already granted when this happened.
+   *
+   * Not an aside: the Talk and the last beat both read it and say different
+   * things, so a run against an ungranted microphone is a different run, and
+   * one ending in a system prompt rather than a call is a different ending.
+   */
+  micGranted: boolean;
+}
+
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
   /** See {@link CompanionContext.dictating}. */
