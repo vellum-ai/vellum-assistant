@@ -5,6 +5,7 @@ import {
   conversationToState,
   DEFAULT_JEV_MODEL,
   JevProvider,
+  noulFromAnswer,
   parseSystemOneOverride,
   validateJevApiKey,
 } from "./client.js";
@@ -63,6 +64,15 @@ describe("parseSystemOneOverride", () => {
 
   test("ignores ordinary chat text", () => {
     expect(parseSystemOneOverride("Cancel my subscription")).toBeNull();
+  });
+});
+
+describe("noulFromAnswer", () => {
+  test("reads a typed noul object or a bare number", () => {
+    expect(noulFromAnswer({ type: "noul", noul: 0.91 })).toBe(0.91);
+    expect(noulFromAnswer(0.4)).toBe(0.4);
+    expect(noulFromAnswer({ type: "choice", choice: "keep" })).toBeUndefined();
+    expect(noulFromAnswer(null)).toBeUndefined();
   });
 });
 

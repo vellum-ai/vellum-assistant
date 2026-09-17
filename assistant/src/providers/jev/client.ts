@@ -115,6 +115,21 @@ function isJevQuestions(value: unknown): value is JevQuestions {
   return entries.every(([, question]) => isJevQuestion(question));
 }
 
+/** Calibrated P(yes) from a System One noul answer, or undefined when absent. */
+export function noulFromAnswer(answer: unknown): number | undefined {
+  if (typeof answer === "number" && Number.isFinite(answer)) {
+    return answer;
+  }
+  if (
+    isRecord(answer) &&
+    typeof answer.noul === "number" &&
+    Number.isFinite(answer.noul)
+  ) {
+    return answer.noul;
+  }
+  return undefined;
+}
+
 /**
  * If the last user message is a TypeSafe System One payload, use it as the
  * evaluation request. `state` is optional; callers fall back to the

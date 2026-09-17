@@ -85,7 +85,7 @@ mock.module("../../../../../util/logger.js", () => ({
   }),
 }));
 
-const { selectPool, MemoryV3RetrievalUnavailableError } =
+const { selectPool, MemoryV3RetrievalUnavailableError, TYPE_SAFE_POOL_KEEP_NOUL } =
   await import("../pool-select.js");
 type SelectorPool = Parameters<typeof selectPool>[0];
 
@@ -966,5 +966,123 @@ describe("selectPool: cataloged thinking and forced-tool compatibility", () => {
     // Structured selection survived: ids [3] is the topic-x finder line.
     expect(selection.keptAll).toBe(false);
     expect(selection.pages).toEqual([{ slug: "topic-x", sections: [] }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectPool: TypeSafe System One noul-per-candidate path.
+// ---------------------------------------------------------------------------
+
+function typesafeResponse(answers: Record<string, unknown>): ProviderResponse {
+  return {
+    model: "jev-latest",
+    stopReason: "end_turn",
+    usage: { inputTokens: 0, outputTokens: 0 },
+    content: [{ type: "text", text: JSON.stringify(answers, null, 2) }],
+    rawResponse: { answers },
+  };
+}
+
+function makeTypesafeProvider(response: ProviderResponse): Provider {
+  return {
+    name: "typesafe",
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
+      return response;
+    },
+  };
+}
+
+function noulAnswer(noul: number): { type: "noul"; noul: number } {
+  return { type: "noul", noul };
+}
+
+describe("selectPool: TypeSafe System One", () => {
+  test("sends one noul per candidate and no select_pages tool", async () => {
+    providerStub = makeTypesafeProvider(
+      typesafeResponse({
+        "1": noulAnswer(0.9),
+        "2": noulAnswer(0.1),
+        "3": noulAnswer(0.8),
+        "4": noulAnswer(0.2),
+      }),
+    );
+
+    await selectPool(makePool(), makeTurn("rollout?"));
+
+    expect(providerCalls).toHaveLength(1);
+    const [call] = providerCalls;
+    expect(call.options?.tools).toBeUndefined();
+    expect(
+      (call.options?.config as Record<string, unknown> | undefined)?.tool_choice,
+    ).toBeUndefined();
+    expect(
+      (call.options?.config as Record<string, unknown> | undefined)?.callSite,
+    ).toBe("memoryV3SelectL2");
+
+    const payload = JSON.parse(
+      (call.messages[0]!.content[0] as { text: string }).text,
+    ) as {
+      state: {
+        candidates: Record<string, { slug: string; text: string }>;
+        current_message: string;
+        selector_instructions: string;
+      };
+      questions: Record<string, { type: string; instructions: string }>;
+    };
+    expect(Object.keys(payload.questions)).toEqual(["1", "2", "3", "4"]);
+    expect(payload.questions["1"]?.type).toBe("noul");
+    expect(payload.questions["1"]?.instructions).toContain("`candidates.1`");
+    expect(payload.state.candidates["1"]?.slug).toBe("page-a");
+    expect(payload.state.candidates["1"]?.text).toBe(CARD_A);
+    expect(payload.state.candidates["3"]?.slug).toBe("topic-x");
+    expect(payload.state.current_message).toBe("rollout?");
+    expect(payload.state.selector_instructions.length).toBeGreaterThan(0);
+  });
+
+  test("keeps candidates at or above the inclusive noul threshold", async () => {
+    providerStub = makeTypesafeProvider(
+      typesafeResponse({
+        "1": noulAnswer(TYPE_SAFE_POOL_KEEP_NOUL),
+        "2": noulAnswer(TYPE_SAFE_POOL_KEEP_NOUL - 0.01),
+        "3": noulAnswer(0.91),
+        "4": noulAnswer(0.12),
+      }),
+    );
+
+    const result = await selectPool(makePool(), makeTurn("rollout?"));
+    expect(result.keptAll).toBe(false);
+    expect(result.pages).toEqual([
+      { slug: "page-a", sections: [] },
+      { slug: "topic-x", sections: [] },
+    ]);
+  });
+
+  test("an all-below-threshold pool is a deliberate empty selection", async () => {
+    providerStub = makeTypesafeProvider(
+      typesafeResponse({
+        "1": noulAnswer(0.1),
+        "2": noulAnswer(0.2),
+        "3": noulAnswer(0.05),
+        "4": noulAnswer(0.3),
+      }),
+    );
+
+    const result = await selectPool(makePool(), makeTurn("nothing relevant"));
+    expect(result).toEqual({ pages: [], keptAll: false });
+  });
+
+  test("unusable answers throw after the re-prompt retry", async () => {
+    providerStub = makeTypesafeProvider({
+      model: "jev-latest",
+      stopReason: "end_turn",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      content: [{ type: "text", text: "not-json" }],
+    });
+
+    await expect(selectPool(makePool(), makeTurn("x"))).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
+    expect(providerCalls).toHaveLength(3);
   });
 });
