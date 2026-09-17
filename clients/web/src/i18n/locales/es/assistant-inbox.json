@@ -1,6 +1,7 @@
 {
   "assistantInboxNavItem": {
-    "label": "Bandeja del asistente"
+    "label": "Bandeja del asistente",
+    "dismiss": "Ocultar bandeja del asistente"
   },
   "assistantInboxHeader": {
     "title": "Bandeja de {name}",

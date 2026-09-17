@@ -1,4 +1,4 @@
-import { Inbox } from "lucide-react";
+import { Inbox, X } from "lucide-react";
 
 import {
   cn,
@@ -18,6 +18,12 @@ export interface AssistantInboxNavItemProps {
   assistantId: string | null;
   collapsed: boolean;
   onSelect?: () => void;
+  /**
+   * Hide the entry. Offered on a plan without managed email, where the inbox
+   * is a pitch rather than a place, so someone who will never want it can
+   * take the entry off the rail. Absent once there is an inbox to open.
+   */
+  onDismiss?: () => void;
 }
 
 /**
@@ -45,6 +51,7 @@ export function AssistantInboxNavItem({
   assistantId,
   collapsed,
   onSelect,
+  onDismiss,
 }: AssistantInboxNavItemProps) {
   const { t } = useTranslation("assistant-inbox");
   const { accentHex } = useAssistantAvatar(assistantId);
@@ -97,6 +104,27 @@ export function AssistantInboxNavItem({
       onSelect={onSelect}
       style={tint}
       className={SIDEBAR_PILL_GAP_CLASSES}
+      /* Held visible rather than hover-revealed: the dismiss is the reason
+         the pill offers a trailing action at all, and a person deciding
+         they never want the inbox should not have to discover it. */
+      revealHold={Boolean(onDismiss)}
+      /* Drawn the way the pinned-app pill draws its unpin: a 24px box on
+         the trailing edge, a 36px touch target on a phone. */
+      trailingAction={
+        onDismiss ? (
+          <button
+            type="button"
+            aria-label={t("assistantInboxNavItem.dismiss")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDismiss();
+            }}
+            className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] max-md:-my-2 max-md:size-9 max-md:rounded-full"
+          >
+            <X size={14} aria-hidden className="max-md:size-4" />
+          </button>
+        ) : undefined
+      }
     />
   );
 }

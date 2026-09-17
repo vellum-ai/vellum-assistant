@@ -1,6 +1,7 @@
 {
   "assistantInboxNavItem": {
-    "label": "Assistant Inbox"
+    "label": "Assistant Inbox",
+    "dismiss": "Hide Assistant Inbox"
   },
   "assistantInboxHeader": {
     "title": "{name}'s Inbox",

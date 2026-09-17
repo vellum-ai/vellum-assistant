@@ -1,6 +1,7 @@
 {
   "assistantInboxNavItem": {
-    "label": "助手收件箱"
+    "label": "助手收件箱",
+    "dismiss": "隐藏助手收件箱"
   },
   "assistantInboxHeader": {
     "title": "{name} 的收件箱",

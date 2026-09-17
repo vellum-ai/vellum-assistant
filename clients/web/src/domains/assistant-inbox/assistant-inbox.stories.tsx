@@ -140,6 +140,11 @@ const shellDecorator: Decorator<InboxStoryArgs> = function ChatShell(
                   assistantId={ASSISTANT_ID}
                   collapsed={collapsed}
                   onSelect={() => {}}
+                  onDismiss={
+                    context.parameters.inboxDismissible
+                      ? fn().mockName("onDismiss")
+                      : undefined
+                  }
                 />
                 <PreferencesMenu assistantId={ASSISTANT_ID} />
               </div>
@@ -180,6 +185,9 @@ type Story = StoryObj<InboxStoryArgs>;
  */
 export const UpgradeRequired: Story = {
   name: "1 · Upgrade required",
+  /* The rail entry carries its dismiss only here: with no inbox to open,
+     the entry is a pitch, and a pitch can be declined. */
+  parameters: { inboxDismissible: true },
   render: () => (
     <AssistantInboxUpgradeState
       assistantId={ASSISTANT_ID}

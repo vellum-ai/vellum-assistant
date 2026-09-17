@@ -1,6 +1,7 @@
 {
   "assistantInboxNavItem": {
-    "label": "Почта ассистента"
+    "label": "Почта ассистента",
+    "dismiss": "Скрыть почту ассистента"
   },
   "assistantInboxHeader": {
     "title": "Почта {name}",
