@@ -11,10 +11,7 @@
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
 import { ToolParamFields } from "@/domains/chat/components/tool-activity/tool-param-fields";
-import {
-  jsonText,
-  layoutToolParams,
-} from "@/domains/chat/utils/tool-param-layout";
+import { jsonText, layoutValues } from "@/domains/chat/utils/value-layout";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -44,7 +41,7 @@ export function ToolInputParameters({
         <div>
           <SectionLabel>{t("toolInputParameters.parameters")}</SectionLabel>
           <div className="rounded-lg border border-[var(--border-base)] p-4">
-            <ToolParamFields list={layoutToolParams(params)} />
+            <ToolParamFields list={layoutValues(params)} />
           </div>
         </div>
       )}

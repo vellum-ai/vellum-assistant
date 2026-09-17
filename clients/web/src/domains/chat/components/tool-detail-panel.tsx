@@ -36,7 +36,7 @@ import {
   isToolCallRunning,
 } from "@/domains/chat/utils/tool-call-status";
 import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
-import { toolCallParams } from "@/domains/chat/utils/tool-param-layout";
+import { toolCallParams } from "@/domains/chat/utils/tool-input";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**

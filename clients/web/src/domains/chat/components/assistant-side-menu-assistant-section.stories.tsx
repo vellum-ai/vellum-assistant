@@ -25,6 +25,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cn } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -186,9 +187,12 @@ function seededClient(assistantThreads: Conversation[]): QueryClient {
 function Scene({
   assistantThreads,
   assistantName,
+  collapsed = false,
 }: {
   assistantThreads: Conversation[];
   assistantName: string | null;
+  /** The collapsed rail, where the cluster is a column of tiles. */
+  collapsed?: boolean;
 }) {
   // Opens the per-section query gate (it checks the connected version).
   useAssistantIdentityStore
@@ -217,15 +221,16 @@ function Scene({
           visible rather than implied. */}
       <div
         style={{ height: 720, ["--avatar-accent" as string]: ACCENT }}
-        className="flex w-[264px] flex-col"
+        className={cn("flex flex-col", collapsed ? "w-fit" : "w-[264px]")}
       >
         <AssistantSideMenu
           assistantId={ASSISTANT_ID}
           assistantName={assistantName}
           conversations={[...CHATS, ...PINNED]}
-          collapsed={false}
+          collapsed={collapsed}
           variant="rail"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           footerAction={
             /* Stands at the real footer's height: the app's Preferences
                trigger is a `PanelItem` pill at
@@ -267,9 +272,34 @@ export const UnnamedAssistant: Story = {
 };
 
 /**
+ * A name wider than the row can hold: the pill gives way and truncates it,
+ * so the section toggle and the New Chat button beside it stay on the rail
+ * rather than being pushed past its edge and clipped.
+ */
+export const LongName: Story = {
+  args: {
+    assistantThreads: ASSISTANT_THREADS,
+    assistantName: "Persephone Winterbottom",
+  },
+};
+
+/**
  * Nothing yet. The section still renders — its empty state is what explains
  * it to someone who has no threads — and Chats keeps the leftover height.
  */
 export const EmptySection: Story = {
   args: { assistantThreads: [], assistantName: "Ada" },
+};
+
+/**
+ * The collapsed rail: the assistant's tile with the New Chat tile beneath it,
+ * and the section's own tile in the list below, where the row's toggle and
+ * card have no row to stand on.
+ */
+export const CollapsedRail: Story = {
+  args: {
+    assistantThreads: ASSISTANT_THREADS,
+    assistantName: "Ada",
+    collapsed: true,
+  },
 };

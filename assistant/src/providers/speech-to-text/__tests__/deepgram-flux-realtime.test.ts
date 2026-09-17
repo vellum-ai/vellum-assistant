@@ -334,6 +334,7 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
           type: "turn-end",
           text: "what is the weather",
           confidence: 0.91,
+          audioWindowEndSeconds: 1.5,
           turnIndex: 0,
         },
       ]);
@@ -382,7 +383,12 @@ describe("DeepgramFluxRealtimeTranscriber", () => {
       );
       expect(events).toEqual([
         { type: "final", text: "still here" },
-        { type: "turn-end", text: "still here", turnIndex: 0 },
+        {
+          type: "turn-end",
+          text: "still here",
+          turnIndex: 0,
+          audioWindowEndSeconds: 1.5,
+        },
       ]);
     });
   });

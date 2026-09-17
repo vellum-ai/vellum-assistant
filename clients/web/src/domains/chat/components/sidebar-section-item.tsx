@@ -140,7 +140,7 @@ export function SidebarSectionItem({
         isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
       }
       /* On the rail, the whole header on its own surface: the New Chat
-         pill's exact wash (PANEL_ITEM_WASH rest = a 15% accent mix into
+         button's exact wash (PANEL_ITEM_WASH rest = a 15% accent mix into
          --surface-lift), spanning glyph, label, unread dot, and chevron
          edge to edge - one pill, not a pill with the controls stranded
          outside it. 36px stands it at the height of a collapsed side-menu
@@ -194,7 +194,7 @@ export function SidebarSectionItem({
           ? cn(
               "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
               /* A row hovered or selected on this card raises to the same
-                 wash the New Chat pill raises to (`PANEL_ITEM_WASH.raised`,
+                 wash the New Chat button raises to (`PANEL_ITEM_WASH.raised`,
                  24% of the accent into the lift), rather than the neutral
                  gray every other card's rows hover in, so the card reads as
                  one tinted object under the pointer and around the open

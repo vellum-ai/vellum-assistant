@@ -51,3 +51,19 @@ export const COMMAND_KEYS = ["command", "cmd"] as const;
  * `app_control_stop`'s `reason`, are the tool's own arguments.
  */
 export const ACTIVITY_KEY = "activity";
+
+/**
+ * The parameters a tool call was given, without its `activity` sentence.
+ *
+ * The daemon adds `activity` to every tool's input schema as a status line for
+ * the user (`assistant/src/tools/schema-transforms.ts`), and the detail panel's
+ * header already shows it, so a field for it would say the same thing twice. The
+ * raw input still carries it.
+ */
+export function toolCallParams(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== ACTIVITY_KEY),
+  );
+}

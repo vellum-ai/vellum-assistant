@@ -1,7 +1,4 @@
-import {
-  MODELS_BY_PROVIDER,
-  providerOffersTextGeneration,
-} from "@/assistant/llm-model-catalog";
+import { MODELS_BY_PROVIDER } from "@/assistant/llm-model-catalog";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 
 import {
@@ -112,7 +109,7 @@ export function providersServedByConnections(
     ...new Set<ConnectionProvider>(
       connections.map((connection) => connection.provider),
     ),
-  ].filter(providerOffersTextGeneration);
+  ];
   // Vellum first, then canonical picker order; a provider absent from the
   // catalog order (a connection for a provider this app version doesn't
   // list) is appended so version drift never hides a served provider.
@@ -155,9 +152,7 @@ export function unconnectedProviders(
   );
   return CONNECTION_PROVIDERS.filter(
     (provider) =>
-      provider !== OPENAI_COMPATIBLE_PROVIDER &&
-      !served.has(provider) &&
-      providerOffersTextGeneration(provider),
+      provider !== OPENAI_COMPATIBLE_PROVIDER && !served.has(provider),
   );
 }
 

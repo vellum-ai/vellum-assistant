@@ -124,6 +124,8 @@ const DESCRIPTION = [
   "For logins, use saved credentials first. Securely collect missing credentials",
   "with assistant credentials prompt, then fill the login form yourself.",
   "",
+  "Every call passes exactly one of `questions` or `desktopHelp`.",
+  "",
   "Use this tool whenever a request is ambiguous and can be resolved",
   "by 2–4 plausible interpretations or discrete choices. Prefer it over",
   "plain-text clarification — structured options are faster to answer and",
@@ -255,10 +257,10 @@ export const askQuestionTool = {
   category: "interaction",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  input_schema: {
-    ...toToolInputSchema(askQuestionInputSchema),
-    oneOf: [{ required: ["questions"] }, { required: ["desktopHelp"] }],
-  },
+  // Anthropic rejects `oneOf` / `anyOf` / `allOf` at the root of a tool
+  // schema, so the either/or rule between `questions` and `desktopHelp` lives
+  // in the description and the Zod refine, not in the wire schema.
+  input_schema: toToolInputSchema(askQuestionInputSchema),
 
   async execute(
     input: Record<string, unknown>,

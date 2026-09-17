@@ -24,7 +24,7 @@ export const INFERENCE_PROVIDERS = [
   "opencode",
   "baseten",
   "poolside",
-  "jev",
+  "typesafe",
 ] as const;
 
 /**

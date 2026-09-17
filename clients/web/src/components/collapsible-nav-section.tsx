@@ -382,7 +382,7 @@ function CollapsibleNavSectionSection({
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
           shares it, so section icons and labels sit on the same axes as
-          the New Chat plus and the assistant eyes. Only the vertical
+          the assistant eyes. Only the vertical
           metrics grow on mobile. */}
       {collapsible ? (
         // The one toggle target: a click anywhere on the title row expands

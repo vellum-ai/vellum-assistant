@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import {
+  buildEmailTransportMetadata,
   buildTelegramTransportMetadata,
+  EMAIL_CHANNEL_TRANSPORT_HINTS,
+  EMAIL_CHANNEL_TRANSPORT_UX_BRIEF,
+  EMAIL_REPLY_VIA_CLI_HINT,
   TELEGRAM_CHANNEL_TRANSPORT_HINTS,
   TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
 } from "../channels/transport-hints.js";
@@ -49,5 +53,37 @@ describe("telegram onboarding transport metadata", () => {
     expect(metadata.uxBrief).toBe(TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF);
     expect(metadata.uxBrief.toLowerCase()).toContain("defer");
     expect(metadata.uxBrief.toLowerCase()).toContain("dashboard");
+  });
+});
+
+describe("email inbound transport metadata", () => {
+  test("always steers replies through the email send CLI", () => {
+    const metadata = buildEmailTransportMetadata();
+    expect(metadata.hints).toEqual([
+      ...EMAIL_CHANNEL_TRANSPORT_HINTS,
+      EMAIL_REPLY_VIA_CLI_HINT,
+    ]);
+    expect(metadata.hints).toContain("email-reply-via-cli");
+    expect(metadata.hints).toContain(EMAIL_REPLY_VIA_CLI_HINT);
+    expect(metadata.uxBrief).toBe(EMAIL_CHANNEL_TRANSPORT_UX_BRIEF);
+    expect(metadata.uxBrief).toContain("assistant email send");
+    expect(metadata.uxBrief).toContain("Conversation text is not emailed");
+  });
+
+  test("adds sender context and the CLI reply hint for an inbound message", () => {
+    const metadata = buildEmailTransportMetadata({
+      senderAddress: "alice@example.com",
+      recipientAddress: "assistant@example.com",
+      subject: "Reply when you can",
+      inReplyTo: "msg-123",
+    });
+
+    expect(metadata.hints).toContain("email-sender: alice@example.com");
+    expect(metadata.hints).toContain("email-recipient: assistant@example.com");
+    expect(metadata.hints).toContain("email-subject: Reply when you can");
+    expect(metadata.hints).toContain("email-in-reply-to: msg-123");
+    expect(metadata.hints).toContain(EMAIL_REPLY_VIA_CLI_HINT);
+    expect(metadata.hints.join("\n")).toContain("assistant email send");
+    expect(metadata.hints.join("\n")).not.toContain("email-reply-help:");
   });
 });

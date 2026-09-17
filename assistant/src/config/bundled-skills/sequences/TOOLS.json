@@ -165,11 +165,7 @@
             },
             "description": "Replacement steps (replaces all existing steps)"
           }
-        },
-        "oneOf": [
-          { "required": ["id"] },
-          { "required": ["enrollment_id", "enrollment_action"] }
-        ]
+        }
       },
       "executor": "tools/sequence-update.ts",
       "execution_target": "host"

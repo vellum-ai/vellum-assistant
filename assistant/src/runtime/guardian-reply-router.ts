@@ -388,7 +388,7 @@ export async function routeGuardianReply(
       const request = await getGuardianRequestOrNull(answerTap.requestId);
       if (
         request &&
-        resolveRequestInstructionMode(request) === "answer" &&
+        resolveGuardianInstructionModeForRequest(request) === "answer" &&
         parseQuestionAnswerActionId(answerTap.token) &&
         !request.callSessionId &&
         hasLiveQuestionInteraction(request.id)
@@ -581,7 +581,7 @@ export async function routeGuardianReply(
   if (messageText.length > 0 && pendingRequests.length === 1) {
     const soleRequest = pendingRequests[0];
     if (
-      resolveRequestInstructionMode(soleRequest) === "answer" &&
+      resolveGuardianInstructionModeForRequest(soleRequest) === "answer" &&
       !soleRequest.callSessionId &&
       soleRequest.sourceConversationId === conversationId &&
       hasLiveQuestionInteraction(soleRequest.id)
@@ -1005,12 +1005,6 @@ function inferActionFromText(
   return "approve_once";
 }
 
-function resolveRequestInstructionMode(
-  request?: Pick<GuardianRequestWire, "kind" | "toolName"> | null,
-): "approval" | "answer" {
-  return resolveGuardianInstructionModeForRequest(request);
-}
-
 // ---------------------------------------------------------------------------
 // Failure reason reply text
 // ---------------------------------------------------------------------------
@@ -1044,7 +1038,7 @@ function failureReplyText(
       return "Something went wrong with this request on our end, so I couldn't apply your decision.";
     case "invalid_action":
       return buildGuardianInvalidActionReply(
-        resolveRequestInstructionMode(request),
+        resolveGuardianInstructionModeForRequest(request),
         requestCode ?? undefined,
       );
     default:
@@ -1063,7 +1057,7 @@ function failureReplyText(
  */
 function composeCodeOnlyClarification(request: GuardianRequestWire): string {
   const code = request.requestCode ?? "unknown";
-  const mode = resolveRequestInstructionMode(request);
+  const mode = resolveGuardianInstructionModeForRequest(request);
   return buildGuardianCodeOnlyClarification(mode, {
     requestCode: code,
     questionText: request.questionText,
@@ -1087,7 +1081,7 @@ function composeDisambiguationReply(
   const lines: string[] = [];
   const requestsWithMode = pendingRequests.map((request) => ({
     request,
-    mode: resolveRequestInstructionMode(request),
+    mode: resolveGuardianInstructionModeForRequest(request),
   }));
 
   if (engineReplyText) {

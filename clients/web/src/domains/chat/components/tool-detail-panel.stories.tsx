@@ -18,6 +18,7 @@ import {
   mcpSqlDetail,
   minimalDetail,
   recallDetail,
+  recordListDetail,
   rememberDetail,
   riskVariant,
   skillExecuteDetail,
@@ -91,6 +92,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
+ * | List of records | RecordListParameter | A list of same-shaped objects reads as a table, one column per key; a record missing a key leaves an empty cell. |
  * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
  *
@@ -260,6 +262,19 @@ export const UnknownThirdPartyTool: Story = {
  * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
+
+/**
+ * A parameter that is a list of same-shaped records. It reads as a table with
+ * a column per key, in the order the keys first appear, instead of a numbered
+ * group of boxes. A record that omits a key leaves that cell empty, since an
+ * import or a query result commonly leaves a column out per row; a key present
+ * in fewer than half the records, or more than twelve keys, falls back to the
+ * nested group. Rows past the first hundred are counted under the table, and
+ * the raw input keeps them all.
+ */
+export const RecordListParameter: Story = {
+  args: { detail: recordListDetail },
+};
 
 // ---------------------------------------------------------------------------
 // Risk levels

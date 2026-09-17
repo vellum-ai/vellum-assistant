@@ -15,7 +15,7 @@ import type {
 
 const log = getLogger("jev-client");
 
-export const JEV_PROVIDER_ID = "jev";
+export const JEV_PROVIDER_ID = "typesafe";
 export const DEFAULT_JEV_BASE_URL = "https://api.typesafe.ai";
 export const DEFAULT_JEV_MODEL = "jev-latest";
 
@@ -113,6 +113,21 @@ function isJevQuestions(value: unknown): value is JevQuestions {
     return false;
   }
   return entries.every(([, question]) => isJevQuestion(question));
+}
+
+/** Calibrated P(yes) from a System One noul answer, or undefined when absent. */
+export function noulFromAnswer(answer: unknown): number | undefined {
+  if (typeof answer === "number" && Number.isFinite(answer)) {
+    return answer;
+  }
+  if (
+    isRecord(answer) &&
+    typeof answer.noul === "number" &&
+    Number.isFinite(answer.noul)
+  ) {
+    return answer.noul;
+  }
+  return undefined;
 }
 
 /**

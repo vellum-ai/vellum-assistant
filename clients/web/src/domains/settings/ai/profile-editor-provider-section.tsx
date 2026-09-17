@@ -11,10 +11,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import {
   catalogEnabledFlags,
   getModelsForProvider,
-  getTextGenerationModelsForProvider,
   getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
-  providerOffersTextGeneration,
 } from "@/assistant/llm-model-catalog";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
@@ -184,7 +182,7 @@ export function ProfileEditorProviderSection({
   // filter runs and yields empty — the empty-state hint fires.
   const providerOptionsSource =
     connections === undefined
-      ? CATALOG_PROVIDERS.filter(providerOffersTextGeneration)
+      ? CATALOG_PROVIDERS
       : visibleProviders;
 
   // A confirmed-empty connection list. Read-only profiles cannot act on it,
@@ -217,7 +215,7 @@ export function ProfileEditorProviderSection({
       if (!provider) {
         return [];
       }
-      const catalogModels = getTextGenerationModelsForProvider(
+      const catalogModels = getVisibleModelsForProvider(
         provider,
         catalogFlags,
       );

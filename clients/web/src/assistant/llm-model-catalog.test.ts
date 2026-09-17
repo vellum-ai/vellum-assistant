@@ -190,17 +190,17 @@ describe("parity with meta/llm-provider-catalog.json", () => {
 
   test("structured-decision models stay visible on the provider row but not in text pickers", () => {
     expect(
-      getModelsForProvider("jev").some((model) => model.id === "jev-latest"),
+      getModelsForProvider("typesafe").some((model) => model.id === "jev-latest"),
     ).toBe(true);
-    expect(catalogModelSupportsText("jev", "jev-latest")).toBe(false);
-    expect(providerOffersTextGeneration("jev")).toBe(false);
+    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
+    expect(providerOffersTextGeneration("typesafe")).toBe(false);
     expect(providerOffersTextGeneration("anthropic")).toBe(true);
     expect(providerOffersTextGeneration("openai-compatible")).toBe(true);
     expect(
-      getTextGenerationModelsForProvider("jev", catalogEnabledFlags({})),
+      getTextGenerationModelsForProvider("typesafe", catalogEnabledFlags({})),
     ).toEqual([]);
     expect(
-      getVisibleModelsForProvider("jev", catalogEnabledFlags({})).some(
+      getVisibleModelsForProvider("typesafe", catalogEnabledFlags({})).some(
         (model) => model.id === "jev-latest",
       ),
     ).toBe(true);

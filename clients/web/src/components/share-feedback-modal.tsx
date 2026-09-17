@@ -1,5 +1,9 @@
 import { Capacitor } from "@capacitor/core";
-import { useMutation } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   Bug,
   Download,
@@ -35,6 +39,7 @@ import type { ClassificationEnum, ClientEnum } from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
+import { buildAssetDiagnosticsSnapshot } from "@/lib/asset-query-diagnostics";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { buildDebugFlagSnapshot } from "@/lib/feature-flags/debug-flag-snapshot";
 import { isElectron } from "@/runtime/is-electron";
@@ -411,6 +416,7 @@ async function buildClientLogsFile(
     diagnosticsProvider?: FeedbackDiagnosticsProvider;
     doctorSessionId?: string | null;
     extraLogFiles?: readonly ExtraLogFile[];
+    queryClient?: QueryClient;
   } = {},
 ): Promise<File | null> {
   if (typeof CompressionStream === "undefined") {
@@ -485,6 +491,24 @@ async function buildClientLogsFile(
     buildTarEntry("web-client-context.json", contextBytes),
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
+  if (options.queryClient) {
+    try {
+      tarParts.push(
+        buildTarEntry(
+          "web-asset-diagnostics.json",
+          encoder.encode(
+            JSON.stringify(
+              buildAssetDiagnosticsSnapshot(options.queryClient),
+              null,
+              2,
+            ),
+          ),
+        ),
+      );
+    } catch {
+      // A diagnostic snapshot must never block a support submission.
+    }
+  }
 
   // Capture client debug-flag state so flag values are unambiguous during
   // analysis. The flags are localStorage-only overrides with no server
@@ -677,6 +701,7 @@ export function ShareFeedbackModal({
   getDiagnosticsSnapshot,
 }: ShareFeedbackModalProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const authUser = useAuthStore.use.user();
   const authEmail = authUser?.email;
   const isStaff = authUser?.isStaff ?? false;
@@ -878,6 +903,7 @@ export function ShareFeedbackModal({
                 : (activeConversationId ?? null),
               {
                 diagnosticsProvider: getDiagnosticsSnapshot,
+                queryClient,
                 doctorSessionId,
                 extraLogFiles: doctorLogFiles,
               },
@@ -977,6 +1003,7 @@ export function ShareFeedbackModal({
           : (activeConversationId ?? null),
         {
           diagnosticsProvider: getDiagnosticsSnapshot,
+          queryClient,
           doctorSessionId,
           extraLogFiles: doctorLogFiles,
         },
