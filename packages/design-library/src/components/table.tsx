@@ -86,13 +86,13 @@ export function Table({
         )}
       >
         <table
+          {...props}
           data-slot="table"
           className={cn(
             "w-full caption-bottom text-left text-body-medium-lighter",
             layout === "fixed" && "table-fixed",
             className,
           )}
-          {...props}
         />
       </div>
     </TableContext.Provider>
@@ -103,13 +103,13 @@ export function TableHeader({ className, ...props }: ComponentProps<"thead">) {
   const { dividers } = useContext(TableContext);
   return (
     <thead
+      {...props}
       data-slot="table-header"
       className={cn(
         dividers !== "none" &&
           "[&_tr]:border-b [&_tr]:border-[var(--border-subtle)]",
         className,
       )}
-      {...props}
     />
   );
 }
@@ -118,13 +118,13 @@ export function TableBody({ className, ...props }: ComponentProps<"tbody">) {
   const { dividers } = useContext(TableContext);
   return (
     <tbody
+      {...props}
       data-slot="table-body"
       className={cn(
         dividers === "rows" &&
           "[&_tr]:border-b [&_tr]:border-[var(--border-base)] [&_tr:last-child]:border-0",
         className,
       )}
-      {...props}
     />
   );
 }
@@ -144,6 +144,7 @@ export function TableRow({
 }: TableRowProps) {
   return (
     <tr
+      {...props}
       data-slot="table-row"
       data-state={selected ? "selected" : undefined}
       className={cn(
@@ -152,7 +153,6 @@ export function TableRow({
         selected && "bg-[var(--system-positive-weak)]",
         className,
       )}
-      {...props}
     />
   );
 }
@@ -178,6 +178,7 @@ export function TableHead({
   const context = useContext(TableContext);
   return (
     <th
+      {...props}
       data-slot="table-head"
       className={cn(
         "align-middle text-body-small-default text-[var(--content-quiet)]",
@@ -185,7 +186,6 @@ export function TableHead({
         ALIGN_CLASS[align],
         className,
       )}
-      {...props}
     />
   );
 }
@@ -202,6 +202,7 @@ export function TableCell({
   const context = useContext(TableContext);
   return (
     <td
+      {...props}
       data-slot="table-cell"
       className={cn(
         "align-middle text-[var(--content-default)]",
@@ -209,7 +210,6 @@ export function TableCell({
         ALIGN_CLASS[align],
         className,
       )}
-      {...props}
     />
   );
 }
@@ -220,12 +220,12 @@ export function TableCaption({
 }: ComponentProps<"caption">) {
   return (
     <caption
+      {...props}
       data-slot="table-caption"
       className={cn(
         "mt-2 text-left text-body-small-default text-[var(--content-quiet)]",
         className,
       )}
-      {...props}
     />
   );
 }

@@ -110,7 +110,7 @@ export function DataTable({
 }: DataTableProps) {
   const { t } = useTranslation("chat");
   const { copy, copied } = useCopyToClipboard({
-    errorMessage: "Couldn't copy the table.",
+    errorMessage: t("tableSurface.copyFailed"),
   });
   const handleCopy = useCallback(
     () => copy(tableToMarkdown(columns, rows)),

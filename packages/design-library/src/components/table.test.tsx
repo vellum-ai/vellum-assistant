@@ -46,6 +46,21 @@ describe("Table", () => {
     }
   });
 
+  test("a consumer data-slot never replaces the library's", () => {
+    const html = renderToStaticMarkup(
+      <Table data-slot="report">
+        <TableBody>
+          <TableRow>
+            <TableCell data-slot="report-cell">x</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    expect(html).toContain('data-slot="table"');
+    expect(html).toContain('data-slot="table-cell"');
+    expect(html).not.toContain('data-slot="report');
+  });
+
   test("container props land on the scroll container, not the table", () => {
     const html = markup();
     expect(html).toMatch(
