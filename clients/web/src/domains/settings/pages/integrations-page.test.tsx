@@ -872,12 +872,8 @@ describe("IntegrationsPage", () => {
       screen.getByRole("button", { name: "More actions for user@example.com" }),
       { button: 0, ctrlKey: false },
     );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() =>
       expect(disconnectedConnectionIds).toEqual(["connection-1"]),
@@ -907,12 +903,8 @@ describe("IntegrationsPage", () => {
       }),
       { button: 0, ctrlKey: false },
     );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
     // Nothing is left to manage, so the dialog asks how to connect instead.
@@ -983,7 +975,7 @@ describe("IntegrationsPage", () => {
     await settle();
   });
 
-  test("connect another signs in without reinstalling an installed plugin", async () => {
+  test("reconnecting a declared server signs in without reinstalling", async () => {
     seededCatalog = [catalogMatch()];
     seededPlugins = [installedPlugin()];
     seededServers = [
@@ -1000,14 +992,12 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
     await screen.findByText("Manage how Vellum connects to Example.");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Connect another" }),
-      { button: 0, ctrlKey: false },
-    );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Example MCP server" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    // The plugin installs once, so its server is not on offer a second time:
+    // the row it already has is where a stalled sign-in is finished.
+    expect(
+      screen.queryByRole("button", { name: "Connect another" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
 
     // The install would be refused, so the attempt goes straight to the
     // server the plugin already declared.
@@ -1031,12 +1021,8 @@ describe("IntegrationsPage", () => {
       }),
       { button: 0, ctrlKey: false },
     );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
     await settle();
@@ -1077,10 +1063,8 @@ describe("IntegrationsPage", () => {
       screen.getByRole("button", { name: "More actions for example-b" }),
       { button: 0, ctrlKey: false },
     );
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
     // The uninstall took example-a too, so nothing is left waiting on it.

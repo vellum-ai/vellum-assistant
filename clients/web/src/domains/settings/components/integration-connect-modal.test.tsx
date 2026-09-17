@@ -143,17 +143,49 @@ describe("IntegrationConnectModal", () => {
     openMenu("More actions for Notion MCP server");
     fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
-    // One server, but still a whole plugin going, and a plugin is more than
-    // its servers: the confirmation is scoped to what the uninstall takes.
-    await screen.findByText("Disconnect Notion?");
-    screen.getByText(
-      "Vellum removes Notion and everything it installed, including its MCP server and the tools it brings. You can connect it again at any time.",
-    );
+    await screen.findByText("Remove Notion MCP server?");
+    screen.getByText("Are you sure?");
 
     expect(handlers.onDisconnect).not.toHaveBeenCalled();
   });
 
-  test("names the whole plugin when one row would take its siblings", async () => {
+  test("asks an account the same question, and removes it on confirm", async () => {
+    modal({ plan: connectedPlan });
+
+    openMenu("More actions for user@example.com");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+
+    await screen.findByText("Remove user@example.com?");
+    screen.getByText("Are you sure?");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(handlers.onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaves out an MCP server a plugin has already installed", async () => {
+    modal({ plan: connectedPlan });
+
+    openMenu("Connect another");
+    await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
+    expect(
+      screen.queryByRole("menuitem", { name: "Notion MCP server" }),
+    ).toBeNull();
+  });
+
+  test("drops Connect another when the only path is already connected", () => {
+    modal({
+      plan: planFor({
+        servers: [mcpServer("notion-mcp", { id: "notion" })],
+        definitions: [pluginDefinition({ oauthProvider: undefined })],
+      }),
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Connect another" }),
+    ).toBeNull();
+  });
+
+  test("names a sibling server by its own id", async () => {
     const twoServers = planFor({
       servers: [
         mcpServer("ashby-mcp", { id: "ashby-jobs" }),
@@ -172,17 +204,13 @@ describe("IntegrationConnectModal", () => {
 
     // Siblings are told apart by their own ids, not by one shared label.
     openMenu("More actions for ashby-jobs");
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
-    await screen.findByText("Disconnect Ashby?");
-    screen.getByText(
-      "Vellum removes Ashby and everything it installed, including all 2 of its MCP servers and the tools they bring. You can connect it again at any time.",
-    );
+    await screen.findByText("Remove ashby-jobs?");
+    screen.getByText("Are you sure?");
   });
 
-  test("counts no servers rather than inventing one for an installed plugin", async () => {
+  test("keeps a row for an installed plugin that declared no server", async () => {
     const noServers = planFor({
       definitions: [
         pluginDefinition({
@@ -196,17 +224,13 @@ describe("IntegrationConnectModal", () => {
     });
     modal({ plan: noServers });
 
-    // With no server of its own the row is named after the method, and the
-    // plugin is still the thing the disconnect takes away.
+    // With no server of its own the row is named after the method, and it is
+    // still the row that takes the plugin away.
     openMenu("More actions for Ashby MCP server");
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
-    await screen.findByText("Disconnect Ashby?");
-    screen.getByText(
-      "Vellum removes Ashby and everything it installed. You can connect it again at any time.",
-    );
+    await screen.findByText("Remove Ashby MCP server?");
+    screen.getByText("Are you sure?");
   });
 
   test("puts an MCP server's tools behind the row they belong to", async () => {

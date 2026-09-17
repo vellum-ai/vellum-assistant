@@ -247,6 +247,7 @@ describe("connectableMethods", () => {
     const plan = planOf(oauthItem([pluginMethod()]), {
       platformGate: "full",
       ownOAuthAvailable: false,
+      mcpServersLoaded: true,
     });
 
     expect(connectableMethods(plan).map((method) => method.kind)).toEqual([
@@ -258,7 +259,11 @@ describe("connectableMethods", () => {
   test("drops an MCP method once its server is installed", () => {
     const plan = planOf(
       oauthItem([{ definition: definition(), servers: [connectedServer()] }]),
-      { platformGate: "full", ownOAuthAvailable: true },
+      {
+        platformGate: "full",
+        ownOAuthAvailable: true,
+        mcpServersLoaded: true,
+      },
     );
 
     expect(planMethods(plan).map((method) => method.kind)).toEqual([

@@ -273,19 +273,6 @@ export function IntegrationConnectModal({
     setView({ kind: "connect", methodId: plan.primary.id });
   }
 
-  // Disconnecting a row a plugin owns uninstalls that whole plugin: every
-  // server it declared, and the tools and skills it shipped alongside them.
-  // So the confirmation is plugin-scoped whenever a plugin owns the row, at
-  // any server count. A row with one server is still a whole plugin going,
-  // and a row with none is a plugin that only ever brought the rest.
-  const removesPlugin = Boolean(confirming?.pluginName);
-  const pluginServerCount = confirming?.pluginName
-    ? connections.filter(
-        (candidate) =>
-          candidate.pluginName === confirming.pluginName && candidate.serverId,
-      ).length
-    : 0;
-
   const toolsConnection =
     view.kind === "tools"
       ? connections.find((candidate) => candidate.id === view.connectionId)
@@ -392,26 +379,11 @@ export function IntegrationConnectModal({
       <ConfirmDialog
         open={confirming !== null}
         destructive
-        title={
-          removesPlugin
-            ? t("integrationConnect.disconnectTitlePlugin", { name: plan.name })
-            : t("integrationConnect.disconnectTitle", {
-                label: confirming ? connectionTitle(confirming) : "",
-              })
-        }
-        message={
-          removesPlugin
-            ? t("integrationConnect.disconnectMessagePlugin", {
-                name: plan.name,
-                count: pluginServerCount,
-              })
-            : confirming && isMcpMethodKind(confirming.methodKind)
-              ? t("integrationConnect.disconnectMessageMcp", {
-                  name: plan.name,
-                })
-              : t("integrationConnect.disconnectMessageManaged")
-        }
-        confirmLabel={t("integrationConnect.disconnect")}
+        title={t("integrationConnect.removeTitle", {
+          label: confirming ? connectionTitle(confirming) : "",
+        })}
+        message={t("integrationConnect.removeMessage")}
+        confirmLabel={t("integrationConnect.remove")}
         cancelLabel={t("integrationConnect.cancel")}
         onConfirm={() => {
           if (confirming) {
