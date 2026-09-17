@@ -773,7 +773,7 @@ describe("exclusive channelAllowlist policy", () => {
         isAsyncBackground: false,
         visibleInSourceNow: false,
       },
-      contextPayload: { channelAllowlist: ["platform"] },
+      contextPayload: { channelAllowlist: ["vellum"] },
     });
 
     const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
@@ -781,9 +781,9 @@ describe("exclusive channelAllowlist policy", () => {
       shouldNotify: boolean;
       reasoningSummary: string;
     };
-    expect(dispatched.selectedChannels).toEqual(["platform"]);
+    expect(dispatched.selectedChannels).toEqual(["vellum"]);
     expect(dispatched.shouldNotify).toBe(true);
-    expect(dispatched.reasoningSummary).toContain("channelAllowlist: platform");
+    expect(dispatched.reasoningSummary).toContain("channelAllowlist: vellum");
   });
 
   test("access-request floor still adds vellum when the allowlist omitted it", async () => {
@@ -791,7 +791,7 @@ describe("exclusive channelAllowlist policy", () => {
       makeDecision({ shouldNotify: false, selectedChannels: [] }),
     );
 
-    await emitNotificationSignal({
+    await emitNotificationSignal<string>({
       sourceEventName: "ingress.access_request",
       sourceChannel: "telegram",
       sourceContextId: "access-req-allowlist-1",
