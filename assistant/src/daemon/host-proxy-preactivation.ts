@@ -1,37 +1,19 @@
 /**
- * Shared host-proxy skill preactivation registry.
+ * Shared host-proxy skill preactivation.
  *
- * Several call sites need to mark host-proxy-backed skills as preactivated
- * for a turn whenever the source interface supports the corresponding
- * `HostProxyCapability`:
- *
- *   - `runtime/routes/conversation-routes.ts` (create path, /v1/messages)
- *   - `daemon/process-message.ts` (create path, prepareConversationForMessage)
- *   - `daemon/conversation-process.ts` `drainSingleMessage` (re-add after dequeue)
- *   - `daemon/conversation-process.ts` `drainBatch` (re-add after dequeue)
- *   - `calls/voice-session-bridge.ts` (tool-capable legs of a live-voice
- *     session opened from the macOS desktop client)
- *
- * The create paths additionally instantiate the proxy itself; that
- * instantiation logic is per-proxy-class and stays inline at each create
- * site (constructors take different argument shapes — `HostCuProxy()` vs
- * `HostAppControlProxy(conversationId)`). This module owns only the
- * capability-to-skill mapping and the preactivation step. Adding a new
- * host-proxy-backed skill is a one-line registry change here instead of
- * touching all four call sites.
- *
- * Why a registry instead of repeated branches: each new host-proxy-backed
- * skill that ships (e.g. a future `host_focus` capability with a `focus`
- * skill) would otherwise add four near-identical `if (supportsHostProxy(...))
- * conversation.addPreactivatedSkillId("...")` blocks across these files.
- * Centralizing the list makes the contract obvious and prevents drift
- * where one call site re-adds a skill but another forgets to.
+ * The capability-to-skill registry lives in `host-proxy-capabilities.ts` so
+ * voice routing, tool projection, and preactivation classify host-backed
+ * tools from the same source of truth. Proxy instantiation remains at each
+ * call site because the proxy constructors take different arguments.
  */
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
 import { supportsHostProxy } from "../channels/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
+import { HOST_PROXY_SKILL_PREACTIVATIONS } from "./host-proxy-capabilities.js";
+
+export { HOST_PROXY_SKILL_PREACTIVATIONS } from "./host-proxy-capabilities.js";
 
 const log = getLogger("host-proxy-preactivation");
 
@@ -63,40 +45,13 @@ export interface HostProxyAttachmentDecision {
 }
 
 /**
- * Registry mapping each host-proxy capability to the skill that must be
- * preactivated when that capability is supported by the source interface.
- *
- * Keep this list in sync with `HostProxyCapability` for any capability that
- * has a corresponding bundled skill.
- *
- * Capabilities NOT listed here:
- *  - `host_bash`, `host_file` — these are surfaced as built-in tools rather
- *    than skills, so there is nothing to preactivate.
- *  - `host_browser` — the browser proxy is provisioned via the assistant
- *    event hub for chrome-extension and its skill projection is governed by
- *    a different code path (`host-browser-proxy.ts`).
- */
-export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
-  capability: HostProxyCapability;
-  skillId: string;
-}> = [
-  { capability: "host_cu", skillId: "computer-use" },
-  // Not `host_cu`: the marks are drawn in a window the client opens for
-  // itself, and only a client advertising that window can answer the request.
-  // Offered from the transport alone, the skill reaches Windows and Linux
-  // turns whose executors forward it to a native helper that has no such
-  // action.
-  { capability: "host_cu_annotate", skillId: "screen-annotation" },
-  { capability: "host_app_control", skillId: "app-control" },
-];
-
-/**
  * Returns the full attachment decision for a host-proxy capability — used both
  * to gate proxy instantiation and to feed the structured preactivation log so
  * silent gates can be diagnosed without re-instrumenting after the fact.
  *
  *  1. No source interface → `denied_no_interface`.
- *  2. Source interface natively supports the capability → `native_support`.
+ *  2. Source interface natively supports the capability and no actor identity
+ *     is available → `native_support` from the interface declaration.
  *  3. `chrome-extension` source can never broker cross-client routing to a
  *     macOS client (security boundary) → `denied_chrome_extension`.
  *  4. At least one connected client advertises the capability →
@@ -133,13 +88,13 @@ export function evaluateHostProxyAttachment(
   // having nothing to draw on. Falling through puts it on the same footing as
   // a cross-client grant, where an actual registered client has to advertise
   // it.
-  if (
+  const hasNativeSupport =
     !NEGOTIATED_CAPABILITIES.has(capability) &&
-    supportsHostProxy(sourceInterface, capability)
-  ) {
+    supportsHostProxy(sourceInterface, capability);
+  if (hasNativeSupport && sourceActorPrincipalId == null) {
     return { shouldAttach: true, reason: "native_support" };
   }
-  if (sourceInterface === "chrome-extension") {
+  if (sourceInterface === "chrome-extension" && !hasNativeSupport) {
     return { shouldAttach: false, reason: "denied_chrome_extension" };
   }
   if (sourceActorPrincipalId == null) {
@@ -151,7 +106,7 @@ export function evaluateHostProxyAttachment(
   if (sameActorClients.length > 0) {
     return {
       shouldAttach: true,
-      reason: "cross_client",
+      reason: hasNativeSupport ? "native_support" : "cross_client",
       clientCount: sameActorClients.length,
     };
   }
@@ -173,6 +128,29 @@ export function shouldAttachHostProxyForCapability(
     sourceInterface,
     sourceActorPrincipalId,
   ).shouldAttach;
+}
+
+/**
+ * Enforce live capability checks when a turn has an authoritative actor
+ * decision. A turn without one defers to the caller's transport policy.
+ */
+export function isHostProxyCapabilityAvailableForTurn(
+  capability: HostProxyCapability,
+  sourceInterface: InterfaceId | undefined,
+  sourceActorPrincipalId?: string,
+  actorFallbackSuppressed?: boolean,
+): boolean {
+  if (actorFallbackSuppressed === true) {
+    return false;
+  }
+  if (sourceActorPrincipalId === undefined) {
+    return true;
+  }
+  return shouldAttachHostProxyForCapability(
+    capability,
+    sourceInterface,
+    sourceActorPrincipalId,
+  );
 }
 
 /**

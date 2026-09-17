@@ -306,6 +306,71 @@ describe("isToolActiveForContext — host tool capability gating", () => {
       ),
     ).toBe(true);
   });
+
+  test("host_bash is hidden from an identified macOS turn without a live same-actor client", () => {
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({
+          transportInterface: "macos",
+          getTurnActorPrincipalId: () => "actor-1",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_bash is active for an identified macOS turn with a live same-actor client", () => {
+    mockClientsByCapability.set("host_bash", [
+      {
+        clientId: "mac-client",
+        capabilities: ["host_bash"],
+        interfaceId: "macos",
+        actorPrincipalId: "actor-1",
+      },
+    ]);
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({
+          transportInterface: "macos",
+          getTurnActorPrincipalId: () => "actor-1",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("host_bash is hidden when only a different actor has a capable client", () => {
+    mockClientsByCapability.set("host_bash", [
+      {
+        clientId: "mac-client",
+        capabilities: ["host_bash"],
+        interfaceId: "macos",
+        actorPrincipalId: "actor-other",
+      },
+    ]);
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({
+          transportInterface: "macos",
+          getTurnActorPrincipalId: () => "actor-1",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("host_bash is hidden when actor fallback is suppressed", () => {
+    expect(
+      isToolActiveForContext(
+        "host_bash",
+        makeCtx({
+          transportInterface: "macos",
+          currentTurnActorFallbackSuppressed: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   test("host_file_read remains active for a background macOS turn", () => {
     expect(
       isToolActiveForContext(

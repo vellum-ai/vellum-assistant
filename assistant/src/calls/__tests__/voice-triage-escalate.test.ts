@@ -30,6 +30,10 @@ describe("frontDoorCapabilityDigest", () => {
     // The digest teaches routing, and the bridge phrase should name the
     // action rather than the model refusing or guessing.
     expect(digest.toLowerCase()).toContain("holding phrase");
+    expect(digest.toLowerCase()).toContain("will do next");
+    expect(digest.toLowerCase()).toContain(
+      "claiming the action already started",
+    );
   });
 
   test("is empty when no tool names are available (registry-less contexts)", () => {
@@ -63,6 +67,15 @@ describe("front-door decision rule", () => {
   test("biases toward answering when unsure (over-escalation regression)", () => {
     expect(rule.toLowerCase()).toContain(
       "when unsure between answering and escalating, answer",
+    );
+  });
+
+  test("keeps a tool handoff prospective until the stronger leg starts", () => {
+    expect(rule.toLowerCase()).toContain(
+      "what the stronger model will do next",
+    );
+    expect(rule.toLowerCase()).toContain(
+      "do not claim the action has started or completed",
     );
   });
 

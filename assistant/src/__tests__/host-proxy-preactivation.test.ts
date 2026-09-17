@@ -84,9 +84,12 @@ import type { HostProxyPreactivationTarget } from "../daemon/host-proxy-preactiv
 
 const {
   evaluateHostProxyAttachment,
+  isHostProxyCapabilityAvailableForTurn,
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } = await import("../daemon/host-proxy-preactivation.js");
+const { hostProxyCapabilityForTool } =
+  await import("../daemon/host-proxy-capabilities.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,6 +139,22 @@ describe("shouldAttachHostProxyForCapability", () => {
   describe("host_cu", () => {
     test("returns true when source interface natively supports host_cu (macos)", () => {
       expect(shouldAttachHostProxyForCapability("host_cu", "macos")).toBe(true);
+    });
+
+    test("requires a live same-actor macos client when the turn has an actor", () => {
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "macos", "user-1"),
+      ).toBe(false);
+
+      setCapableClient("host_cu", true, "user-1");
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "macos", "user-1"),
+      ).toBe(true);
+
+      setCapableClient("host_cu", true, "user-other");
+      expect(
+        shouldAttachHostProxyForCapability("host_cu", "macos", "user-1"),
+      ).toBe(false);
     });
 
     test("returns false when sourceInterface is undefined", () => {
@@ -245,6 +264,12 @@ describe("preactivateHostProxySkills", () => {
     expect(target.preactivatedSkillIds).toContain("app-control");
   });
 
+  test("preactivates nothing for an identified macos turn without a live client", () => {
+    const target = makeTarget();
+    preactivateHostProxySkills(target, "macos", "user-1");
+    expect(target.preactivatedSkillIds).toEqual([]);
+  });
+
   test("preactivates skills for web source when capable clients are connected (cross-client)", () => {
     setCapableClient("host_cu", true);
     setCapableClient("host_app_control", true);
@@ -315,6 +340,23 @@ describe("evaluateHostProxyAttachment", () => {
     });
   });
 
+  test("returns denied_no_clients for an identified macos turn without a live client", () => {
+    expect(evaluateHostProxyAttachment("host_cu", "macos", "user-1")).toEqual({
+      shouldAttach: false,
+      reason: "denied_no_clients",
+      clientCount: 0,
+    });
+  });
+
+  test("returns native_support with clientCount for an identified macos turn with a live client", () => {
+    setCapableClient("host_cu", true);
+    expect(evaluateHostProxyAttachment("host_cu", "macos", "user-1")).toEqual({
+      shouldAttach: true,
+      reason: "native_support",
+      clientCount: 1,
+    });
+  });
+
   test("returns denied_chrome_extension for chrome-extension source even when capable clients exist", () => {
     setCapableClient("host_cu", true);
     expect(evaluateHostProxyAttachment("host_cu", "chrome-extension")).toEqual({
@@ -339,6 +381,57 @@ describe("evaluateHostProxyAttachment", () => {
       reason: "denied_no_clients",
       clientCount: 0,
     });
+  });
+});
+
+describe("hostProxyCapabilityForTool", () => {
+  test("classifies built-in and bundled-skill host tools by ownership", () => {
+    expect(
+      hostProxyCapabilityForTool("host_bash", {
+        kind: "default",
+        id: "default",
+      }),
+    ).toBe("host_bash");
+    expect(
+      hostProxyCapabilityForTool("computer_use_click", {
+        kind: "skill",
+        id: "computer-use",
+      }),
+    ).toBe("host_cu");
+    expect(
+      hostProxyCapabilityForTool("app_control_click", {
+        kind: "skill",
+        id: "app-control",
+      }),
+    ).toBe("host_app_control");
+  });
+
+  test("does not classify extension tools by name alone", () => {
+    expect(
+      hostProxyCapabilityForTool("host_bash", {
+        kind: "workspace",
+        id: "/workspace/tools/host-bash.ts",
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("isHostProxyCapabilityAvailableForTurn", () => {
+  test("preserves legacy exposure when a turn has no actor decision", () => {
+    expect(isHostProxyCapabilityAvailableForTurn("host_cu", "macos")).toBe(
+      true,
+    );
+  });
+
+  test("fails closed when actor fallback is suppressed", () => {
+    expect(
+      isHostProxyCapabilityAvailableForTurn(
+        "host_cu",
+        "macos",
+        undefined,
+        true,
+      ),
+    ).toBe(false);
   });
 });
 

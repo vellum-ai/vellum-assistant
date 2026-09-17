@@ -841,6 +841,9 @@ const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
 const LIVE_VOICE_SETUP_FLOW_TEACHING =
   "This includes connecting accounts. If a task needs an account connected or a sign-in completed, put the connection up on screen and let the user do it now. Do not decline it, and do not defer it to text chat. Say what you are connecting and that it is in front of them. ";
 
+const LIVE_VOICE_ACTION_TRUTH_TEACHING =
+  "For any task that changes an app, account, file, message, or other external state, use the relevant tool before saying you started or finished it. A visible screen confirms state but does not perform the action. Say the task is done only after a successful tool result or fresh verification proves the requested state. If a tool is unavailable or fails, say that plainly. If delegated or background work is still running, say it is still running and do not report its result yet. ";
+
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
 // off answering, rather than a fresh follow-up. Reaches the model only; it is
@@ -947,7 +950,9 @@ function buildVoiceControlPrompt(
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING) +
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING +
+        LIVE_VOICE_SETUP_FLOW_TEACHING +
+        LIVE_VOICE_ACTION_TRUTH_TEACHING) +
     sessionControlTeaching(sessionControls, leg, {
       ...client,
       unfinishedTaskPending:

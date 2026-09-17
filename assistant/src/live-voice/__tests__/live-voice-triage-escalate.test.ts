@@ -256,6 +256,35 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalatedPrompt).not.toContain("[-1]");
   });
 
+  test("only the tool-capable leg is told to ground external-action claims in tool results", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "I will update that draft."],
+      escalated: ["The draft has been updated."],
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    const frontDoorPrompt =
+      starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
+    const escalatedPrompt =
+      starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
+    expect(frontDoorPrompt).not.toContain(
+      "use the relevant tool before saying you started or finished it",
+    );
+    expect(escalatedPrompt).toContain(
+      "use the relevant tool before saying you started or finished it",
+    );
+    expect(escalatedPrompt).toContain(
+      "A visible screen confirms state but does not perform the action",
+    );
+    expect(escalatedPrompt).toContain(
+      "background work is still running, say it is still running",
+    );
+  });
+
   test("the verdict token and any text past the bridge cap never reach the transcript", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: [

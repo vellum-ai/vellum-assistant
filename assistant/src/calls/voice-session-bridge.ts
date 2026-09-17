@@ -18,6 +18,7 @@ import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type {
   ChannelId,
   ClientOs,
+  HostProxyCapability,
   InterfaceId,
   TurnChannelContext,
   TurnInterfaceContext,
@@ -31,7 +32,11 @@ import {
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
-import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
+import { hostProxyCapabilityForTool } from "../daemon/host-proxy-capabilities.js";
+import {
+  isHostProxyCapabilityAvailableForTurn,
+  preactivateHostProxySkills,
+} from "../daemon/host-proxy-preactivation.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   newestPersistedSightFrame,
@@ -57,7 +62,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
-import { getAllTools } from "../tools/registry.js";
+import { getAllTools, getToolOwner } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -169,21 +174,49 @@ function conversationCarriesImage(messages: readonly Message[]): boolean {
  * front-door leg runs toolless (see the `toolsDisabledDepth` bracket in
  * `startVoiceTurn`), so the digest is its only knowledge of what the
  * escalated leg can do. Registry unavailability degrades to the bare rule.
- * `includeHold` adds the mid-thought verdict branch (unified front-door
- * speculative legs only).
+ * `unifiedVerdict` adds the mid-thought verdict branch for speculative legs.
  */
 function frontDoorRuleWithDigest(
-  includeHold: boolean,
-  callerUtterance?: string,
+  opts: Pick<
+    VoiceTurnOptions,
+    | "unifiedVerdict"
+    | "userMessageInterface"
+    | "actorPrincipalId"
+    | "actorFallbackSuppressed"
+  >,
+  callerUtterance: string,
 ): string {
   let toolNames: string[] = [];
   try {
-    toolNames = getAllTools().map((tool) => tool.name);
+    const availabilityByCapability = new Map<HostProxyCapability, boolean>();
+    toolNames = getAllTools()
+      .filter((tool) => {
+        const capability = hostProxyCapabilityForTool(
+          tool.name,
+          getToolOwner(tool.name),
+        );
+        if (capability === undefined) {
+          return true;
+        }
+        const cached = availabilityByCapability.get(capability);
+        if (cached !== undefined) {
+          return cached;
+        }
+        const available = isHostProxyCapabilityAvailableForTurn(
+          capability,
+          opts.userMessageInterface ?? "phone",
+          opts.actorPrincipalId,
+          opts.actorFallbackSuppressed,
+        );
+        availabilityByCapability.set(capability, available);
+        return available;
+      })
+      .map((tool) => tool.name);
   } catch {
     // Tool registry not initialized (e.g. unit tests): digest-less rule.
   }
   return frontDoorDecisionRule({
-    includeHold,
+    includeHold: opts.unifiedVerdict === true,
     capabilityDigest: frontDoorCapabilityDigest(toolNames),
     callerUtterance,
   });
@@ -204,15 +237,15 @@ function routingLegRuleFor(
     | "unifiedVerdict"
     | "spokenEscalationBridge"
     | "directEscalated"
+    | "userMessageInterface"
+    | "actorPrincipalId"
+    | "actorFallbackSuppressed"
   >,
   callerUtterance: string,
 ): string | null {
   switch (opts.routingLeg) {
     case "front-door":
-      return frontDoorRuleWithDigest(
-        opts.unifiedVerdict === true,
-        callerUtterance,
-      );
+      return frontDoorRuleWithDigest(opts, callerUtterance);
     case "escalated":
       return opts.directEscalated === true
         ? null

@@ -85,12 +85,18 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
+import {
+  HOST_TOOL_TO_CAPABILITY,
+  hostProxyCapabilityForTool,
+} from "./host-proxy-capabilities.js";
+import { isHostProxyCapabilityAvailableForTurn } from "./host-proxy-preactivation.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
 import type { SubagentToolStats } from "./tool-setup-types.js";
+export { HOST_TOOL_TO_CAPABILITY } from "./host-proxy-capabilities.js";
 export type {
   SubagentToolGateMode,
   SubagentToolStats,
@@ -638,13 +644,9 @@ export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 /**
- * Single source of truth for which tools are host tools and the capability
- * each one requires from the connected client interface. Adding a tool here
- * automatically adds it to `HOST_TOOL_NAMES` below, so the two collections
- * cannot drift apart: if a new host tool is added without a capability
- * mapping, `isToolActiveForContext` cannot accidentally return `true` for
- * chrome-extension (or any other partial-capability transport) because
- * `HOST_TOOL_NAMES` wouldn't contain it either.
+ * `HOST_TOOL_TO_CAPABILITY` is the single source of truth for which built-in
+ * tools require a connected client capability. `HOST_TOOL_NAMES` is derived
+ * from it so the collections cannot drift apart.
  *
  * `isToolActiveForContext` uses this map to gate each host tool individually
  * so that partial-capability transports (e.g. chrome-extension only supports
@@ -656,14 +658,6 @@ const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
  * tools path. Only host tools that flow through the per-capability gate
  * need entries here.
  */
-export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
-  ["host_bash", "host_bash"],
-  ["host_file_read", "host_file"],
-  ["host_file_write", "host_file"],
-  ["host_file_edit", "host_file"],
-  ["host_file_transfer", "host_file"],
-  ["host_browser", "host_browser"],
-]);
 // Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has
 // a capability mapping" is a structural fact — no runtime assertion needed.
 export const HOST_TOOL_NAMES = new Set(HOST_TOOL_TO_CAPABILITY.keys());
@@ -744,6 +738,35 @@ function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
     transportInterface,
     sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
   });
+}
+
+function isHostCapabilityAvailableForContext(
+  capability: HostProxyCapability,
+  transportInterface: Conversation["transportInterface"],
+  ctx: Conversation,
+): boolean {
+  const actorPrincipalId = ctx.getTurnActorPrincipalId?.();
+  if (
+    actorPrincipalId !== undefined ||
+    ctx.currentTurnActorFallbackSuppressed === true
+  ) {
+    return isHostProxyCapabilityAvailableForTurn(
+      capability,
+      transportInterface,
+      actorPrincipalId,
+      ctx.currentTurnActorFallbackSuppressed,
+    );
+  }
+  if (
+    transportInterface &&
+    !supportsHostProxy(transportInterface, capability)
+  ) {
+    return (
+      CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
+      transportInterface !== "chrome-extension"
+    );
+  }
+  return true;
 }
 
 /**
@@ -847,19 +870,14 @@ export function isToolActiveForContext(
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
-    const transport = transportInterface;
-
-    // A transport that does not implement a capability can invoke it through
-    // an eligible same-user client. Client selection happens when the call
-    // runs, so the wire schema stays stable across live and background turns.
-    if (transport && capability && !supportsHostProxy(transport, capability)) {
-      return (
-        CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
-        transport !== "chrome-extension"
-      );
+    if (capability === undefined) {
+      return false;
     }
-
-    return true;
+    return isHostCapabilityAvailableForContext(
+      capability,
+      transportInterface,
+      ctx,
+    );
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
@@ -1230,6 +1248,7 @@ export function createResolveToolsCallback(
           : undefined,
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
+    const hostCapabilityAvailability = new Map<HostProxyCapability, boolean>();
     for (const name of projection.allowedToolNames) {
       // When a wire-gated subagent allowlist is active, exclude skill tools
       // not on it. (Execution gate mode keeps them available here and
@@ -1242,6 +1261,24 @@ export function createResolveToolsCallback(
       }
       if (!isToolSupportedOnClientOs(name, ctx)) {
         continue;
+      }
+      const hostCapability = hostProxyCapabilityForTool(
+        name,
+        getToolOwner(name),
+      );
+      if (hostCapability !== undefined) {
+        let available = hostCapabilityAvailability.get(hostCapability);
+        if (available === undefined) {
+          available = isHostCapabilityAvailableForContext(
+            hostCapability,
+            ctx.transportInterface,
+            ctx,
+          );
+          hostCapabilityAvailability.set(hostCapability, available);
+        }
+        if (!available) {
+          continue;
+        }
       }
       turnAllowed.add(name);
     }
