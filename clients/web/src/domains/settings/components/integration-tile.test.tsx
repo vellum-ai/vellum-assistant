@@ -207,6 +207,7 @@ describe("IntegrationTile", () => {
       state: {
         phase: "failed",
         error: popupBlocked,
+        methodId: googlePlan.primary.id,
         methodKind: "managed-oauth",
       },
     });
@@ -222,6 +223,7 @@ describe("IntegrationTile", () => {
       state: {
         phase: "failed",
         error: paragraph,
+        methodId: googlePlan.primary.id,
         methodKind: "managed-oauth",
       },
     });
@@ -238,7 +240,12 @@ describe("IntegrationTile", () => {
 
   test("falls back to its own line for a failure that arrived with no message", () => {
     tile({
-      state: { phase: "failed", error: "", methodKind: "managed-oauth" },
+      state: {
+        phase: "failed",
+        error: "",
+        methodId: googlePlan.primary.id,
+        methodKind: "managed-oauth",
+      },
     });
 
     const message = screen.getByText("Sign-in to Google did not complete.");

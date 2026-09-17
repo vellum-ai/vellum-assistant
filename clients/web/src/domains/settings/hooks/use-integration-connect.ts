@@ -346,6 +346,7 @@ export function useIntegrationConnect({
             phase: "failed",
             error:
               authAttempt.error ?? t("integrationTile.failedGeneric", { name }),
+            methodId: mcpAttempt.methodId,
             methodKind: mcpAttempt.methodKind,
             setupGuideUrl: mcpAttempt.setupGuideUrl,
           };
@@ -359,6 +360,7 @@ export function useIntegrationConnect({
           return {
             phase: "failed",
             error: managedReport.errorMessage,
+            methodId: managed.methodId,
             methodKind: "managed-oauth",
           };
         }
