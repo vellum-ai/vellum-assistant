@@ -1888,6 +1888,7 @@
     "subtitle": "Перенос ассистента в другую среду размещения.",
     "switchFailed": "Переключение не удалось: {message}",
     "switchFailedUnknown": "Не удалось переключить ассистента.",
+    "switchingStep": "Переключение на нового ассистента...",
     "teleportFailed": "Teleport не удался: {message}",
     "teleportFailedUnknown": "Teleport не удался.",
     "title": "Teleport",

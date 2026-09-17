@@ -1883,6 +1883,7 @@
     "subtitle": "将您的助手移动到不同的托管环境。",
     "switchFailed": "切换失败：{message}",
     "switchFailedUnknown": "无法切换助手。",
+    "switchingStep": "正在切换到新助手...",
     "teleportFailed": "传送失败：{message}",
     "teleportFailedUnknown": "传送失败。",
     "title": "传送",

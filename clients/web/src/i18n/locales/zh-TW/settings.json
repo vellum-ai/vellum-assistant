@@ -1883,6 +1883,7 @@
     "subtitle": "將您的助理移至不同的託管環境。",
     "switchFailed": "切換失敗：{message}",
     "switchFailedUnknown": "無法切換助理。",
+    "switchingStep": "正在切換到新助理...",
     "teleportFailed": "傳送失敗：{message}",
     "teleportFailedUnknown": "傳送失敗。",
     "title": "傳送",

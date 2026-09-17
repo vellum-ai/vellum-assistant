@@ -1905,6 +1905,7 @@
     "subtitle": "Mueve tu asistente a un entorno de alojamiento diferente.",
     "switchFailed": "El cambio falló: {message}",
     "switchFailedUnknown": "No se pudo cambiar de asistente.",
+    "switchingStep": "Cambiando al nuevo asistente...",
     "teleportFailed": "La teleportación falló: {message}",
     "teleportFailedUnknown": "La teleportación falló.",
     "title": "Teleport",
