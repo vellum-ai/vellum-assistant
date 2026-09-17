@@ -14,16 +14,11 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
-  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../../../util/worker-process.js";
 
 const MEMORY_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
-
-function memoryWorkerSignature(): readonly string[] {
-  return workerKindSignature(MEMORY_WORKER_ENTRY, "memory");
-}
 
 /**
  * Inspect the PID file to determine whether the worker process is alive.
@@ -33,7 +28,8 @@ function memoryWorkerSignature(): readonly string[] {
 export function probeMemoryWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(
     getMemoryWorkerPidPath(),
-    memoryWorkerSignature(),
+    MEMORY_WORKER_ENTRY,
+    "memory",
   );
 }
 
@@ -83,6 +79,7 @@ export async function spawnMemoryWorkerProcess(
 export function stopMemoryWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(
     getMemoryWorkerPidPath(),
-    memoryWorkerSignature(),
+    MEMORY_WORKER_ENTRY,
+    "memory",
   );
 }

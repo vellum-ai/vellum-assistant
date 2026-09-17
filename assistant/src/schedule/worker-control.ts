@@ -15,16 +15,11 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
-  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
 
 const SCHEDULE_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
-
-function scheduleWorkerSignature(): readonly string[] {
-  return workerKindSignature(SCHEDULE_WORKER_ENTRY, "schedule");
-}
 
 const log = getLogger("schedule-worker-control");
 
@@ -55,7 +50,8 @@ export function setScheduleWorkerAdministrativelyStopped(value: boolean): void {
 export function probeScheduleWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(
     getScheduleWorkerPidPath(),
-    scheduleWorkerSignature(),
+    SCHEDULE_WORKER_ENTRY,
+    "schedule",
   );
 }
 
@@ -126,7 +122,8 @@ async function spawnScheduleWorkerProcessUncoalesced(
 export function stopScheduleWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(
     getScheduleWorkerPidPath(),
-    scheduleWorkerSignature(),
+    SCHEDULE_WORKER_ENTRY,
+    "schedule",
   );
 }
 

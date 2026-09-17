@@ -15,16 +15,11 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
-  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
 
 const MONITORING_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
-
-function monitoringWorkerSignature(): readonly string[] {
-  return workerKindSignature(MONITORING_WORKER_ENTRY, "monitoring");
-}
 
 const log = getLogger("monitoring-control");
 
@@ -36,7 +31,8 @@ const log = getLogger("monitoring-control");
 export function probeMonitoringWorker(): WorkerProcessStatus {
   return probeWorkerPidFile(
     getMonitoringPidPath(),
-    monitoringWorkerSignature(),
+    MONITORING_WORKER_ENTRY,
+    "monitoring",
   );
 }
 
@@ -75,7 +71,8 @@ export async function spawnMonitoringWorkerProcess(
 export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(
     getMonitoringPidPath(),
-    monitoringWorkerSignature(),
+    MONITORING_WORKER_ENTRY,
+    "monitoring",
   );
 }
 

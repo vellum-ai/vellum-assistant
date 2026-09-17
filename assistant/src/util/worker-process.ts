@@ -50,17 +50,8 @@ function isEsrchError(err: unknown): boolean {
   );
 }
 
-/**
- * Read a PID file and report whether this worker is actually running there.
- *
- * A missing or malformed file reports not_running. A file pointing at a dead
- * process, or at a live process whose command line is not this worker (a
- * recycled PID after a container restart), is cleaned up and reported as
- * not_running. A live PID whose command line cannot be read is reported
- * running: uncertainty must not start a second worker next to a maybe-live
- * one, and must not be treated as a license to signal a stranger.
- */
-export function probeWorkerPidFile(
+/** Kill-0 plus command-line identity for a PID file. */
+function probePidFile(
   path: string,
   signature: readonly string[],
 ): WorkerProcessStatus {
@@ -100,6 +91,25 @@ export function probeWorkerPidFile(
     return { status: "not_running" };
   }
   return { status: "running", pid };
+}
+
+/**
+ * Read a PID file and report whether this worker is actually running there.
+ *
+ * Identity comes from the same `entry` / `packagedEntry` spawn uses. A missing
+ * or malformed file reports not_running. A file pointing at a dead process, or
+ * at a live process whose command line is not this worker (a recycled PID
+ * after a container restart), is cleaned up and reported as not_running. A
+ * live PID whose command line cannot be read is reported running: uncertainty
+ * must not start a second worker next to a maybe-live one, and must not be
+ * treated as a license to signal a stranger.
+ */
+export function probeWorkerPidFile(
+  pidPath: string,
+  entry: URL,
+  packagedEntry?: PackagedWorkerEntry,
+): WorkerProcessStatus {
+  return probePidFile(pidPath, workerKindSignature(entry, packagedEntry));
 }
 
 /** Thrown when a worker process fails to come up within the wait window. */
@@ -478,7 +488,7 @@ function inspectWorkerSlot(
   pidPath: string,
   signature: readonly string[],
 ): WorkerSlotDecision {
-  const status = probeWorkerPidFile(pidPath, signature);
+  const status = probePidFile(pidPath, signature);
   if (status.status !== "running" || status.pid == null) {
     return { action: "spawn" };
   }
@@ -534,7 +544,7 @@ async function reclaimWorkerSlot(
     // Still running and beyond our reach. One stale worker beats two live ones.
     return pid;
   }
-  const replacement = probeWorkerPidFile(pidPath, signature);
+  const replacement = probePidFile(pidPath, signature);
   return replacement.status === "running" && replacement.pid != null
     ? replacement.pid
     : null;
@@ -669,9 +679,10 @@ export async function spawnWorkerProcess(args: {
  */
 export function stopWorkerProcess(
   pidPath: string,
-  signature: readonly string[],
+  entry: URL,
+  packagedEntry?: PackagedWorkerEntry,
 ): WorkerProcessStatus {
-  const current = probeWorkerPidFile(pidPath, signature);
+  const current = probeWorkerPidFile(pidPath, entry, packagedEntry);
   if (current.status === "running" && current.pid != null) {
     process.kill(current.pid, "SIGTERM");
   }
