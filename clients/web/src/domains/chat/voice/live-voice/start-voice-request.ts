@@ -35,6 +35,7 @@ import { voiceEntryGreetingSeed } from "@/domains/chat/voice/live-voice/voice-en
 import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-conversation";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { supportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { endVoiceActivity } from "@/runtime/desktop-voice-activity";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
@@ -283,6 +284,15 @@ export async function drainPendingVoiceStart(
   if (useLiveVoiceStore.getState().starter === null) {
     return;
   }
+  // Whether the companion's introduction is running, read HERE rather than at
+  // the guard below, because it stops being true across the awaits in between
+  // and stops for exactly the press this is about. The run's last beat offers
+  // a conversation, and taking that offer is what ends the run: main finishes
+  // it in the same breath as it sends the `startVoice` this drain is serving,
+  // so the push saying "no run" is already on its way while this is still
+  // deciding. Read synchronously, before the first await, it is still the
+  // answer the press was made against.
+  const duringCompanionIntro = companionIntroStaged();
   // Who a fresh start means, read before the wait below rather than after it,
   // because the wait is scoped to this assistant.
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
@@ -360,7 +370,7 @@ export async function drainPendingVoiceStart(
   // and opened a room the composer would have refused. Each hands the entry to
   // something the user can see (the card, the notice), so each is an answer
   // rather than a drop.
-  if (firstRunCardIntercepts()) {
+  if (firstRunCardIntercepts(duringCompanionIntro)) {
     // **The one entry here that raises the app.** The card is a decision, and
     // it is drawn in the app's window; a press from the companion leaves that
     // window behind whatever the user is actually working in, so the press

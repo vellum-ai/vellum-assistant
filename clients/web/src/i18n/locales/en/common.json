@@ -232,6 +232,7 @@
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "muteAssistant": "Mute assistant",
+    "muteAssistantNamed": "Mute {name}",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
     "offerCopy": "Copy",
@@ -250,6 +251,7 @@
     "talk": "Talk",
     "teach": "Teach",
     "unmuteAssistant": "Unmute assistant",
+    "unmuteAssistantNamed": "Unmute {name}",
     "unmuteMicrophone": "Unmute microphone",
     "chooseMicrophone": "Choose microphone",
     "chooseVoice": "Choose voice"

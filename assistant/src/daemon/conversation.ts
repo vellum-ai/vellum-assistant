@@ -16,7 +16,7 @@
  */
 
 import { repairHistory } from "../agent/history-repair/history-repair.js";
-import type { AgentLoopConfig } from "../agent/loop.js";
+import type { AgentLoopConfig, PreparedModelCall } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
@@ -201,6 +201,7 @@ import {
 } from "./summarize-boundary.js";
 
 const log = getLogger("conversation");
+const PROMPT_CACHE_WARM_MAX_TOKENS = 16;
 
 /**
  * First text block of a persisted message row's content, mirroring
@@ -1237,48 +1238,91 @@ export class Conversation {
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
-   * Fire-and-forget LLM call with max_tokens=1 to populate the provider's
-   * prompt cache (system prompt + tools). Called after the canned first
-   * greeting so the user's next real message gets a cache hit.
+   * Non-rejecting LLM call with a minimal output budget to populate the selected
+   * provider's prompt cache (system prompt + tools).
    */
-  warmPromptCache(): void {
+  async warmPromptCache(options?: {
+    callSite?: LLMCallSite;
+    overrideProfile?: string;
+    forceOverrideProfile?: boolean;
+    signal?: AbortSignal;
+    systemPrompt?: string | null;
+    tools?: ToolDefinition[];
+  }): Promise<void> {
     this.cacheWarmAbort?.abort();
     const abort = new AbortController();
     this.cacheWarmAbort = abort;
 
-    const systemPrompt = this.buildCurrentSystemPrompt();
-    const tools = getAllToolDefinitions();
-    const provider = this.provider;
+    const externalSignal = options?.signal;
+    const relayAbort = (): void => abort.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) {
+      relayAbort();
+    } else {
+      externalSignal?.addEventListener("abort", relayAbort, { once: true });
+    }
 
-    const warmMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: "hi" }],
-    };
+    const callSite = options?.callSite ?? "mainAgent";
 
-    provider
-      .sendMessage([warmMessage], {
-        tools,
-        systemPrompt,
+    try {
+      const hasSystemPrompt =
+        options !== undefined &&
+        Object.prototype.hasOwnProperty.call(options, "systemPrompt");
+      const systemPrompt = hasSystemPrompt
+        ? (options.systemPrompt ?? undefined)
+        : this.buildCurrentSystemPrompt();
+      const tools =
+        options?.tools ?? this.agentLoop.getResolvedTools(this.messages);
+      const providerConfig = {
+        ...(options?.overrideProfile !== undefined
+          ? { overrideProfile: options.overrideProfile }
+          : {}),
+        ...(options?.forceOverrideProfile !== undefined
+          ? { forceOverrideProfile: options.forceOverrideProfile }
+          : {}),
+        selectionSeed: this.conversationId,
+      };
+      const warmMessage: Message = {
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+      };
+
+      await this.provider.sendMessage([warmMessage], {
+        tools: tools.length > 0 ? tools : undefined,
+        ...(systemPrompt !== undefined ? { systemPrompt } : {}),
         config: {
-          max_tokens: 1,
-          callSite: "mainAgent",
-          usageTracking: "manual",
+          max_tokens: PROMPT_CACHE_WARM_MAX_TOKENS,
+          callSite,
+          ...providerConfig,
+          conversationId: this.conversationId,
         },
         signal: abort.signal,
-      })
-      .then(() => {
-        log.info("Prompt cache warmed successfully");
-      })
-      .catch((err) => {
-        if (!abort.signal.aborted) {
-          log.warn({ err }, "Prompt cache warming failed (non-fatal)");
-        }
-      })
-      .finally(() => {
-        if (this.cacheWarmAbort === abort) {
-          this.cacheWarmAbort = undefined;
-        }
       });
+      if (!abort.signal.aborted) {
+        log.info(
+          {
+            callSite,
+            profile: options?.overrideProfile ?? null,
+          },
+          "Prompt cache warmed successfully",
+        );
+      }
+    } catch (err) {
+      if (!abort.signal.aborted) {
+        log.warn(
+          {
+            err,
+            callSite,
+            profile: options?.overrideProfile ?? null,
+          },
+          "Prompt cache warming failed (non-fatal)",
+        );
+      }
+    } finally {
+      externalSignal?.removeEventListener("abort", relayAbort);
+      if (this.cacheWarmAbort === abort) {
+        this.cacheWarmAbort = undefined;
+      }
+    }
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -3417,6 +3461,8 @@ export class Conversation {
        */
       replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
+      /** Provider configuration source when distinct from turn semantics. */
+      inferenceCallSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call
        * the loop issues for this turn. Forwarded into
@@ -3428,6 +3474,8 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
+      /** Observe the first finalized model request without delaying it. */
+      onFirstModelCallPrepared?: (prepared: PreparedModelCall) => void;
       /**
        * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.

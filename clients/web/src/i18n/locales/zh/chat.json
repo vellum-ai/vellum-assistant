@@ -993,6 +993,7 @@
     "reconnecting": "正在重新连接…",
     "speaking": "正在说话…",
     "thinking": "正在思考…",
+    "working": "正在处理…",
     "askUnsupported": "该助手尚不支持以这种方式提问。请更新后重试。"
   },
   "llmCallErrorCard": {

@@ -421,6 +421,7 @@ function setupController(
 ) {
   ensureConversation("conv-ctrl-test");
   const session = createCallSession({
+    direction: "inbound",
     conversationId: "conv-ctrl-test",
     provider: "twilio",
     fromNumber: "+15551111111",
@@ -471,6 +472,7 @@ function setupControllerWithOrigin(task?: string) {
   ensureConversation("conv-ctrl-voice");
   ensureConversation("conv-ctrl-origin");
   const session = createCallSession({
+    direction: "inbound",
     conversationId: "conv-ctrl-voice",
     provider: "twilio",
     fromNumber: "+15551111111",
@@ -5026,6 +5028,98 @@ describe("call-controller", () => {
 
       controller.destroy();
       await turnPromise.catch(() => {});
+    });
+  });
+  describe("turn metrics", () => {
+    test("a caller turn records the marks the latency numbers are built from", async () => {
+      const { controller } = setupController();
+
+      await controller.handleCallerUtterance("What is the weather?");
+
+      const snapshot = controller.getMetricsSnapshot();
+      expect(snapshot.recentTurns.length).toBe(1);
+      const turn = snapshot.recentTurns[0];
+      expect(turn.status).toBe("completed");
+      // The transcript mark is seeded from when the caller stopped talking,
+      // the dispatch mark from when the leg went out, and the delta mark from
+      // the first token back: the three anchors every phone latency number is
+      // subtracted from.
+      expect(turn.timestamps.finalTranscriptAtMs).not.toBeNull();
+      expect(turn.timestamps.assistantDispatchAtMs).not.toBeNull();
+      expect(turn.timestamps.firstAssistantDeltaAtMs).not.toBeNull();
+      expect(turn.durations.dispatchToFirstAssistantDeltaMs).not.toBeNull();
+      expect(turn.durations.totalTurnDurationMs).not.toBeNull();
+      // The provider's final doubles as the speech-end anchor, so the turn's
+      // round trip is measurable on phone as it is in live voice.
+      expect(turn.timestamps.utteranceEndAtMs).not.toBeNull();
+      expect(turn.durations.roundTripMs).not.toBeNull();
+
+      controller.destroy();
+    });
+
+    test("the transcript mark predates the dispatch it triggered", async () => {
+      // Seeding backdates the turn to the caller's own boundary; a turn that
+      // opened at dispatch time would report a felt latency that starts after
+      // the caller already finished speaking.
+      const { controller } = setupController();
+
+      await controller.handleCallerUtterance("Hello there");
+
+      const turn = controller.getMetricsSnapshot().recentTurns[0];
+      const finalTranscriptAtMs = turn.timestamps.finalTranscriptAtMs;
+      const assistantDispatchAtMs = turn.timestamps.assistantDispatchAtMs;
+      expect(finalTranscriptAtMs).not.toBeNull();
+      expect(assistantDispatchAtMs).not.toBeNull();
+      expect(finalTranscriptAtMs!).toBeLessThanOrEqual(assistantDispatchAtMs!);
+      expect(turn.timestamps.startedAtMs).toBeLessThanOrEqual(
+        finalTranscriptAtMs!,
+      );
+
+      controller.destroy();
+    });
+
+    test("a barge-in ends the turn once, as cancelled", async () => {
+      // One interruption is one cancelled turn: the count downstream reads as
+      // "turns the caller cut off", so a second settle would double it.
+      // A turn that never emits or completes holds the controller in the
+      // pre-speech phase, which a sustained barge-in can still cut off.
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: { onComplete: () => void }) => ({
+          turnId: "run-metrics-slow",
+          abort: () => opts.onComplete(),
+        }),
+      );
+      const { controller } = setupController();
+      const turnPromise = controller.handleCallerUtterance("Tell me a story");
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      expect(controller.getState()).toBe("processing");
+
+      expect(controller.handleBargeIn()).toBe(true);
+      await turnPromise.catch(() => {});
+      controller.destroy();
+
+      const turns = controller.getMetricsSnapshot().recentTurns;
+      expect(turns.length).toBe(1);
+      expect(turns[0].status).toBe("cancelled");
+      expect(turns[0].cancellationReason).toBe("interrupted");
+      expect(turns[0].timestamps.bargeInAtMs).not.toBeNull();
+    });
+
+    test("no turn is invented between turns", async () => {
+      // Every mark opens a turn when none is active, so a barge-in on an idle
+      // controller must leave the collector empty rather than start a turn
+      // that never settles.
+      const { controller } = setupController();
+
+      expect(controller.handleBargeIn()).toBe(false);
+
+      const snapshot = controller.getMetricsSnapshot();
+      expect(snapshot.recentTurns.length).toBe(0);
+      expect(snapshot.activeTurn).toBeNull();
+
+      controller.destroy();
     });
   });
 });

@@ -2618,6 +2618,14 @@ function CallBody({
   // when there is more to say. The mascot carries the state either way.
   const line = call.detail || call.label;
   const { muted, outputMuted } = call;
+  // Who is on this call, which is not always who the app is showing. A
+  // session outlives a switch to another assistant, while `assistantName` on
+  // the surface follows the selection, so a control named from the selection
+  // would offer to mute an assistant that is not on the call. The session's
+  // own name is fixed for its lifetime (see `VoiceActivityStart`), which is
+  // exactly the owner these controls act on. The dial above has no session
+  // and so has only the selection, which is the assistant it just rang.
+  const onCall = call.assistantName;
 
   return (
     <>
@@ -2733,10 +2741,18 @@ function CallBody({
             <Volume2 className="size-4" />
           )
         }
+        // The speaker silences whoever is on the call, so it is named the way
+        // the dial names them and the row reads as one conversation rather
+        // than as a device panel. Unnamed until a name arrives, since a label
+        // built around an empty one reads as a bug.
         label={
-          outputMuted
-            ? t("companionSurface.unmuteAssistant")
-            : t("companionSurface.muteAssistant")
+          onCall === ""
+            ? outputMuted
+              ? t("companionSurface.unmuteAssistant")
+              : t("companionSurface.muteAssistant")
+            : outputMuted
+              ? t("companionSurface.unmuteAssistantNamed", { name: onCall })
+              : t("companionSurface.muteAssistantNamed", { name: onCall })
         }
         shortcut={shortcuts?.muteAssistant}
         // The mute beat is about both directions, so both controls are lit:

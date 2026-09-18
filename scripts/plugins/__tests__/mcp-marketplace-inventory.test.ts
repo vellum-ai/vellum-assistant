@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { buildBundledPluginPackages } from "../../../assistant/scripts/bundled-plugin-packages.js";
 import { readValidatedPluginIcon } from "../../../assistant/src/cli/lib/plugin-icon-file.js";
 import { marketplaceManifestSchema } from "../../../assistant/src/cli/lib/plugin-marketplace.js";
+import { isIntegrationCategory } from "../../../packages/service-contracts/src/integration-categories.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
@@ -93,6 +94,12 @@ describe("bundled MCP marketplace inventory", () => {
         version: plugin.version,
       });
       expect(entry.integration).toBeDefined();
+      // The wire schema takes any string so a newer catalog cannot reject
+      // itself; the bundled catalog is held to the shared vocabulary here.
+      expect(
+        isIntegrationCategory(entry.integration!.category),
+        `${entry.name} category ${String(entry.integration!.category)}`,
+      ).toBe(true);
       expect(readValidatedPluginIcon(pluginRoot).hasIcon).toBe(true);
       const icon = readFileSync(join(pluginRoot, "icon.png"));
       // Integration rows display 32 CSS pixels, including on 2x screens.

@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, PreparedModelCall } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
   PostModelCallContext,
@@ -18,12 +18,14 @@ import type {
   ContentBlock,
   Message,
   ProviderResponse,
+  ToolDefinition,
 } from "../providers/types.js";
 import {
   createMockProvider,
   textResponse,
   toolUseResponse,
 } from "./helpers/mock-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const userMessage: Message = {
   role: "user",
@@ -91,6 +93,7 @@ function registerOutputHookPlugin(hooks: {
 describe("agent loop output hooks", () => {
   beforeEach(() => {
     resetPluginRegistryAndRegisterDefaults();
+    setConfig("llm", {});
   });
 
   test("post-model-call transforms the persisted message content", async () => {
@@ -401,6 +404,152 @@ describe("agent loop output hooks", () => {
 
     // THEN the provider call carries the hook's profile as the override
     expect(calls[0].options?.config?.overrideProfile).toBe("fast-profile");
+  });
+
+  test("prepared model call carries the post-hook route and wire tool surface", async () => {
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.systemPrompt = `${ctx.systemPrompt ?? ""} [EDITED]`;
+        ctx.modelProfile = "fast-profile";
+      },
+    });
+    const tool: ToolDefinition = {
+      name: "dynamic_tool",
+      description: "Dynamic",
+      input_schema: { type: "object" },
+    };
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    Object.assign(provider, { supportsNativeWebSearch: true });
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+      config: { enableNativeWebSearch: true },
+      resolveTools: () => [tool],
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      overrideProfile: "conversation-profile",
+      forceOverrideProfile: true,
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared).toMatchObject({
+      callSite: "mainAgent",
+      overrideProfile: "fast-profile",
+      forceOverrideProfile: true,
+      systemPrompt: "base prompt [EDITED]",
+    });
+    expect(prepared?.tools.map((item) => item.name)).toEqual([
+      "dynamic_tool",
+      "web_search",
+    ]);
+    expect(calls[0].tools).toEqual(prepared?.tools);
+  });
+
+  test("prepared model call carries the finalized cache policy", async () => {
+    setConfig("llm", {
+      callSites: { mainAgent: { disableCache: true } },
+    });
+    const { provider } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared?.disableCache).toBe(true);
+  });
+
+  test("prepared model call preserves explicit system-prompt removal", async () => {
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.systemPrompt = null;
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared?.systemPrompt).toBeNull();
+    expect(calls[0].options?.systemPrompt).toBeUndefined();
+  });
+
+  test("inference routing preserves the semantic call site for hooks and events", async () => {
+    const preModelCallSites: Array<string | null> = [];
+    const postModelCallSites: Array<string | null> = [];
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        preModelCallSites.push(ctx.callSite);
+      },
+      postModelCall: (ctx) => {
+        postModelCallSites.push(ctx.callSite);
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      callSite: "callAgent",
+      inferenceCallSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(calls[0].options?.config?.callSite).toBe("mainAgent");
+    expect(prepared?.callSite).toBe("mainAgent");
+    expect(preModelCallSites).toEqual(["callAgent"]);
+    expect(postModelCallSites).toEqual(["callAgent"]);
+    expect(events).toContainEqual({
+      type: "llm_call_started",
+      callSite: "callAgent",
+    });
   });
 
   test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {

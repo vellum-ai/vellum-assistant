@@ -29,6 +29,7 @@ function provider(): OAuthProvider {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    category: "productivity",
     tenant_host: null,
     acts_as: "user",
   };
@@ -90,6 +91,7 @@ function oauthItem(methods: McpPluginMethod[]): ConnectableIntegrationItem {
     name: "Notion",
     description: "Read and write Notion pages.",
     configured: false,
+    category: "productivity",
     provider: provider(),
     connections: [connection()],
     methods,
@@ -223,6 +225,7 @@ describe("buildConnectPlan", () => {
         name: "Ramp",
         description: "The Ramp MCP server.",
         configured: false,
+        category: "finance",
         method: pluginMethod({
           pluginName: "ramp-mcp",
           oauthProvider: undefined,
@@ -252,6 +255,7 @@ describe("buildConnectPlan", () => {
         name: "Ashby",
         description: "The Ashby MCP server.",
         configured: false,
+        category: "recruiting",
         method: pluginMethod({
           pluginName: "ashby-mcp",
           oauthProvider: undefined,
@@ -277,6 +281,7 @@ describe("buildConnectPlan", () => {
         name: "Ramp",
         description: "The Ramp MCP server.",
         configured: false,
+        category: "finance",
         method: pluginMethod({ pluginName: "ramp-mcp", logo: "" }),
       },
       { platformGate: "full", ownOAuthAvailable: false, mcpServersLoaded: true },

@@ -33,6 +33,9 @@ import type { LiveVoiceServerFramePayload } from "./protocol.js";
 
 const log = getLogger("live-activity-reporter");
 
+/** A stale phase is preferable to letting one request pin every later phase. */
+const LIVE_ACTIVITY_DISPATCH_TIMEOUT_MS = 5_000;
+
 /** The phases an iOS Live Activity can render. Mirrors the client's union. */
 export type LiveActivityPhase =
   | "connecting"
@@ -41,6 +44,12 @@ export type LiveActivityPhase =
   | "thinking"
   | "speaking"
   | "ending";
+
+interface PendingDispatch {
+  phase: LiveActivityPhase;
+  event: "update" | "end";
+  detail: string;
+}
 
 /**
  * The phase a frame puts the session into, or `null` for frames that do not
@@ -88,6 +97,10 @@ export function phaseForFrame(
       // Unconditional, unlike `stt_final`: the session sends this frame
       // precisely when it has committed to a turn.
       return "thinking";
+    case "activity":
+      // Keep model-routing detail inside the conversation, while ensuring a
+      // silent escalation leaves any preceding speaking phase behind.
+      return frame.kind === "escalation" ? "thinking" : null;
     case "tts_audio":
       return "speaking";
     case "tts_done":
@@ -111,6 +124,11 @@ export class LiveActivityReporter {
   private lastPhase: LiveActivityPhase | null = null;
   private lastDetail = "";
   private ended = false;
+  private dispatchInFlight = false;
+  private pendingDispatch: PendingDispatch | null = null;
+  private dispatchIdleWaiters: Array<() => void> = [];
+  protected readonly dispatchTimeoutMs: number =
+    LIVE_ACTIVITY_DISPATCH_TIMEOUT_MS;
 
   constructor(private readonly conversationId: string) {}
 
@@ -128,10 +146,14 @@ export class LiveActivityReporter {
       return;
     }
     const phase = phaseForFrame(frame, this.lastPhase);
-    // The session sends this frame only on a change it wants surfaced, and
-    // sends an empty label when the turn stops working, so it is taken
-    // verbatim rather than derived.
-    const detail = frame.type === "activity" ? frame.label : this.lastDetail;
+    // Tool and approval activity is server-owned wording. Escalation is an
+    // in-conversation status, so keep it out of the system-level Live Activity.
+    const detail =
+      frame.type === "activity"
+        ? frame.kind === "escalation"
+          ? ""
+          : frame.label
+        : this.lastDetail;
     const phaseMoved = phase !== null && phase !== this.lastPhase;
     if (!phaseMoved && detail === this.lastDetail) {
       return;
@@ -147,7 +169,19 @@ export class LiveActivityReporter {
     if (this.lastPhase === null) {
       return;
     }
-    void this.dispatch(this.lastPhase, "update", this.lastDetail);
+    this.enqueueDispatch(this.lastPhase, "update", this.lastDetail);
+  }
+
+  /**
+   * Move the system surface past escalation bridge speech without replacing a
+   * tool or approval line that became active while that speech was draining.
+   */
+  restoreThinkingPhase(): void {
+    if (this.ended || this.lastPhase === "thinking") {
+      return;
+    }
+    this.lastPhase = "thinking";
+    this.enqueueDispatch("thinking", "update", this.lastDetail);
   }
 
   /**
@@ -166,7 +200,80 @@ export class LiveActivityReporter {
     // No detail on the way out: whatever the turn was doing, it is not doing
     // it any more, and this state is the one that lingers on the Lock Screen
     // through the dismissal window.
-    void this.dispatch("ending", "end", "");
+    this.enqueueDispatch("ending", "end", "");
+  }
+
+  /**
+   * Preserve frame order across asynchronous platform requests without making
+   * the session wait for them. A later phase must never arrive before an older
+   * request finishes and then be overwritten by that older content state.
+   */
+  private enqueueDispatch(
+    phase: LiveActivityPhase,
+    event: "update" | "end",
+    detail: string,
+  ): void {
+    const pending = { phase, event, detail } satisfies PendingDispatch;
+    if (this.dispatchInFlight) {
+      // ActivityKit renders snapshots, so only the newest state behind the
+      // current request matters. In particular, `end` replaces every queued
+      // update and is always the next request sent.
+      this.pendingDispatch = pending;
+      return;
+    }
+    this.startDispatch(pending);
+  }
+
+  private startDispatch(pending: PendingDispatch): void {
+    this.dispatchInFlight = true;
+    const signal = AbortSignal.timeout(this.dispatchTimeoutMs);
+    const deadline = new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+      signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    // Race the whole operation, including platform-client and credential
+    // resolution. The same signal reaches `fetch`, so a timed-out operation
+    // that resolves credentials later cannot send its stale snapshot.
+    void Promise.race([
+      this.dispatch(pending.phase, pending.event, pending.detail, signal),
+      deadline,
+    ])
+      .catch((err: unknown) => {
+        // `dispatch` contains its own best-effort error boundary. Keep this
+        // guard for subclasses and future implementations so one rejection
+        // cannot poison every later phase in the queue.
+        log.debug(
+          { err, phase: pending.phase, event: pending.event },
+          "Live Activity dispatch queue failed",
+        );
+      })
+      .finally(() => {
+        const next = this.pendingDispatch;
+        this.pendingDispatch = null;
+        if (next !== null) {
+          this.startDispatch(next);
+          return;
+        }
+        this.dispatchInFlight = false;
+        const waiters = this.dispatchIdleWaiters;
+        this.dispatchIdleWaiters = [];
+        for (const resolve of waiters) {
+          resolve();
+        }
+      });
+  }
+
+  /** Resolve after every queued dispatch has settled. */
+  protected waitForPendingDispatches(): Promise<void> {
+    if (!this.dispatchInFlight) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.dispatchIdleWaiters.push(resolve);
+    });
   }
 
   /** `protected` so a test can observe what would be sent without sending it. */
@@ -174,6 +281,7 @@ export class LiveActivityReporter {
     phase: LiveActivityPhase,
     event: "update" | "end",
     detail: string,
+    signal: AbortSignal,
   ): Promise<void> {
     try {
       const client = await VellumPlatformClient.create();
@@ -192,6 +300,7 @@ export class LiveActivityReporter {
           event,
           detail,
         }),
+        signal,
       });
       if (!response.ok) {
         log.debug(
