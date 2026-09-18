@@ -117,12 +117,14 @@ const crudLog: {
   updates: Array<{ messageId: string; content: string }>;
   deletes: string[];
   retained: Array<{ messageId: string; ids: readonly string[] }>;
-} = { reads: [], updates: [], deletes: [], retained: [] };
+  reindexed: Array<{ messageId: string; content: string }>;
+} = { reads: [], updates: [], deletes: [], retained: [], reindexed: [] };
 function resetCrudLog(): void {
   crudLog.reads.length = 0;
   crudLog.updates.length = 0;
   crudLog.deletes.length = 0;
   crudLog.retained.length = 0;
+  crudLog.reindexed.length = 0;
   messageAttachmentLinks.clear();
   collectedAttachmentIds.clear();
   getMessageByIdImpl = () => null;
@@ -159,6 +161,24 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   // The echo path advances the snapshot anchor for a real-user turn; the
   // fake conversation has no row in SQLite, so stub the write out.
   recordConversationPersistedSeq: () => {},
+}));
+
+// Memory reindexing of rows the hygiene pass rewrote, recorded instead of run.
+import * as realTurnFinalize from "../../daemon/conversation-turn-finalize.js";
+
+mock.module("../../daemon/conversation-turn-finalize.js", () => ({
+  ...realTurnFinalize,
+  buildDeferredFinalizeEffect: (params: {
+    assistantMessageId: string;
+    contentJson: string;
+  }) => {
+    return async () => {
+      crudLog.reindexed.push({
+        messageId: params.assistantMessageId,
+        content: params.contentJson,
+      });
+    };
+  },
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
@@ -2771,6 +2791,54 @@ describe("transcript hygiene (teardown pass)", () => {
         ]),
       },
     ]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a marker ending an earlier LLM call's row is stripped, not just the last row's", async () => {
+    const events: string[] = [];
+    const fake = makeFakeConversation({ processing: false, events });
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      const { onEvent } = args[2] as { onEvent: (msg: unknown) => void };
+      // LLM call → tool → LLM call: each call reserves its own row.
+      for (const messageId of ["assistant-row-1", "assistant-row-2"]) {
+        onEvent({
+          type: "assistant_turn_start",
+          messageId,
+          conversationId: "conv-voice-bridge-test",
+        });
+      }
+    };
+    fakeConversation = fake.conversation;
+    getMessageByIdImpl = (messageId) =>
+      messageId === "assistant-row-1"
+        ? {
+            ...makeRow(""),
+            content: [
+              {
+                type: "text",
+                text: "Pulling up your screen. [LOOK:SCREEN]",
+              },
+              { type: "tool_use", id: "tool-1", name: "file_read", input: {} },
+            ],
+          }
+        : { ...makeRow("Found the line."), id: messageId };
+
+    await startVoiceTurn(makeTurnOptions());
+    await flushMicrotasks();
+
+    expect(crudLog.reads).toEqual(["assistant-row-1", "assistant-row-2"]);
+    const cleanContent = JSON.stringify([
+      { type: "text", text: "Pulling up your screen." },
+      { type: "tool_use", id: "tool-1", name: "file_read", input: {} },
+    ]);
+    expect(crudLog.updates).toEqual([
+      { messageId: "assistant-row-1", content: cleanContent },
+    ]);
+    // Memory indexes the clean row, not the marker the turn finalized with.
+    expect(crudLog.reindexed).toEqual([
+      { messageId: "assistant-row-1", content: cleanContent },
+    ]);
+    expect(crudLog.deletes).toHaveLength(0);
     expect(events).toContain("loadFromDb");
   });
 

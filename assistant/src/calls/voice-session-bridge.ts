@@ -34,8 +34,10 @@ import {
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { buildDeferredFinalizeEffect } from "../daemon/conversation-turn-finalize.js";
 import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { chainTurnTail } from "../daemon/turn-tail-chain.js";
 import {
   newestPersistedSightFrame,
   pendingStandaloneImagePersist,
@@ -1799,10 +1801,13 @@ export async function startVoiceTurn(
   // decrement in the IIFE's finally, even when runAgentLoop throws.
   let frontDoorToolsSuppressed = false;
 
-  // The reserved assistant row of the leg's LLM call, captured from
-  // `assistant_turn_start`. Voice legs are single-call in practice (the
-  // front-door leg is toolless), so the last id observed is the leg's
-  // transcript row — the target of the teardown transcript-hygiene pass.
+  // The reserved assistant rows of the leg's LLM calls, captured from
+  // `assistant_turn_start`, in order. A leg that calls tools reserves one row
+  // per LLM call, and any of them can end with a marker (the model says
+  // "pulling up your screen. [LOOK:SCREEN]" and then calls a tool), so the
+  // teardown transcript-hygiene pass covers every one. The last id is the
+  // row a live stream is currently writing to.
+  const reservedAssistantRowIds: string[] = [];
   let reservedAssistantRowId: string | null = null;
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
@@ -1849,9 +1854,9 @@ export async function startVoiceTurn(
    *   never the verdict token or the text streamed past the cap (issue
    *   #37850). A row with no spoken bridge (canned-fallback case — that
    *   bridge is audio-only) is deleted.
-   * - Any leg whose row ENDS with the `[-1]` minimize marker or a session
-   *   control marker (`[END_CALL]`, `[MUTE]`, `[MUTE:<seconds>]`), all
-   *   swallowed before TTS, has its text blocks rewritten through
+   * - Any row of a leg that ENDS with the `[-1]` minimize marker or a
+   *   session control marker (`[END_CALL]`, `[MUTE]`, `[LOOK:SCREEN]`, ...),
+   *   all swallowed before TTS, has its text blocks rewritten through
    *   `stripInternalSpeechMarkers` so the marker never renders in the chat
    *   transcript. This covers front-door answers too: a front-door answer
    *   may end with a session control, and it can parrot `[-1]` from visible
@@ -1869,6 +1874,66 @@ export async function startVoiceTurn(
    * publishes confirms text a subscriber already holds instead of correcting
    * it.
    */
+  /**
+   * Apply the teardown transcript hygiene to one reserved row and name what
+   * it did: the whole-leg rules (discard, front-door verdict cut) and the
+   * terminal-marker strip documented on {@link finalizeVoiceLegTranscript}.
+   * A rewrite also returns the content it wrote, for reindexing.
+   */
+  const finalizeVoiceLegRow = (
+    rowId: string,
+  ): { action: string; contentJson?: string } => {
+    if (discarded) {
+      deleteMessageById(rowId);
+      return { action: "delete_discarded" };
+    }
+    const row = getMessageById(rowId, opts.conversationId);
+    if (!row) {
+      return { action: "row_missing" };
+    }
+    const cut =
+      opts.routingLeg === "front-door"
+        ? cutFrontDoorContentAtVerdict(row.content)
+        : null;
+    if (cut) {
+      if (cut.spokenText.length === 0) {
+        deleteMessageById(rowId);
+        return { action: "delete_empty" };
+      }
+      const contentJson = JSON.stringify(cut.blocks);
+      updateMessageContent(rowId, contentJson);
+      return { action: "rewrite_spoken", contentJson };
+    }
+    // Terminal position only, mirroring parseTerminalSessionControl: a reply
+    // whose CONTENT contains a marker mid-text never acted on it, so its
+    // transcript keeps that content untouched too. Front-door answer rows (no
+    // verdict token to cut) take this branch as well.
+    const terminalMarkerLength = terminalControlMarkerLength(
+      joinedTextOfBlocks(row.content),
+    );
+    if (terminalMarkerLength === 0) {
+      return { action: "none" };
+    }
+    // Terminal marker first (boundary-aware, since it may span text blocks), then
+    // the per-block strip for any interior complete markers.
+    const cleaned = trimOuterTextEdges(
+      stripMarkersFromBlocks(
+        stripTerminalControlMarker(row.content, terminalMarkerLength),
+      ),
+    );
+    // A marker-only reply (the model said nothing beyond "[-1]") strips to
+    // nothing at all; keeping the row would render a blank assistant bubble,
+    // so delete it like the front-door empty case. Any surviving block,
+    // including non-text blocks like tool_use, keeps the row.
+    if (cleaned.length === 0) {
+      deleteMessageById(rowId);
+      return { action: "delete_empty" };
+    }
+    const contentJson = JSON.stringify(cleaned);
+    updateMessageContent(rowId, contentJson);
+    return { action: "strip_control_marker", contentJson };
+  };
+
   const finalizeVoiceLegTranscript = async (): Promise<void> => {
     if (reservedAssistantRowId == null) {
       if (discarded || opts.routingLeg === "front-door") {
@@ -1883,88 +1948,62 @@ export async function startVoiceTurn(
       }
       return;
     }
-    try {
-      let action = "none";
-      if (discarded) {
-        deleteMessageById(reservedAssistantRowId);
-        action = "delete_discarded";
-      } else {
-        const row = getMessageById(reservedAssistantRowId, opts.conversationId);
-        const terminalMarkerLength = row
-          ? terminalControlMarkerLength(joinedTextOfBlocks(row.content))
-          : 0;
-        const cut =
-          row && opts.routingLeg === "front-door"
-            ? cutFrontDoorContentAtVerdict(row.content)
-            : null;
-        if (!row) {
-          action = "row_missing";
-        } else if (cut) {
-          if (cut.spokenText.length > 0) {
-            updateMessageContent(
-              reservedAssistantRowId,
-              JSON.stringify(cut.blocks),
-            );
-            action = "rewrite_spoken";
-          } else {
-            deleteMessageById(reservedAssistantRowId);
-            action = "delete_empty";
-          }
-        } else if (
-          // Terminal position only — mirrors parseTerminalSessionControl: a
-          // reply whose CONTENT contains a marker mid-text never acted on it,
-          // so its transcript keeps that content untouched too. Front-door
-          // answer rows (no verdict token to cut) take this branch as well.
-          terminalMarkerLength > 0
-        ) {
-          // Terminal marker first (boundary-aware — it may span text blocks),
-          // then the per-block strip for any interior complete markers.
-          const cleaned = trimOuterTextEdges(
-            stripMarkersFromBlocks(
-              stripTerminalControlMarker(row.content, terminalMarkerLength),
-            ),
-          );
-          // A marker-only reply (the model said nothing beyond "[-1]") strips
-          // to nothing at all; keeping the row would render a blank assistant
-          // bubble, so delete it like the front-door empty case. Any surviving
-          // block — including non-text blocks like tool_use — keeps the row.
-          if (cleaned.length === 0) {
-            deleteMessageById(reservedAssistantRowId);
-            action = "delete_empty";
-          } else {
-            updateMessageContent(
-              reservedAssistantRowId,
-              JSON.stringify(cleaned),
-            );
-            action = "strip_control_marker";
-          }
+    // Rows the pass rewrote or deleted; any at all means history reloads.
+    let changed = false;
+    for (const rowId of reservedAssistantRowIds) {
+      try {
+        const { action, contentJson } = finalizeVoiceLegRow(rowId);
+        if (action !== "none" && action !== "row_missing") {
+          changed = true;
         }
-      }
-      // Main legs run the pass on every voice turn; keep the no-op case
-      // out of the logs.
-      const isMainLegNoOp =
-        action === "none" && !discarded && opts.routingLeg !== "front-door";
-      if (!isMainLegNoOp) {
-        log.info(
-          {
-            turnId,
-            messageId: reservedAssistantRowId,
-            routingLeg: opts.routingLeg ?? null,
-            discarded,
-            action,
-          },
-          "Voice leg transcript hygiene",
+        if (contentJson !== undefined) {
+          // The agent loop's detached turn tail indexes this row for memory
+          // from the content it finalized, markers included. Queue a reindex
+          // of the clean content behind it on the same per-conversation
+          // chain, so the clean segments land last.
+          chainTurnTail(
+            opts.conversationId,
+            buildDeferredFinalizeEffect({
+              conversationId: opts.conversationId,
+              assistantMessageId: rowId,
+              contentJson,
+              rlog: log,
+            }),
+          );
+        }
+        // Main legs run the pass on every voice turn; keep the no-op case
+        // out of the logs.
+        const isMainLegNoOp =
+          action === "none" && !discarded && opts.routingLeg !== "front-door";
+        if (!isMainLegNoOp) {
+          log.info(
+            {
+              turnId,
+              messageId: rowId,
+              routingLeg: opts.routingLeg ?? null,
+              discarded,
+              action,
+            },
+            "Voice leg transcript hygiene",
+          );
+        }
+      } catch (err) {
+        log.warn(
+          { err, turnId, messageId: rowId },
+          "Voice leg transcript hygiene failed",
         );
       }
-      if (action !== "none" && action !== "row_missing") {
+    }
+    if (changed) {
+      try {
         await conversation.loadFromDb();
         publishConversationMessagesChanged(opts.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, turnId },
+          "Voice leg transcript hygiene failed to reload history",
+        );
       }
-    } catch (err) {
-      log.warn(
-        { err, turnId, messageId: reservedAssistantRowId },
-        "Voice leg transcript hygiene failed",
-      );
     }
   };
 
@@ -2076,6 +2115,7 @@ export async function startVoiceTurn(
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
+            reservedAssistantRowIds.push(msg.messageId);
           } else if (msg.type === "error") {
             lastError = msg.message;
           } else if (msg.type === "conversation_error") {
