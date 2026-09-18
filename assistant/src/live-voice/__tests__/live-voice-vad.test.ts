@@ -2102,6 +2102,60 @@ describe("LiveVoiceSession server VAD", () => {
     expect(followUp?.voiceControlPrompt).toContain("first question");
   });
 
+  test("a speculative interruption reaches the judge only once its turn commits", async () => {
+    const judged: Array<string | null> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      judged.push(await args.interruption);
+      return { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (options.content !== "first question") {
+        // The leg's first word is its verdict: nothing commits until then.
+        void gate.then(() => {
+          options.callbacks?.assistant_text_delta?.(
+            makeTextDelta("Sure thing."),
+          );
+          options.callbacks?.message_complete?.(makeMessageComplete());
+        });
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: mock(async () => ""),
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => transcribers.length === 2);
+    transcribers[1]?.emit({ type: "partial", text: "never mind that" });
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "never mind that"));
+    expect(
+      calls.find((c) => c.content === "never mind that")?.unifiedVerdict,
+    ).toBe(true);
+
+    await flushAsyncCallbacks();
+    expect(judged).toEqual([]);
+
+    openGate();
+    await waitFor(() => judged.length === 1);
+    expect(judged).toEqual(["never mind that"]);
+  });
+
   test("a keep verdict spawns the continuation as before", async () => {
     const { spawnBackgroundContinuation } = await bargeInWithJudge(true);
 

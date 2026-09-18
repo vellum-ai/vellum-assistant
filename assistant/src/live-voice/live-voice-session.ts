@@ -4964,6 +4964,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // are skipped; the thinking frame and timers still apply.
     const alreadyReleased = utterance.released;
     turn.speculativePending = false;
+    // The interruption is final once the turn carrying it commits.
+    if (
+      turn.interruptedRequest !== null &&
+      !turn.hiddenPrompt &&
+      turn.speculativeContent !== null
+    ) {
+      this.bargeInInterruption?.settle(turn.speculativeContent);
+    }
     // Finals can land between the speculative dispatch and this verdict.
     // Fill the language only when dispatch had none: the model request was
     // already issued with the dispatch language, so overwriting here would
@@ -5930,7 +5938,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // available for the next user turn instead of being consumed by an update.
     const pending =
       opts?.taskOutcome == null ? this.consumePendingTurnContext() : null;
-    if (pending?.interruptedRequest != null && opts?.hiddenPrompt !== true) {
+    // A speculative dispatch may hold only the start of the interruption
+    // ("Actually..."): its words reach the continuation judge when it
+    // commits (commitSpeculativeTurn), and a discard restores the wait for
+    // the redispatch.
+    if (
+      pending?.interruptedRequest != null &&
+      opts?.hiddenPrompt !== true &&
+      opts?.speculative !== true
+    ) {
       this.bargeInInterruption?.settle(content);
     }
     const token = Symbol("live-voice-assistant-turn");
