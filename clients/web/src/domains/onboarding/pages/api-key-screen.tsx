@@ -231,20 +231,18 @@ export function ApiKeyScreen() {
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             disabled={!canContinue}
             onClick={onContinue}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.continue")}
           </Button>
           <Button
             variant="outlined"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={onBack}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.back")}
           </Button>

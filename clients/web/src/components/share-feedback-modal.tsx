@@ -1429,6 +1429,7 @@ function AttachmentThumbnail({
         <Paperclip className="h-5 w-5 text-[var(--content-secondary)]" />
       )}
       <Button
+        shape="pill"
         variant="ghost"
         size="compact"
         iconOnly={<X />}
@@ -1436,7 +1437,7 @@ function AttachmentThumbnail({
         aria-label={t("shareFeedbackModal.removeAttachmentAria", {
           name: file.name,
         })}
-        className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white hover:bg-black/70"
+        className="absolute top-0.5 right-0.5 h-4 w-4 bg-black/60 text-white hover:bg-black/70"
         tintColor="#fff"
       />
     </div>

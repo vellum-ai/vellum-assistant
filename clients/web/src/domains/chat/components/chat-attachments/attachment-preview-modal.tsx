@@ -396,6 +396,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         }
         actions={
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<Download />}
             expandOnMobile={false}
@@ -404,7 +406,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             aria-label={t("attachmentPreviewModal.downloadAria", {
               filename: attachment.filename,
             })}
-            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         }
@@ -413,21 +415,25 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<ChevronLeft />}
             expandOnMobile={false}
             onClick={goToPrev}
             aria-label={t("attachmentPreviewModal.previousAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
           <Button
+            size="large"
+            shape="pill"
             variant="ghost"
             iconOnly={<ChevronRight />}
             expandOnMobile={false}
             onClick={goToNext}
             aria-label={t("attachmentPreviewModal.nextAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         </div>

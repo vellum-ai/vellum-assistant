@@ -82,13 +82,14 @@ export function AttachmentTile({
         </div>
       )}
       <Button
+        shape="pill"
         variant="ghost"
         size="compact"
         iconOnly={<X />}
         expandOnMobile={false}
         // The `before:` pseudo-element widens the press target past the 24px
         // visual without moving it.
-        className="absolute right-1.5 top-1.5 rounded-full bg-[var(--surface-lift)] [--vbtn-fg:var(--content-default)] before:absolute before:-inset-2 before:content-['']"
+        className="absolute right-1.5 top-1.5 bg-[var(--surface-lift)] [--vbtn-fg:var(--content-default)] before:absolute before:-inset-2 before:content-['']"
         iconOnlyGlyphClassName="size-3 [&_svg]:size-3"
         aria-label={t(
           previewUrl === null

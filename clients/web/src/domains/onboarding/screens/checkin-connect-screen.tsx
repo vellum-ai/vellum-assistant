@@ -1,4 +1,4 @@
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { useGoogleCalendarConnect } from "@/domains/onboarding/hooks/use-google-calendar-connect";
@@ -123,27 +123,23 @@ export function CheckinConnectScreen({
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={handleConnect}
+            loading={oauthInProgress}
             disabled={oauthInProgress}
-            className={`${electron ? "h-9" : "h-11 text-base"}`}
+            className={electron ? "h-9" : undefined}
           >
-            {oauthInProgress ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                {t("checkinConnectScreen.waitingAuthorization")}
-              </span>
-            ) : (
-              t("checkinConnectScreen.connectGoogleCalendar")
-            )}
+            {oauthInProgress
+              ? t("checkinConnectScreen.waitingAuthorization")
+              : t("checkinConnectScreen.connectGoogleCalendar")}
           </Button>
           <Button
             variant="ghost"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={handleSkip}
-            className={`${electron ? "h-9" : "h-11 text-base"}`}
+            className={electron ? "h-9" : undefined}
           >
             {t("actions.skipForNow")}
           </Button>
