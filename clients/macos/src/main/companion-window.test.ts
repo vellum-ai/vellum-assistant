@@ -71,27 +71,22 @@ let mainWindowVisible = true;
  */
 let companionOpen = true;
 
-/**
- * Whether the app's window is still loading its document, which is what decides
- * whether a report is pushed to it or held for the pull it makes on mount.
- */
-let mainWindowLoading = false;
-
 /** Every channel main has sent the app's window, most recent last. */
 const mainSends: { channel: string; payload: unknown }[] = [];
 
 /**
  * The app's window, as far as this module reads it: whether it exists and
  * whether it is showing. One object, so a focus event can name it by identity.
+ *
+ * Its renderer is `mainRenderer`, the same object IPC sends arrive from, which
+ * is what the real pairing is: main compares the window's own renderer against
+ * the one that pulled, and the app's window is where both come from.
  */
 const mainWindow = {
   isDestroyed: () => false,
   isVisible: () => mainWindowVisible,
-  webContents: {
-    isLoading: () => mainWindowLoading,
-    send: (channel: string, payload: unknown) => {
-      mainSends.push({ channel, payload });
-    },
+  get webContents() {
+    return mainRenderer;
   },
 };
 
@@ -152,8 +147,16 @@ const surface = {
 
 type Invoker = (args: unknown[]) => unknown;
 
-/** The renderer behind IPC sends, including the lifecycle a running call owns. */
-const mainRenderer = new EventEmitter();
+/**
+ * The renderer behind IPC sends, including the lifecycle a running call owns
+ * and the one a subscription for the introduction's reports does. `send` is
+ * what main pushes through, so it is also the app window's `webContents`.
+ */
+const mainRenderer = Object.assign(new EventEmitter(), {
+  send: (channel: string, payload: unknown) => {
+    mainSends.push({ channel, payload });
+  },
+});
 
 /** Channel to handler, with the channel's schema applied the way `on` does. */
 const listeners = new Map<string, Invoker>();
@@ -762,7 +765,6 @@ beforeEach(() => {
   // them: the state the surface exists for.
   mainWindowOpen = true;
   mainWindowVisible = true;
-  mainWindowLoading = false;
   mainSends.length = 0;
   companionOpen = true;
   // Introduced already, which is what every case that is not about the run
@@ -5732,6 +5734,19 @@ describe("the introduction's reports", () => {
   };
 
   /**
+   * The app's window, listening.
+   *
+   * Main pushes only to a renderer that has said it is there, which is the pull
+   * its subscription makes on mount, so every case about a push has to have one
+   * made first. The real window makes it from its own effect; here it is the
+   * pull itself that stands for it.
+   */
+  beforeEach(() => {
+    takeReports();
+    mainSends.length = 0;
+  });
+
+  /**
    * A dial, a session or a run left going here would outlive the case that
    * started it, and the next case's reports are read off the same list.
    *
@@ -5755,6 +5770,7 @@ describe("the introduction's reports", () => {
         beat: "idle",
         introVersion: COMPANION_INTRO_VERSION,
         micGranted: true,
+        at: expect.any(Number),
       },
     ]);
   });
@@ -5814,6 +5830,7 @@ describe("the introduction's reports", () => {
         beat: "try",
         introVersion: COMPANION_INTRO_VERSION,
         micGranted: true,
+        at: expect.any(Number),
       },
     ]);
   });
@@ -5921,6 +5938,61 @@ describe("the introduction's reports", () => {
   });
 
   /**
+   * The run's answer, taken once, and not asked again.
+   *
+   * The last beat asks for the microphone and waits for the answer before it
+   * starts anything, so a run that began without the grant can end holding it.
+   * Read afresh per report, that run would put its exposure in one cohort and
+   * its finish in the other, and the conversions would land where none of the
+   * exposures are.
+   */
+  test("holds the microphone answer the run began with", () => {
+    micStatus = "not-determined";
+    startIntro();
+
+    // The grant made mid-run, which is what the last beat's press wins.
+    micStatus = "granted";
+    send("vellum:companion:advanceIntro", "next");
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    expect(reports().length).toBe(3);
+    expect(reports().every((report) => !report.micGranted)).toBe(true);
+  });
+
+  // The next run asks again: it is a new run, and the answer it began with is
+  // the one the cards it is about to show will read.
+  test("asks again when a new run begins", () => {
+    micStatus = "denied";
+    startIntro();
+    send("vellum:companion:advanceIntro", "dismiss");
+    micStatus = "granted";
+    mainSends.length = 0;
+
+    startIntro();
+
+    expect(reports().map((report) => report.micGranted)).toEqual([true]);
+  });
+
+  /**
+   * Main's clock, so a held report says when it happened rather than when it
+   * was collected. The one moment this exists for can be handed over a launch
+   * later, and an ending dated to that launch is unplaceable.
+   */
+  test("stamps a held report with the moment it happened", () => {
+    startIntro();
+    mainSends.length = 0;
+    mainWindowOpen = false;
+
+    const before = Date.now();
+    setCompanionSurfaceVisible(false);
+    const after = Date.now();
+
+    const [held] = takeReports();
+    expect(held?.at).toBeGreaterThanOrEqual(before);
+    expect(held?.at).toBeLessThanOrEqual(after);
+  });
+
+  /**
    * The ending that happens with nobody to tell. A user reaching the tray has
    * often put the app's window away first, and the run's ending is the one row
    * the funnel cannot infer from the others, so it is held for the window that
@@ -5942,13 +6014,36 @@ describe("the introduction's reports", () => {
     expect(takeReports()).toEqual([]);
   });
 
-  // A window mid-load is a window whose renderer has not subscribed yet, so a
-  // push to it is the same drop with extra steps.
-  test("holds a report made while the app's window is still loading", () => {
-    mainWindowLoading = true;
+  /**
+   * A loaded window is not a listening one.
+   *
+   * The bundle parses before React mounts the effect that subscribes, and the
+   * run walks on its own: a hover on the creature finishes the first beat with
+   * no press at all, so a report really can fall in that gap. Main waits to be
+   * told rather than guessing from the window, and everything until then is
+   * held for the pull that does the telling.
+   */
+  test("holds reports until the renderer says it is listening", () => {
+    // The subscription going the way a reload takes it: the window lives, its
+    // listeners do not.
+    mainRenderer.emit("destroyed");
+
     startIntro();
 
     expect(reports()).toEqual([]);
     expect(takeReports().map((report) => report.event)).toEqual(["exposed"]);
+  });
+
+  // And once it has said so, the rest of the run goes straight there.
+  test("pushes to the renderer that pulled", () => {
+    mainRenderer.emit("destroyed");
+    startIntro();
+    takeReports();
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "next");
+
+    expect(reports().map((report) => report.event)).toEqual(["advanced"]);
+    expect(takeReports()).toEqual([]);
   });
 });

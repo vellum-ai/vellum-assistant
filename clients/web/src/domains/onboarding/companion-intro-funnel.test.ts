@@ -59,6 +59,7 @@ function report(
     beat: "idle",
     introVersion: COMPANION_INTRO_VERSION,
     micGranted: true,
+    at: Date.now(),
     ...over,
   };
 }
@@ -151,6 +152,25 @@ describe("the companion introduction's funnel", () => {
         ab_variant: `intro${COMPANION_INTRO_VERSION}_mic_ungranted`,
       });
     }
+  });
+
+  /**
+   * A report main held because nothing was listening can be handed over much
+   * later, so the row says when the moment happened rather than when it was
+   * collected. Otherwise the one ending this buffering exists for is dated to
+   * the launch that picked it up.
+   */
+  test("dates a report by the moment main saw it, not the moment it arrived", () => {
+    const hoursAgo = Date.now() - 3 * 60 * 60 * 1000;
+
+    emitCompanionIntroReport(
+      report({ event: "dismissed", beat: "meet", at: hoursAgo }),
+    );
+
+    expect(emitted(0)).toMatchObject({
+      recorded_at: hoursAgo,
+      completed_at: new Date(hoursAgo).toISOString(),
+    });
   });
 
   // Not an arm: nothing is randomized and nothing is being compared. The

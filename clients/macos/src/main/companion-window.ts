@@ -496,6 +496,82 @@ const INTRO_REPORT_BUFFER = 16;
 const introReports: CompanionIntroReport[] = [];
 
 /**
+ * Whether the microphone was already granted when the running run began.
+ *
+ * **Taken once, at the start, and not read again.** The last beat's press asks
+ * for the microphone and waits for the answer before it starts anything, so a
+ * run that began without the grant ends with it: read afresh per report, the
+ * exposure would be stamped ungranted and the offer and the finish granted, and
+ * one run would be counted in two cohorts. The conversions would land in the
+ * cohort with none of the exposures, which is the one comparison this fact
+ * exists to make.
+ *
+ * What the funnel is actually asking is what the user walked in with, which is
+ * also what decides what the Talk and the last beat say on the way past.
+ */
+let introMicGranted = false;
+
+/** The renderer listening for reports, or null while nobody is. */
+let introReportsTo: WebContents | null = null;
+
+/** Stop listening to the renderer that was taking reports. */
+let detachIntroReportsTo: (() => void) | null = null;
+
+/**
+ * Take the app window's word that it is listening, which is the pull it makes
+ * once its subscription is registered.
+ *
+ * **A loaded window is not a listening one.** `did-finish-load` fires when the
+ * bundle has parsed, which is before React has mounted the effect that
+ * subscribes, and `main-window.ts` says as much about its own commands. The
+ * surface is a window of its own and the run walks on its own: a hover on the
+ * creature finishes the first beat with no press at all, so a report really can
+ * fall in that gap. So pushing is armed by the renderer saying it is there
+ * rather than by main guessing, and everything before that is held.
+ *
+ * Disarmed on the ways a subscription can go without the window going: a
+ * crashed renderer, and a full document reload, which leaves the webContents
+ * alive and its listeners gone. The document that comes back pulls again, which
+ * both re-arms this and collects whatever was held meanwhile. Modelled on
+ * {@link ownCall}, which ties the running call to its renderer the same way.
+ */
+const armIntroReports = (owner: WebContents): void => {
+  if (introReportsTo === owner) {
+    return;
+  }
+  detachIntroReportsTo?.();
+  detachIntroReportsTo = null;
+  introReportsTo = owner;
+
+  const disarm = (): void => {
+    if (introReportsTo !== owner) {
+      return;
+    }
+    introReportsTo = null;
+    detachIntroReportsTo?.();
+    detachIntroReportsTo = null;
+  };
+  const disarmOnNavigation = (
+    event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+  ): void => {
+    // A route change inside the app is the same document and the same
+    // subscription; only a fresh document loses it.
+    if (event.isMainFrame && !event.isSameDocument) {
+      disarm();
+    }
+  };
+
+  owner.once("destroyed", disarm);
+  owner.on("render-process-gone", disarm);
+  owner.on("did-start-navigation", disarmOnNavigation);
+  detachIntroReportsTo = () => {
+    owner.off("destroyed", disarm);
+    owner.off("render-process-gone", disarm);
+    owner.off("did-start-navigation", disarmOnNavigation);
+  };
+};
+
+/**
  * Report a moment of the run to the app's own window, which sends it on.
  *
  * **Main decides, the app's window transports.** Main is the only side that
@@ -511,11 +587,10 @@ const introReports: CompanionIntroReport[] = [];
  * and its own session id for a funnel that would then not join to the rest of
  * onboarding, and the consent it would read is a default rather than an answer.
  *
- * A report with no window to take it is held rather than dropped, since the
+ * A report with no window listening is held rather than dropped, since the
  * moment worth holding is exactly the one that happens with the app put away.
- * A window that is still loading is not sent to either: the push would land
- * before the renderer subscribes, which is the same drop with extra steps. What
- * is held is handed over by the pull the renderer makes on mount.
+ * What is held is handed over by the pull the renderer makes once it is
+ * subscribed, which is also what arms pushing (see {@link armIntroReports}).
  */
 const reportIntro = (
   event: CompanionIntroEvent,
@@ -525,14 +600,20 @@ const reportIntro = (
     event,
     beat,
     introVersion: COMPANION_INTRO_VERSION,
-    // Read here rather than taken from the surface's renderer, which polls the
-    // same answer for its own copy: main can ask the system directly, and a
-    // fact the report is stamped with must not depend on a window being up.
-    micGranted:
-      systemPreferences.getMediaAccessStatus("microphone") === "granted",
+    micGranted: introMicGranted,
+    // Main's clock, not the reporting window's. A held report can be handed
+    // over a launch later, and an ending dated to the launch that collected it
+    // rather than to the run it ended would be the one row here nobody could
+    // place.
+    at: Date.now(),
   };
   const win = currentMainWindow();
-  if (win === null || win.isDestroyed() || win.webContents.isLoading()) {
+  if (
+    win === null ||
+    win.isDestroyed() ||
+    introReportsTo === null ||
+    win.webContents !== introReportsTo
+  ) {
     introReports.push(report);
     // Oldest first out, so what survives a run nobody collected is the end of
     // it: the ending is the row the funnel cannot infer from the others.
@@ -4154,10 +4235,11 @@ export const installCompanionWindow = (): void => {
   // The reports that had no window to go to, handed over on the pull the app's
   // window makes once it is listening. Taken rather than read: a report handed
   // over twice is a funnel row counted twice, and the window that asked is the
-  // one that is now subscribed for the rest.
-  handle("vellum:companion:takeIntroReports", z.tuple([]), () =>
-    introReports.splice(0, introReports.length),
-  );
+  // one that is now subscribed for the rest, which is what arms pushing.
+  handle("vellum:companion:takeIntroReports", z.tuple([]), (_args, event) => {
+    armIntroReports(event.sender);
+    return introReports.splice(0, introReports.length);
+  });
 
   // Registered once here rather than per window: `refreshGrowth` no-ops
   // while no surface exists, and the surface can be closed and reopened from
@@ -4181,6 +4263,11 @@ export const openCompanionWindow = (): void => {
   // rather than the surface appearing plain and being annotated a frame later.
   if (readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION) {
     intro = COMPANION_INTRO_BEATS[0];
+    // Taken once, here, for the whole run. See {@link introMicGranted}: the
+    // last beat can win the grant mid-run, and a run counted in two cohorts is
+    // one whose conversions land where its exposures are not.
+    introMicGranted =
+      systemPreferences.getMediaAccessStatus("microphone") === "granted";
     // Held in front and stood over the app's window for the run, rather than
     // opening where it lives and being hidden a frame later by the frontmost
     // rule (see `introStaged`).

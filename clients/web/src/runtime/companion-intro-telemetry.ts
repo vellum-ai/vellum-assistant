@@ -43,8 +43,17 @@ export function subscribeToCompanionIntroReports(
  * from the others. Main holds those and hands them over here.
  *
  * Taken rather than read, so the same moment is never reported twice. Called
- * once on mount, after subscribing, so a report that lands in the gap between
- * the two is delivered by the push rather than lost.
+ * once on mount, after subscribing, and it is also what tells main this window
+ * is listening: until it arrives main holds everything rather than pushing into
+ * a window whose bundle has parsed but whose effects have not run.
+ *
+ * What a held report cannot bring with it is the funnel session it happened
+ * under, which lives in this window's `sessionStorage` and dies with the
+ * window. So a run whose ending outlived the window that saw its earlier
+ * moments reports that ending under the session of the window that collected
+ * it. The moment itself is exact (`report.at` is main's clock), and the device
+ * and the funnel version are on every row, so the ending is still attributable;
+ * it is the join by `session_id` alone that does not hold for that one case.
  */
 export async function takeCompanionIntroReports(): Promise<
   CompanionIntroReport[]

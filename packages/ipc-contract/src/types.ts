@@ -2513,13 +2513,27 @@ export interface CompanionIntroReport {
    */
   introVersion: number;
   /**
-   * Whether the microphone was already granted when this happened.
+   * Whether the microphone was already granted when the run *began*.
    *
    * Not an aside: the Talk and the last beat both read it and say different
    * things, so a run against an ungranted microphone is a different run, and
    * one ending in a system prompt rather than a call is a different ending.
+   *
+   * The run's answer rather than the moment's, because the last beat asks for
+   * the grant and waits for it: read per moment, a run that began without it
+   * would report its exposure under one answer and its finish under the other,
+   * and land its conversions in the cohort holding none of its exposures.
    */
   micGranted: boolean;
+  /**
+   * When this happened, by main's clock.
+   *
+   * Carried rather than taken where the report is read, because a report made
+   * with no window listening is held and can be handed over a launch later. An
+   * ending dated to the launch that collected it, rather than to the run that
+   * ended, is the one row here nobody could place.
+   */
+  at: number;
 }
 
 /** What main tells the companion renderer. */

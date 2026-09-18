@@ -102,6 +102,10 @@ export function emitCompanionIntroReport(report: CompanionIntroReport): void {
       screen: report.beat,
       // A refusal is the one moment of a run that is not the run working.
       outcome: report.event === "dismissed" ? "skipped" : "completed",
+      // Main's clock. A report made with no window listening is held until one
+      // comes back, so the moment reported is not always the moment reported
+      // in: an ending dated to the next launch would be unplaceable.
+      occurredAt: report.at,
     },
   );
 }
