@@ -44,7 +44,9 @@
   },
   "emailAddressFields": {
     "prefixLabel": "前綴",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "使用者名稱（公開）",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "給 {name} 一個收件匣",
@@ -60,7 +62,9 @@
   "assistantInboxSetupCard": {
     "title": "助理電子郵件",
     "subtitle": "為你的助理設定一個電子郵件。",
-    "getStarted": "開始使用"
+    "getStarted": "開始使用",
+    "subtitleChooseHandle": "選擇你的助理使用的使用者名稱和電子郵件地址。",
+    "immutableNotice": "該使用者名稱將成為你的助理的公開使用者名稱，設定後將無法更改。"
   },
   "assistantInboxRoute": {
     "loading": "正在開啟收件匣…",

@@ -44,7 +44,9 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Префикс",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "Имя (публичное)",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "Дайте {name} почтовый ящик",
@@ -60,7 +62,9 @@
   "assistantInboxSetupCard": {
     "title": "Почта ассистента",
     "subtitle": "Настройте почту для вашего ассистента.",
-    "getStarted": "Начать"
+    "getStarted": "Начать",
+    "subtitleChooseHandle": "Выберите имя и адрес почты вашего ассистента.",
+    "immutableNotice": "Это имя станет публичным именем ассистента. После установки изменить его нельзя."
   },
   "assistantInboxRoute": {
     "loading": "Открываем почту…",

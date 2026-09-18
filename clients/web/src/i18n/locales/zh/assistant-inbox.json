@@ -44,7 +44,9 @@
   },
   "emailAddressFields": {
     "prefixLabel": "前缀",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "用户名（公开）",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "给 {name} 一个收件箱",
@@ -60,7 +62,9 @@
   "assistantInboxSetupCard": {
     "title": "助手邮箱",
     "subtitle": "为你的助手设置一个邮箱。",
-    "getStarted": "开始使用"
+    "getStarted": "开始使用",
+    "subtitleChooseHandle": "选择你的助手使用的用户名和邮箱地址。",
+    "immutableNotice": "该用户名将成为你的助手的公开用户名，设置后将无法更改。"
   },
   "assistantInboxRoute": {
     "loading": "正在打开收件箱…",

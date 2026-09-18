@@ -213,6 +213,29 @@ export const SetUpEmail: Story = {
   ),
 };
 
+/**
+ * Entitled, no address, and no domain either: the handle is still open, so
+ * it is a field with the permanence warning. The story's probe refuses the
+ * handle `taken`, to show the inline refusal and the held action.
+ */
+export const SetUpEmailChooseHandle: Story = {
+  name: "2b · Set up email, choosing a handle",
+  render: () => (
+    <AssistantInboxSetupCard
+      assistantId={ASSISTANT_ID}
+      handle="bright-vole-02a64h"
+      rootDomain={MOCK_ROOT_DOMAIN}
+      handleEditable
+      checkHandle={async (handle) =>
+        handle === "taken"
+          ? { available: false, message: "That handle is already taken." }
+          : { available: true }
+      }
+      onConfirm={fn().mockName("onConfirm")}
+    />
+  ),
+};
+
 /** Entitled with an address. The mailbox, seeded with received and sent mail. */
 export const Inbox: Story = {
   name: "3 · Inbox",

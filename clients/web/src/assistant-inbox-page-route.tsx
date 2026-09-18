@@ -10,15 +10,23 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxPage } from "@/domains/assistant-inbox/components/assistant-inbox-page";
-import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
+import {
+  AssistantInboxSetupCard,
+  type HandleCheckResult,
+} from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
 import type { InboxEmail } from "@/domains/assistant-inbox/types";
 import {
+  checkAssistantHandleAvailable,
+  HANDLE_ERROR_COPY,
+} from "@/domains/account/handle";
+import {
   assistantsDomainsCreateMutation,
   assistantsEmailAddressesCreateMutation,
+  assistantsListQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import {
   channelsReadinessGetQueryKey,
@@ -138,6 +146,7 @@ export function AssistantInboxPageRoute() {
   const identityName = useAssistantIdentityStore.use.name();
   const state = useAssistantInboxState(assistantId, identityName ?? "");
   const [settling, setSettling] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const createDomain = useMutation(assistantsDomainsCreateMutation());
   const createAddress = useMutation(assistantsEmailAddressesCreateMutation());
@@ -165,13 +174,41 @@ export function AssistantInboxPageRoute() {
       });
   }, [assistantId, queryClient, refreshReadinessMutateAsync]);
 
+  /* An advisory probe of a handle typed into the setup card, through the
+     same endpoint the profile card's handle editor uses. */
+  const platformAssistantId = state.platformAssistantId;
+  const checkHandle = useCallback(
+    async (handle: string, signal: AbortSignal): Promise<HandleCheckResult> => {
+      if (!platformAssistantId) {
+        return { available: true };
+      }
+      const result = await checkAssistantHandleAvailable(
+        platformAssistantId,
+        handle,
+        signal,
+      );
+      if (result.available) {
+        return { available: true };
+      }
+      return {
+        available: false,
+        message:
+          result.message ??
+          (result.code ? HANDLE_ERROR_COPY[result.code] : null) ??
+          t("assistantInboxRoute.setupFailed"),
+      };
+    },
+    [platformAssistantId, t],
+  );
+
   const confirmSetup = useCallback(
-    async ({ prefix }: { prefix: string }) => {
+    async ({ prefix, handle }: { prefix: string; handle: string }) => {
       if (!state.platformAssistantId) {
         return;
       }
       const path = { assistant_id: state.platformAssistantId };
       setSettling(true);
+      setSetupError(null);
       try {
         if (state.hasDomain) {
           await createAddress.mutateAsync({
@@ -179,26 +216,31 @@ export function AssistantInboxPageRoute() {
             body: { username: prefix },
           });
         } else {
-          // One call registers the subdomain and the address on it; the
-          // platform derives the subdomain from the handle when omitted.
+          // One call registers the subdomain and the address on it, and the
+          // subdomain becomes the assistant's public handle, which is why
+          // the card lets the user choose it here.
           await createDomain.mutateAsync({
             path,
-            body: {
-              ...(state.handle ? { subdomain: state.handle } : {}),
-              email_username: prefix,
-            },
+            body: { subdomain: handle, email_username: prefix },
+          });
+          // The handle changed with it; the listing that carries it is stale.
+          void queryClient.invalidateQueries({
+            queryKey: assistantsListQueryKey(),
           });
         }
         await state.refreshAddresses();
         refreshChannelReadiness();
         toast.success(
           t("assistantInboxRoute.setupSucceeded", {
-            address: `${prefix}@${state.handle}.${state.rootDomain}`,
+            address: `${prefix}@${state.hasDomain ? state.handle : handle}.${state.rootDomain}`,
           }),
         );
       } catch (err) {
         captureError(err, { context: "assistant_inbox_setup" });
-        toast.error(
+        // Under the fields rather than in a toast: the refusal is usually
+        // about what was typed (a taken handle, a bad prefix), and it should
+        // sit beside the thing to fix.
+        setSetupError(
           extractErrorMessage(
             err,
             undefined,
@@ -209,7 +251,14 @@ export function AssistantInboxPageRoute() {
         setSettling(false);
       }
     },
-    [createAddress, createDomain, refreshChannelReadiness, state, t],
+    [
+      createAddress,
+      createDomain,
+      queryClient,
+      refreshChannelReadiness,
+      state,
+      t,
+    ],
   );
 
   if (!flagsHydrated) {
@@ -241,6 +290,10 @@ export function AssistantInboxPageRoute() {
           assistantId={assistantId}
           handle={state.handle}
           rootDomain={state.rootDomain}
+          handleEditable={!state.hasDomain}
+          checkHandle={checkHandle}
+          error={setupError}
+          onDraftChange={() => setSetupError(null)}
           onConfirm={(draft) => void confirmSetup(draft)}
           busy={settling}
         />

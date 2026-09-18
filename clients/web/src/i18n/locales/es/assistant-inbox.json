@@ -44,7 +44,9 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Prefijo",
-    "prefixPlaceholder": "hola"
+    "prefixPlaceholder": "hola",
+    "handleLabel": "Identificador (público)",
+    "handlePlaceholder": "mi-asistente"
   },
   "assistantInboxUpgradeState": {
     "title": "Dale una bandeja de entrada a {name}",
@@ -60,7 +62,9 @@
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
-    "getStarted": "Empezar"
+    "getStarted": "Empezar",
+    "subtitleChooseHandle": "Elige el identificador y el correo de tu asistente.",
+    "immutableNotice": "El identificador pasa a ser el identificador público de tu asistente. No podrás cambiarlo una vez establecido."
   },
   "assistantInboxRoute": {
     "loading": "Abriendo la bandeja…",

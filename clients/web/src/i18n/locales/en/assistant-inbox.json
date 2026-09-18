@@ -44,7 +44,9 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Prefix",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "Handle (public)",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "Give {name} an inbox",
@@ -60,7 +62,9 @@
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
-    "getStarted": "Get started"
+    "getStarted": "Get started",
+    "subtitleChooseHandle": "Choose your assistant's handle and email address.",
+    "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
   },
   "assistantInboxRoute": {
     "loading": "Opening the inbox…",
