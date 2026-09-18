@@ -3028,10 +3028,11 @@ const syncFrontmost = (): void => {
  * **A window that exists is not raised, and one that does not is created.** A
  * user reaching for a floating avatar has chosen not to go back to Vellum, and
  * what they asked for shows itself on this surface, so an existing window is
- * left exactly where it was. But closing the main window destroys it while this
- * surface stays on screen, and a command dispatched into that gap lands
- * nowhere: the press would read as broken. There is no way to act without a
- * renderer to act in, so that case builds one, which necessarily shows it.
+ * left exactly where it was, hidden or not. The close button only hides the
+ * main window, so it is missing only before the first one has been built, and
+ * a command dispatched into that gap lands nowhere: the press would read as
+ * broken. There is no way to act without a renderer to act in, so that case
+ * builds one, which necessarily shows it.
  */
 export const dispatchWithoutRaising = (command: VellumCommand): void => {
   if (currentMainWindow() !== null) {

@@ -155,10 +155,24 @@ const ipcHandleMock = mock(
   },
 );
 
+// `app` / `autoUpdater` listeners, so tests can announce a quit.
+const appListeners = new Map<string, Array<() => void>>();
+const updaterListeners = new Map<string, Array<() => void>>();
+const listenOn =
+  (into: Map<string, Array<() => void>>) =>
+  (event: string, handler: () => void): void => {
+    into.set(event, [...(into.get(event) ?? []), handler]);
+  };
+const announce = (from: Map<string, Array<() => void>>, event: string): void => {
+  for (const h of from.get(event) ?? []) h();
+};
+
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
+    on: listenOn(appListeners),
   },
+  autoUpdater: { on: listenOn(updaterListeners) },
   BrowserWindow: class {
     constructor(opts: Record<string, unknown>) {
       Object.assign(this, makeWindow(opts));
@@ -215,6 +229,8 @@ beforeEach(() => {
   __resetForTesting();
   ipcHandlers.clear();
   ipcHandleMock.mockClear();
+  appListeners.clear();
+  updaterListeners.clear();
   onboardingActive = false;
   writeOnboardingActiveMock.mockClear();
   restoredBounds = { width: 1280, height: 800 };
@@ -759,5 +775,85 @@ describe("current", () => {
     ensureVisible();
     constructed[0]?.stub.emit("closed");
     expect(current()).toBeNull();
+  });
+});
+
+describe("close button", () => {
+  // Emits `close` the way Electron does, with a cancellable event, and
+  // reports whether a listener cancelled it.
+  const pressClose = (stub: StubWindow): boolean => {
+    const event = { preventDefault: mock(() => undefined) };
+    for (const h of listeners.get("close") ?? []) {
+      (h as (e: typeof event) => void)(event);
+    }
+    return event.preventDefault.mock.calls.length > 0;
+  };
+
+  test("hides the window instead of closing it", () => {
+    installMainWindow();
+    const { stub } = constructed[0]!;
+    stub.emit("ready-to-show");
+
+    expect(pressClose(stub)).toBe(true);
+    expect(stub.hide).toHaveBeenCalledTimes(1);
+    expect(stub.isDestroyed()).toBe(false);
+    expect(current()).not.toBeNull();
+  });
+
+  test("ensureVisible brings the same window back rather than building another", () => {
+    installMainWindow();
+    const { stub } = constructed[0]!;
+    stub.emit("ready-to-show");
+    pressClose(stub);
+
+    void ensureVisible();
+
+    expect(constructed).toHaveLength(1);
+    expect(stub.isVisible()).toBe(true);
+  });
+
+  test("dispatchToMain still reaches the hidden window", () => {
+    installMainWindow();
+    const { stub } = constructed[0]!;
+    pressClose(stub);
+
+    dispatchToMain({ kind: "startVoice" });
+
+    expect(stub.webContents.send).toHaveBeenCalledWith("vellum:command", {
+      kind: "startVoice",
+    });
+  });
+
+  test("leaves fullscreen first and hides once it has", () => {
+    restoredBounds = { width: 1280, height: 800, fullscreen: true };
+    installMainWindow();
+    const { stub } = constructed[0]!;
+
+    expect(pressClose(stub)).toBe(true);
+    expect(stub.setFullScreen).toHaveBeenCalledWith(false);
+    expect(stub.hide).not.toHaveBeenCalled();
+
+    stub.emit("leave-full-screen");
+    expect(stub.hide).toHaveBeenCalledTimes(1);
+  });
+
+  test("lets the close through once the app is quitting", () => {
+    installMainWindow();
+    const { stub } = constructed[0]!;
+
+    announce(appListeners, "before-quit");
+
+    expect(pressClose(stub)).toBe(false);
+    expect(stub.hide).not.toHaveBeenCalled();
+  });
+
+  test("lets the close through for an update install", () => {
+    installMainWindow();
+    const { stub } = constructed[0]!;
+
+    announce(updaterListeners, "before-quit-for-update");
+
+    expect(pressClose(stub)).toBe(false);
+    expect(stub.hide).not.toHaveBeenCalled();
   });
 });
