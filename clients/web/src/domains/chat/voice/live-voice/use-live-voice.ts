@@ -1262,6 +1262,10 @@ export function useLiveVoice(
             // server's `thinking` frame (which re-bumps; the guard only
             // checks inequality, so the double bump is harmless).
             session.responseEpoch += 1;
+            // This accepted utterance starts a new response. Clear the prior
+            // response's handoff before the server's `thinking` frame so its
+            // status cannot leak into the dispatch gap.
+            s.setResponsePhase(null);
             // A new turn also lifts the straggler-frame guard set by a
             // client-initiated interrupt (normally `thinking` clears it, but
             // this final may be the first frame of the next turn we see).

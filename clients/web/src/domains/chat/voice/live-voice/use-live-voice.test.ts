@@ -393,7 +393,16 @@ describe("structured response activity", () => {
     expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
 
     act(() => {
-      h.client.emit("thinking", { type: "thinking", seq: 6, turnId: "t2" });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 6,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 7,
+        text: "Next question",
+      });
     });
     expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
   });
