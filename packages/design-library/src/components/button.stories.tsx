@@ -14,8 +14,13 @@ const meta: Meta<typeof Button> = {
     },
     size: {
       control: "select",
-      options: ["regular", "compact"],
+      options: ["compact", "regular", "large"],
     },
+    shape: {
+      control: "inline-radio",
+      options: ["default", "pill"],
+    },
+    loading: { control: "boolean" },
     disabled: { control: "boolean" },
     fullWidth: { control: "boolean" },
     active: { control: "boolean" },
@@ -143,10 +148,72 @@ export const AllVariants: Story = {
 export const AllSizes: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <Button size="large">Large</Button>
       <Button size="regular">Regular</Button>
       <Button size="compact">Compact</Button>
     </div>
   ),
+  parameters: { controls: { disable: true } },
+};
+
+export const Large: Story = {
+  args: { variant: "primary", size: "large", children: "Continue" },
+};
+
+export const Pill: Story = {
+  args: { variant: "outlined", shape: "pill", children: "Pill" },
+};
+
+export const Loading: Story = {
+  args: { variant: "primary", loading: true, children: "Saving" },
+};
+
+/**
+ * Every place the spinner can land: in place of a leading icon, in the leading
+ * slot of a button that has none, as the icon-only glyph, and beside the
+ * greyed look a caller keeps by passing `disabled` as well.
+ */
+export const LoadingStates: Story = {
+  render: () => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <Button loading leftIcon={<Download />}>
+        Download
+      </Button>
+      <Button variant="outlined" loading>
+        Save
+      </Button>
+      <Button variant="ghost" loading iconOnly={<Settings />} aria-label="Settings" />
+      <Button variant="danger" loading disabled>
+        Deleting
+      </Button>
+      <Button size="large" loading>
+        Continue
+      </Button>
+      <Button size="compact" variant="outlined" loading>
+        Retry
+      </Button>
+    </div>
+  ),
+  parameters: { controls: { disable: true } },
+};
+
+export const Shapes: Story = {
+  render: () => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+      <Button shape="pill">Primary pill</Button>
+      <Button variant="outlined" shape="pill" leftIcon={<Plus />}>
+        Outlined pill
+      </Button>
+      <Button variant="ghost" active shape="pill">
+        Active ghost pill
+      </Button>
+      <Button variant="ghost" shape="pill" iconOnly={<X />} aria-label="Close" />
+      <Button size="large" shape="pill">
+        Large pill
+      </Button>
+    </div>
+  ),
+  parameters: { controls: { disable: true } },
 };
 
 export const FullWidth: Story = {
