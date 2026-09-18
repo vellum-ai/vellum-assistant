@@ -41,10 +41,11 @@ import {
   PanelItem,
   panelItemWashStyle,
   SIDE_MENU_TILE_SIZE,
+  Tooltip,
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
-import { SidebarIconTile } from "@/components/sidebar-icon-tile";
+import { AssistantAccentDisc } from "@/domains/chat/components/assistant-accent-disc";
 import {
   SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
@@ -129,46 +130,47 @@ const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
 
 /**
- * The New Chat button: the sidebar's icon tile painted in the assistant's
- * colour, at two sizes. The eyes' disc size on the assistant
- * row, where it stands after the section toggle as a third disc of the
- * row's family, and the rail's tile size on the collapsed rail, where it is
- * a circle in the column of circles. Its tooltip carries the shortcut.
+ * The New Chat button: the assistant's accent disc with the plus, at two
+ * sizes. The eyes' disc size on the assistant row, where it stands after
+ * the section toggle as a third disc of the row's family, and the rail's
+ * tile size on the collapsed rail, where it is a circle in the column of
+ * circles. Its tooltip carries the shortcut.
  */
 function NewChatButton({
   size,
   tooltipSide,
   onSelect,
-  style,
-  className,
+  accentHex,
 }: {
   size: number;
   tooltipSide: "right" | "top";
   onSelect: () => void;
-  /** The tile's colour and the plus's ink, or nothing for the plain surface. */
-  style?: CustomPropertyStyle;
-  className?: string;
+  accentHex: string | null;
 }) {
   const { t } = useTranslation("chat");
   const hint = useCommandShortcutHint("newConversation");
   const label = t("assistantNavItem.newChat");
   return (
-    <SidebarIconTile
-      icon={Plus}
-      label={label}
-      tooltip={
+    <Tooltip
+      content={
         <span className="inline-flex items-center gap-1.5">
           {label}
           <span className="opacity-80">{hint}</span>
         </span>
       }
-      tooltipSide={tooltipSide}
-      size={size}
-      onSelect={onSelect}
-      style={style}
-      className={className}
-      data-tour-id="new-chat"
-    />
+      side={tooltipSide}
+    >
+      <AssistantAccentDisc
+        icon={Plus}
+        accentHex={accentHex}
+        size={size}
+        slot="assistant-new-chat"
+        aria-label={label}
+        onClick={onSelect}
+        className="self-center"
+        data-tour-id="new-chat"
+      />
+    </Tooltip>
   );
 }
 
@@ -341,34 +343,13 @@ export function AssistantNavItem({
     };
   }, [reduce, navTourActive, collapsed, eyesControls]);
 
-  /* The New Chat button painted solid in the assistant's colour, the
-     section toggle's own treatment, so the discs that act for the assistant
-     read as one family: the pill's wash is the identity, and the solid discs
-     are what it does. The plus takes the avatar surfaces' contrast ink.
-     Every state holds the colour (the tile's hover would otherwise swap in a
-     wash), and hover brightens it as the toggle's does. Without an avatar
-     colour nothing is declared, leaving the plain surface the button falls
-     back to; while the tour owns the nav the colour drains with the identity
-     pill's fill. */
-  const newConversationTint: CustomPropertyStyle | undefined =
-    !navTourActive && hex
-      ? {
-          "--panel-item-bg": hex,
-          "--panel-item-hover": hex,
-          "--panel-item-icon-fg": toneForBg(hex).fg,
-        }
-      : undefined;
   const newChatButton = onNewConversation ? (
     <NewChatButton
       size={collapsed ? SIDE_MENU_TILE_SIZE : DISC_SIZE}
       tooltipSide={collapsed ? "right" : "top"}
       onSelect={onNewConversation}
-      style={newConversationTint}
-      className={
-        newConversationTint
-          ? "transition-[filter,transform] [@media(hover:hover)]:hover:brightness-105"
-          : undefined
-      }
+      /* Drains with the identity pill's fill while the tour owns the nav. */
+      accentHex={navTourActive ? null : hex}
     />
   ) : null;
   /* Where the button stands: on the collapsed rail as its own tile beneath

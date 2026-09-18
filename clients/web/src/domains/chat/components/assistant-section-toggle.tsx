@@ -1,10 +1,11 @@
 import { MessageSquare } from "lucide-react";
-import { useState, type ComponentProps } from "react";
+import { useState } from "react";
 
+import { AssistantAccentDisc } from "@/domains/chat/components/assistant-accent-disc";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import {
+  CollapsedFlyoutContent,
   getGroupIndicatorState,
-  GroupIndicatorDot,
   type GroupIndicatorState,
 } from "@/domains/chat/components/collapsed-group-icon";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
@@ -15,87 +16,18 @@ import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
-import { toneForBg } from "@/utils/avatar-tone";
 import {
-  cn,
   Popover,
   SIDE_MENU_TILE_SIZE,
   Tooltip,
 } from "@vellumai/design-library";
 
-interface AssistantSectionDiscProps extends ComponentProps<"button"> {
-  assistantId: string | null;
-  /** Diameter, in px. */
-  size: number;
-  /** The section's activity, or null while its rows are on screen. */
-  indicator: GroupIndicatorState;
-}
-
 /**
- * The toggle's disc, shared by its row and rail forms: a circle in the
- * avatar's colour carrying a chat glyph, which names what the button
- * reaches (her threads). The glyph is drawn at the size every other leading
- * icon in the rail is.
- *
- * While the section's rows are not on screen, the activity dot their header
- * would carry (a thread waiting on the user, a reply the user has not seen)
- * rides on the disc instead, in the corner the collapsed rail's tiles put
- * theirs.
- *
- * Every other prop reaches the button, so the rail form's popover trigger
- * can compose its handlers and ref onto it.
+ * The section's activity dot, read from the rows its card would show. While
+ * those rows are not on screen, the dot their header would carry (a thread
+ * waiting on the user, a reply the user has not seen) rides on the toggle
+ * instead; while they are, it steps aside, as the header's does.
  */
-function AssistantSectionDisc({
-  assistantId,
-  size,
-  indicator,
-  className,
-  ...rest
-}: AssistantSectionDiscProps) {
-  const { accentHex } = useAssistantAvatar(assistantId);
-  return (
-    <button
-      type="button"
-      {...rest}
-      /* After the spread: the popover and tooltip triggers each clone their
-         own slot name onto the rail form's disc, and it stays this one. */
-      data-slot="assistant-section-toggle"
-      className={cn(
-        "relative flex shrink-0 cursor-pointer items-center justify-center rounded-full",
-        "transition-[filter,transform] duration-150 active:scale-[0.98]",
-        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-        /* No avatar colour to wear (an uploaded image, or a still-loading
-           avatar): the plain raised surface every untinted row falls back
-           to. */
-        accentHex
-          ? "[@media(hover:hover)]:hover:brightness-105"
-          : "bg-[var(--surface-active)] text-[var(--content-default)] [@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
-        className,
-      )}
-      style={{
-        width: size,
-        height: size,
-        /* The glyph's ink by the avatar surfaces' own rule: black on the
-           light colour (yellow), white on every other. */
-        ...(accentHex
-          ? { backgroundColor: accentHex, color: toneForBg(accentHex).fg }
-          : undefined),
-      }}
-    >
-      <MessageSquare aria-hidden className="size-3.5 max-md:size-4" />
-      {indicator ? (
-        <GroupIndicatorDot
-          state={indicator}
-          /* Ringed in the page ground so it reads as sitting on the disc's
-             edge rather than as a bite out of it. */
-          className="absolute -top-px -right-px ring-2 ring-[var(--surface-base)]"
-        />
-      ) : null}
-    </button>
-  );
-}
-
-/** The section's activity dot, read from the rows its card would show. */
 function useSectionIndicator(
   conversations: Conversation[],
   section: SidebarSection,
@@ -125,10 +57,10 @@ export interface AssistantSectionToggleProps {
 
 /**
  * The round button beside the assistant pill that opens the assistant's own
- * section beneath it, drawn the size of the disc the eyes sit on. The glyph
- * is the same in both states; `aria-expanded` with the accessible name say
- * which way the next press goes. Open, the rows show their own state and
- * the dot steps aside, as the header's does.
+ * section beneath it, drawn the size of the disc the eyes sit on. Its chat
+ * glyph names what it reaches (her threads) and is the same in both states;
+ * `aria-expanded` with the accessible name say which way the next press
+ * goes.
  */
 export function AssistantSectionToggle({
   assistantId,
@@ -138,15 +70,18 @@ export function AssistantSectionToggle({
   onToggle,
 }: AssistantSectionToggleProps) {
   const { t } = useTranslation("chat");
+  const { accentHex } = useAssistantAvatar(assistantId);
   /* The same query the section's card runs, so the dot reads the same rows
      the card shows and the card's rows are already loaded when it opens. */
   const { conversations } = useSectionConversations(assistantId, section);
   const indicator = useSectionIndicator(conversations, section, open);
 
   return (
-    <AssistantSectionDisc
-      assistantId={assistantId}
+    <AssistantAccentDisc
+      icon={MessageSquare}
+      accentHex={accentHex}
       size={SIDEBAR_ASSISTANT_DISC_SIZE}
+      slot="assistant-section-toggle"
       indicator={indicator}
       onClick={onToggle}
       aria-expanded={open}
@@ -177,7 +112,7 @@ export function AssistantSectionRailToggle({
   section,
 }: AssistantSectionRailToggleProps) {
   const [open, setOpen] = useState(false);
-  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  const { accentHex } = useAssistantAvatar(assistantId);
   const { conversations, hasMore, loadMore } = useSectionConversations(
     assistantId,
     section,
@@ -188,9 +123,11 @@ export function AssistantSectionRailToggle({
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <Tooltip content={section.label} side="right">
-          <AssistantSectionDisc
-            assistantId={assistantId}
+          <AssistantAccentDisc
+            icon={MessageSquare}
+            accentHex={accentHex}
             size={SIDE_MENU_TILE_SIZE}
+            slot="assistant-section-toggle"
             indicator={indicator}
             aria-label={section.label}
             aria-haspopup="dialog"
@@ -198,26 +135,21 @@ export function AssistantSectionRailToggle({
           />
         </Tooltip>
       </Popover.Trigger>
-      <Popover.Content
-        ref={setContentEl}
-        side="right"
-        align="start"
-        sideOffset={8}
-        onOpenAutoFocus={(e) => e.preventDefault()}
-        className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
-      >
-        {conversations.length === 0 ? (
-          <AssistantSectionEmptyState />
-        ) : (
-          <CollapsedGroupFlyout
-            title={section.label}
-            conversations={conversations}
-            onClosePopover={() => setOpen(false)}
-            scrollParent={contentEl}
-            onEndReached={hasMore ? loadMore : undefined}
-          />
-        )}
-      </Popover.Content>
+      <CollapsedFlyoutContent>
+        {(scrollParent) =>
+          conversations.length === 0 ? (
+            <AssistantSectionEmptyState />
+          ) : (
+            <CollapsedGroupFlyout
+              title={section.label}
+              conversations={conversations}
+              onClosePopover={() => setOpen(false)}
+              scrollParent={scrollParent}
+              onEndReached={hasMore ? loadMore : undefined}
+            />
+          )
+        }
+      </CollapsedFlyoutContent>
     </Popover.Root>
   );
 }

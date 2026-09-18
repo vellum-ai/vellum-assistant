@@ -138,7 +138,6 @@ export function CollapsedGroupIcon({
 }: CollapsedGroupIconProps) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
-  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
@@ -186,16 +185,38 @@ export function CollapsedGroupIcon({
           }
         />
       </Popover.Trigger>
-      <Popover.Content
-        ref={setContentEl}
-        side="right"
-        align="start"
-        sideOffset={8}
-        onOpenAutoFocus={(e) => e.preventDefault()}
-        className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
-      >
-        {typeof children === "function" ? children(close, contentEl) : children}
-      </Popover.Content>
+      <CollapsedFlyoutContent>
+        {(scrollParent) =>
+          typeof children === "function"
+            ? children(close, scrollParent)
+            : children
+        }
+      </CollapsedFlyoutContent>
     </Popover.Root>
+  );
+}
+
+/**
+ * The popover a collapsed-rail tile opens, beside the rail: one geometry for
+ * every rail flyout. Hands its own scrollport to the body, so a long list
+ * can window against it rather than opening a second scroll region.
+ */
+export function CollapsedFlyoutContent({
+  children,
+}: {
+  children: (scrollParent: HTMLElement | null) => ReactNode;
+}) {
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  return (
+    <Popover.Content
+      ref={setContentEl}
+      side="right"
+      align="start"
+      sideOffset={8}
+      onOpenAutoFocus={(e) => e.preventDefault()}
+      className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
+    >
+      {children(contentEl)}
+    </Popover.Content>
   );
 }

@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
+import { render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
@@ -278,19 +279,33 @@ describe("AssistantNavItem New Chat button", () => {
   test("it is painted solid in the avatar's colour, with the contrast ink, not a wash", () => {
     for (const collapsed of [false, true]) {
       const tag = newChatTag(renderNewChat(collapsed));
-      const bg = /--panel-item-bg:(#[0-9a-fA-F]{6})[;"]/.exec(tag)?.[1];
+      const bg = /background-color:(#[0-9a-fA-F]{6})[;"]/.exec(tag)?.[1];
       expect(bg).toBeDefined();
-      // Hover holds the colour rather than swapping in a wash.
-      expect(tag).toContain(`--panel-item-hover:${bg}`);
-      expect(tag).toContain(`--panel-item-icon-fg:${toneForBg(bg!).fg}`);
+      expect(tag).toContain(`color:${toneForBg(bg!).fg}`);
       expect(tag).not.toContain("color-mix");
     }
   });
 
-  test("the button stays on the row while the tour owns the nav", () => {
+  /* A client render: zustand hands server rendering the store's initial
+     state, so `renderToStaticMarkup` would never see the tour raised. */
+  test("the button stays on the row while the tour owns the nav, drained of colour", () => {
     useInChatOnboardingStore.setState({ navTourActive: true });
     try {
-      expect(newChatTag(renderNewChat())).toContain('aria-label="New Chat"');
+      const { container, unmount } = render(
+        createElement(AssistantNavItem, {
+          assistantId: "a1",
+          label: "Haze II",
+          active: false,
+          onSelect: () => {},
+          onNewConversation: () => {},
+        }),
+      );
+      const button = container.querySelector<HTMLElement>(
+        '[data-tour-id="new-chat"]',
+      );
+      expect(button?.getAttribute("aria-label")).toBe("New Chat");
+      expect(button?.style.backgroundColor).toBe("");
+      unmount();
     } finally {
       useInChatOnboardingStore.setState({ navTourActive: false });
     }
