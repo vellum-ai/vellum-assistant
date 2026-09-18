@@ -97,6 +97,7 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
+import { stubOverflow } from "@/hooks/overflow.test-helper";
 
 // The live tool-call hook also reads the transcript union, which is backed by a
 // TanStack Query cache. Render every case under a provider so drilling into a
@@ -358,61 +359,10 @@ describe("SubagentDetailPanel — header controls", () => {
   });
 });
 
-/**
- * happy-dom does not compute real layout, so a ref'd element's `scrollHeight`
- * and `clientHeight` are both `0` — the overflow check
- * (`scrollHeight > clientHeight`) would never fire and the "Show more" toggle
- * would never render. To exercise the collapse/expand path deterministically
- * we stub the two getters on `HTMLElement.prototype`: when the objective body
- * is "tall" we report `scrollHeight > clientHeight`; otherwise we report them
- * equal (no overflow). The stub keys off the rendered text so the same prototype
- * patch drives both the overflow and the no-overflow cases. `installOverflow`
- * returns a restore fn the test calls in a `finally`.
- */
-function installOverflow(overflowingText: string) {
-  const scrollDesc = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    "scrollHeight",
-  );
-  const clientDesc = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    "clientHeight",
-  );
-
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-    configurable: true,
-    get() {
-      return 60; // ~3 clamped lines
-    },
-  });
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-    configurable: true,
-    get(this: HTMLElement) {
-      // The objective body overflows only when it holds the long text.
-      return this.textContent === overflowingText ? 240 : 60;
-    },
-  });
-
-  return () => {
-    if (scrollDesc) {
-      Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollDesc);
-    } else {
-      // @ts-expect-error — happy-dom defines no own descriptor by default.
-      delete HTMLElement.prototype.scrollHeight;
-    }
-    if (clientDesc) {
-      Object.defineProperty(HTMLElement.prototype, "clientHeight", clientDesc);
-    } else {
-      // @ts-expect-error — happy-dom defines no own descriptor by default.
-      delete HTMLElement.prototype.clientHeight;
-    }
-  };
-}
-
 describe("SubagentDetailPanel — objective", () => {
   test("a long objective shows a toggle that expands and collapses the body", () => {
     const longObjective = "x ".repeat(400).trim();
-    const restore = installOverflow(longObjective);
+    const restore = stubOverflow((el) => el.textContent === longObjective);
     try {
       render(
         <SubagentDetailPanel
@@ -441,7 +391,7 @@ describe("SubagentDetailPanel — objective", () => {
   });
 
   test("a short objective renders no toggle", () => {
-    const restore = installOverflow("never-matches");
+    const restore = stubOverflow((el) => el.textContent === "never-matches");
     try {
       render(
         <SubagentDetailPanel
@@ -464,7 +414,7 @@ describe("SubagentDetailPanel — objective", () => {
     // objective is short. The expand state must reset and re-measure: the new
     // objective renders collapsed with no toggle.
     const longObjective = "x ".repeat(400).trim();
-    const restore = installOverflow(longObjective);
+    const restore = stubOverflow((el) => el.textContent === longObjective);
     try {
       const { rerender } = render(
         <SubagentDetailPanel
@@ -508,7 +458,7 @@ describe("SubagentDetailPanel — objective", () => {
     // Depending on `entry.subagentId` forces a re-measure so "Show more"
     // survives the switch.
     const longObjective = "x ".repeat(400).trim();
-    const restore = installOverflow(longObjective);
+    const restore = stubOverflow((el) => el.textContent === longObjective);
     try {
       const { rerender } = render(
         <SubagentDetailPanel

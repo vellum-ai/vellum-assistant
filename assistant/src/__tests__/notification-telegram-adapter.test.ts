@@ -183,7 +183,7 @@ describe("TelegramAdapter", () => {
 
     await adapter.send(
       makePayload({
-        sourceEventName: "watcher.escalation",
+        sourceEventName: "watcher.notification",
         copy: {
           title: " ",
           body: "",
@@ -191,7 +191,7 @@ describe("TelegramAdapter", () => {
       }),
       makeDestination(),
     );
-    expect(sendCalls[2]?.text).toBe("watcher escalation");
+    expect(sendCalls[2]?.text).toBe("watcher notification");
   });
 
   // ── Access request inline keyboard tests ──────────────────────────────

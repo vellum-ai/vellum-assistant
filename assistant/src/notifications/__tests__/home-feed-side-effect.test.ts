@@ -281,7 +281,9 @@ describe("writeHomeFeedItemForSignal", () => {
       "The deployment completed successfully.",
     );
     expect(appendCalls[0]!.conversationId).toBe("conv-source-1");
-    expect(appendCalls[0]!.metadata?.notificationConversationMessageId).toBeUndefined();
+    expect(
+      appendCalls[0]!.metadata?.notificationConversationMessageId,
+    ).toBeUndefined();
     expect(messageAppends).toEqual([]);
     expect(messagesInvalidated).toEqual([]);
     expect(conversationLookups).toEqual(["conv-source-1", "conv-source-1"]);
@@ -956,7 +958,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
@@ -970,7 +972,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
@@ -1126,7 +1128,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
