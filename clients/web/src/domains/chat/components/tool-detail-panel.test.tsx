@@ -244,13 +244,13 @@ describe("ToolDetailPanel", () => {
     expect(writeText).toHaveBeenCalledWith(query);
   });
 
-  test("sets text with line breaks as a copyable code block", () => {
+  test("sets text with line breaks as a code block copied from its label", () => {
     const query = "SELECT week\nFROM events";
     const detail = makeDetail({
       toolName: "mcp__analytics__exec",
       input: { query },
     });
-    const { container, getAllByLabelText, queryByLabelText } = render(
+    const { container, getAllByLabelText, getByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
@@ -258,10 +258,29 @@ describe("ToolDetailPanel", () => {
       (pre) => pre.textContent,
     );
     expect(blocks).toContain(query);
-    // The block's own copy button, one for the output, and no second one on
-    // the field's label.
-    expect(getAllByLabelText("Copy")).toHaveLength(2);
-    expect(queryByLabelText("Copy query")).toBeNull();
+    // The block carries no copy button of its own; the only unlabelled one
+    // is the output's.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
+  });
+
+  test("copies a table field from its label, with no separate table control", () => {
+    const contacts = [
+      { email: "user1@example.com", stage: "new" },
+      { email: "user2@example.com", stage: "trial" },
+    ];
+    const detail = makeDetail({
+      toolName: "acme_crm_import_contacts",
+      input: { contacts },
+    });
+    const { getByLabelText, queryByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(queryByLabelText("Copy table as markdown")).toBeNull();
+    fireEvent.click(getByLabelText("Copy contacts"));
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify(contacts, null, 2));
   });
 
   test("folds a long one-line value behind Show more", () => {

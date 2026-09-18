@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   layoutValues as layout,
+  copyText,
   type ValueField,
 } from "@/domains/chat/utils/value-layout";
 
@@ -14,7 +15,9 @@ describe("layoutValues", () => {
   test("shows a one-line value as text however long it is", () => {
     const short = "select 1";
     const long = `select ${"x, ".repeat(200)}1`;
-    expect(layout({ depth: "deep", max_results: 10, short, long })).toEqual({
+    expect(
+      layout({ depth: "deep", max_results: 10, short, long }),
+    ).toMatchObject({
       fields: [
         { kind: "text", label: "depth", text: "deep" },
         { kind: "text", label: "max_results", text: "10" },
@@ -27,7 +30,7 @@ describe("layoutValues", () => {
 
   test("shows text with a line break as a code block however short it is", () => {
     const script = "cd app\nls";
-    expect(firstField({ script })).toEqual({
+    expect(firstField({ script })).toMatchObject({
       kind: "code",
       label: "script",
       text: script,
@@ -38,7 +41,7 @@ describe("layoutValues", () => {
     const long = "a sentence far too long to read comfortably in a list";
     expect(
       layout({ sources: ["memory", "documents"], notes: ["short", long] }),
-    ).toEqual({
+    ).toMatchObject({
       fields: [
         { kind: "list", label: "sources", items: ["memory", "documents"] },
         {
@@ -66,7 +69,7 @@ describe("layoutValues", () => {
           tags: ["inbound", "trial"],
         },
       }),
-    ).toEqual({
+    ).toMatchObject({
       fields: [
         {
           kind: "nested",
@@ -99,7 +102,7 @@ describe("layoutValues", () => {
         tags: [],
         options: {},
       }).fields,
-    ).toEqual([
+    ).toMatchObject([
       { kind: "text", label: "title", text: '""' },
       { kind: "text", label: "indent", text: '"  "' },
       { kind: "text", label: "public", text: "false" },
@@ -125,7 +128,7 @@ describe("layoutValues", () => {
           ? field.fields.fields.find((child) => child.label === "inner")
           : undefined;
     }
-    expect(field).toEqual({
+    expect(field).toMatchObject({
       kind: "code",
       label: "inner",
       text: JSON.stringify({ f: 1 }, null, 2),
@@ -157,7 +160,7 @@ describe("layoutValues tables", () => {
           { stage: "trial", email: "grace@example.com", owner: "growth" },
         ],
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "table",
       label: "contacts",
       columns: ["email", "stage", "owner"],
@@ -240,7 +243,7 @@ describe("layoutValues tables", () => {
           rows: [["2026-08-03", 12840], ["2026-08-10"]],
         },
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "table",
       label: "result",
       columns: ["week", "users"],
@@ -280,7 +283,33 @@ describe("layoutValues tables", () => {
     expect(field).toMatchObject({ kind: "table", more: 3 });
     if (field?.kind === "table") {
       expect(field.rows).toHaveLength(100);
-      expect(field.rows[99]).toEqual(["100", "row 100"]);
+      expect(field.rows[99]).toMatchObject(["100", "row 100"]);
     }
+  });
+});
+
+describe("field values", () => {
+  test("every field carries the value it was laid out from", () => {
+    const values = {
+      query: "select 1",
+      limit: 10,
+      tags: ["a", "b"],
+      owner: { team: "growth" },
+      rows: [
+        { id: 1, name: "one" },
+        { id: 2, name: "two" },
+      ],
+    };
+    const { fields } = layout(values);
+    expect(fields.map((field) => field.value)).toEqual(Object.values(values));
+  });
+
+  test("copies a string as it is and anything else as JSON", () => {
+    expect(copyText("select 1")).toBe("select 1");
+    expect(copyText(10)).toBe("10");
+    expect(copyText(["a", "b"])).toBe(JSON.stringify(["a", "b"], null, 2));
+    expect(copyText({ team: "growth" })).toBe(
+      JSON.stringify({ team: "growth" }, null, 2),
+    );
   });
 });

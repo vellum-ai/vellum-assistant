@@ -72,14 +72,20 @@ export interface TableField {
   more: number;
 }
 
-/** A labelled field, with its value shaped by how it is shown. */
-export type ValueField =
+/** How a field's value is shown. */
+type ValueShape =
   | { kind: "text"; label: string; text: string }
   | { kind: "code"; label: string; text: string }
   | { kind: "list"; label: string; items: string[] }
   | { kind: "pairs"; label: string; pairs: ValuePair[] }
   | TableField
   | { kind: "nested"; label: string; fields: ValueFieldList };
+
+/**
+ * A labelled field: its value shaped by how it is shown, and the value itself,
+ * which is what the field's copy button copies.
+ */
+export type ValueField = ValueShape & { value: unknown };
 
 /** Fields in order, and how many more were left out past the cap. */
 export interface ValueFieldList {
@@ -128,6 +134,14 @@ function stringify(value: unknown, space: number | undefined): string {
 /** Pretty-printed JSON, for a value past the depth limit and for the raw input. */
 export function jsonText(value: unknown): string {
   return stringify(value, 2);
+}
+
+/**
+ * What copying a field puts on the clipboard: a string as it is, anything else
+ * as the JSON it arrived as.
+ */
+export function copyText(value: unknown): string {
+  return typeof value === "string" ? value : jsonText(value);
 }
 
 /**
@@ -267,6 +281,10 @@ function capped<T>(
 }
 
 function fieldFor(label: string, value: unknown, depth: number): ValueField {
+  return { ...shapeFor(label, value, depth), value };
+}
+
+function shapeFor(label: string, value: unknown, depth: number): ValueShape {
   const scalar = scalarText(value);
   if (scalar !== null) {
     return typeof value === "string" && scalar.includes("\n")

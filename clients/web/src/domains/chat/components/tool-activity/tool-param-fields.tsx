@@ -11,7 +11,8 @@ import type { ReactNode } from "react";
 import { CopyButton } from "@/components/copy-button";
 import {
   ClampedContent,
-  CodeBlock,
+  CodePre,
+  DetailBlock,
   MachineText,
 } from "@/components/detail-primitives";
 import {
@@ -19,10 +20,11 @@ import {
   type DataTableColumn,
   type DataTableRow,
 } from "@/domains/chat/components/data-table";
-import type {
-  TableField,
-  ValueField,
-  ValueFieldList,
+import {
+  copyText,
+  type TableField,
+  type ValueField,
+  type ValueFieldList,
 } from "@/domains/chat/utils/value-layout";
 import { currentLocale, useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
@@ -95,9 +97,13 @@ function FieldValue({ field }: { field: ValueField }) {
         </ClampedContent>
       );
     case "code":
+      // Copied from the field's label like every other value, so the block
+      // carries no copy button of its own.
       return (
         <div className="mt-1">
-          <CodeBlock text={field.text} />
+          <DetailBlock length={field.text.length}>
+            <CodePre text={field.text} />
+          </DetailBlock>
         </div>
       );
     case "list":
@@ -125,6 +131,7 @@ function FieldValue({ field }: { field: ValueField }) {
         <div className="mt-1 flex min-w-0 flex-col gap-2">
           <DataTable
             {...tableProps(field)}
+            copyable={false}
             renderCell={(text) => (
               <ClampedContent length={text.length}>
                 <ValueText as="span">{text}</ValueText>
@@ -163,23 +170,26 @@ export function ToolParamFields({
     >
       <dl className={cn("flex min-w-0 flex-col", gap)}>
         {list.fields.map((field) => (
-          <div key={field.label} className="flex min-w-0 flex-col gap-0.5">
+          <div
+            key={field.label}
+            data-reveal-row
+            className="flex min-w-0 flex-col gap-0.5"
+          >
             <dt className="flex min-w-0 items-center justify-between gap-2">
               <span className="text-label-medium-default leading-4 [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
                 {field.label}
               </span>
-              {field.kind === "text" && (
-                // A code block carries its own copy button; a text value
-                // gets the same one here, so any single value can be copied
-                // on its own rather than out of the raw input's JSON.
+              {/* Every value copies from its label, revealed on hover (and
+                  always shown where the device cannot hover), so a field of
+                  any shape offers the same control in the same place. */}
+              <span data-reveal className="-my-1 shrink-0">
                 <CopyButton
-                  text={field.text}
+                  text={() => copyText(field.value)}
                   ariaLabel={t("toolParamFields.copyValue", {
                     label: field.label,
                   })}
-                  className="-my-1 shrink-0"
                 />
-              )}
+              </span>
             </dt>
             <dd className="min-w-0">
               <FieldValue field={field} />
