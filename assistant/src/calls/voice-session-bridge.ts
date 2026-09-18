@@ -2160,21 +2160,23 @@ export async function startVoiceTurn(
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
-        // Start a speculative warm before memory/context assembly. The warm is
-        // deliberately not awaited: a cache miss must never add a second model
-        // round trip to the live voice response.
+        // Start a speculative warm from the finalized request surface. The
+        // warm is deliberately not awaited: a cache miss must never add a
+        // second model round trip to the live voice response.
         ...(shouldWarmEscalation
           ? {
-              onTurnReady: () => {
+              onFirstModelCallPrepared: (prepared) => {
                 void conversation.warmPromptCache({
-                  callSite: "callAgent",
-                  ...(profilePin != null
-                    ? {
-                        overrideProfile: profilePin,
-                        forceOverrideProfile: true,
-                      }
+                  callSite: prepared.callSite ?? "callAgent",
+                  ...(prepared.overrideProfile !== undefined
+                    ? { overrideProfile: prepared.overrideProfile }
                     : {}),
+                  forceOverrideProfile: prepared.forceOverrideProfile,
                   signal: opts.signal,
+                  ...(prepared.systemPrompt !== undefined
+                    ? { systemPrompt: prepared.systemPrompt }
+                    : {}),
+                  tools: prepared.tools,
                 });
               },
             }

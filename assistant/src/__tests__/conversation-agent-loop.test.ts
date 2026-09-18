@@ -2236,6 +2236,39 @@ describe("session-agent-loop", () => {
 
       expect(onTurnReady).toHaveBeenCalledTimes(1);
     });
+
+    test("reports only the first finalized model call", async () => {
+      const tool: ToolDefinition = {
+        name: "echo",
+        description: "Echo",
+        input_schema: { type: "object" },
+      };
+      const onFirstModelCallPrepared = mock(() => {});
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tool-1", "echo", {}),
+          textResponse("done"),
+        ],
+        loopTools: [tool],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        onFirstModelCallPrepared,
+      });
+
+      expect(onFirstModelCallPrepared).toHaveBeenCalledTimes(1);
+      expect(onFirstModelCallPrepared).toHaveBeenCalledWith({
+        callSite: "callAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        systemPrompt: "system prompt",
+        tools: [tool],
+      });
+    });
   });
 
   describe("usage accounting", () => {

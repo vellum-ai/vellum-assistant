@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, PreparedModelCall } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
   PostModelCallContext,
@@ -18,6 +18,7 @@ import type {
   ContentBlock,
   Message,
   ProviderResponse,
+  ToolDefinition,
 } from "../providers/types.js";
 import {
   createMockProvider,
@@ -401,6 +402,55 @@ describe("agent loop output hooks", () => {
 
     // THEN the provider call carries the hook's profile as the override
     expect(calls[0].options?.config?.overrideProfile).toBe("fast-profile");
+  });
+
+  test("prepared model call carries the post-hook route and wire tool surface", async () => {
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.systemPrompt = `${ctx.systemPrompt ?? ""} [EDITED]`;
+        ctx.modelProfile = "fast-profile";
+      },
+    });
+    const tool: ToolDefinition = {
+      name: "dynamic_tool",
+      description: "Dynamic",
+      input_schema: { type: "object" },
+    };
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    Object.assign(provider, { supportsNativeWebSearch: true });
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+      config: { enableNativeWebSearch: true },
+      resolveTools: () => [tool],
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      overrideProfile: "conversation-profile",
+      forceOverrideProfile: true,
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared).toMatchObject({
+      callSite: "mainAgent",
+      overrideProfile: "fast-profile",
+      forceOverrideProfile: true,
+      systemPrompt: "base prompt [EDITED]",
+    });
+    expect(prepared?.tools.map((item) => item.name)).toEqual([
+      "dynamic_tool",
+      "web_search",
+    ]);
+    expect(calls[0].tools).toEqual(prepared?.tools);
   });
 
   test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {

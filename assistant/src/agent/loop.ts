@@ -663,6 +663,15 @@ type AgentLoopContextWindowResolver = () => {
   overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
 };
 
+/** Final request surface after the pre-model hook has settled. */
+export interface PreparedModelCall {
+  callSite?: LLMCallSite;
+  overrideProfile?: string;
+  forceOverrideProfile: boolean;
+  systemPrompt?: string;
+  tools: ToolDefinition[];
+}
+
 interface AgentLoopRunOptionsBase {
   /** Input history the run starts from; the loop appends its output onto a copy. */
   messages: Message[];
@@ -740,6 +749,8 @@ interface AgentLoopRunOptionsBase {
    */
   forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
+  /** Observe a finalized model request without delaying provider dispatch. */
+  onModelCallPrepared?: (prepared: PreparedModelCall) => void;
   /**
    * When `true`, the loop owns turn-start and mid-loop compaction. The pre-call
    * budget gate runs before the very first provider call — subsuming the
@@ -1435,6 +1446,7 @@ export class AgentLoop {
       overrideProfile,
       forceOverrideProfile = false,
       resolveOverrideProfile,
+      onModelCallPrepared,
       compactInPlace = false,
       isNonInteractive = false,
       model: runModel,
@@ -2231,6 +2243,33 @@ export class AgentLoop {
             { err: preModelCallError },
             "pre-model-call hook failed — proceeding with the original request",
           );
+        }
+
+        if (onModelCallPrepared && !signal?.aborted) {
+          const preparedOverrideProfile =
+            typeof providerConfig.overrideProfile === "string" &&
+            providerConfig.overrideProfile.length > 0
+              ? providerConfig.overrideProfile
+              : undefined;
+          try {
+            onModelCallPrepared({
+              ...(callSite !== undefined ? { callSite } : {}),
+              ...(preparedOverrideProfile !== undefined
+                ? { overrideProfile: preparedOverrideProfile }
+                : {}),
+              forceOverrideProfile:
+                providerConfig.forceOverrideProfile === true,
+              ...(providerOptions.systemPrompt !== undefined
+                ? { systemPrompt: providerOptions.systemPrompt }
+                : {}),
+              tools: currentTools,
+            });
+          } catch (preparedError) {
+            rlog.warn(
+              { err: preparedError },
+              "Prepared model-call observer failed; continuing with provider dispatch",
+            );
+          }
         }
 
         // Announce the LLM-call boundary so downstream handlers (the

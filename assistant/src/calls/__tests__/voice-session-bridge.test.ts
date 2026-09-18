@@ -143,6 +143,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import type { PreparedModelCall } from "../../agent/loop.js";
 import { selectWinningProfile } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
@@ -2915,23 +2916,42 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(runOptions.callSite).toBe("callAgent");
     expect(runOptions.overrideProfile).toBe("quality-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
-    expect(runOptions.onTurnReady).toBeFunction();
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
   });
 
-  test("starts warming the conversation profile without awaiting it", async () => {
+  test("starts warming the finalized request without awaiting it", async () => {
     setConfig("llm", { activeProfile: "quality-optimized" });
     const runOptions = await runOptionsFor({});
     const warmPromptCache = mock(() => new Promise<void>(() => {}));
     fakeConversation.warmPromptCache = warmPromptCache;
-    const onTurnReady = runOptions.onTurnReady as () => void;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    const tools = [
+      {
+        name: "dynamic_tool",
+        description: "Dynamic",
+        input_schema: { type: "object" as const },
+      },
+    ];
 
-    expect(onTurnReady()).toBeUndefined();
+    expect(
+      onFirstModelCallPrepared({
+        callSite: "callAgent",
+        overrideProfile: "hook-selected-profile",
+        forceOverrideProfile: true,
+        systemPrompt: "hook-edited prompt",
+        tools,
+      }),
+    ).toBeUndefined();
 
     expect(warmPromptCache).toHaveBeenCalledWith({
       callSite: "callAgent",
-      overrideProfile: "quality-optimized",
+      overrideProfile: "hook-selected-profile",
       forceOverrideProfile: true,
       signal: undefined,
+      systemPrompt: "hook-edited prompt",
+      tools,
     });
   });
 
@@ -2939,12 +2959,22 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     const runOptions = await runOptionsFor({});
     const warmPromptCache = mock(async () => {});
     fakeConversation.warmPromptCache = warmPromptCache;
-    const onTurnReady = runOptions.onTurnReady as () => void;
-    onTurnReady();
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    onFirstModelCallPrepared({
+      callSite: "callAgent",
+      forceOverrideProfile: false,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
 
     expect(warmPromptCache).toHaveBeenCalledWith({
       callSite: "callAgent",
+      forceOverrideProfile: false,
       signal: undefined,
+      systemPrompt: "system prompt",
+      tools: [],
     });
   });
 
@@ -2952,7 +2982,7 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     setConfig("rateLimit", { maxRequestsPerMinute: 1 });
     const runOptions = await runOptionsFor({});
 
-    expect(runOptions.onTurnReady).toBeUndefined();
+    expect(runOptions.onFirstModelCallPrepared).toBeUndefined();
   });
 
   test("the conversation's own pin wins over the workspace selection", async () => {

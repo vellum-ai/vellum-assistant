@@ -16,7 +16,7 @@
  */
 
 import { repairHistory } from "../agent/history-repair/history-repair.js";
-import type { AgentLoopConfig } from "../agent/loop.js";
+import type { AgentLoopConfig, PreparedModelCall } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
@@ -3469,6 +3469,8 @@ export class Conversation {
       forceOverrideProfile?: boolean;
       /** Start best-effort work after turn admission and before context assembly. */
       onTurnReady?: () => void;
+      /** Observe the first finalized model request without delaying it. */
+      onFirstModelCallPrepared?: (prepared: PreparedModelCall) => void;
       /**
        * Firing's `cron_runs.id` stamped onto this turn's usage rows. Per-turn:
        * forwarded into {@link runAgentLoopImpl} and threaded to `recordUsage`.
