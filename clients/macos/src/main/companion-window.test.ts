@@ -6015,6 +6015,59 @@ describe("the introduction's reports", () => {
   });
 
   /**
+   * A run is not bounded by its cards, so what is held has to be bounded by
+   * something else.
+   *
+   * `back` and `next` walk both ways, and a reader crossing the same three
+   * cards makes a moment each time. With the app's window closed for the whole
+   * run every one of those would be held, and a buffer that evicted oldest
+   * first would throw away the exposure and keep the ending: a conversion out
+   * of nothing, which is worse than holding neither.
+   */
+  test("holds a beat once however many times the reader crosses it", () => {
+    mainWindowOpen = false;
+    startIntro();
+    for (let pass = 0; pass < 12; pass += 1) {
+      send("vellum:companion:advanceIntro", "next");
+      send("vellum:companion:advanceIntro", "back");
+    }
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    const held = takeReports();
+    // The exposure, `meet` and `idle` crossed once each however many times they
+    // were walked over, and the ending. Nothing evicted.
+    expect(held.map((report) => [report.event, report.beat])).toEqual([
+      ["exposed", "idle"],
+      ["advanced", "meet"],
+      ["advanced", "idle"],
+      ["dismissed", "idle"],
+    ]);
+  });
+
+  /**
+   * And when something does have to go, it is never the exposure. It is the
+   * denominator of every rate the funnel computes, so a buffer that kept an
+   * ending and dropped the exposure it belongs to would report a conversion out
+   * of nothing.
+   *
+   * Reached here by replaying the run, which is the developer tray's item and
+   * the only way to make more of these than one run can.
+   */
+  test("evicts anything before it evicts an exposure", () => {
+    mainWindowOpen = false;
+    for (let run = 0; run < 9; run += 1) {
+      startIntro();
+      send("vellum:companion:advanceIntro", "dismiss");
+    }
+
+    const held = takeReports();
+    expect(held.length).toBe(16);
+    // Two rows short of the eighteen made, and both of them endings.
+    expect(held.filter((report) => report.event === "exposed").length).toBe(9);
+    expect(held[0]?.event).toBe("exposed");
+  });
+
+  /**
    * A loaded window is not a listening one.
    *
    * The bundle parses before React mounts the effect that subscribes, and the

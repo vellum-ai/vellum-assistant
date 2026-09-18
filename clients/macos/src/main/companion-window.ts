@@ -485,15 +485,57 @@ let introLanding: ReturnType<typeof setTimeout> | null = null;
 /**
  * How many reports are kept for an app window that is not there to take them.
  *
- * A run is eight beats and cannot produce more moments than it has cards plus
- * an ending, so this is room for a whole run and then some. It exists for the
- * one ending that genuinely happens with no window to send to: the tray's hide,
- * which a user reaches with the app's window closed.
+ * Room for a whole run: one crossing of each of the eight beats, the exposure
+ * that opened it, the offer if it was taken, and the ending, with a margin.
+ * That bound is {@link holdIntroReport}'s to keep, not a property of the run
+ * itself: a reader can walk back and forth across the same cards as long as
+ * they like, and with the app's window closed every one of those presses would
+ * otherwise be held.
+ *
+ * The buffer exists for the one ending that genuinely happens with no window to
+ * send to: the tray's hide, which a user reaches with the app's window closed.
  */
 const INTRO_REPORT_BUFFER = 16;
 
 /** Reports the app's window has not been handed yet, oldest first. */
 const introReports: CompanionIntroReport[] = [];
+
+/**
+ * Hold a report for a window that is not listening.
+ *
+ * **A beat already held is not held again.** `back` and `next` walk the run
+ * both ways, so the moments a run makes are not bounded by its cards: a reader
+ * crossing the same three cards for a minute makes dozens. What `advanced`
+ * answers is whether a beat was reached, and that is a fact which cannot become
+ * truer. The reports are read as a distinct count per beat
+ * (`companion-intro-funnel.ts`), so collapsing the repeats loses nothing the
+ * funnel asks for and puts the bound back. The first crossing is the one kept,
+ * since when a beat was reached is the first time it was.
+ *
+ * Only here, and not on the way out to a listening window: a push goes straight
+ * on and costs nothing to keep whole. The count of rows per beat was never the
+ * question either way.
+ *
+ * **The exposure is the last thing evicted.** It is the denominator of every
+ * rate this funnel computes, and dropping it while keeping the ending would
+ * report a conversion out of nothing, which is worse than reporting neither.
+ */
+const holdIntroReport = (report: CompanionIntroReport): void => {
+  if (
+    report.event === "advanced" &&
+    introReports.some(
+      (held) => held.event === "advanced" && held.beat === report.beat,
+    )
+  ) {
+    return;
+  }
+  introReports.push(report);
+  if (introReports.length <= INTRO_REPORT_BUFFER) {
+    return;
+  }
+  const oldest = introReports.findIndex((held) => held.event !== "exposed");
+  introReports.splice(oldest === -1 ? 0 : oldest, 1);
+};
 
 /**
  * Whether the microphone was already granted when the running run began.
@@ -611,12 +653,7 @@ const reportIntro = (
   // Held unless the window that is here is the one that said it is listening.
   // `null` fails that on its own, so an unarmed push needs no case of its own.
   if (win === null || win.isDestroyed() || win.webContents !== introReportsTo) {
-    introReports.push(report);
-    // Oldest first out, so what survives a run nobody collected is the end of
-    // it: the ending is the row the funnel cannot infer from the others.
-    if (introReports.length > INTRO_REPORT_BUFFER) {
-      introReports.shift();
-    }
+    holdIntroReport(report);
     return;
   }
   win.webContents.send("vellum:companion:introReport", report);
