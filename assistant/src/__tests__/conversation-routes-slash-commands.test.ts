@@ -166,6 +166,7 @@ import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 const _testAuthContext: AuthContext = {
   subject: "actor:self:test-guardian",
@@ -233,6 +234,7 @@ function makeConversation() {
     messages,
     abortController: null,
     currentRequestId: undefined,
+    modeSessions: mockUnownedModeSessions(),
     queue: { length: 0 },
     setTrustContext: () => {},
     replayActivityState: () => {},

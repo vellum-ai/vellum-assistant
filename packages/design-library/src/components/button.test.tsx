@@ -248,6 +248,34 @@ describe("Button class output", () => {
     expect(html).toContain("disabled:border-[var(--primary-disabled)]");
   });
 
+  test("accent variant fills from the consumer's --vbtn-accent, falling back to primary", () => {
+    const html = renderToStaticMarkup(<Button variant="accent">A</Button>);
+    expect(html).toContain("bg-[var(--vbtn-accent,var(--primary-base))]");
+    expect(html).toContain("[--vbtn-fg:var(--vbtn-accent-fg,var(--content-inset))]");
+    expect(html).toContain('data-variant="accent"');
+  });
+
+  test("accent icon-only inks its glyph from --vbtn-accent-glyph, then the label ink", () => {
+    const html = renderToStaticMarkup(
+      <Button variant="accent" iconOnly={<span />} aria-label="A" />,
+    );
+    expect(html).toContain(
+      "[--vbtn-fg:var(--vbtn-accent-glyph,var(--vbtn-accent-fg,var(--content-inset)))]",
+    );
+    // The label ink is merged away rather than left to fight it.
+    expect(html).not.toContain("[--vbtn-fg:var(--vbtn-accent-fg,var(--content-inset))]");
+  });
+
+  test("a disabled accent button takes primary's disabled fill", () => {
+    const html = renderToStaticMarkup(
+      <Button variant="accent" disabled>
+        A
+      </Button>,
+    );
+    expect(html).toContain("disabled:bg-[var(--primary-disabled)]");
+    expect(html).toContain("disabled:[--vbtn-fg:var(--content-disabled)]");
+  });
+
   test("danger variant uses --system-negative-strong background", () => {
     const html = renderToStaticMarkup(<Button variant="danger">D</Button>);
     expect(html).toContain("bg-[var(--system-negative-strong)]");

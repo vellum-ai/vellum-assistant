@@ -55,8 +55,22 @@ const pushes: CompanionSurfaceState[] = [];
 /** Every command main has handed to the app's renderer, most recent last. */
 const dispatched: VellumCommand[] = [];
 
+/**
+ * Commands and pushes to the app's window in one list, because the order
+ * between the two is the thing some cases are about: a run that says it is
+ * over before it asks for the session it ends on has already lost the press.
+ */
+const mainTimeline: string[] = [];
+
 /** How many times a press had to build a window before it could land. */
 let windowsRaised = 0;
+
+/**
+ * Whether the window a press builds goes away again while it loads. Closing
+ * one releases the wait on purpose, so the build answers and the send that
+ * follows it lands nowhere.
+ */
+let windowClosesMidLoad = false;
 
 /** Whether the app's window exists, which is what decides between those two. */
 let mainWindowOpen = true;
@@ -90,6 +104,9 @@ const mainWindow = {
   },
 };
 
+/** The surface window's own lifecycle listeners, so a case can fire one. */
+const surfaceListeners: { event: string; listener: () => void }[] = [];
+
 /** Where the canvas's origin is, which is what the window reports and moves. */
 let origin = { x: 0, y: 0 };
 
@@ -108,7 +125,12 @@ const surface = {
   close: () => {
     companionOpen = false;
   },
-  on: () => {},
+  // Recorded rather than dropped, so a case can close the surface the way the
+  // window server does and let main run the teardown that hangs off it: a
+  // staged run is unstaged there, and its landing timer cancelled with it.
+  on: (event: string, listener: () => void) => {
+    surfaceListeners.push({ event, listener });
+  },
   isDestroyed: () => false,
   /** Whether it may become key, which a form on the bar lends it. */
   focusable: false,
@@ -155,6 +177,7 @@ type Invoker = (args: unknown[]) => unknown;
 const mainRenderer = Object.assign(new EventEmitter(), {
   send: (channel: string, payload: unknown) => {
     mainSends.push({ channel, payload });
+    mainTimeline.push(`${channel}:${String(payload)}`);
   },
 });
 
@@ -427,11 +450,23 @@ mock.module("./main-window", () => ({
   // window being destroyed; whether it is showing decides, with the app's
   // activation, whether the surface is on the screen.
   current: () => (mainWindowOpen ? mainWindow : null),
+  // Lands nowhere with no window to land in, exactly as the real one does.
   dispatchToMain: (command: VellumCommand) => {
+    if (!mainWindowOpen) {
+      return;
+    }
     dispatched.push(command);
+    mainTimeline.push(`command:${command.kind}`);
   },
   ensureVisible: () => {
     windowsRaised += 1;
+    // A build leaves a window behind, which is what the command it was built
+    // for is then sent to. Unless the case says it went away while loading:
+    // the wait is released either way, and `current()` is what tells them
+    // apart.
+    if (!windowClosesMidLoad) {
+      mainWindowOpen = true;
+    }
     return Promise.resolve();
   },
   onMainWindowVisibilityChange: (listener: () => void) => {
@@ -772,6 +807,8 @@ beforeEach(() => {
   // every placement case's answer.
   introSeen = Number.MAX_SAFE_INTEGER;
   micStatus = "granted";
+  windowClosesMidLoad = false;
+  mainTimeline.length = 0;
   fireAppEvent("did-resign-active");
   surface.visible = true;
 });
@@ -782,6 +819,31 @@ const setFlags = (next: Record<string, boolean>): void => {
   for (const listener of [...flagListeners]) {
     listener();
   }
+};
+
+/**
+ * Let a press reach the renderer it was handed to. The hand-off answers on a
+ * microtask even when a window is already there, and the introduction's last
+ * beat is walked on that answer.
+ */
+const settleHandoff = async (): Promise<void> => {
+  for (let i = 0; i < 4; i++) {
+    await Promise.resolve();
+  }
+};
+
+/**
+ * Close the surface the way the window server does: the flag goes first, since
+ * main reads it to tell this close from a window it has already replaced.
+ */
+const closeSurface = (): void => {
+  companionOpen = false;
+  for (const entry of [...surfaceListeners]) {
+    if (entry.event === "closed") {
+      entry.listener();
+    }
+  }
+  surfaceListeners.length = 0;
 };
 
 /** Fire main's visibility listeners, as show, hide, and destroy all do. */
@@ -821,6 +883,18 @@ const state = (): CompanionSurfaceState => {
     throw new Error("No handler registered for vellum:companion:getState");
   }
   return pull([]) as CompanionSurfaceState;
+};
+
+/**
+ * What the app's window pulls on mount: whether to dim itself for a run. The
+ * fact a window built mid-press reads, so it is asked for the way one would.
+ */
+const introStage = (): boolean => {
+  const pull = invocable.get("vellum:companion:getIntroStage");
+  if (!pull) {
+    throw new Error("No handler registered for vellum:companion:getIntroStage");
+  }
+  return pull([]) as boolean;
 };
 
 /** A context as the app's window publishes one. */
@@ -2450,6 +2524,135 @@ describe("introOnAdvance", () => {
     expect(introOnAdvance(null, "next")).toBe(null);
     expect(introOnAdvance(null, "back")).toBe(null);
     expect(introOnAdvance(null, "dismiss")).toBe(null);
+  });
+});
+
+/**
+ * The last beat's press, which is the one beat that does the thing for real.
+ *
+ * It is also the only press that has to reach TWO places in a particular
+ * order: the app is asked for a session, and the run that asked is then over.
+ * The app's first-run voice card stands down while a run is on, so that this
+ * offer reaches a session rather than a third card
+ * (`clients/web/src/domains/chat/voice/live-voice/voice-entry-guards.ts`).
+ * Told the run was over first, it would put itself in front of the one press
+ * the whole run was building to.
+ */
+describe("taking the introduction's last offer", () => {
+  /** Open a surface with a run due, and walk it to the beat that offers one. */
+  const runToLastBeat = (): void => {
+    openStagedRun();
+    for (let i = 1; i < COMPANION_INTRO_BEATS.length; i++) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    expect(state().intro).toBe("try");
+    mainTimeline.length = 0;
+  };
+
+  /** A surface opened with a run due, which stages it on the app's window. */
+  const openStagedRun = (): void => {
+    companionOpen = false;
+    introSeen = 0;
+    openCompanionWindow();
+  };
+
+  // A run is main's own state, and the `try` that ends one leaves the surface
+  // flying home on a timer. Closing the window is how main tears both down, so
+  // every case here leaves through it rather than into the next one.
+  afterEach(() => {
+    closeSurface();
+  });
+
+  test("asks for the session before it says the run is over", async () => {
+    runToLastBeat();
+
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+
+    expect(mainTimeline).toEqual([
+      "command:startVoice",
+      "vellum:companion:introStage:false",
+    ]);
+  });
+
+  /**
+   * The gap the order alone does not close. Closing the app's window leaves the
+   * surface on screen with the run still on it, so the press has to build a
+   * renderer before anything can hear it, and that renderer PULLS the staging
+   * as it mounts. A run ended while it was loading is one it pulls as already
+   * over, and the first-run card takes the press.
+   */
+  test("holds the run open while a renderer is built for the press", async () => {
+    runToLastBeat();
+    mainWindowOpen = false;
+
+    send("vellum:companion:advanceIntro", "try");
+
+    // Still staged: nothing has heard the press yet.
+    expect(introStage()).toBe(true);
+    expect(mainTimeline).toEqual([]);
+
+    await settleHandoff();
+
+    // The window the press built gets the command, and only then is told the
+    // run is over.
+    expect(windowsRaised).toBeGreaterThan(0);
+    expect(mainTimeline).toEqual([
+      "command:startVoice",
+      "vellum:companion:introStage:false",
+    ]);
+    expect(introStage()).toBe(false);
+  });
+
+  /**
+   * The other end of holding it open. Closing the window a press built while
+   * it loads releases the wait on purpose and the send lands nowhere, which is
+   * the user closing the window and nothing happening. The offer has not been
+   * taken, so the run is exactly where it was: ending it here would record an
+   * introduction the user never got and fly the surface home on a press that
+   * did nothing.
+   */
+  test("leaves the run alone when the press reaches nothing", async () => {
+    runToLastBeat();
+    mainWindowOpen = false;
+    windowClosesMidLoad = true;
+
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+
+    expect(windowsRaised).toBeGreaterThan(0);
+    expect(mainTimeline).toEqual([]);
+    expect(state().intro).toBe("try");
+    expect(introStage()).toBe(true);
+  });
+
+  test("and the run is over, so no card waits for the call to end", async () => {
+    runToLastBeat();
+
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+
+    expect(state().intro).toBe(null);
+  });
+
+  /**
+   * Only the last beat. A session started from an earlier one is the run being
+   * interrupted by the user's own business, so the beat is held and the staging
+   * with it.
+   */
+  test("an earlier beat's offer leaves the run staged", async () => {
+    openStagedRun();
+    send("vellum:companion:advanceIntro", "next");
+    send("vellum:companion:advanceIntro", "next");
+    expect(state().intro).toBe("talk");
+    mainTimeline.length = 0;
+
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+
+    expect(mainTimeline).toEqual(["command:startVoice"]);
+    expect(state().intro).toBe("talk");
+    expect(introStage()).toBe(true);
   });
 });
 
@@ -5886,7 +6089,7 @@ describe("the introduction's reports", () => {
    * describes, so it is both the offer taken and the finish. Two rows, because
    * they are two questions: how many people took it, and how many got here.
    */
-  test("reports the offer taken and the run finished on the last beat", () => {
+  test("reports the offer taken and the run finished on the last beat", async () => {
     startIntro();
     for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
       send("vellum:companion:advanceIntro", "next");
@@ -5894,6 +6097,9 @@ describe("the introduction's reports", () => {
     mainSends.length = 0;
 
     send("vellum:companion:advanceIntro", "try");
+    // The last beat's press is counted where it lands, and it lands once the
+    // renderer has the session it asks for.
+    await settleHandoff();
 
     expect(reports().map((report) => [report.event, report.beat])).toEqual([
       ["offer_taken", "try"],

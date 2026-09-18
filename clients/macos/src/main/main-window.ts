@@ -1,4 +1,4 @@
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, autoUpdater, shell } from "electron";
 import { z } from "zod";
 import { createWindowReadiness } from "@vellumai/electron-desktop/window-readiness";
 import {
@@ -128,6 +128,16 @@ const fireVisibilityChange = (): void => {
 // first's resolver (or vice versa).
 const readiness = createWindowReadiness<BrowserWindow>();
 
+// Set once the app is really going away, which is the one time the close
+// button's close is let through. See the `close` handler in
+// `createMainWindow`.
+let quitting = false;
+
+// A close waiting for the window to come out of fullscreen before it hides.
+// Withdrawn by `ensureVisible`, so a press that brings the app back during
+// the exit animation is not undone by the hide landing after it.
+let cancelPendingHide: (() => void) | null = null;
+
 const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
   const allowedOrigin = resolveAllowedOrigin();
 
@@ -235,13 +245,42 @@ const createMainWindow = (): BrowserWindow => {
   win.on("show", fireVisibilityChange);
   win.on("hide", fireVisibilityChange);
 
+  // **The close button puts the window away; only a quit takes it down.**
+  // This renderer is the one that runs calls and owns the voice key, and the
+  // companion stays on screen after the window goes. Destroying it would leave
+  // a press on Talk or a double tap of the key with nowhere to land but a new
+  // window, which has to show itself to exist, so a user who closed the app to
+  // be rid of it would get it back on their next press. Hidden, it answers
+  // those presses where they were made, and anything that raises the app shows
+  // this same window again.
+  win.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    // A fullscreen window hidden in place leaves its Space behind, empty and
+    // black, so it comes out of fullscreen first and hides on arrival.
+    if (win.isFullScreen()) {
+      cancelPendingHide?.();
+      const hideOnArrival = (): void => {
+        cancelPendingHide = null;
+        win.hide();
+      };
+      win.once("leave-full-screen", hideOnArrival);
+      cancelPendingHide = () => {
+        win.off("leave-full-screen", hideOnArrival);
+        cancelPendingHide = null;
+      };
+      win.setFullScreen(false);
+      return;
+    }
+    win.hide();
+  });
+
   win.on("closed", () => {
     // Unblock any pending `await ensureVisible()` so callers that hit
     // the destroyed-before-ready race (network failure during load,
     // user quit mid-load) don't hang forever. The caller's follow-up
     // dispatch then sees `current() === null` and no-ops; that's the
-    // right semantics — the user closed the window, nothing should
-    // happen.
+    // right semantics, since the window only closes for real on a quit.
     ready.release();
     if (mainWindow === win) mainWindow = null;
     // Subscribers (dock) re-read `current()` which is now null →
@@ -278,6 +317,8 @@ const createMainWindow = (): BrowserWindow => {
  * rate this is good enough.
  */
 export const ensureVisible = (): Promise<void> => {
+  // The latest ask wins over a close still waiting to hide.
+  cancelPendingHide?.();
   if (!mainWindow || mainWindow.isDestroyed()) {
     const win = createMainWindow();
     return readiness.wait(win);
@@ -403,6 +444,16 @@ export const installMainWindow = (): void => {
     }
   });
 
+  // What lets the close button's close through. `before-quit` covers Cmd-Q,
+  // the menus and logout. An update install is the one quit that closes the
+  // windows before it says so: Squirrel's `quitAndInstall` announces
+  // `before-quit-for-update`, closes every window, and only then quits.
+  const letCloseThrough = (): void => {
+    quitting = true;
+  };
+  app.on("before-quit", letCloseThrough);
+  autoUpdater.on("before-quit-for-update", letCloseThrough);
+
   void ensureVisible();
 };
 
@@ -410,4 +461,6 @@ export const installMainWindow = (): void => {
 // uses `installMainWindow` instead.
 export const __resetForTesting = (): void => {
   installed = false;
+  quitting = false;
+  cancelPendingHide = null;
 };

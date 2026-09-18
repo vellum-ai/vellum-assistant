@@ -63,7 +63,10 @@ afterEach(() => {
     expandedCardIds: new Map(),
     expandedToolCallIds: new Set(),
   });
-  useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+  useAssistantFeatureFlagStore.setState({
+    sendUserMessage: false,
+    sessionGroups: false,
+  });
 });
 
 function makeToolCall(
@@ -102,11 +105,11 @@ describe("MultiActivityGroup — non-web tool group", () => {
       renderCard(toolCalls);
     // The unified group mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // The header carousels the live step: the tool's "Working" title paired
-    // with the `command` input. The timeline lives in the side panel, so no
-    // step pills render inline.
+    // The phase title stays stable while the action wording follows the flag.
     expect(getByText("Working")).toBeTruthy();
     expect(getByText("git status")).toBeTruthy();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+    expect(getByText("Running a command")).toBeTruthy();
     expect(getByRole("button", { name: /view steps/i })).toBeTruthy();
     expect(queryByTestId("tool-step-pill")).toBeNull();
     // Single-step groups suppress the count pill — it would just duplicate
@@ -115,6 +118,7 @@ describe("MultiActivityGroup — non-web tool group", () => {
   });
 
   test("carousels the live step in the header while streaming", () => {
+    useAssistantFeatureFlagStore.setState({ sessionGroups: true });
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -124,11 +128,10 @@ describe("MultiActivityGroup — non-web tool group", () => {
       }),
     ];
     const { getByText, queryByTestId } = renderCard(toolCalls);
-    // While the run is in flight the header carousels the live step: the
-    // "Working" title (rendered through the streaming shimmer) paired with
-    // the running command.
+    // While the run is in flight the stable Working title shimmers beside the
+    // localized terminal action label.
     expect(getByText("Working")).toBeTruthy();
-    expect(getByText("git status")).toBeTruthy();
+    expect(getByText("Running a command")).toBeTruthy();
     // The timeline lives in the side panel — no step rows inline.
     expect(queryByTestId("tool-step-pill")).toBeNull();
   });
@@ -751,8 +754,7 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    // The header carousels the live step: the "Working" title paired with
-    // the command.
+    // The disabled feature keeps the stable Working phase and command detail.
     expect(getByText("Working")).toBeTruthy();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a

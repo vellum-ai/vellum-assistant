@@ -215,8 +215,8 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
 // Out-of-band session end, behind the failure notice's reclaim action. Mocked
 // so the action can be driven without a daemon; the wrapper's own shape mirrors
 // `preflightLiveVoice` above.
-const sessionEndSpy = mock((_assistantId: string): Promise<boolean> =>
-  Promise.resolve(true),
+const sessionEndSpy = mock(
+  (_assistantId: string): Promise<boolean> => Promise.resolve(true),
 );
 mock.module(
   "@/domains/chat/voice/live-voice/live-voice-session-end-api",
@@ -363,8 +363,9 @@ function resetLiveVoiceMocks() {
 // voice-input-button imports) resolve against the mocked modules. The pure
 // helpers (computeGhostSuffix / shouldSubmitOnEnter) come from
 // `chat-composer-utils`, imported statically above.
-const { ChatComposer } =
-  await import("@/domains/chat/components/chat-composer/chat-composer");
+const { ChatComposer } = await import(
+  "@/domains/chat/components/chat-composer/chat-composer"
+);
 
 // ---------------------------------------------------------------------------
 // shouldSubmitOnEnter — keyboard policy
@@ -2114,8 +2115,8 @@ describe("ChatComposer: the mobile send slot", () => {
   // classes: it answers to the same width signal that produces the row, so it
   // lands on every narrow window rather than only on the coarse-pointer ones
   // the `touch-mobile:` variant reaches.
-  // The fill is the assistant's accent, falling back to the primary token.
-  const SEND_FILL_CLASS = "bg-[var(--avatar-accent-fill,var(--primary-base))]";
+  // The fill is the assistant's accent: the `Button` primitive's `accent`
+  // variant, which the app maps onto the avatar accent.
 
   test("an empty draft leaves the circular live-voice button in the slot", () => {
     // GIVEN a phone composer with nothing to send
@@ -2136,7 +2137,7 @@ describe("ChatComposer: the mobile send slot", () => {
     // THEN send takes the circle over, in the filled tone of the design
     const send = queryByLabelText("Send message");
     expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
-    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(send?.getAttribute("data-variant")).toBe("accent");
     expect(queryByLabelText("Start voice mode")).toBeNull();
 
     // AND dictation is untouched beside it
@@ -2151,11 +2152,11 @@ describe("ChatComposer: the mobile send slot", () => {
       sendDisabled: true,
     });
 
-    // THEN the circle stays but the filled tone does not, so a blocked send
-    // never reads as one waiting to be pressed
+    // THEN the circle stays and the button is disabled, so it takes the
+    // variant's disabled fill and never reads as one waiting to be pressed
     const send = queryByLabelText("Send message");
     expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
-    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+    expect(send?.hasAttribute("disabled")).toBe(true);
   });
 
   test("a busy turn keeps the phone row's stop/send swap", () => {
@@ -2197,7 +2198,7 @@ describe("ChatComposer: the mobile send slot", () => {
     });
     const send = drafted.queryByLabelText("Send message");
     expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
-    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(send?.getAttribute("data-variant")).toBe("accent");
   });
 
   test("a narrow mouse-driven window gets the circle a phone gets", () => {
@@ -2209,7 +2210,7 @@ describe("ChatComposer: the mobile send slot", () => {
     // pairing a mobile layout with desktop controls
     const send = queryByLabelText("Send message");
     expect(send?.className).toContain(MOBILE_CONTROL_CLASS);
-    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(send?.getAttribute("data-variant")).toBe("accent");
     expect(glyphClassOf(send)).toContain(MOBILE_GLYPH_CLASS);
   });
 
@@ -2236,7 +2237,7 @@ describe("ChatComposer: the mobile send slot", () => {
     // assistant's accent at every width
     const send = queryByLabelText("Send message");
     expect(send?.className).not.toContain("rounded-full");
-    expect(send?.className).toContain(SEND_FILL_CLASS);
+    expect(send?.getAttribute("data-variant")).toBe("accent");
     expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });
@@ -2441,7 +2442,12 @@ function renderVoiceComposer(
 describe("ChatComposer document context before live voice", () => {
   test("keeps prewarmed voice closed until document preparation allows entry", async () => {
     let allow!: (value: boolean) => void;
-    const onBeforeLiveVoiceStart = mock(() => new Promise<boolean>((resolve) => { allow = resolve; }));
+    const onBeforeLiveVoiceStart = mock(
+      () =>
+        new Promise<boolean>((resolve) => {
+          allow = resolve;
+        }),
+    );
     const { getByLabelText } = renderVoiceComposer({ onBeforeLiveVoiceStart });
     fireEvent.click(getByLabelText("Start voice mode"));
     await flushPreflight();
@@ -2450,10 +2456,15 @@ describe("ChatComposer document context before live voice", () => {
     expect(liveStarterSpy).not.toHaveBeenCalled();
     fireEvent.click(getByLabelText("Start voice mode"));
     expect(onBeforeLiveVoiceStart).toHaveBeenCalledTimes(1);
-    await act(async () => { allow(true); });
+    await act(async () => {
+      allow(true);
+    });
     await flushPreflight();
     expect(liveStarterSpy).toHaveBeenCalledTimes(1);
-    expect(liveStarterSpy.mock.calls[0]?.slice(0, 2)).toEqual(["asst_test", "conv_test"]);
+    expect(liveStarterSpy.mock.calls[0]?.slice(0, 2)).toEqual([
+      "asst_test",
+      "conv_test",
+    ]);
   });
 
   test("a failed or cancelled document preparation releases prewarm without starting voice", async () => {
@@ -2469,12 +2480,21 @@ describe("ChatComposer document context before live voice", () => {
 
   test("a chat switch while the document saves cannot start voice for the old chat", async () => {
     let allow!: (value: boolean) => void;
-    const onBeforeLiveVoiceStart = mock(() => new Promise<boolean>((resolve) => { allow = resolve; }));
-    const { getByLabelText, rerenderWith } = renderVoiceComposer({ onBeforeLiveVoiceStart });
+    const onBeforeLiveVoiceStart = mock(
+      () =>
+        new Promise<boolean>((resolve) => {
+          allow = resolve;
+        }),
+    );
+    const { getByLabelText, rerenderWith } = renderVoiceComposer({
+      onBeforeLiveVoiceStart,
+    });
     fireEvent.click(getByLabelText("Start voice mode"));
     await flushPreflight();
     rerenderWith({ conversationId: "conversation-2" });
-    await act(async () => { allow(true); });
+    await act(async () => {
+      allow(true);
+    });
     await flushPreflight();
     expect(liveStarterSpy).not.toHaveBeenCalled();
     expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);

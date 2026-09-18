@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 /**
@@ -46,6 +45,7 @@ import { useMemo } from "react";
 import { cn } from "@/utils/misc";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardStep,
@@ -115,6 +115,7 @@ interface ResolvedView {
 
 export function SingleActivity(props: SingleActivityProps) {
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   // Both variants TOGGLE the shared tool-detail drawer and read its active
   // payload to drive the selected highlight. Hooks run unconditionally; the only
   // early return (empty, settled thinking) happens after them below.
@@ -269,8 +270,13 @@ export function SingleActivity(props: SingleActivityProps) {
     };
   } else {
     const { toolCall } = props;
-    const { activity, info, title } = deriveStepLabel(toolCall);
-    const label = activity || info || title;
+    const { activity, info, title, actionDisplayKey } =
+      deriveStepLabel(toolCall);
+    const label = resolveActionDisplayLabel({
+      activity,
+      actionDisplayKey,
+      fallback: activity || info || title,
+    });
     const isError =
       Boolean(toolCall.isError) ||
       toolCall.confirmationDecision === "denied" ||

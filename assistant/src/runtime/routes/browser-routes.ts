@@ -11,16 +11,20 @@
 
 import { z } from "zod";
 
-import { executeBrowserOperation } from "../../browser/operations.js";
+import {
+  browserOperationLifecycle,
+  executeBrowserOperation,
+} from "../../browser/operations.js";
 import {
   BROWSER_OPERATIONS,
   type BrowserOperation,
 } from "../../browser/types.js";
 import { shouldUseVirtualDesktopBrowser } from "../../browser/virtual-desktop-target.js";
+import { bestEffortModeSessionTracking } from "../../daemon/mode-session-tracking.js";
 import { executeDesktopBrowserOperation } from "../../desktop/desktop-browser-operations.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { resolveBrowserContext } from "./browser-context.js";
+import { resolveBrowserExecutionContext } from "./browser-context.js";
 export { browserCliConversationKey } from "./browser-context.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -68,16 +72,51 @@ async function handleBrowserExecute({
   const { operation, input, sessionId, conversationId, desktop } =
     BrowserExecuteParams.parse(body);
 
-  const context = await resolveBrowserContext(
+  const resolved = await resolveBrowserExecutionContext(
     conversationId,
     sessionId,
     headers,
     abortSignal,
   );
+  const { context, conversation } = resolved;
+  const typedOperation = operation as BrowserOperation;
+  const operationToken = conversation?.currentRequestId
+    ? bestEffortModeSessionTracking("browser admission", () =>
+        conversation.browserModeSessions.beginOperation({
+          turnId: conversation.currentRequestId!,
+          lifecycle: browserOperationLifecycle(typedOperation),
+          at: Date.now(),
+        }),
+      )
+    : undefined;
   const execute = shouldUseVirtualDesktopBrowser(desktop, input, context)
     ? executeDesktopBrowserOperation
     : executeBrowserOperation;
-  const result = await execute(operation as BrowserOperation, input, context);
+  const finishOperationTracking = (isError: boolean) => {
+    if (!operationToken) {
+      return;
+    }
+    bestEffortModeSessionTracking("browser completion", () =>
+      conversation?.browserModeSessions.finishOperation(operationToken, {
+        at: Date.now(),
+        isError,
+        cancelled: context.signal?.aborted === true,
+        ...(typedOperation === "close"
+          ? { terminalReason: "browser_closed" as const }
+          : typedOperation === "detach"
+            ? { terminalReason: "browser_detached" as const }
+            : {}),
+      }),
+    );
+  };
+  let result;
+  try {
+    result = await execute(typedOperation, input, context);
+  } catch (error) {
+    finishOperationTracking(true);
+    throw error;
+  }
+  finishOperationTracking(result.isError);
 
   const screenshots = extractScreenshots(result.contentBlocks);
 

@@ -29,16 +29,27 @@ import {
   TASK_STOP_MARKER,
   TASK_UPDATE_SILENT_MARKER,
 } from "../calls/voice-control-protocol.js";
+import type { VoiceEscalationTarget } from "../calls/voice-escalation-target.js";
 import {
   createFrontDoorLegCoordinator,
   type FrontDoorLegCoordinator,
   type SpokenEscalationBridge,
 } from "../calls/voice-leg-coordinator.js";
 import {
+  getVoiceMetricsAggregateFields,
+  type VoiceEndpointAction,
+  type VoiceEndpointSource,
+  type VoiceMetricsClock,
+  VoiceMetricsCollector,
+  type VoiceMetricsEvent,
+  type VoiceTurnSeedMarks,
+} from "../calls/voice-metrics.js";
+import {
   createProgressCadence,
   type ProgressCadence,
 } from "../calls/voice-progress-cadence.js";
 import type {
+  VoiceTurnCallbacks,
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
@@ -58,6 +69,10 @@ import {
   VoiceFrontModelConfigSchema,
 } from "../config/schemas/voice.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import type {
+  ConversationModeSessionCoordinator,
+  ModeSessionSourceHandle,
+} from "../daemon/conversation-mode-session.js";
 import { isRefusedInReadOnlyPass } from "../daemon/conversation-tool-setup.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
@@ -119,6 +134,7 @@ import {
   dismissesUiSurface,
   revealsUiSurface,
 } from "./activity-label.js";
+import { CameraModeSessionProducer } from "./camera-mode-session.js";
 import {
   buildDuplexContinuationLabel,
   createContinuationLabeler,
@@ -131,15 +147,7 @@ import type {
 } from "./live-voice-archive.js";
 import type { LiveVoiceCredentialReadiness } from "./live-voice-credential-preflight.js";
 import {
-  getLiveVoiceMetricsAggregateFields,
-  type LiveVoiceMetricsClock,
-  LiveVoiceMetricsCollector,
-  type LiveVoiceMetricsEvent,
-  type LiveVoiceTurnSeedMarks,
-  type VoiceEndpointAction,
-  type VoiceEndpointSource,
-} from "./live-voice-metrics.js";
-import {
+  type LiveVoicePhotoResult,
   persistAmbientSightFrame,
   persistLiveVoicePhoto,
 } from "./live-voice-photo.js";
@@ -363,10 +371,14 @@ export interface LiveVoiceSessionOptions {
    */
   resolveCredentialReadiness?: LiveVoiceCredentialReadinessResolver | null;
   startVoiceTurn?: LiveVoiceTurnStarter;
+  acquireModeSessionResidency?: (conversationId: string) => Promise<{
+    coordinator: ConversationModeSessionCoordinator;
+    release: () => void;
+  }>;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
-  metricsClock?: LiveVoiceMetricsClock;
+  metricsClock?: VoiceMetricsClock;
   /**
    * Mirrors phase changes to the iOS Live Activity. Injectable so tests can
    * assert what a session reports without reaching the platform.
@@ -632,6 +644,9 @@ interface ActiveAssistantTurn {
   language: string | undefined;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
+  modeSessionSource: ModeSessionSourceHandle | undefined;
+  modeSessionRequestIds: string[];
+  modeSessionDeliveryTurnId: string | null;
   // When the turn launched, for narration's turnElapsedMs.
   launchedAtMs: number;
   // Tool-activity log and spoken progress narration for the turn
@@ -656,6 +671,10 @@ interface ActiveAssistantTurn {
   // whole frame rather than its wording. What the CLIENT believes, as against
   // `pendingApproval`, which is what is true.
   publishedApprovalRequestId: string | null;
+  // Structured activity the client most recently received. TTS can
+  // temporarily move system surfaces to speaking without changing this
+  // logical activity, while a tool or approval frame clears it.
+  publishedActivityKind: "escalation" | null;
   // Set while the turn is blocked on a decision the user has to make, and null
   // when it is not. Suppresses progress narration, whose entire vocabulary
   // ("still on it", "almost there") describes work in flight and would be
@@ -763,6 +782,9 @@ interface ActiveAssistantTurn {
   // The front-door leg's coordinator: whether it handed the turn off to the
   // escalated leg. Null until the front-door leg starts.
   frontDoor: FrontDoorLegCoordinator | null;
+  // Final post-hook inference target for an escalated leg. Retained so the
+  // neutral waiting phase can be restored after bridge audio drains.
+  escalationTarget: VoiceEscalationTarget | null;
   ttsBuffer: string;
   // What the caller actually hears this turn, summed over the model's own
   // segments (acks and progress narration do not count). Logged at tts_done
@@ -786,6 +808,19 @@ interface ActiveAssistantTurn {
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+}
+
+function sameModeSessionSource(
+  a: ModeSessionSourceHandle | undefined,
+  b: ModeSessionSourceHandle,
+): boolean {
+  return (
+    a?.id === b.id &&
+    a.mode === b.mode &&
+    a.sourceId === b.sourceId &&
+    a.generation === b.generation &&
+    a.activation === b.activation
+  );
 }
 
 // Base control prompt for every live-voice turn. Opens with the spoken-reply
@@ -1138,9 +1173,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // continuation completing (before OR after it) can't surface a stale answer.
   private detachSequence = 0;
   private readonly emitMetrics: boolean;
-  private readonly metrics: LiveVoiceMetricsCollector;
+  private readonly metrics: VoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
+  private readonly acquireModeSessionResidency?: (
+    conversationId: string,
+  ) => Promise<{
+    coordinator: ConversationModeSessionCoordinator;
+    release: () => void;
+  }>;
+  private releaseModeSessionResidency?: () => void;
+  private cameraModeSessions?: CameraModeSessionProducer;
+  private sightFrameSequence: Promise<void> = Promise.resolve();
   /**
    * Mirrors phase changes to the iOS Live Activity through the platform, for
    * the case the client cannot cover: an app backgrounded long enough for iOS
@@ -1321,7 +1365,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Detector turn-end that fired while its speech sat parked in the ring;
   // replayed once the parked speech flushes into the next armed utterance.
   private vadPendingTurnEnd: "silence" | "max-duration" | null = null;
-  private readonly metricsClock: LiveVoiceMetricsClock;
+  private readonly metricsClock: VoiceMetricsClock;
   // Persistent mode: a server-VAD session keeps one streaming transcriber for
   // the whole session when the stream can be sealed per utterance without
   // closing it. Either the provider is finalize-capable (release flushes via
@@ -1354,6 +1398,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly finalizeGraceMs: number;
   // Rotates through the progress fallback phrases across the session's turns.
   private progressPhraseCounter = 0;
+  private modeSessionDeliveryCounter = 0;
   // Progress-only phrasing service. It never makes routing decisions and
   // never emits an answer.
   private readonly progressNarrator: VoiceProgressNarrator | null;
@@ -1444,11 +1489,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.acquireModeSessionResidency = options.acquireModeSessionResidency;
     this.liveActivityReporter =
       options.liveActivityReporter ??
       new LiveActivityReporter(this.conversationId);
     this.metricsClock = options.metricsClock ?? Date.now;
-    this.metrics = new LiveVoiceMetricsCollector({
+    this.metrics = new VoiceMetricsCollector({
       sessionId: context.sessionId,
       conversationId: this.conversationId,
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
@@ -1576,6 +1622,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // is a property of the daemon and not of what this client asked for.
       // A client reading it back absent is talking to one that predates it.
       textInput: true,
+      ...(this.acquireModeSessionResidency ? { sightSessions: true } : {}),
       ...(this.audioInput ? {} : { audioInput: false }),
     });
     this.scheduleTaskAnnouncement();
@@ -1609,13 +1656,48 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "attach_frame":
         this.parkTurnFrame(frame);
         return;
+      case "sight_start":
+        await this.sequenceSightFrame(frame);
+        return;
+      case "sight_end":
+        await this.sequenceSightFrame(frame);
+        return;
       case "sight_frame":
-        this.persistSightFrame(frame);
+        await this.sequenceSightFrame(frame);
         return;
       case "text":
         await this.handleTextTurn(frame);
         return;
     }
+  }
+
+  private sequenceSightFrame(
+    frame: Extract<
+      LiveVoiceClientFrame,
+      { type: "sight_start" | "sight_end" | "sight_frame" }
+    >,
+  ): Promise<void> {
+    const operation = this.sightFrameSequence.then(async () => {
+      if (this.isClosed || this.state === "failed") {
+        if (frame.type === "sight_frame") {
+          this.reclaimParkedFrame(frame.attachmentId);
+        }
+        return;
+      }
+      switch (frame.type) {
+        case "sight_start":
+          await this.startSightSession(frame.cameraEpoch, frame.source);
+          return;
+        case "sight_end":
+          this.endSightSession(frame.cameraEpoch);
+          return;
+        case "sight_frame":
+          this.persistSightFrame(frame);
+          return;
+      }
+    });
+    this.sightFrameSequence = operation.catch(() => {});
+    return operation;
   }
 
   /**
@@ -1724,6 +1806,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   private persistSightFrame(frame: LiveVoiceClientSightFrameFrame): void {
     const receivedAtMs = Date.now();
+    const cameraToken =
+      frame.cameraEpoch === undefined
+        ? undefined
+        : this.cameraModeSessions?.beginFrame(frame.cameraEpoch, frame.source);
+    if (frame.cameraEpoch !== undefined && !cameraToken) {
+      deleteOrphanAttachments([frame.attachmentId]);
+      if (!this.isClosed) {
+        void this.sendFrame({
+          type: "error",
+          code: LiveVoiceProtocolErrorCode.InvalidFrame,
+          message: "That camera run is no longer active.",
+          frameType: "sight_frame",
+          attachmentId: frame.attachmentId,
+          recoverable: true,
+        });
+      }
+      return;
+    }
     // One line per keep, written when the row lands, carrying the whole
     // timeline: the client leg the frame reported, the daemon leg the persist
     // measured, and the distance from the speech onset the frame may have
@@ -1733,11 +1833,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.lastSpeechStartedAtMs === null
         ? null
         : receivedAtMs - this.lastSpeechStartedAtMs;
-    void persistAmbientSightFrame(
-      this.conversationId,
-      frame.attachmentId,
-      "voice",
-    ).then((result) => {
+    const settleFrame = (
+      result: LiveVoicePhotoResult,
+      rejection?: unknown,
+    ): void => {
+      if (rejection !== undefined) {
+        log.warn(
+          { err: rejection, attachmentId: frame.attachmentId },
+          "Sight frame persistence rejected unexpectedly",
+        );
+      }
+      try {
+        this.cameraModeSessions?.finishFrame(
+          cameraToken,
+          result.ok && result.messageId
+            ? { messageId: result.messageId, at: receivedAtMs }
+            : undefined,
+        );
+      } catch (err) {
+        log.warn(
+          { err, attachmentId: frame.attachmentId },
+          "Could not record camera session ownership",
+        );
+      }
       log.info(
         {
           attachmentId: frame.attachmentId,
@@ -1770,7 +1888,74 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           recoverable: true,
         });
       }
+    };
+    void persistAmbientSightFrame(
+      this.conversationId,
+      frame.attachmentId,
+      "voice",
+      undefined,
+      undefined,
+      cameraToken?.owner,
+    ).then(
+      (result) => settleFrame(result),
+      (err) => settleFrame({ ok: false }, err),
+    );
+  }
+
+  private async startSightSession(
+    cameraEpoch: number,
+    source: "live" | "ambient" | undefined,
+  ): Promise<void> {
+    let acquiredProducer = false;
+    if (!this.cameraModeSessions && this.acquireModeSessionResidency) {
+      try {
+        const residency = await this.acquireModeSessionResidency(
+          this.conversationId,
+        );
+        if (this.isClosed || this.state === "failed") {
+          residency.release();
+          return;
+        }
+        this.cameraModeSessions = new CameraModeSessionProducer(
+          residency.coordinator,
+          this.context.sessionId,
+        );
+        this.releaseModeSessionResidency = residency.release;
+        acquiredProducer = true;
+      } catch (err) {
+        log.warn({ err, cameraEpoch }, "Could not prepare camera session");
+      }
+    }
+    let handle: ModeSessionSourceHandle | undefined;
+    try {
+      handle = this.cameraModeSessions?.start(cameraEpoch, source ?? "live");
+    } catch (err) {
+      log.warn({ err, cameraEpoch }, "Could not start camera session");
+    }
+    if (!handle && acquiredProducer) {
+      this.cameraModeSessions = undefined;
+      const release = this.releaseModeSessionResidency;
+      this.releaseModeSessionResidency = undefined;
+      release?.();
+    }
+    if (handle || this.isClosed) {
+      return;
+    }
+    void this.sendFrame({
+      type: "error",
+      code: LiveVoiceProtocolErrorCode.InvalidFrame,
+      message: "Could not start that camera run.",
+      frameType: "sight_start",
+      recoverable: true,
     });
+  }
+
+  private endSightSession(cameraEpoch: number): void {
+    try {
+      this.cameraModeSessions?.end(cameraEpoch);
+    } catch (err) {
+      log.warn({ err, cameraEpoch }, "Could not end camera session");
+    }
   }
 
   /**
@@ -1892,6 +2077,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.isClosed) {
       return;
     }
+
+    try {
+      this.cameraModeSessions?.close(
+        reason === "client_end"
+          ? { status: "completed", endReason: "camera_session_ended" }
+          : { status: "interrupted", endReason: `camera_${reason}` },
+      );
+    } catch (err) {
+      log.warn({ err, reason }, "Could not close camera session");
+    }
+    this.releaseModeSessionResidency?.();
+    this.releaseModeSessionResidency = undefined;
 
     if (this.turnDetector) {
       this.logInputDiagnostic("voice_input_closed", {
@@ -3888,9 +4085,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Publish whatever the turn's activity line should be right now: the
-   * decision it is waiting on if it is waiting, and its newest running tool if
-   * it is not.
+   * Publish whatever the turn's activity should be right now: the decision it
+   * is waiting on, its newest running tool, or the structured escalation state
+   * underneath those temporary overlays.
    *
    * The single entry point for every caller that would otherwise reach for
    * `currentActivityLabel` directly. A turn can start and finish other ops
@@ -3908,7 +4105,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       return;
     }
-    this.publishActivity(turn, this.currentActivityLabel(turn));
+    const label = this.currentActivityLabel(turn);
+    if (
+      label.length === 0 &&
+      turn.escalationTarget !== null &&
+      !turn.assistantCompleted
+    ) {
+      if (turn.publishedActivityKind !== "escalation") {
+        this.publishEscalationActivity(turn, turn.escalationTarget);
+      }
+      return;
+    }
+    this.publishActivity(turn, label);
   }
 
   /**
@@ -3986,14 +4194,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * conversation may wait on one.
    *
    * Callers whose line depends on turn state go through
-   * {@link refreshActivity}; this is called directly only to clear the line
-   * outright, which a cancelled or finished turn does regardless of what it
-   * was waiting on.
+   * {@link refreshActivity}. Structured transition events call this directly
+   * because their meaning is not captured by the label alone.
    */
   private publishActivity(
     turn: ActiveAssistantTurn,
     label: string,
     approvalRequestId?: string,
+    detail?: Pick<
+      Extract<LiveVoiceServerFramePayload, { type: "activity" }>,
+      "kind" | "profile" | "profileSource"
+    >,
   ): void {
     // De-duplicated on the request id as well as the wording. The two move
     // independently: a wait can be entered and left without the tool line
@@ -4001,6 +4212,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // retires the approval — leaving the island's buttons up with nothing
     // behind them.
     if (
+      detail === undefined &&
+      turn.publishedActivityKind === null &&
       turn.activityLabel === label &&
       turn.publishedApprovalRequestId === (approvalRequestId ?? null)
     ) {
@@ -4008,15 +4221,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     turn.activityLabel = label;
     turn.publishedApprovalRequestId = approvalRequestId ?? null;
+    turn.publishedActivityKind = detail?.kind ?? null;
     void this.sendFrame(
       {
         type: "activity",
         turnId: turn.turnId,
         label,
         ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+        ...detail,
       },
       () => !this.isClosed,
     );
+  }
+
+  private publishEscalationActivity(
+    turn: ActiveAssistantTurn,
+    target: VoiceEscalationTarget,
+  ): void {
+    this.publishActivity(turn, "", undefined, {
+      kind: "escalation",
+      profile: target.profile,
+      profileSource: target.source,
+    });
   }
 
   private clearActiveAssistantTurn(token: symbol): void {
@@ -4719,6 +4945,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.activeAssistantTurn = null;
     }
     this.clearFillerTimers(turn);
+    this.releaseModeSessionRequests(turn);
+    this.releaseModeSessionDelivery(turn);
     turn.abortController.abort(
       createAbortReason("voice_session_aborted", `live-voice-${reason}`),
     );
@@ -5594,6 +5822,48 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       opts?.taskOutcome == null ? this.consumePendingTurnContext() : null;
     const token = Symbol("live-voice-assistant-turn");
     const turnId = this.ensureTurnId(utterance);
+    const initialLeg = opts?.initialLeg ?? "front-door";
+    const modeSessionRequestId = randomUUID();
+    const attemptedModeSessionRequestIds: string[] = [modeSessionRequestId];
+    let modeSessionSource: ModeSessionSourceHandle | undefined;
+    let modeSessionRequestIds: string[] = [];
+    let modeSessionDeliveryTurnId: string | null = null;
+    try {
+      modeSessionSource =
+        this.cameraModeSessions?.holdDelivery(modeSessionRequestId);
+      if (!modeSessionSource) {
+        this.releaseModeSessionTurnId(modeSessionRequestId);
+      } else {
+        modeSessionRequestIds.push(modeSessionRequestId);
+        if (initialLeg === "front-door") {
+          const escalatedRequestId = randomUUID();
+          attemptedModeSessionRequestIds.push(escalatedRequestId);
+          const escalatedSource =
+            this.cameraModeSessions?.holdDelivery(escalatedRequestId);
+          if (!sameModeSessionSource(escalatedSource, modeSessionSource)) {
+            throw new Error("Camera session changed during voice admission");
+          }
+          modeSessionRequestIds.push(escalatedRequestId);
+        }
+        const deliveryTurnId = `live-voice-delivery:${this.context.sessionId}:${++this.modeSessionDeliveryCounter}`;
+        attemptedModeSessionRequestIds.push(deliveryTurnId);
+        const deliverySource =
+          this.cameraModeSessions?.holdDelivery(deliveryTurnId);
+        if (!sameModeSessionSource(deliverySource, modeSessionSource)) {
+          throw new Error("Camera session changed during voice admission");
+        }
+        modeSessionDeliveryTurnId = deliveryTurnId;
+      }
+    } catch (err) {
+      log.warn(
+        { err, turnId },
+        "Could not attach camera session ownership to voice turn",
+      );
+      this.releaseModeSessionTurnIds(attemptedModeSessionRequestIds);
+      modeSessionSource = undefined;
+      modeSessionRequestIds = [];
+      modeSessionDeliveryTurnId = null;
+    }
     this.startMetricsTurnIfNeeded(utterance, turnId);
     this.markAssistantDispatch(utterance, turnId);
     const abortController = new AbortController();
@@ -5613,6 +5883,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       language: this.turnLanguageFor(utterance),
       abortController,
       handle: null,
+      modeSessionSource,
+      modeSessionRequestIds,
+      modeSessionDeliveryTurnId: modeSessionSource
+        ? modeSessionDeliveryTurnId
+        : null,
       launchedAtMs: Date.now(),
       progress: createProgressCadence({
         config: progressConfigForCadence(
@@ -5656,6 +5931,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       sessionControlRequested: null,
       activityLabel: "",
       publishedApprovalRequestId: null,
+      publishedActivityKind: null,
       pendingApproval: null,
       ttsAudioStarted: false,
       ttsFailed: false,
@@ -5689,6 +5965,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : null,
       deltaEpoch: 0,
       frontDoor: null,
+      escalationTarget: null,
       ttsBuffer: "",
       spokenSegments: 0,
       spokenChars: 0,
@@ -5709,6 +5986,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!opts?.speculative) {
       await this.sendFrame({ type: "thinking", turnId });
       if (!this.isActiveAssistantTurn(token)) {
+        this.releaseModeSessionRequests(activeTurn);
+        this.releaseModeSessionDelivery(activeTurn);
         this.restorePendingTurnContext(activeTurn);
         // Nothing was persisted, so a frame the restore could not hand back
         // links to no row and is collectible right here.
@@ -5751,7 +6030,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn.progress.arm();
     }
 
-    const initialLeg = opts?.initialLeg ?? "front-door";
     const started = await this.startAssistantLeg(activeTurn, {
       content,
       routingLeg: initialLeg,
@@ -5765,6 +6043,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         : {}),
     });
     if (!started) {
+      this.releaseModeSessionRequests(activeTurn);
+      this.releaseModeSessionDelivery(activeTurn);
       // Nothing was persisted or spoken, so the context this turn consumed goes
       // back to the session rather than dying with the failed dispatch. A frame
       // a newer one displaced meanwhile links to no row, so it is collected
@@ -5815,6 +6095,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return false;
     }
     const { token, utterance, turnId } = activeTurn;
+    const modeSessionRequestId = activeTurn.modeSessionRequestIds.shift();
 
     // `rawText` accumulates this leg's spoken stream. A front-door leg runs
     // through the shared coordinator, which reads its stream through the
@@ -5884,6 +6165,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               activeTurn.handle?.abort();
               activeTurn.handle = null;
             },
+            overruleLeg: () => {
+              const handle = activeTurn.handle;
+              activeTurn.handle = null;
+              if (handle?.overrule) {
+                handle.overrule();
+              } else {
+                handle?.abort();
+              }
+            },
             speakBridge: (bridge) =>
               this.speakEscalationBridge(activeTurn, bridge),
             startEscalatedLeg: (escalated) => {
@@ -5896,6 +6186,102 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (coordinator !== null) {
       activeTurn.frontDoor = coordinator;
     }
+
+    // The leg's completion. A front-door answer held for the escalation judge
+    // is spoken or overruled first, so the turn never closes its TTS buffer
+    // under text that has not been released yet.
+    const completeLeg = (
+      msg: Parameters<NonNullable<VoiceTurnCallbacks["message_complete"]>>[0],
+    ): void => {
+      if (
+        coordinator?.awaitingJudge === true &&
+        msg.type === "message_complete"
+      ) {
+        void coordinator.settled().then(() => completeLeg(msg));
+        return;
+      }
+      const current = this.activeAssistantTurn;
+      if (
+        current?.token !== token ||
+        current.assistantCompleted ||
+        // A barged-in turn finalizes through cancelAssistantTurn.
+        current.abortController.signal.aborted ||
+        this.isClosed
+      ) {
+        return;
+      }
+      if (!leg.frontDoor) {
+        this.claimSuspendedForegroundTask(current);
+      }
+      // A speculative leg that finished without a single delta (empty
+      // output, provider hiccup) carries no verdict, so fail open to a
+      // committed turn so the utterance releases and finalizes like a
+      // normal empty completion instead of dangling un-released.
+      if (current.speculativePending) {
+        this.commitSpeculativeTurn(current);
+      }
+      // A front-door leg that stopped mid-bridge hands off now with
+      // whatever arrived. A cancellation mid-bridge falls through to
+      // normal cancelled finalization instead: a dead turn must not
+      // spawn an escalated leg. A front-door leg that handed off is
+      // finished; the escalated leg drives completion, so this leg's
+      // own trailing completion (including the generation_cancelled
+      // from its abort) is a no-op.
+      if (coordinator !== null) {
+        if (msg.type === "message_complete") {
+          coordinator.complete();
+        }
+        if (coordinator.handedOff) {
+          return;
+        }
+      }
+      // A held "[…"-tail that never completed a marker is real text:
+      // force-flush it before assistantCompleted closes the TTS buffer
+      // and completeTtsForTurn signals the drain, so it is spoken and
+      // emitted rather than dropped.
+      if (!leg.frontDoor && msg.type === "message_complete") {
+        flushLegText(rawText, { force: true });
+      }
+      // Read off the leg that finished the reply: a front-door answer
+      // or the escalated leg. A handed-off front-door leg returned
+      // above, so its holding phrase can never end a call.
+      if (msg.type === "message_complete") {
+        current.notificationHandledSilently =
+          current.taskOutcome !== null &&
+          rawText.trim() === TASK_UPDATE_SILENT_MARKER;
+        const request = requestedSessionControl(rawText, this.sessionControls);
+        if (request?.action === "updates") {
+          // The session's own control: nothing to send, and nothing to
+          // wait for, since it shapes turns that have not started yet.
+          this.progressCadence = request.cadence;
+          log.info(
+            { turnId, cadence: request.cadence },
+            "Live voice progress cadence changed",
+          );
+        } else if (request?.action === "task_stop") {
+          this.stopOutstandingInterruptedWork("spoken_task_stop");
+        } else {
+          if (request?.action === "end") {
+            this.clearForegroundTask("call_end_requested");
+          }
+          current.sessionControlRequested = request;
+        }
+      }
+      if (leg.frontDoor) {
+        this.queueForegroundTaskResume(current);
+      }
+      current.assistantCompleted = true;
+      if (msg.type === "generation_cancelled") {
+        void this.finalizeAssistantTurn(
+          current,
+          "cancelled",
+          "generation_cancelled",
+        );
+        return;
+      }
+      current.assistantMessageId = msg.messageId ?? null;
+      this.completeTtsForTurn(token);
+    };
 
     let finishStart!: () => void;
     const startup = new Promise<void>((resolve) => {
@@ -5924,6 +6310,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
+        ...(activeTurn.modeSessionSource && modeSessionRequestId
+          ? {
+              preacceptedModeSession: {
+                requestId: modeSessionRequestId,
+                source: activeTurn.modeSessionSource,
+              },
+            }
+          : {}),
         ...(activeTurn.hiddenPrompt ? { hiddenSyntheticPrompt: true } : {}),
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
@@ -5963,6 +6357,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         onApprovalsResolved: () => {
           this.clearAwaitingApproval(activeTurn);
         },
+        ...(leg.routingLeg === "escalated"
+          ? {
+              onEscalationTargetResolved: (target) => {
+                if (!this.isActiveAssistantTurn(token)) {
+                  return;
+                }
+                activeTurn.escalationTarget = target;
+                this.publishEscalationActivity(activeTurn, target);
+              },
+            }
+          : {}),
         content: leg.content,
         ...(leg.attachments ? { attachments: leg.attachments } : {}),
         isInbound: true,
@@ -6023,92 +6428,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             rawText += msg.text;
             flushLegText(rawText);
           },
-          message_complete: (msg) => {
-            const current = this.activeAssistantTurn;
-            if (
-              current?.token !== token ||
-              current.assistantCompleted ||
-              // A barged-in turn finalizes through cancelAssistantTurn.
-              current.abortController.signal.aborted ||
-              this.isClosed
-            ) {
-              return;
-            }
-            if (!leg.frontDoor) {
-              this.claimSuspendedForegroundTask(current);
-            }
-            // A speculative leg that finished without a single delta (empty
-            // output, provider hiccup) carries no verdict — fail open to a
-            // committed turn so the utterance releases and finalizes like a
-            // normal empty completion instead of dangling un-released.
-            if (current.speculativePending) {
-              this.commitSpeculativeTurn(current);
-            }
-            // A front-door leg that stopped mid-bridge hands off now with
-            // whatever arrived. A cancellation mid-bridge falls through to
-            // normal cancelled finalization instead: a dead turn must not
-            // spawn an escalated leg. A front-door leg that handed off is
-            // finished; the escalated leg drives completion, so this leg's
-            // own trailing completion (including the generation_cancelled
-            // from its abort) is a no-op.
-            if (coordinator !== null) {
-              if (msg.type === "message_complete") {
-                coordinator.complete();
-              }
-              if (coordinator.handedOff) {
-                return;
-              }
-            }
-            // A held "[…"-tail that never completed a marker is real text —
-            // force-flush it before assistantCompleted closes the TTS buffer
-            // and completeTtsForTurn signals the drain, so it is spoken and
-            // emitted rather than dropped.
-            if (!leg.frontDoor && msg.type === "message_complete") {
-              flushLegText(rawText, { force: true });
-            }
-            // Read off the leg that finished the reply: a front-door answer
-            // or the escalated leg. A handed-off front-door leg returned
-            // above, so its holding phrase can never end a call.
-            if (msg.type === "message_complete") {
-              current.notificationHandledSilently =
-                current.taskOutcome !== null &&
-                rawText.trim() === TASK_UPDATE_SILENT_MARKER;
-              const request = requestedSessionControl(
-                rawText,
-                this.sessionControls,
-              );
-              if (request?.action === "updates") {
-                // The session's own control: nothing to send, and nothing to
-                // wait for, since it shapes turns that have not started yet.
-                this.progressCadence = request.cadence;
-                log.info(
-                  { turnId, cadence: request.cadence },
-                  "Live voice progress cadence changed",
-                );
-              } else if (request?.action === "task_stop") {
-                this.stopOutstandingInterruptedWork("spoken_task_stop");
-              } else {
-                if (request?.action === "end") {
-                  this.clearForegroundTask("call_end_requested");
-                }
-                current.sessionControlRequested = request;
-              }
-            }
-            if (leg.frontDoor) {
-              this.queueForegroundTaskResume(current);
-            }
-            current.assistantCompleted = true;
-            if (msg.type === "generation_cancelled") {
-              void this.finalizeAssistantTurn(
-                current,
-                "cancelled",
-                "generation_cancelled",
-              );
-              return;
-            }
-            current.assistantMessageId = msg.messageId ?? null;
-            this.completeTtsForTurn(token);
-          },
+          message_complete: completeLeg,
           persisted_user_message_id: (messageId) => {
             const current = this.activeAssistantTurn;
             // Only the first leg's user row is the real caller utterance; the
@@ -6235,7 +6555,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           })();
         },
       });
-
       const current = this.activeAssistantTurn;
       if (current?.token !== token) {
         // A discard that beat this handle's resolution still owes the
@@ -6278,8 +6597,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       current.handle = handle;
+      if (coordinator !== null && handle.escalationJudgement) {
+        coordinator.attachEscalationJudge(handle.escalationJudgement);
+      }
       return true;
     } catch (err) {
+      if (modeSessionRequestId) {
+        this.releaseModeSessionTurnId(modeSessionRequestId);
+      }
       if (!this.isActiveAssistantTurn(token)) {
         return false;
       }
@@ -6292,6 +6617,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.rearmForegroundTaskAfterLegFailure(activeTurn);
       this.clearFillerTimers(activeTurn);
       this.clearActiveAssistantTurn(token);
+      this.releaseModeSessionRequests(activeTurn);
+      this.releaseModeSessionDelivery(activeTurn);
       if (foregroundTaskResumeRearmed) {
         this.scheduleForegroundTaskResume();
       }
@@ -6334,15 +6661,40 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.
       this.flushTtsBuffer(activeTurn.token, true);
-      return;
+    } else {
+      // The canned bridge is a fixed localized-table phrase, enqueued
+      // directly (it is already one complete sentence) so the segment can
+      // carry the "en" override when the table lacks the turn's language.
+      const speakable = sanitizeForTts(spokenBridge).trim();
+      if (speakable.length > 0) {
+        this.enqueueTtsSegment(activeTurn.token, speakable, { language });
+      }
     }
-    // The canned bridge is a fixed localized-table phrase, enqueued
-    // directly (it is already one complete sentence) so the segment can
-    // carry the "en" override when the table lacks the turn's language.
-    const speakable = sanitizeForTts(spokenBridge).trim();
-    if (speakable.length > 0) {
-      this.enqueueTtsSegment(activeTurn.token, speakable, { language });
-    }
+
+    // Target resolution can land before the bridge's queued audio finishes.
+    // Its activity frame moves the system surface to thinking, then a late
+    // bridge tts_audio frame moves it back to speaking. Restore the neutral
+    // waiting phase at the bridge's emission boundary, ahead of any answer
+    // audio queued behind it.
+    const bridgeDrain = activeTurn.ttsQueue;
+    void bridgeDrain.then(
+      () => {
+        const target = activeTurn.escalationTarget;
+        if (
+          target === null ||
+          !this.isActiveAssistantTurn(activeTurn.token) ||
+          activeTurn.assistantCompleted
+        ) {
+          return;
+        }
+        if (activeTurn.publishedActivityKind === "escalation") {
+          this.publishEscalationActivity(activeTurn, target);
+          return;
+        }
+        this.liveActivityReporter.restoreThinkingPhase();
+      },
+      () => undefined,
+    );
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
@@ -6600,6 +6952,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (!currentTurn.abortController.signal.aborted) {
           this.scheduleRearmAfterTurn();
         }
+      })
+      .finally(() => {
+        this.releaseModeSessionDelivery(activeTurn);
       });
   }
 
@@ -7201,6 +7556,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         : {}),
     });
     await this.finishMetricsTurn(turn.utterance, status, reason, turn.turnId);
+    this.releaseModeSessionRequests(turn);
+
+    if (status === "cancelled") {
+      this.releaseModeSessionDelivery(turn);
+    }
 
     if (
       (options.clearActive ?? true) &&
@@ -7212,6 +7572,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     if (options.rearm ?? true) {
       this.scheduleRearmAfterTurn();
+    }
+  }
+
+  private releaseModeSessionDelivery(turn: ActiveAssistantTurn): void {
+    const turnId = turn.modeSessionDeliveryTurnId;
+    if (turnId === null) {
+      return;
+    }
+    turn.modeSessionDeliveryTurnId = null;
+    this.releaseModeSessionTurnId(turnId);
+  }
+
+  private releaseModeSessionRequests(turn: ActiveAssistantTurn): void {
+    this.releaseModeSessionTurnIds(turn.modeSessionRequestIds.splice(0));
+  }
+
+  private releaseModeSessionTurnIds(turnIds: readonly string[]): void {
+    for (const turnId of turnIds) {
+      this.releaseModeSessionTurnId(turnId);
+    }
+  }
+
+  private releaseModeSessionTurnId(turnId: string): void {
+    try {
+      this.cameraModeSessions?.releaseDelivery(turnId);
+    } catch (err) {
+      log.warn(
+        { err, turnId },
+        "Could not release camera session ownership from voice turn",
+      );
     }
   }
 
@@ -7362,7 +7752,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async emitMetricsFrame(
-    event: LiveVoiceMetricsEvent,
+    event: VoiceMetricsEvent,
     turnId = this.currentUtterance?.turnId ?? this.context.sessionId,
   ): Promise<void> {
     const metrics = this.metrics.getSnapshot();
@@ -7373,7 +7763,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       conversationId: this.conversationId,
       turnId,
       metrics,
-      ...getLiveVoiceMetricsAggregateFields(metrics, turnId),
+      ...getVoiceMetricsAggregateFields(metrics, turnId),
     });
   }
 
@@ -7834,7 +8224,7 @@ async function defaultArchiveLiveVoiceAudio(
     : linkLiveVoiceAssistantResponseAudioToMessage(input);
 }
 
-function toSeedMarks(stashed: StashedMetricsMarks): LiveVoiceTurnSeedMarks {
+function toSeedMarks(stashed: StashedMetricsMarks): VoiceTurnSeedMarks {
   return {
     ...(stashed.firstAudioAtMs !== null
       ? { firstAudioAtMs: stashed.firstAudioAtMs }

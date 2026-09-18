@@ -735,6 +735,24 @@ export {
   WorkflowStartedEventSchema,
 } from "./events/workflow-started.js";
 export {
+  type ModeSession,
+  type ModeSessionActivity,
+  ModeSessionActivitySchema,
+  type ModeSessionDescriptor,
+  ModeSessionDescriptorSchema,
+  type ModeSessionMode,
+  ModeSessionModeSchema,
+  type ModeSessionRuntimeState,
+  ModeSessionRuntimeStateSchema,
+  ModeSessionSchema,
+  type ModeSessionStatus,
+  ModeSessionStatusSchema,
+  type ModeSessionSummary,
+  ModeSessionSummarySchema,
+  parseModeSession,
+  TolerantModeSessionSchema,
+} from "./mode-session.js";
+export {
   type DictationContext,
   DictationContextSchema,
   type DictationRequest,

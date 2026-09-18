@@ -58,19 +58,6 @@ For manual setup (or reference), register the webhook with Telegram using the `s
 
 See the [Telegram Bot API docs](https://core.telegram.org/bots/api#setwebhook) for the full API reference.
 
-## Telegram Deliver Endpoint Security
-
-The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). The security behavior is:
-
-| Condition                                                                                 | Result                     |
-| ----------------------------------------------------------------------------------------- | -------------------------- |
-| Bearer token configured + valid `Authorization` header                                    | Request allowed            |
-| Bearer token configured + missing/invalid `Authorization` header                          | 401 Unauthorized           |
-| No bearer token configured + `telegram.deliverAuthBypass=true` in `workspace/config.json` | Request allowed (dev-only) |
-| No bearer token configured + bypass not set                                               | 503 Service Not Configured |
-
-This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, ensure JWT authentication is properly configured. The `telegram.deliverAuthBypass` config flag (in `workspace/config.json`) is intended for local development only and requires `APP_VERSION=0.0.0-dev`.
-
 ## Voice Ingress — Inbound Calls (Twilio)
 
 The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice calls. For **outbound** calls (initiated by the assistant via `call_start`), the voice webhook URL includes a `callSessionId` query parameter that identifies the pre-created session. For **inbound** calls (someone dialing the assistant's Twilio phone number), no `callSessionId` is present — the gateway resolves the target assistant and the runtime creates a session on the fly.
@@ -112,9 +99,9 @@ These fields are forwarded to the runtime in the `/channels/inbound` payload alo
 
 ## Approval Buttons and Inline Keyboard
 
-The `/deliver/telegram` endpoint accepts an optional `approval` field in the request body. When present, the gateway renders Telegram inline keyboard buttons below the message text.
+The gateway does not send approval prompts. The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) sends them to the Bot API directly, and when the reply payload carries an `approval` field it renders Telegram inline keyboard buttons below the message text. The gateway's part is the return trip: it normalizes the button press (`callback_query`) and forwards it as described above.
 
-**Approval payload shape:**
+**Approval reply payload shape:**
 
 ```json
 {
@@ -134,7 +121,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<requestId>:<action>` (e.g., `apr:request-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
-**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions so the user can respond via text. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
+**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before handing the prompt to the channel transport. The fallback includes plain-text instructions so the user can respond via text. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
 
 ## Public Ingress Routes
 
@@ -145,7 +132,6 @@ Control-plane routes are listed with their flat paths. Clients emit assistant-sc
 | Route                                                 | Method          | Description                                                                                                                                   |
 | ----------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/webhooks/telegram`                                  | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                |
-| `/deliver/telegram`                                   | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
 | `/webhooks/twilio/voice`                              | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
 | `/webhooks/twilio/status`                             | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
 | `/webhooks/twilio/media-stream/:callSessionId/:token` | WS              | Twilio Media Streams WebSocket (bidirectional proxy to runtime; handshake metadata in URL path segments)                                      |

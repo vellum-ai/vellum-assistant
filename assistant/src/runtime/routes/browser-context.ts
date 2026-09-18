@@ -1,3 +1,4 @@
+import type { Conversation } from "../../daemon/conversation.js";
 import { resolveTurnClientOs } from "../../daemon/conversation-client-surface.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type { ToolContext } from "../../tools/types.js";
@@ -13,6 +14,22 @@ export async function resolveBrowserContext(
   headers: Record<string, string>,
   abortSignal?: AbortSignal,
 ): Promise<ToolContext> {
+  return (
+    await resolveBrowserExecutionContext(
+      conversationId,
+      sessionId,
+      headers,
+      abortSignal,
+    )
+  ).context;
+}
+
+export async function resolveBrowserExecutionContext(
+  conversationId: string | undefined,
+  sessionId: string,
+  headers: Record<string, string>,
+  abortSignal?: AbortSignal,
+): Promise<{ context: ToolContext; conversation?: Conversation }> {
   const conversation = conversationId
     ? findConversation(conversationId)
     : undefined;
@@ -24,16 +41,19 @@ export async function resolveBrowserContext(
     (signal): signal is AbortSignal => signal !== undefined,
   );
   return {
-    workingDir: process.cwd(),
-    conversationId: conversation
-      ? conversationId!
-      : browserCliConversationKey(sessionId),
-    trustClass: conversation?.trustContext?.trustClass ?? "unknown",
-    transportInterface: conversation?.transportInterface,
-    clientOs: conversation
-      ? resolveTurnClientOs(conversation).clientOs
-      : undefined,
-    sourceActorPrincipalId: actor,
-    signal: signals.length ? AbortSignal.any(signals) : undefined,
+    context: {
+      workingDir: process.cwd(),
+      conversationId: conversation
+        ? conversationId!
+        : browserCliConversationKey(sessionId),
+      trustClass: conversation?.trustContext?.trustClass ?? "unknown",
+      transportInterface: conversation?.transportInterface,
+      clientOs: conversation
+        ? resolveTurnClientOs(conversation).clientOs
+        : undefined,
+      sourceActorPrincipalId: actor,
+      signal: signals.length ? AbortSignal.any(signals) : undefined,
+    },
+    ...(conversation ? { conversation } : {}),
   };
 }

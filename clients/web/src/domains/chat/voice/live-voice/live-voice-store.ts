@@ -27,6 +27,7 @@ import type { LiveVoiceSightFrameTiming } from "@/domains/chat/voice/live-voice/
 import type {
   LiveVoiceEntry,
   LiveVoiceMetricsServerFrame,
+  LiveVoiceSightSource,
 } from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
@@ -76,6 +77,7 @@ export type LiveVoiceStatusKey =
   | "liveVoiceStatus.reconnecting"
   | "liveVoiceStatus.listening"
   | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.working"
   | "liveVoiceStatus.speaking"
   | "liveVoiceStatus.ending"
   | "liveVoiceStatus.muted";
@@ -145,12 +147,19 @@ export function liveVoiceSurfaceLabelKey(
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
+  responsePhase: LiveVoiceResponsePhase | null = null,
 ): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
     return "liveVoiceStatus.muted";
   }
   if (state === "connecting" && reconnecting) {
     return "liveVoiceStatus.reconnecting";
+  }
+  if (
+    responsePhase === "escalated" &&
+    (state === "thinking" || (state === "speaking" && !assistantAudioActive))
+  ) {
+    return "liveVoiceStatus.working";
   }
   if (state === "speaking" && !assistantAudioActive) {
     return "liveVoiceStatus.thinking";
@@ -183,6 +192,11 @@ export interface LiveVoiceSessionControls {
    * unless the session is `speaking`.
    */
   interrupt: () => void;
+  startSightSession?: (
+    cameraEpoch: number,
+    source: LiveVoiceSightSource,
+  ) => boolean;
+  endSightSession?: (cameraEpoch: number) => boolean;
   /**
    * Mute (or unmute) the mic without ending the session. While muted the
    * capture graph keeps running but silence is streamed in place of the
@@ -234,6 +248,7 @@ export interface LiveVoiceSessionControls {
   sightFrame: (
     attachmentId: string,
     timing?: LiveVoiceSightFrameTiming,
+    lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
   ) => boolean;
 }
 
@@ -255,6 +270,9 @@ export interface LiveVoiceTurnLatency {
   readonly server: LiveVoiceMetricsServerFrame | null;
   readonly clientHeardLatencyMs: number | null;
 }
+
+/** Extra response phase exposed by structured activity frames. */
+export type LiveVoiceResponsePhase = "escalated";
 
 /** Viewport-space point (px) the color room's entrance grows from. */
 export interface LiveVoiceEntryOrigin {
@@ -479,6 +497,8 @@ export interface LiveVoiceState {
    * `reset()` clears it with everything else.
    */
   activityLabel: string;
+  /** Neutral handoff state while the conversation profile prepares a reply. */
+  responsePhase: LiveVoiceResponsePhase | null;
   /**
    * The confirmation the current turn is blocked on, or `null` when it is not
    * blocked on one.
@@ -677,6 +697,8 @@ export interface LiveVoiceActions {
     activityLabel: string,
     pendingApprovalRequestId?: string | null,
   ) => void;
+  /** Set or clear the current response's structured handoff phase. */
+  setResponsePhase: (responsePhase: LiveVoiceResponsePhase | null) => void;
   /** Set whether the controller is retrying a dropped connection. */
   setReconnecting: (reconnecting: boolean) => void;
   /**
@@ -985,6 +1007,7 @@ const INITIAL_SESSION_STATE: Omit<
   assistantAudioActive: false,
   microphoneActive: false,
   activityLabel: "",
+  responsePhase: null,
   pendingApprovalRequestId: null,
   reconnecting: false,
   assistantId: null,
@@ -1149,6 +1172,10 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setMicrophoneActive: (microphoneActive) => set({ microphoneActive }),
   setActivityLabel: (activityLabel, pendingApprovalRequestId = null) =>
     set({ activityLabel, pendingApprovalRequestId }),
+  setResponsePhase: (responsePhase) =>
+    set((state) =>
+      state.responsePhase === responsePhase ? state : { responsePhase },
+    ),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     // A fresh session always opens with the mic live, even if the controller
@@ -1714,6 +1741,7 @@ export function sendLiveVoiceSightFrame(
   attachmentId: string,
   sessionGeneration: number,
   timing?: LiveVoiceSightFrameTiming,
+  lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
 ): boolean {
   const state = useLiveVoiceStore.getState();
   if (state.sessionGeneration !== sessionGeneration) {
@@ -1724,11 +1752,31 @@ export function sendLiveVoiceSightFrame(
   if (state.sightFramesUnsupported) {
     return false;
   }
-  const sent = state.controls?.sightFrame(attachmentId, timing) ?? false;
+  const sent = lifecycle
+    ? (state.controls?.sightFrame(attachmentId, timing, lifecycle) ?? false)
+    : (state.controls?.sightFrame(attachmentId, timing) ?? false);
   if (sent) {
     state.noteSightFrameSent(attachmentId);
   }
   return sent;
+}
+
+export function startLiveVoiceSightSession(
+  cameraEpoch: number,
+  source: LiveVoiceSightSource,
+): boolean {
+  return (
+    useLiveVoiceStore
+      .getState()
+      .controls?.startSightSession?.(cameraEpoch, source) ?? false
+  );
+}
+
+export function endLiveVoiceSightSession(cameraEpoch: number): boolean {
+  return (
+    useLiveVoiceStore.getState().controls?.endSightSession?.(cameraEpoch) ??
+    false
+  );
 }
 
 /**

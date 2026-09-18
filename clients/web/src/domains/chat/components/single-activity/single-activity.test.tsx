@@ -15,7 +15,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -53,8 +53,12 @@ function makeToolCall(
   };
 }
 
+const { useAssistantFeatureFlagStore } =
+  await import("@/stores/assistant-feature-flag-store");
+
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sessionGroups: false });
   // The click writes to the real viewer store — reset the drawer state between
   // tests so assertions don't bleed across cases.
   useViewerStore.setState({ activeToolDetail: null, mainView: "chat" });
@@ -221,6 +225,45 @@ describe("SingleActivity — thinking variant", () => {
 });
 
 describe("SingleActivity — tool variant", () => {
+  test("reactively gates localized action wording", () => {
+    const { getByText, queryByText } = render(
+      <SingleActivity
+        variant="tool"
+        toolCall={makeToolCall({
+          name: "computer",
+          input: { action: "screenshot" },
+        })}
+      />,
+    );
+
+    expect(getByText("screenshot")).toBeTruthy();
+    expect(queryByText("Observing")).toBeNull();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+    expect(getByText("Observing")).toBeTruthy();
+    expect(queryByText("screenshot")).toBeNull();
+    act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: false }));
+    expect(getByText("screenshot")).toBeTruthy();
+  });
+
+  test("keeps supplied activity ahead of localized action wording", () => {
+    useAssistantFeatureFlagStore.setState({ sessionGroups: true });
+    const { getByText, queryByText } = render(
+      <SingleActivity
+        variant="tool"
+        toolCall={makeToolCall({
+          name: "host_bash",
+          input: {
+            command: "assistant browser click #submit",
+            activity: "Submitting the form",
+          },
+        })}
+      />,
+    );
+
+    expect(getByText("Submitting the form")).toBeTruthy();
+    expect(queryByText("Clicking")).toBeNull();
+  });
+
   test("renders the derived label and chevron — no leading glyph, no risk badge", () => {
     const { getByTestId, getByText, queryByTestId, container } = render(
       <SingleActivity variant="tool" toolCall={makeToolCall()} />,

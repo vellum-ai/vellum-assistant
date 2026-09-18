@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
+import { render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
@@ -175,13 +176,17 @@ describe("AssistantNavItem switcher slots", () => {
     expect(asideAt).toBeGreaterThan(pillEnd);
   });
 
-  test("the collapsed tile drops the aside and the beneath slot", () => {
+  test("the collapsed rail stands the aside between the assistant's tile and New Chat's, and drops the beneath slot", () => {
     const html = renderWithSlots({
       aside: ASIDE,
       beneath: BENEATH,
       collapsed: true,
     });
-    expect(html).not.toContain('data-testid="section-toggle"');
+    const tileAt = html.indexOf('data-tour-id="assistant-page"');
+    const asideAt = html.indexOf('data-testid="section-toggle"');
+    const newChatAt = html.indexOf('data-tour-id="new-chat"');
+    expect(asideAt).toBeGreaterThan(tileAt);
+    expect(newChatAt).toBeGreaterThan(asideAt);
     expect(html).not.toContain('data-testid="section-card"');
   });
 
@@ -270,10 +275,34 @@ describe("AssistantNavItem New Chat button", () => {
     );
   });
 
-  test("the button stays on the row while the tour owns the nav", () => {
+  test("it is the design library's accent Button, the section toggle's own colour", () => {
+    for (const collapsed of [false, true]) {
+      const tag = newChatTag(renderNewChat(collapsed));
+      expect(tag).toContain('data-slot="button"');
+      expect(tag).toContain('data-variant="accent"');
+    }
+  });
+
+  /* A client render: zustand hands server rendering the store's initial
+     state, so `renderToStaticMarkup` would never see the tour raised. */
+  test("the button stays on the row while the tour owns the nav, drained of colour", () => {
     useInChatOnboardingStore.setState({ navTourActive: true });
     try {
-      expect(newChatTag(renderNewChat())).toContain('aria-label="New Chat"');
+      const { container, unmount } = render(
+        createElement(AssistantNavItem, {
+          assistantId: "a1",
+          label: "Haze II",
+          active: false,
+          onSelect: () => {},
+          onNewConversation: () => {},
+        }),
+      );
+      const button = container.querySelector<HTMLElement>(
+        '[data-tour-id="new-chat"]',
+      );
+      expect(button?.getAttribute("aria-label")).toBe("New Chat");
+      expect(button?.getAttribute("data-variant")).toBe("ghost");
+      unmount();
     } finally {
       useInChatOnboardingStore.setState({ navTourActive: false });
     }

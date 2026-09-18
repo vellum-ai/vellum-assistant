@@ -11,7 +11,7 @@
  * `guardianRequest` from the gateway's projection.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { type CSSProperties, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { userEvent, within } from "storybook/test";
 
 import { NotificationsBellEmptyState } from "@/domains/home/components/notifications-bell-empty-state";
@@ -19,10 +19,8 @@ import { NotificationsBellList } from "@/domains/home/components/notifications-b
 import { NotificationsBellPanel } from "@/domains/home/components/notifications-bell-panel";
 import { feedItem } from "@/domains/home/feed-test-fixtures";
 import { clearAllArgs, markAllReadArgs } from "@/domains/home/utils";
-import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import type { FeedItem } from "@vellumai/assistant-api";
-import { AVATAR_COLORS } from "@vellumai/avatar-catalog/colors";
 import { Typography } from "@vellumai/design-library";
 
 import { PANEL_LIST_CONTENT_HEIGHT } from "./notifications-bell";
@@ -294,39 +292,13 @@ const DESIGN_FEED = [
   TOOL_APPROVAL,
 ];
 
-const NO_AVATAR_ACCENT = "none";
-const AVATAR_ACCENT_OPTIONS = [
-  NO_AVATAR_ACCENT,
-  ...AVATAR_COLORS.map(({ id }) => id),
-];
-const AVATAR_ACCENT_MAPPING = Object.fromEntries([
-  [NO_AVATAR_ACCENT, null],
-  ...AVATAR_COLORS.map(({ id, hex }) => [id, hex]),
-]);
-const AVATAR_ACCENT_LABELS = Object.fromEntries([
-  [NO_AVATAR_ACCENT, "No accent"],
-  ...AVATAR_COLORS.map(({ id }) => [
-    id,
-    `${id[0]!.toUpperCase()}${id.slice(1)}`,
-  ]),
-]);
-
 /**
  * The popover box the bell renders the panel into, so the stories are seen
  * at the panel's real width and on its real surface.
  */
-function PopoverFrame({
-  children,
-  accent = AVATAR_COLORS[0]!.hex,
-}: {
-  children: ReactNode;
-  accent?: string | null;
-}) {
+function PopoverFrame({ children }: { children: ReactNode }) {
   return (
-    <div
-      style={avatarAccentVars(accent) as CSSProperties}
-      className="flex w-[435px] max-w-full min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]"
-    >
+    <div className="flex w-[435px] max-w-full min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]">
       {children}
     </div>
   );
@@ -352,7 +324,6 @@ interface PanelStoryArgs {
   isBulkPending: boolean;
   isDecisionPending: boolean;
   initialUnreadOnly: boolean;
-  accent: string | null;
 }
 
 function PanelPreview({
@@ -361,7 +332,6 @@ function PanelPreview({
   isBulkPending,
   isDecisionPending,
   initialUnreadOnly,
-  accent,
 }: PanelStoryArgs) {
   const { t } = useTranslation("home");
   const [unreadOnly, setUnreadOnly] = useState(initialUnreadOnly);
@@ -372,7 +342,7 @@ function PanelPreview({
   const canClearAll = clearAllArgs(items).ids.length > 0;
 
   return (
-    <PopoverFrame accent={accent}>
+    <PopoverFrame>
       <NotificationsBellPanel
         count={displayedItems.length}
         canMarkAllRead={canMarkAllRead}
@@ -412,23 +382,12 @@ function PanelPreview({
 const meta = {
   title: "Home/NotificationsBellPanel",
   parameters: { layout: "padded", controls: { sort: "alpha" } },
-  argTypes: {
-    accent: {
-      name: "Assistant color",
-      description:
-        "Active assistant avatar color shared by the count and toggle.",
-      options: AVATAR_ACCENT_OPTIONS,
-      mapping: AVATAR_ACCENT_MAPPING,
-      control: { type: "select", labels: AVATAR_ACCENT_LABELS },
-    },
-  },
   args: {
     items: DESIGN_FEED,
     supportsBulkStatus: true,
     isBulkPending: false,
     isDecisionPending: false,
     initialUnreadOnly: true,
-    accent: "green",
   },
   render: (args) => <PanelPreview {...args} />,
 } satisfies Meta<PanelStoryArgs>;
@@ -442,27 +401,6 @@ type Story = StoryObj<typeof meta>;
  * to the top in the real bell; here the order is the design's.
  */
 export const Default: Story = {};
-
-/** A light assistant accent keeps a white knob and gives the count dark contrast ink. */
-export const LightAccent: Story = {
-  args: {
-    accent: "yellow",
-  },
-};
-
-/** A pink accent colors the checked switch and the count's readable fill. */
-export const PinkAccent: Story = {
-  args: {
-    accent: "pink",
-  },
-};
-
-/** No avatar color keeps the notification badge's semantic fallback. */
-export const NoAccent: Story = {
-  args: {
-    accent: NO_AVATAR_ACCENT,
-  },
-};
 
 /**
  * Every shape a row that reports can take: unread and read, named by its

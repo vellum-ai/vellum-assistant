@@ -11,6 +11,12 @@ import {
   type LiveVoiceSessionOutcome,
   type LiveVoiceStepName,
 } from "../telemetry/live-voice-funnel.js";
+import {
+  PHONE_CALL_FUNNEL_VERSION,
+  PHONE_CALL_STEPS,
+  type PhoneCallOutcome,
+  type PhoneCallStepName,
+} from "../telemetry/phone-call-funnel.js";
 import { recordTelemetryOutboxEvent } from "../telemetry/telemetry-events-outbox.js";
 import type { OnboardingTelemetryEvent } from "../telemetry/types.js";
 import { getLogger } from "../util/logger.js";
@@ -136,12 +142,13 @@ export function recordActivationEvent(params: {
  * database is unavailable.
  *
  * **Never throws.** These fire from `LiveVoiceSession.start()` and `.close()`,
- * which are the user's call itself: the outbox insert raises on a telemetry DB
- * that is missing, locked, or mid-migration, and an uncaught raise there would
- * fail the session rather than the measurement. A dropped row costs a gap in a
- * chart; a raised one costs the user their conversation.
+ * and from the call store's create and status writes, which are the user's
+ * call itself: the outbox insert raises on a telemetry DB that is missing,
+ * locked, or mid-migration, and an uncaught raise there would fail the session
+ * rather than the measurement. A dropped row costs a gap in a chart; a raised
+ * one costs the user their conversation.
  */
-function recordLiveVoiceEventSafely(
+function recordVoiceFunnelEventSafely(
   record: () => OnboardingEvent | null,
 ): OnboardingEvent | null {
   try {
@@ -155,6 +162,34 @@ function recordLiveVoiceEventSafely(
   }
 }
 
+/**
+ * Build one voice funnel row. The live-voice and phone-call funnels differ
+ * only in their version stamp and step vocabulary, so they share the row
+ * shape: same substrate, same session-keyed pairing, same duration math.
+ */
+function recordVoiceFunnelEvent(params: {
+  funnelVersion: string;
+  stepName: string;
+  stepIndex: number;
+  sessionId: string;
+  screen: string;
+  outcome?: string;
+}): OnboardingEvent | null {
+  return recordVoiceFunnelEventSafely(() =>
+    recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
+      buildOnboardingTelemetryEvent(id, createdAt, {
+        screen: params.screen,
+        sessionId: params.sessionId,
+        stepName: params.stepName,
+        stepIndex: params.stepIndex,
+        completedAt: new Date(createdAt).toISOString(),
+        funnelVersion: params.funnelVersion,
+        ...(params.outcome ? { outcome: params.outcome } : {}),
+      }),
+    ),
+  );
+}
+
 export function recordLiveVoiceSessionEvent(params: {
   stepName: LiveVoiceStepName;
   stepIndex: number;
@@ -162,19 +197,14 @@ export function recordLiveVoiceSessionEvent(params: {
   screen?: string;
   outcome?: LiveVoiceSessionOutcome;
 }): OnboardingEvent | null {
-  return recordLiveVoiceEventSafely(() =>
-    recordTelemetryOutboxEvent("onboarding", (id, createdAt) =>
-      buildOnboardingTelemetryEvent(id, createdAt, {
-        screen: params.screen ?? params.stepName,
-        sessionId: params.sessionId,
-        stepName: params.stepName,
-        stepIndex: params.stepIndex,
-        completedAt: new Date(createdAt).toISOString(),
-        funnelVersion: LIVE_VOICE_FUNNEL_VERSION,
-        ...(params.outcome ? { outcome: params.outcome } : {}),
-      }),
-    ),
-  );
+  return recordVoiceFunnelEvent({
+    funnelVersion: LIVE_VOICE_FUNNEL_VERSION,
+    stepName: params.stepName,
+    stepIndex: params.stepIndex,
+    sessionId: params.sessionId,
+    screen: params.screen ?? params.stepName,
+    ...(params.outcome ? { outcome: params.outcome } : {}),
+  });
 }
 
 /**
@@ -203,6 +233,63 @@ export function recordLiveVoiceSessionEnded(params: {
     stepName: LIVE_VOICE_STEPS.sessionEnded.stepName,
     stepIndex: LIVE_VOICE_STEPS.sessionEnded.stepIndex,
     sessionId: params.sessionId,
+    screen: params.screen,
+    outcome: params.outcome,
+  });
+}
+
+/**
+ * Record a phone-call milestone (started / ended) on the same substrate as the
+ * live-voice pair, keyed by the call session id so the two events pair up
+ * downstream. See `telemetry/phone-call-funnel.ts` for why duration and turn
+ * count are derived from that pairing rather than carried as fields.
+ *
+ * Returns null when usage data collection is disabled or the telemetry
+ * database is unavailable, and never throws: these fire from the call store's
+ * writes, on the call's own path.
+ */
+function recordPhoneCallEvent(params: {
+  stepName: PhoneCallStepName;
+  stepIndex: number;
+  callSessionId: string;
+  screen: string;
+  outcome?: PhoneCallOutcome;
+}): OnboardingEvent | null {
+  return recordVoiceFunnelEvent({
+    funnelVersion: PHONE_CALL_FUNNEL_VERSION,
+    stepName: params.stepName,
+    stepIndex: params.stepIndex,
+    sessionId: params.callSessionId,
+    screen: params.screen,
+    ...(params.outcome ? { outcome: params.outcome } : {}),
+  });
+}
+
+/**
+ * Record the "a phone call was attempted" milestone, with how it was placed.
+ */
+export function recordPhoneCallStarted(params: {
+  callSessionId: string;
+  screen: string;
+}): OnboardingEvent | null {
+  return recordPhoneCallEvent({
+    stepName: PHONE_CALL_STEPS.callStarted.stepName,
+    stepIndex: PHONE_CALL_STEPS.callStarted.stepIndex,
+    callSessionId: params.callSessionId,
+    screen: params.screen,
+  });
+}
+
+/** Record the "a phone call ended" milestone, with how it ended. */
+export function recordPhoneCallEnded(params: {
+  callSessionId: string;
+  screen: string;
+  outcome: PhoneCallOutcome;
+}): OnboardingEvent | null {
+  return recordPhoneCallEvent({
+    stepName: PHONE_CALL_STEPS.callEnded.stepName,
+    stepIndex: PHONE_CALL_STEPS.callEnded.stepIndex,
+    callSessionId: params.callSessionId,
     screen: params.screen,
     outcome: params.outcome,
   });

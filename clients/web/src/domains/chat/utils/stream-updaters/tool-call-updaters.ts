@@ -13,6 +13,7 @@ import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type {
   AnsweredQuestion,
   ConversationContentBlock,
+  ModeSession,
 } from "@vellumai/assistant-api";
 import type {
   AllowlistOption,
@@ -86,6 +87,7 @@ function upsertToolCallIntoRow(
   idx: number,
   toolCall: ChatMessageToolCall,
   messageId?: string,
+  modeSession?: ModeSession,
 ): DisplayMessage[] {
   const row = withMergedAlias(prev[idx]!, messageId);
   const existingIdx =
@@ -100,6 +102,7 @@ function upsertToolCallIntoRow(
     updated[idx] = {
       ...row,
       ...visibility,
+      ...(modeSession ? { modeSession } : {}),
       toolCalls: updatedToolCalls,
       contentBlocks: upsertToolUseBlock(row.contentBlocks, merged),
     };
@@ -109,6 +112,7 @@ function upsertToolCallIntoRow(
   updated[idx] = {
     ...row,
     ...visibility,
+    ...(modeSession ? { modeSession } : {}),
     toolCalls: [...(row.toolCalls ?? []), toolCall],
     contentOrder: [
       ...(row.contentOrder ?? []),
@@ -139,17 +143,30 @@ export function upsertToolCall(
   toolCall: ChatMessageToolCall,
   messageId?: string,
   at: number = Date.now(),
+  modeSession?: ModeSession,
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
     if (idx >= 0) {
-      return upsertToolCallIntoRow(prev, idx, toolCall, messageId);
+      return upsertToolCallIntoRow(prev, idx, toolCall, messageId, modeSession);
     }
     if (tailIsAssistant(prev)) {
-      return upsertToolCallIntoRow(prev, prev.length - 1, toolCall, messageId);
+      return upsertToolCallIntoRow(
+        prev,
+        prev.length - 1,
+        toolCall,
+        messageId,
+        modeSession,
+      );
     }
   } else if (tailIsAssistant(prev)) {
-    return upsertToolCallIntoRow(prev, prev.length - 1, toolCall);
+    return upsertToolCallIntoRow(
+      prev,
+      prev.length - 1,
+      toolCall,
+      undefined,
+      modeSession,
+    );
   }
 
   return [
@@ -158,6 +175,7 @@ export function upsertToolCall(
       id: messageId ?? crypto.randomUUID(),
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
+      ...(modeSession ? { modeSession } : {}),
       ...(isSendUserMessageCall(toolCall)
         ? { assistantTextVisibility: "private" as const }
         : {}),
@@ -217,6 +235,7 @@ export function applyToolResult(
      * clock for older daemons that omit it.
      */
     completedAt?: number;
+    modeSession?: ModeSession;
   },
 ): DisplayMessage[] {
   let msgIdx = -1;
@@ -302,6 +321,7 @@ export function applyToolResult(
   const updated = [...prev];
   updated[msgIdx] = {
     ...msg,
+    ...(opts.modeSession ? { modeSession: opts.modeSession } : {}),
     toolCalls: updatedToolCalls,
     contentBlocks: upsertToolUseBlock(msg.contentBlocks, updatedTc),
   };

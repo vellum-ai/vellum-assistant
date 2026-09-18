@@ -1,10 +1,25 @@
+/**
+ * Per-turn voice latency marks, shared by both voice transports.
+ *
+ * The collector times a turn's journey from the caller's speech to the first
+ * audio the assistant speaks back, and summarises the retained window. It
+ * knows nothing about the transport that feeds it: live voice marks a
+ * WebSocket session's turns and emits a snapshot to the client on every mark,
+ * while a phone call marks the same points from `call-controller.ts` and logs
+ * the aggregate once per turn (Twilio has no client to send frames to).
+ *
+ * Marks are all first-wins per turn and every one is optional, so a transport
+ * that cannot observe a point (a phone turn has no partial transcript, and no
+ * push-to-talk release) simply never stamps it and the durations that depend
+ * on it come back null.
+ */
 import { getLogger } from "../util/logger.js";
 
-const log = getLogger("live-voice-metrics");
+const log = getLogger("voice-metrics");
 
-export type LiveVoiceMetricsClock = () => number;
+export type VoiceMetricsClock = () => number;
 
-export type LiveVoiceMetricsEvent =
+export type VoiceMetricsEvent =
   | "session_started"
   | "session_ready"
   | "turn_started"
@@ -36,23 +51,23 @@ export type VoiceEndpointSource = "front-door" | "provider";
 const DEFAULT_ENDPOINT_SOURCE: VoiceEndpointSource = "front-door";
 
 // Semantic-endpointing decision on a silence boundary.
-interface LiveVoiceEndpointDecisionMark {
+interface VoiceEndpointDecisionMark {
   action: VoiceEndpointAction;
   latencyMs: number;
   source?: VoiceEndpointSource;
 }
 
-type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
+type VoiceTurnStatus = "active" | "completed" | "cancelled";
 
-interface LiveVoiceMetricsCollectorOptions {
+interface VoiceMetricsCollectorOptions {
   sessionId: string;
   conversationId?: string;
-  clock?: LiveVoiceMetricsClock;
-  emit?: (frame: LiveVoiceMetricsFrame) => void;
+  clock?: VoiceMetricsClock;
+  emit?: (frame: VoiceMetricsFrame) => void;
   recentTurnLimit?: number;
 }
 
-interface LiveVoiceSessionMetrics {
+interface VoiceSessionMetrics {
   sessionId: string;
   conversationId?: string;
   startedAtMs: number;
@@ -62,7 +77,7 @@ interface LiveVoiceSessionMetrics {
 
 // Marks captured before a turn opened in the collector (server-VAD overlap);
 // passed to startTurn to backfill the new turn's timestamps.
-export interface LiveVoiceTurnSeedMarks {
+export interface VoiceTurnSeedMarks {
   firstAudioAtMs?: number;
   firstPartialAtMs?: number;
   speechStartAtMs?: number;
@@ -76,9 +91,9 @@ const SEEDABLE_MARK_FIELDS = [
   "speechStartAtMs",
   "utteranceEndAtMs",
   "finalTranscriptAtMs",
-] as const satisfies ReadonlyArray<keyof LiveVoiceTurnSeedMarks>;
+] as const satisfies ReadonlyArray<keyof VoiceTurnSeedMarks>;
 
-interface LiveVoiceTurnTimestamps {
+interface VoiceTurnTimestamps {
   startedAtMs: number;
   firstAudioAtMs: number | null;
   firstPartialAtMs: number | null;
@@ -98,7 +113,7 @@ interface LiveVoiceTurnTimestamps {
   cancelledAtMs: number | null;
 }
 
-interface LiveVoiceTurnDurations {
+interface VoiceTurnDurations {
   firstAudioToFirstPartialMs: number | null;
   pttReleaseToFinalTranscriptMs: number | null;
   utteranceEndToFinalTranscriptMs: number | null;
@@ -115,12 +130,12 @@ interface LiveVoiceTurnDurations {
   totalTurnDurationMs: number | null;
 }
 
-interface LiveVoiceTurnMetrics {
+interface VoiceTurnMetrics {
   turnId: string;
-  status: LiveVoiceTurnStatus;
+  status: VoiceTurnStatus;
   cancellationReason: string | null;
-  timestamps: LiveVoiceTurnTimestamps;
-  durations: LiveVoiceTurnDurations;
+  timestamps: VoiceTurnTimestamps;
+  durations: VoiceTurnDurations;
   // End of turn measured from the local VAD speech-stop mark to the commit,
   // recorded on every committed turn whichever decider owned the boundary.
   // Absent on a turn that never committed, and in push-to-talk mode, where
@@ -134,35 +149,35 @@ interface LiveVoiceTurnMetrics {
   progressUpdatesSpoken?: number;
 }
 
-interface LiveVoiceDurationSummary {
+interface VoiceDurationSummary {
   count: number;
   p50Ms: number | null;
   p95Ms: number | null;
 }
 
-interface LiveVoiceMetricsSummary {
+interface VoiceMetricsSummary {
   retainedTurnCount: number;
   completedTurnCount: number;
   cancelledTurnCount: number;
   durations: {
-    firstAudioToFirstPartialMs: LiveVoiceDurationSummary;
-    pttReleaseToFinalTranscriptMs: LiveVoiceDurationSummary;
-    utteranceEndToFinalTranscriptMs: LiveVoiceDurationSummary;
-    finalTranscriptToFirstAssistantDeltaMs: LiveVoiceDurationSummary;
-    firstAssistantDeltaToFirstTtsAudioMs: LiveVoiceDurationSummary;
-    roundTripMs: LiveVoiceDurationSummary;
-    totalTurnDurationMs: LiveVoiceDurationSummary;
+    firstAudioToFirstPartialMs: VoiceDurationSummary;
+    pttReleaseToFinalTranscriptMs: VoiceDurationSummary;
+    utteranceEndToFinalTranscriptMs: VoiceDurationSummary;
+    finalTranscriptToFirstAssistantDeltaMs: VoiceDurationSummary;
+    firstAssistantDeltaToFirstTtsAudioMs: VoiceDurationSummary;
+    roundTripMs: VoiceDurationSummary;
+    totalTurnDurationMs: VoiceDurationSummary;
   };
 }
 
-interface LiveVoiceMetricsSnapshot {
-  session: LiveVoiceSessionMetrics;
-  activeTurn: LiveVoiceTurnMetrics | null;
-  recentTurns: LiveVoiceTurnMetrics[];
-  summary: LiveVoiceMetricsSummary;
+export interface VoiceMetricsSnapshot {
+  session: VoiceSessionMetrics;
+  activeTurn: VoiceTurnMetrics | null;
+  recentTurns: VoiceTurnMetrics[];
+  summary: VoiceMetricsSummary;
 }
 
-interface LiveVoiceMetricsAggregateFields {
+interface VoiceMetricsAggregateFields {
   sttMs: number | null;
   llmFirstDeltaMs: number | null;
   // Dispatch-anchored felt latency: leg dispatch to first delta / first TTS
@@ -175,7 +190,7 @@ interface LiveVoiceMetricsAggregateFields {
   totalMs: number | null;
   // Optional so metrics frames stay byte-identical when the turn never
   // committed and when the front-model features never engaged (see the
-  // matching fields on LiveVoiceTurnMetrics).
+  // matching fields on VoiceTurnMetrics).
   endpointCommitLatencyMs?: number;
   endpointHoldCount?: number;
   endpointDecisionMaxLatencyMs?: number;
@@ -183,21 +198,21 @@ interface LiveVoiceMetricsAggregateFields {
   progressUpdatesSpoken?: number;
 }
 
-export interface LiveVoiceMetricsFrame {
+export interface VoiceMetricsFrame {
   type: "metrics";
-  event: LiveVoiceMetricsEvent;
+  event: VoiceMetricsEvent;
   sessionId: string;
   conversationId?: string;
   turnId?: string;
-  metrics: LiveVoiceMetricsSnapshot;
+  metrics: VoiceMetricsSnapshot;
 }
 
 interface MutableTurn {
   turnId: string;
-  status: LiveVoiceTurnStatus;
+  status: VoiceTurnStatus;
   cancellationReason: string | null;
-  timestamps: LiveVoiceTurnTimestamps;
-  // Null means the turn never committed (see LiveVoiceTurnMetrics).
+  timestamps: VoiceTurnTimestamps;
+  // Null means the turn never committed (see VoiceTurnMetrics).
   endpointCommitLatencyMs: number | null;
   endpointHoldCount: number;
   // Doubles as the "decider was consulted" latch: null means no endpoint
@@ -210,11 +225,11 @@ interface MutableTurn {
 
 const DEFAULT_RECENT_TURN_LIMIT = 50;
 
-export class LiveVoiceMetricsCollector {
+export class VoiceMetricsCollector {
   private readonly sessionId: string;
   private readonly conversationId?: string;
-  private readonly clock: LiveVoiceMetricsClock;
-  private readonly emitFrame?: (frame: LiveVoiceMetricsFrame) => void;
+  private readonly clock: VoiceMetricsClock;
+  private readonly emitFrame?: (frame: VoiceMetricsFrame) => void;
   private readonly recentTurnLimit: number;
   private readonly sessionStartedAtMs: number;
 
@@ -224,7 +239,7 @@ export class LiveVoiceMetricsCollector {
   private activeTurn: MutableTurn | null = null;
   private readonly recentTurns: MutableTurn[] = [];
 
-  constructor(options: LiveVoiceMetricsCollectorOptions) {
+  constructor(options: VoiceMetricsCollectorOptions) {
     this.sessionId = options.sessionId;
     this.conversationId = options.conversationId;
     this.clock = options.clock ?? Date.now;
@@ -234,7 +249,7 @@ export class LiveVoiceMetricsCollector {
     this.emit("session_started");
   }
 
-  markReady(): LiveVoiceMetricsFrame {
+  markReady(): VoiceMetricsFrame {
     if (this.readyAtMs === null) {
       this.readyAtMs = this.timestamp();
     }
@@ -243,8 +258,8 @@ export class LiveVoiceMetricsCollector {
 
   startTurn(
     turnId = this.createTurnId(),
-    seedMarks: LiveVoiceTurnSeedMarks = {},
-  ): LiveVoiceTurnMetrics {
+    seedMarks: VoiceTurnSeedMarks = {},
+  ): VoiceTurnMetrics {
     if (this.activeTurn !== null) {
       this.cancelTurn("superseded");
     }
@@ -283,10 +298,7 @@ export class LiveVoiceMetricsCollector {
   // an existing mark (first timestamp wins) and are clamped to the turn's
   // start timestamp; the earliest seed becomes the turn start so total
   // durations cover the stashed span.
-  private applySeedMarks(
-    turn: MutableTurn,
-    seeds: LiveVoiceTurnSeedMarks,
-  ): void {
+  private applySeedMarks(turn: MutableTurn, seeds: VoiceTurnSeedMarks): void {
     const startedAtMs = turn.timestamps.startedAtMs;
     let earliestMs = startedAtMs;
     for (const field of SEEDABLE_MARK_FIELDS) {
@@ -304,7 +316,7 @@ export class LiveVoiceMetricsCollector {
     turn.timestamps.startedAtMs = earliestMs;
   }
 
-  markFirstAudio(turnId?: string): LiveVoiceMetricsFrame {
+  markFirstAudio(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.firstAudioAtMs === null) {
       turn.timestamps.firstAudioAtMs = this.timestamp();
@@ -312,7 +324,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_audio", turn.turnId);
   }
 
-  markFirstPartial(turnId?: string): LiveVoiceMetricsFrame {
+  markFirstPartial(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.firstPartialAtMs === null) {
       turn.timestamps.firstPartialAtMs = this.timestamp();
@@ -320,7 +332,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_partial", turn.turnId);
   }
 
-  markSpeechStart(turnId?: string): LiveVoiceMetricsFrame {
+  markSpeechStart(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.speechStartAtMs === null) {
       turn.timestamps.speechStartAtMs = this.timestamp();
@@ -328,7 +340,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("vad_speech_start", turn.turnId);
   }
 
-  markPushToTalkRelease(turnId?: string): LiveVoiceMetricsFrame {
+  markPushToTalkRelease(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.pttReleaseAtMs === null) {
       turn.timestamps.pttReleaseAtMs = this.timestamp();
@@ -336,7 +348,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("ptt_release", turn.turnId);
   }
 
-  markUtteranceEnd(turnId?: string): LiveVoiceMetricsFrame {
+  markUtteranceEnd(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.utteranceEndAtMs === null) {
       turn.timestamps.utteranceEndAtMs = this.timestamp();
@@ -348,8 +360,8 @@ export class LiveVoiceMetricsCollector {
   // bump the per-turn count and both outcomes feed the worst-latency figure.
   markEndpointDecision(
     turnId: string | undefined,
-    decision: LiveVoiceEndpointDecisionMark,
-  ): LiveVoiceMetricsFrame {
+    decision: VoiceEndpointDecisionMark,
+  ): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (decision.action === "hold") {
       turn.endpointHoldCount += 1;
@@ -366,7 +378,7 @@ export class LiveVoiceMetricsCollector {
   markEndpointCommit(
     turnId: string | undefined,
     latencyMs: number,
-  ): LiveVoiceMetricsFrame {
+  ): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.endpointCommitLatencyMs === null) {
       turn.endpointCommitLatencyMs = normalizeLatencyMs(latencyMs);
@@ -376,13 +388,13 @@ export class LiveVoiceMetricsCollector {
 
   // A counter, not a first-wins mark: every spoken progress narration bumps
   // the per-turn count.
-  markProgressSpoken(turnId?: string): LiveVoiceMetricsFrame {
+  markProgressSpoken(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     turn.progressUpdatesSpoken += 1;
     return this.emit("progress_spoken", turn.turnId);
   }
 
-  markBargeIn(turnId?: string): LiveVoiceMetricsFrame {
+  markBargeIn(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.bargeInAtMs === null) {
       turn.timestamps.bargeInAtMs = this.timestamp();
@@ -390,7 +402,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("barge_in", turn.turnId);
   }
 
-  markFinalTranscript(turnId?: string): LiveVoiceMetricsFrame {
+  markFinalTranscript(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.finalTranscriptAtMs === null) {
       turn.timestamps.finalTranscriptAtMs = this.timestamp();
@@ -398,7 +410,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("final_transcript", turn.turnId);
   }
 
-  markAssistantDispatch(turnId?: string): LiveVoiceMetricsFrame {
+  markAssistantDispatch(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.assistantDispatchAtMs === null) {
       turn.timestamps.assistantDispatchAtMs = this.timestamp();
@@ -406,7 +418,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("assistant_dispatch", turn.turnId);
   }
 
-  markFirstAssistantDelta(turnId?: string): LiveVoiceMetricsFrame {
+  markFirstAssistantDelta(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.firstAssistantDeltaAtMs === null) {
       turn.timestamps.firstAssistantDeltaAtMs = this.timestamp();
@@ -414,7 +426,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_assistant_delta", turn.turnId);
   }
 
-  markFirstTtsAudio(turnId?: string): LiveVoiceMetricsFrame {
+  markFirstTtsAudio(turnId?: string): VoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.firstTtsAudioAtMs === null) {
       turn.timestamps.firstTtsAudioAtMs = this.timestamp();
@@ -422,7 +434,7 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_tts_audio", turn.turnId);
   }
 
-  completeTurn(turnId?: string): LiveVoiceTurnMetrics {
+  completeTurn(turnId?: string): VoiceTurnMetrics {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.status === "active") {
       turn.status = "completed";
@@ -433,7 +445,7 @@ export class LiveVoiceMetricsCollector {
     return snapshotTurn(turn);
   }
 
-  cancelTurn(reason = "cancelled", turnId?: string): LiveVoiceTurnMetrics {
+  cancelTurn(reason = "cancelled", turnId?: string): VoiceTurnMetrics {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.status === "active") {
       turn.status = "cancelled";
@@ -445,7 +457,7 @@ export class LiveVoiceMetricsCollector {
     return snapshotTurn(turn);
   }
 
-  getSnapshot(): LiveVoiceMetricsSnapshot {
+  getSnapshot(): VoiceMetricsSnapshot {
     return {
       session: this.getSessionMetrics(),
       activeTurn: this.activeTurn ? snapshotTurn(this.activeTurn) : null,
@@ -454,7 +466,7 @@ export class LiveVoiceMetricsCollector {
     };
   }
 
-  private getSessionMetrics(): LiveVoiceSessionMetrics {
+  private getSessionMetrics(): VoiceSessionMetrics {
     return {
       sessionId: this.sessionId,
       conversationId: this.conversationId,
@@ -480,7 +492,7 @@ export class LiveVoiceMetricsCollector {
   private mutableStartTurn(turnId: string): MutableTurn {
     this.startTurn(turnId);
     if (this.activeTurn === null) {
-      throw new Error("Live voice metrics failed to start a turn.");
+      throw new Error("Voice metrics failed to start a turn.");
     }
     return this.activeTurn;
   }
@@ -538,11 +550,8 @@ export class LiveVoiceMetricsCollector {
     return normalized;
   }
 
-  private emit(
-    event: LiveVoiceMetricsEvent,
-    turnId?: string,
-  ): LiveVoiceMetricsFrame {
-    const frame: LiveVoiceMetricsFrame = {
+  private emit(event: VoiceMetricsEvent, turnId?: string): VoiceMetricsFrame {
+    const frame: VoiceMetricsFrame = {
       type: "metrics",
       event,
       sessionId: this.sessionId,
@@ -561,10 +570,10 @@ export class LiveVoiceMetricsCollector {
   }
 }
 
-export function getLiveVoiceMetricsAggregateFields(
-  snapshot: LiveVoiceMetricsSnapshot,
+export function getVoiceMetricsAggregateFields(
+  snapshot: VoiceMetricsSnapshot,
   turnId?: string,
-): LiveVoiceMetricsAggregateFields {
+): VoiceMetricsAggregateFields {
   const turn = selectTurnForAggregate(snapshot, turnId);
   if (!turn) {
     return {
@@ -582,8 +591,8 @@ export function getLiveVoiceMetricsAggregateFields(
 }
 
 function aggregateFieldsForTurn(
-  turn: LiveVoiceTurnMetrics,
-): LiveVoiceMetricsAggregateFields {
+  turn: VoiceTurnMetrics,
+): VoiceMetricsAggregateFields {
   return {
     // Manual mode stamps ptt_release; server-VAD sessions stamp utterance_end
     // instead, so the VAD boundary plays the sttMs role there.
@@ -615,7 +624,7 @@ function optionalTurnFields(
     progressUpdatesSpoken?: number | null;
   },
 ): Pick<
-  LiveVoiceTurnMetrics,
+  VoiceTurnMetrics,
   | "endpointCommitLatencyMs"
   | "endpointHoldCount"
   | "endpointDecisionMaxLatencyMs"
@@ -650,9 +659,9 @@ function normalizeRecentTurnLimit(limit: number | undefined): number {
 }
 
 function selectTurnForAggregate(
-  snapshot: LiveVoiceMetricsSnapshot,
+  snapshot: VoiceMetricsSnapshot,
   turnId: string | undefined,
-): LiveVoiceTurnMetrics | null {
+): VoiceTurnMetrics | null {
   if (turnId !== undefined) {
     if (snapshot.activeTurn?.turnId === turnId) {
       return snapshot.activeTurn;
@@ -686,7 +695,7 @@ function cloneMutableTurn(turn: MutableTurn): MutableTurn {
   };
 }
 
-function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
+function snapshotTurn(turn: MutableTurn): VoiceTurnMetrics {
   const timestamps = { ...turn.timestamps };
   return {
     turnId: turn.turnId,
@@ -735,7 +744,7 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
   };
 }
 
-function summarizeTurns(turns: MutableTurn[]): LiveVoiceMetricsSummary {
+function summarizeTurns(turns: MutableTurn[]): VoiceMetricsSummary {
   const snapshots = turns.map(snapshotTurn);
   const durations = snapshots.map((turn) => turn.durations);
 
@@ -771,9 +780,7 @@ function summarizeTurns(turns: MutableTurn[]): LiveVoiceMetricsSummary {
   };
 }
 
-function summarizeDuration(
-  values: Array<number | null>,
-): LiveVoiceDurationSummary {
+function summarizeDuration(values: Array<number | null>): VoiceDurationSummary {
   const sorted = values
     .filter((value): value is number => value !== null)
     .sort((left, right) => left - right);

@@ -282,7 +282,7 @@ Channel bindings follow a three-phase lifecycle:
 
 1. **Bind** — An inbound message from an external channel (e.g., Telegram chat) arrives at the gateway, which normalizes it and forwards it to the runtime's `/v1/channels/inbound` endpoint. The runtime creates or reuses a conversation, establishing the channel binding (`sourceChannel` metadata on the conversation).
 
-2. **Route**: Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Slack and Telegram are thread-scoped: a message that arrives in a Slack thread (including every message in a Slack agent DM, which Slack always delivers in a thread) or a Telegram topic resolves to that thread's own conversation, keyed on the chat plus the thread id (`assistant/src/persistence/delivery-crud.ts`, `buildScopedConversationKey`); a thread-less message resolves to the chat's base conversation. Replies from the assistant are delivered back through the gateway's `/deliver/telegram` endpoint. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
+2. **Route**: Subsequent messages on the same external chat are routed to the same conversation via the channel binding. Slack and Telegram are thread-scoped: a message that arrives in a Slack thread (including every message in a Slack agent DM, which Slack always delivers in a thread) or a Telegram topic resolves to that thread's own conversation, keyed on the chat plus the thread id (`assistant/src/persistence/delivery-crud.ts`, `buildScopedConversationKey`); a thread-less message resolves to the chat's base conversation. Replies from the assistant go out through the daemon's channel transport for that channel (`assistant/src/messaging/providers`), which calls the provider's API directly; they never pass back through the gateway. The desktop client filters out channel-bound conversations during conversation restoration (`ConversationRestorer`) so they never appear in the desktop conversation list.
 
 3. **Rebind** — If a message arrives on an external chat whose conversation was previously deleted, the channel inbound handler treats it as a new conversation and establishes a fresh binding. The external chat ID is reused, but the conversation is new.
 
@@ -371,18 +371,18 @@ Telegram messages follow three paths through the system:
 Inbound (user → assistant):
   Telegram → Gateway POST /webhooks/telegram → verify secret → normalize → route
     → Runtime POST /v1/assistants/:id/channels/inbound
-    (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram)
+    (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram[?threadId=<topic>])
 
 Outbound reply (assistant → user, triggered by inbound):
-  Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument/sendChatAction
+  Daemon Telegram transport → Telegram Bot API sendMessage/sendPhoto/sendDocument/sendChatAction
 
-Outbound proactive (assistant → user, initiated by messaging provider):
-  Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendChatAction
+Outbound proactive (assistant → user, messaging tool or POST /v1/channels/send):
+  Daemon Telegram transport → Telegram Bot API sendMessage
 ```
 
-The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default port `7830`). Both the hostname (`127.0.0.1`) and port derivation are hardcoded in `gateway/src/config.ts`, so the gateway and runtime must be co-located (same host, `--network host`, or Docker Compose with shared networking) for callbacks to reach the gateway. Separate-host deployments are not currently supported.
+The gateway does not serve `/deliver/telegram`. The `replyCallbackUrl` it attaches to the inbound forward is an addressing token: the daemon resolves its path to the channel's transport (`channelForCallback` in `assistant/src/messaging/providers/callback-routing.ts`) and reads per-channel parameters from its query (the Telegram transport reads `threadId` to reply into the same topic). The daemon never dials the URL's host and port, which come from `gatewayInternalBaseUrl` (`http://127.0.0.1:${GATEWAY_PORT}`, `gateway/src/config.ts`). The exception is on the gateway side: its replies to invite and verification codes it intercepts at ingress (`deliverVerificationReply` in `gateway/src/verification/reply-delivery.ts`) still POST to the callback URL, which no gateway route serves, so those replies are not delivered. The daemon's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) reads the bot token from credential storage and calls the Bot API itself.
 
-The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
+The gateway sends to Telegram on its own only for notices it composes while handling the webhook, before or instead of a runtime turn: the `/start` acknowledgement, the "not fully set up" routing-rejection notice, a setup-hiccup notice when the forward fails, and the denial text the runtime returns when ingress ACL rejects the sender. These go through `sendTelegramReply` in `gateway/src/telegram/send.ts`.
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
@@ -403,8 +403,7 @@ The run transitions to `NeedsConfirmation` when the agent loop emits a `confirma
 ```
 Runtime detects needs_confirmation
   → runtime builds approval prompt + UI metadata
-  → POST /deliver/telegram with `approval` payload
-  → gateway renders inline keyboard (buttons: Approve once, Approve always, Reject)
+  → daemon Telegram transport sends the prompt with an inline keyboard (buttons: Approve once, Approve always, Reject)
   → user clicks button → Telegram callback_query
   → gateway normalizes callback_query into inbound event (callbackData field)
   → runtime parses callback data (format: apr:<requestId>:<action>)
@@ -431,19 +430,19 @@ Runtime detects needs_confirmation
 
 **Key modules:**
 
-| Module                                                  | Purpose                                                                                                                                                                 |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/runtime/approval-conversation-turn.ts`   | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety                       |
-| `assistant/src/runtime/approval-message-composer.ts`    | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
-| `assistant/src/runtime/channel-approvals.ts`            | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection                           |
-| `assistant/src/runtime/channel-approval-types.ts`       | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
-| `assistant/src/runtime/routes/channel-routes.ts`        | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
-| `assistant/src/runtime/channel-verification-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
-| `assistant/src/memory/delivery-channels.ts`             | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
-| `assistant/src/channels/gateway-guardian-requests.ts`   | Typed daemon client for the gateway-owned `guardian_requests` lifecycle (`guardian_requests_create` / `_decide` / `_list_expired_pending` / `_expire`)                  |
-| `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
-| `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
-| `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (private chats, groups, and supergroups; drops callbacks without data)                                        |
+| Module                                                   | Purpose                                                                                                                                                                 |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/runtime/approval-conversation-turn.ts`    | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety                       |
+| `assistant/src/runtime/approval-message-composer.ts`     | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
+| `assistant/src/runtime/channel-approvals.ts`             | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection                           |
+| `assistant/src/runtime/channel-approval-types.ts`        | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
+| `assistant/src/runtime/routes/channel-routes.ts`         | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
+| `assistant/src/runtime/channel-verification-service.ts`  | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
+| `assistant/src/memory/delivery-channels.ts`              | `claimRunDelivery()`: in-memory deliver-once guard for terminal reply idempotency                                                                                       |
+| `assistant/src/channels/gateway-guardian-requests.ts`    | Typed daemon client for the gateway-owned `guardian_requests` lifecycle (`guardian_requests_create` / `_decide` / `_list_expired_pending` / `_expire`)                  |
+| `assistant/src/runtime/gateway-client.ts`                | `deliverApprovalPrompt()`: hands the approval prompt to the channel transport the callback URL names                                                                    |
+| `assistant/src/messaging/providers/telegram-bot/send.ts` | `buildInlineKeyboard()`: renders approval actions as Telegram inline buttons                                                                                            |
+| `gateway/src/telegram/normalize.ts`                      | `callback_query` normalization into `GatewayInboundEvent` (private chats, groups, and supergroups; drops callbacks without data)                                        |
 
 ### Approval Message Composer
 
@@ -562,19 +561,19 @@ sequenceDiagram
     GW->>Daemon: POST /v1/channels/inbound (JWT auth)
     Daemon->>Daemon: Detect non-guardian, set forcePromptSideEffects
     Daemon->>Daemon: Tool needs confirmation → create GuardianApprovalRequest
-    Daemon->>GW: POST /deliver/telegram (approval prompt + inline keyboard)
-    GW->>Guardian: sendMessage (approval prompt)
-    Daemon->>GW: POST /deliver/telegram (requester notification)
-    GW-->>NG: "Waiting for guardian approval..."
+    Daemon->>TG: sendMessage via Telegram transport (approval prompt + inline keyboard)
+    TG-->>Guardian: Approval prompt
+    Daemon->>TG: sendMessage via Telegram transport (requester notification)
+    TG-->>NG: "Waiting for guardian approval..."
     Guardian->>TG: Approve / Deny (callback_query or text)
     TG->>GW: POST /webhooks/telegram (callback_query)
     GW->>Daemon: POST /v1/channels/inbound (JWT auth)
     Daemon->>Daemon: Validate guardian identity, update approval decision
     Daemon->>Daemon: Apply decision to pending run
-    Daemon->>GW: POST /deliver/telegram (outcome notification)
-    GW-->>NG: "Guardian approved/denied your request"
-    Daemon->>GW: POST /deliver/telegram (confirmation)
-    GW-->>Guardian: Confirmation of decision
+    Daemon->>TG: sendMessage via Telegram transport (outcome notification)
+    TG-->>NG: "Guardian approved/denied your request"
+    Daemon->>TG: sendMessage via Telegram transport (confirmation)
+    TG-->>Guardian: Confirmation of decision
 ```
 
 Approval state lives in the gateway's `guardian_requests` table (kind `tool_approval`), with per-surface card deliveries in `guardian_request_deliveries`. Each request records the requester, guardian, tool name, risk level, and decision outcome; decisions commit atomically via the gateway's `guardian_requests_decide` IPC route.
@@ -732,14 +731,11 @@ The Slack channel enables inbound and outbound messaging via Slack's Socket Mode
 3. Events are deduplicated by a compound key in the SQLite-backed `slack_seen_events` table: every event records its Slack `event_id`, and message-shaped events additionally record `msg:${channel}:${ts}` so the live and reconnect-replay paths dedup symmetrically. Entries TTL out after 24h; a periodic cleanup sweep evicts expired rows.
 4. The `normalizeSlackAppMention()` function strips leading bot-mention tokens (`<@U...>`) from the message text and produces a `GatewayInboundEvent` with `sourceChannel: "slack"`, using the Slack channel ID as `conversationExternalId` and the sender's user ID as `actorExternalId`.
 5. Routing uses the standard `resolveAssistant()` chain (conversation_id -> actor_id -> default/reject). Events that cannot be routed are dropped.
-6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` pointing to `/deliver/slack`.
+6. The normalized event is forwarded to the runtime via `POST /v1/channels/inbound` with a `replyCallbackUrl` of `/deliver/slack?channel=<id>`, plus `threadTs` for a threaded message or `messageTs` for a thread-less message.
 
-**Egress** (`POST /deliver/slack`):
+**Egress:**
 
-1. The runtime calls the gateway's `/deliver/slack` endpoint with `{ chatId, text }` or `{ to, text }` (alias). The `chatId` field maps to the Slack channel ID where the reply should be posted.
-2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
-3. The gateway posts the message via `POST https://slack.com/api/chat.postMessage` using the bot token.
-4. Threading is supported via a `threadTs` query parameter on the deliver URL. When present, replies are posted as thread replies to the specified message timestamp.
+The gateway does not serve `/deliver/slack`; for the daemon the callback URL only addresses the reply (the gateway's intercepted-code replies are the exception, see Telegram Messaging Flow). The daemon's Slack transport (`assistant/src/messaging/providers/slack/`) calls the Slack Web API itself with the bot token: `chat.postMessage` and `chat.update` for whole messages, and `chat.startStream` / `chat.appendStream` / `chat.stopStream` for streamed replies. It reads `threadTs` from the callback URL to reply in the thread and `messageTs` to anchor the busy indicator on a thread-less message.
 
 **Credential management:**
 
@@ -773,7 +769,7 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 | `gateway/src/slack/socket-mode.ts`        | `SlackSocketModeClient`: WebSocket lifecycle, ACK, dedup, auto-reconnect, reconnect catch-up                          |
 | `gateway/src/slack/slack-web.ts`          | `conversations.history` / `conversations.replies` helpers for reconnect catch-up                                      |
 | `gateway/src/slack/message-normalizer.ts` | Normalizers per event family (`normalizeSlackAppMention()`, DM, group DM, channel message) with bot-mention stripping |
-| `gateway/src/index.ts`                    | `/deliver/slack` route: outbound message delivery via `chat.postMessage`, thread and message ts on the callback URL   |
+| `gateway/src/index.ts`                    | Builds the `/deliver/slack` callback URL (channel, thread ts, message ts) the daemon's Slack transport replies to     |
 
 **What the ingress does not do:** it never forwards the bot's own posts to the daemon (except a deletion of one, which the daemon records), and it never reads history on the daemon's behalf beyond the bounded reconnect catch-up above; the daemon's inbound-triggered backfill hydrates context.
 
@@ -846,7 +842,7 @@ sequenceDiagram
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
         GuardianDispatch->>Mac: notification_conversation_created SSE
-        GuardianDispatch->>TG: POST /deliver/{channel}
+        GuardianDispatch->>TG: sendMessage via notification pipeline
         Note over Mac,TG: First channel to respond wins
         Mac/TG->>Routes: guardian answer
         Routes->>CallDomain: answerCall()

@@ -12,7 +12,6 @@ import {
 } from "react";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { ACCENT_FILL_CLASS } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
 import {
   AVATAR_ACCENT_FILL_CSS_VAR,
   AVATAR_ACCENT_GLYPH_CSS_VAR,
@@ -233,11 +232,10 @@ function ThemeComparison({ accent }: { accent: string | null }) {
                 Theme primary
               </Button>
               <Button
-                variant="primary"
+                variant="accent"
                 size="regular"
                 iconOnly={<ArrowUp />}
                 aria-label="Avatar-colored send control"
-                className={ACCENT_FILL_CLASS}
               />
             </div>
           </div>
