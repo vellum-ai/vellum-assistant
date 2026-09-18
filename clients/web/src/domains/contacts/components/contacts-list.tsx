@@ -1,11 +1,4 @@
-import {
-  Loader2,
-  MoreVertical,
-  Pencil,
-  Plus,
-  Search,
-  UserPlus,
-} from "lucide-react";
+import { MoreVertical, Pencil, Plus, Search, UserPlus } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
@@ -71,13 +64,8 @@ export function ContactsList({
           <Button
             type="button"
             variant="ghost"
-            iconOnly={
-              addingContact ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Plus aria-hidden />
-              )
-            }
+            loading={addingContact}
+            iconOnly={<Plus aria-hidden />}
             onClick={onAddContact}
             disabled={addingContact}
             aria-label={t("contactsList.addAriaLabel")}
@@ -166,13 +154,8 @@ export function ContactsList({
             onClick={onAddContact}
             disabled={addingContact}
             tintColor="var(--primary-base)"
-            leftIcon={
-              addingContact ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <UserPlus aria-hidden />
-              )
-            }
+            loading={addingContact}
+            leftIcon={<UserPlus aria-hidden />}
           >
             {t("contactsList.add")}
           </Button>

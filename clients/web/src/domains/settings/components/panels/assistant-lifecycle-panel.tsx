@@ -126,9 +126,7 @@ export function AssistantLifecyclePanel() {
           </p>
           <Button
             variant="outlined"
-            leftIcon={
-              hatching ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={hatching}
             onClick={() => setHatchConfirmOpen(true)}
             disabled={hatching}
             className="shrink-0"

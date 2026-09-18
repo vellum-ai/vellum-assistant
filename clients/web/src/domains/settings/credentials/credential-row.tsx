@@ -133,13 +133,8 @@ export function CredentialRow({
               onClick={onGenerateLink}
               disabled={busy}
               aria-label={t("credentialRow.generateLinkAriaLabel", { name })}
-              iconOnly={
-                generatingLink ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Link2 aria-hidden />
-                )
-              }
+              loading={generatingLink}
+              iconOnly={<Link2 aria-hidden />}
             />
           </Tooltip>
           <Tooltip content={t("credentialRow.deleteLabel")} side="top">
@@ -148,13 +143,8 @@ export function CredentialRow({
               onClick={onDelete}
               disabled={busy}
               aria-label={t("credentialRow.deleteAriaLabel", { name })}
-              iconOnly={
-                deleting ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 aria-hidden />
-                )
-              }
+              loading={deleting}
+              iconOnly={<Trash2 aria-hidden />}
             />
           </Tooltip>
         </div>

@@ -167,11 +167,7 @@ export function AssistantSleepPolicy({
         <div className="flex items-center gap-3">
           <Button
             variant="primary"
-            leftIcon={
-              policyUpdate.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : undefined
-            }
+            loading={policyUpdate.isPending}
             onClick={() =>
               policyUpdate.mutate({
                 path: { id: assistantId },

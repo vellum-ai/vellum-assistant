@@ -323,11 +323,7 @@ export function CredentialEntryPage() {
           <Button
             type="submit"
             disabled={submitting || !value.trim()}
-            leftIcon={
-              submitting ? (
-                <LoaderCircle className="animate-spin" aria-hidden />
-              ) : undefined
-            }
+            loading={submitting}
           >
             {t("credentialEntry.submit")}
           </Button>
