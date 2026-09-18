@@ -15,7 +15,7 @@ import {
   type QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
@@ -328,15 +328,14 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("error");
   });
 
-  // A refetch that fails leaves the last documents in the cache, and those are
-  // still the conversation's files: reporting an error would discard them.
-  test("stays ready when a failed refetch left its data behind", () => {
+  test("reports refresh failure while retaining cached data", async () => {
     const { result, client } = renderSeeded({
       documents: [makeDocument("doc-1", 1_000)],
     });
-    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+    act(() => seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS)));
 
-    expect(result.current.status).toBe("ready");
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    expect(result.current.sources.documents.failure).toBe("refresh");
     expect(result.current.files.map((file) => file.id)).toEqual(["doc-doc-1"]);
   });
 
@@ -430,10 +429,7 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("error");
   });
 
-  // A failure named while another source is still coming is one the panel
-  // would take back the moment that source lands, so every source settles
-  // first and only then does a failed one speak.
-  test("is pending while a source failed and the transcript has not landed", () => {
+  test("reports a failed source while the transcript is pending", () => {
     clearTranscriptMessages();
     const client = seededQueries();
     client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
@@ -441,16 +437,16 @@ describe("useConversationAssets status", () => {
 
     const { result } = renderAssets({ client });
 
-    expect(result.current.status).toBe("pending");
+    expect(result.current.status).toBe("error");
   });
 
-  test("is pending while one source failed and the other is unresolved", () => {
+  test("reports a failed source while another source is pending", () => {
     const client = makePendingChatInfoQueryClient();
     seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
 
     const { result } = renderAssets({ client });
 
-    expect(result.current.status).toBe("pending");
+    expect(result.current.status).toBe("error");
   });
 
   // TanStack refetches every query on reconnect, so a browser that lost the

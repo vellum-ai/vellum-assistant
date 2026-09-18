@@ -643,6 +643,59 @@ describe("repairHistory", () => {
     ]);
   });
 
+  test("deferred mixed tail answered by a tool_result plus trailing text gets a synthetic result", () => {
+    // Text after the client result closes the assistant turn on the provider
+    // side, which then rejects the unanswered search as unpaired. The search
+    // is an orphan here, so the synthetic error result keeps the request
+    // valid at the cost of that one search. `deepRepairHistory` is the loop's
+    // recovery path for that rejection.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Check both" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_a", name: "web_fetch", input: {} },
+          {
+            type: "server_tool_use",
+            id: "stu_deferred",
+            name: "web_search",
+            input: { query: "news" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_a",
+            content: "Error: HTTP 404",
+            is_error: true,
+          },
+          { type: "text", text: "<system_notice>retry</system_notice>" },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = deepRepairHistory(messages);
+
+    expect(stats.missingToolResultsInserted).toBe(1);
+    expect(repaired).toHaveLength(3);
+    expect(repaired[1].content.map((b) => b.type)).toEqual([
+      "tool_use",
+      "server_tool_use",
+      "web_search_tool_result",
+    ]);
+    expect(repaired[1].content[2]).toMatchObject({
+      type: "web_search_tool_result",
+      tool_use_id: "stu_deferred",
+    });
+    expect(repaired[2].content.map((b) => b.type)).toEqual([
+      "tool_result",
+      "text",
+    ]);
+  });
+
   test("cross-message server tool pair from a completed deferred execution survives a reload untouched", () => {
     const messages: Message[] = [
       { role: "user", content: [{ type: "text", text: "Check both" }] },

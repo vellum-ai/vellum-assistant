@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "Если включено, сотрудники Vellum смогут заходить в ассистента и его данные для отладки. Лучше держать это выключенным и включать только на время, если поддержке Vellum нужно разобрать проблему.",
+    "expiresAt": "Доступ сотрудников завершится {when}.",
+    "extend": "Продлить на 24 часа",
     "loadError": "Не удалось загрузить настройку согласия.",
     "loginNotice": "Вход на платформу Vellum для управления доступом администраторов к данным.",
     "title": "Разрешить доступ сотрудникам",
     "toastDisabled": "Доступ администраторов к данным выключен.",
     "toastEnabled": "Доступ администраторов к данным включён.",
+    "toastExtended": "Доступ администраторов к данным продлён.",
     "toastUpdateFailed": "Не удалось обновить согласие на доступ к журналам."
   },
   "adjustPlanModal": {
@@ -395,6 +398,19 @@
     "pickModelError": "Выбор модели",
     "providerLabel": "Провайдер",
     "unavailableOption": "{name} (недоступно)"
+  },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "Плохой опыт общения с поддержкой",
+    "optionLowQuality": "Качество не оправдало ожиданий",
+    "optionMissingFeatures": "Не хватает нужных функций",
+    "optionOther": "Другое",
+    "optionSwitchedService": "Переход на другой сервис",
+    "optionTooComplex": "Слишком сложно",
+    "optionTooExpensive": "Слишком дорого",
+    "optionUnused": "Редко пользуюсь",
+    "otherLabel": "Расскажите подробнее",
+    "otherPlaceholder": "Что мы могли бы сделать лучше?",
+    "title": "Почему вы отменяете подписку?"
   },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Вам или администратору команды может потребоваться включить авторизацию по коду устройства <settingsLink>в настройках ChatGPT</settingsLink>.",
@@ -855,27 +871,9 @@
     "title": "Генерация изображений",
     "vellumNote": "Генерация изображений идёт через аккаунт Vellum."
   },
-  "integrationDetailModal": {
-    "accountFallback": "Аккаунт {name}",
-    "close": "Закрыть",
-    "confirm": "Подтвердить",
-    "disconnect": "Отключить",
-    "disconnectFailedToast": "Не удалось отключить аккаунт {name}.",
-    "disconnectMessage": "Отключить {account}? Потом можно подключить снова.",
-    "disconnectTitle": "Отключить {name}?",
-    "disconnectedToast": "Аккаунт {name} отключён.",
-    "loginNotice": "Вход на платформу Vellum для управления подключениями OAuth.",
-    "managedTab": "Управляемые",
-    "oauthModeAriaLabel": "Режим OAuth",
-    "subtitle": "Настроить OAuth {name}",
-    "subtitleWithDescription": "Настроить OAuth {name} для {description}",
-    "title": "OAuth {name}",
-    "yourOwnTab": "Свои"
-  },
   "integrationRow": {
-    "configure": "Настроить",
+    "configureLabel": "Настроить {name}",
     "connect": "Подключить",
-    "connected": "Подключено",
     "connectedAccounts": "{count, plural, one {# подключённый аккаунт} few {# подключённых аккаунта} many {# подключённых аккаунтов} other {# подключённого аккаунта}}",
     "needsAttention": "Требует внимания"
   },
@@ -895,6 +893,7 @@
     "oauthErrorStateExpired": "Авторизация истекла. Повторите попытку.",
     "oauthErrorStateInvalid": "Состояние авторизации было недействительным. Повторите попытку.",
     "oauthUnavailable": "Не удалось загрузить некоторые интеграции OAuth. Подключения MCP по-прежнему доступны.",
+    "pluginCatalogUnavailable": "Не удалось загрузить интеграции плагинов. Существующие интеграции по-прежнему доступны.",
     "searchAriaLabel": "Поиск интеграций",
     "searchPlaceholder": "Поиск интеграций",
     "sectionAvailable": "Доступные",
@@ -966,18 +965,6 @@
     "summaryTwoClauses": "\"{display}\" {clause1} и {clause2}. Выбор замены ниже: эти ссылки перейдут на неё, затем \"{display}\" будет удалён.",
     "title": "Выбор профиля на замену"
   },
-  "managedOauthTab": {
-    "accountFallback": "Аккаунт {name}",
-    "cancel": "Отмена",
-    "connectAccount": "Подключить аккаунт",
-    "connectAccountLower": "Подключить аккаунт",
-    "connectToContinue": "Подключение аккаунта для продолжения",
-    "disconnectAriaLabel": "Отключить {account}",
-    "statusConnected": "Подключено",
-    "statusNeedsAttention": "Требует внимания",
-    "tenantHostInvalid": "Введите корректный {label}, например {placeholder}",
-    "waitingForAuthorization": "Ожидание авторизации..."
-  },
   "mcpAddServerModal": {
     "addServer": "Добавить сервер",
     "adding": "Добавление...",
@@ -1033,13 +1020,13 @@
   "mcpServerCard": {
     "actionsSheetClose": "Закрыть",
     "configure": "Настроить",
+    "configureLabel": "Настроить {serverId}",
     "connecting": "Подключение...",
     "finishConnecting": "Завершить подключение",
     "managePlugin": "Управление плагином",
     "moreActions": "Другие действия для {serverId}",
     "reconnect": "Переподключить",
     "removeServer": "Удалить",
-    "statusConnected": "Подключён",
     "statusNeedsAttention": "Требует внимания",
     "viewDetails": "Подробнее"
   },
@@ -1249,11 +1236,14 @@
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",
-    "renewsOn": "Ежемесячная оплата • Подписка автоматически продлится {date}.",
     "usageBalanceAddCredits": "Добавить",
+    "usageBalanceBarRenews": "Текущее использование, продлится {date}",
+    "usageBalanceBarResets": "Текущее использование, сброс {date}",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
-    "usageBalanceTitle": "Баланс использования",
+    "usageBalanceRenews": "Продлится {date}",
+    "usageBalanceResets": "Сброс {date}",
+    "usageBalanceTitle": "Текущее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"
   },

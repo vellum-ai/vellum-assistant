@@ -188,6 +188,26 @@ describe("Anthropic keys", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Resend
+// ---------------------------------------------------------------------------
+describe("Resend keys", () => {
+  const key = `re_${"a".repeat(8)}_${"b".repeat(24)}`;
+
+  test("detects re_ key", () => {
+    expectMatch(key, "Resend API Key");
+  });
+
+  test("redacts a key echoed from shell output", () => {
+    const out = redactSecrets(`$ cat .env\nRESEND=${key}\n`);
+    expect(out).not.toContain(key);
+  });
+
+  test("ignores re_ identifiers that are not key-shaped", () => {
+    expectNoMatch("re_0_of_1_is_deprecated_6387");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OpenAI
 // ---------------------------------------------------------------------------
 describe("OpenAI keys", () => {

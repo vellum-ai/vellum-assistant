@@ -70,6 +70,7 @@ const SLOT_BY_DETECTION_LABEL: Record<string, CredentialSlot> = {
   "Perplexity API Key": { service: "perplexity", field: "api_key" },
   "Tavily API Key": { service: "tavily", field: "api_key" },
   "Firecrawl API Key": { service: "firecrawl", field: "api_key" },
+  "Resend API Key": { service: "resend", field: "api_key" },
 };
 
 /**

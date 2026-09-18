@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   applyEvent,
   applyEventsToHistory,
+  emptyHistory,
+  resolveSeed,
   resolveSnapshot,
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
@@ -72,6 +74,21 @@ const thinkingDelta = (seq: number, id: string, thinking: string) =>
   } as AssistantEvent);
 const complete = (seq: number, id: string) =>
   env(seq, { type: "message_complete", messageId: id } as AssistantEvent);
+const handoff = (seq: number, id: string) =>
+  env(seq, {
+    type: "generation_handoff",
+    messageId: id,
+    queuedCount: 1,
+    attachments: [
+      {
+        id: "screenshot-1",
+        filename: "computer-use-click.png",
+        mimeType: "image/png",
+        data: "c2NyZWVuc2hvdA==",
+        computerUseScreenshot: true,
+      },
+    ],
+  } as AssistantEvent);
 const toolUseStart = (
   seq: number,
   id: string,
@@ -289,6 +306,23 @@ describe("rolling-snapshot reducer", () => {
         resolved.messages.find((m) => m.id === "a1")?.textSegments,
       ).toEqual(["persisted + live"]);
       expect(resolved.seq).toBe(3);
+    });
+
+    test("preserves handoff screenshot provenance through tail replay", () => {
+      const snapshot = applyEventsToHistory(SEED, [
+        textDelta(1, "a1", "persisted"),
+      ]);
+      const event = handoff(2, "a1");
+
+      const resolved = resolveSnapshot(snapshot, [event, event]);
+
+      expect(resolved.messages[0]?.attachments).toMatchObject([
+        {
+          id: "screenshot-1",
+          computerUseScreenshot: true,
+        },
+      ]);
+      expect(resolved.seq).toBe(2);
     });
 
     test("idempotent: tail events already in the snapshot are dropped", () => {
@@ -856,5 +890,40 @@ describe("camera-frame echoes", () => {
     expect(replay.messages[1]?.isCameraFrame).toBeUndefined();
     expect(applyEventsToHistory(replay, events)).toEqual(replay);
     expect(SEED.messages).toEqual([]);
+  });
+});
+
+describe("resolveSeed", () => {
+  const liveAt = (seq: number): PaginatedHistoryResult => ({ ...SEED, seq });
+
+  test("seeds when there is no live view to protect", () => {
+    const snapshot = { ...queuedSnapshot(), seq: null };
+    expect(resolveSeed(null, snapshot, null)).toEqual({
+      kind: "seed",
+      history: resolveSnapshot(snapshot, null),
+    });
+    expect(resolveSeed(emptyHistory(), snapshot, null).kind).toBe("seed");
+  });
+
+  test("drops an anchor-less snapshot over a live view that folded events", () => {
+    expect(
+      resolveSeed(liveAt(7), { ...queuedSnapshot(), seq: null }, null),
+    ).toEqual({ kind: "skip_anchorless", liveSeq: 7 });
+  });
+
+  test("drops a stale-anchored snapshot the buffer cannot bridge", () => {
+    expect(resolveSeed(liveAt(7), queuedSnapshot(), null)).toEqual({
+      kind: "skip_stale_anchor",
+      liveSeq: 7,
+      fetchedSeq: 1,
+    });
+  });
+
+  test("seeds a stale-anchored snapshot when the buffered tail bridges it", () => {
+    const tail = [userEcho(2, "u-2", "hello")];
+    expect(resolveSeed(liveAt(7), queuedSnapshot(), tail)).toEqual({
+      kind: "seed",
+      history: resolveSnapshot(queuedSnapshot(), tail),
+    });
   });
 });

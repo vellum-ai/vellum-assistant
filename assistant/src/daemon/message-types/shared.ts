@@ -39,6 +39,7 @@ export interface UserMessageAttachment {
   data: string;
   /** Origin of the attachment on the daemon side, when known. */
   sourceType?: "sandbox_file" | "host_file" | "tool_block";
+  computerUseScreenshot?: boolean;
   extractedText?: string;
   /** Original file size in bytes. Present when data was omitted from history_response to reduce payload size. */
   sizeBytes?: number;

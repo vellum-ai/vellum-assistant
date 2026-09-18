@@ -57,7 +57,8 @@ function contentBlocks(msg: ServerToolPairingMessage): ReadonlyArray<unknown> {
  * `tool_use`, no result emitted) and executes it on the next request, placing
  * the web_search_tool_result at the head of the next assistant message. Both
  * the deferred tail and the resulting split pair must be sent back verbatim
- * for the provider to pair and execute them.
+ * for the provider to pair and execute them, and the user message answering
+ * a deferred tail must hold tool_result blocks alone.
  */
 export interface ServerToolPairing {
   /**
@@ -67,8 +68,12 @@ export interface ServerToolPairing {
   resolvedPairIds: Set<string>;
   /**
    * Unanswered use ids in the final assistant message of an active tool-loop
-   * continuation (only user messages after it, carrying tool_result blocks or
-   * nothing at all). The provider executes these on this request.
+   * continuation: nothing follows it, or only user messages made solely of
+   * tool_result blocks. The provider executes these on this request. Any
+   * other trailing block (guidance text after the results, a queued user
+   * message) closes the assistant turn on the provider side, which then
+   * rejects the unanswered use as unpaired, so such a use is an orphan to
+   * repair rather than a deferral to preserve.
    */
   deferredUseIds: Set<string>;
   /** Ids whose use/result pair spans two messages. */
@@ -118,10 +123,14 @@ export function analyzeServerToolPairing(
   if (lastAssistantIndex >= 0) {
     const trailing = messages.slice(lastAssistantIndex + 1);
     const trailingAllUser = trailing.every((m) => m.role === "user");
-    const trailingHasToolResult = trailing.some((m) =>
-      contentBlocks(m).some(isToolResultShapedBlock),
-    );
-    if (trailingAllUser && (trailing.length === 0 || trailingHasToolResult)) {
+    const trailingBlocks = trailing.flatMap((m) => [...contentBlocks(m)]);
+    const trailingIsToolResultsOnly =
+      trailingBlocks.length > 0 &&
+      trailingBlocks.every(isToolResultShapedBlock);
+    if (
+      trailingAllUser &&
+      (trailing.length === 0 || trailingIsToolResultsOnly)
+    ) {
       for (const block of contentBlocks(messages[lastAssistantIndex])) {
         if (isServerToolUseBlock(block) && !resolvedPairIds.has(block.id)) {
           deferredUseIds.add(block.id);

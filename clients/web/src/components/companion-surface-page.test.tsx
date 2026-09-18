@@ -55,9 +55,15 @@ const answerOfferMock = mock((_answer: string, _offerId: string) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 const sendControlMock = mock((_control: { action: string }) => undefined);
-const answerPopoverMock = mock((_answer: unknown, _popoverId: string) => undefined);
-const setPopoverViewMock = mock((_popoverId: string, _view: string) => undefined);
-const attachedHeightMock = mock((_popoverId: string, _height: number) => undefined);
+const answerPopoverMock = mock(
+  (_answer: unknown, _popoverId: string) => undefined,
+);
+const setPopoverViewMock = mock(
+  (_popoverId: string, _view: string) => undefined,
+);
+const attachedHeightMock = mock(
+  (_popoverId: string, _height: number) => undefined,
+);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -1393,12 +1399,14 @@ describe("the companion's introduction", () => {
   });
 
   test("draws the beat main is holding", async () => {
-    STATE.intro = "meet";
+    STATE.intro = "idle";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
-    // The creature introduces itself by name. The surface is the one place it
-    // appears with none of the app around it to say whose it is.
-    expect(card.textContent).toContain("I’m Ziggy");
+    // The creature introduces itself by name on the first card, which is the
+    // one the user meets before they know there is a creature in there at all.
+    // The surface is the one place it appears with none of the app around it to
+    // say whose it is.
+    expect(card.textContent).toContain("Hey, it’s Ziggy");
   });
 
   /**
@@ -1408,11 +1416,11 @@ describe("the companion's introduction", () => {
    * with a hole where the name goes.
    */
   test("introduces the creature unnamed until a name arrives", async () => {
-    STATE.intro = "meet";
+    STATE.intro = "idle";
     STATE.assistantName = "";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
-    expect(card.textContent).toContain("This is me");
+    expect(card.textContent).toContain("Hey, it’s me");
   });
 
   test("a press asks main to move the run on", async () => {
@@ -1426,21 +1434,19 @@ describe("the companion's introduction", () => {
     expect(advanceIntroMock.mock.calls).toEqual([["next"]]);
   });
 
-  test("Skip ends the run rather than advancing it", async () => {
+  test("the close glyph ends the run rather than advancing it", async () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
-    const skip = Array.from(card.querySelectorAll("button")).find(
-      (button) => button.textContent === "Skip",
-    );
-    fireEvent.click(skip as HTMLElement);
+    const close = card.querySelector('[aria-label="Close"]');
+    fireEvent.click(close as HTMLElement);
     expect(advanceIntroMock.mock.calls).toEqual([["dismiss"]]);
   });
 
   /**
-   * The window is click-through everywhere it has not been told otherwise, so a
-   * card that did not make it interactive would put Next and Skip on screen
-   * with every press on them landing in whatever app is behind.
+   * The window is click-through everywhere it has not been told otherwise, so
+   * a card that did not make it interactive would put Next and the close glyph
+   * on screen with every press on them landing in whatever app is behind.
    */
   test("makes the window clickable while the pointer is on the card", async () => {
     STATE.intro = "meet";
@@ -1481,7 +1487,7 @@ describe("the companion's introduction", () => {
    * presses meant for whatever the user was working in.
    */
   test("gives the desktop back when the run ends under the pointer", async () => {
-    STATE.intro = "menu";
+    STATE.intro = "try";
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     await pinCard(container);
@@ -2305,9 +2311,7 @@ describe("prompts on the call's bar", () => {
       }
     });
     expect(promptRowOf(container)).toBeNull();
-    expect(attachedHeightMock.mock.calls.at(-1)?.[0]).toBe(
-      "req-1,req-2,req-3",
-    );
+    expect(attachedHeightMock.mock.calls.at(-1)?.[0]).toBe("req-1,req-2,req-3");
   });
 
   test("answers a single approval from the row", async () => {

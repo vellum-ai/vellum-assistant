@@ -113,7 +113,7 @@ import { recordOnboardingEvent } from "../../onboarding/onboarding-events-store.
 import {
   classifyKind,
   getAttachmentById,
-  getAttachmentMetadataForMessage,
+  getAttachmentMetadataForMessages,
   getAttachmentsByIds,
   resolveAttachmentsForPersist,
 } from "../../persistence/attachments-store.js";
@@ -132,6 +132,7 @@ import {
   isSuppressedQueuedMessage,
   isSystemCardMetadata,
   type MessageRow,
+  parseMessageMetadata,
   recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
@@ -141,6 +142,7 @@ import {
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import {
+  computerUseScreenshotAttachmentIdsFromMetadata,
   isNoResponseMetadata,
   messageMetadataIsAmbientSightKeep,
 } from "../../persistence/conversation-types.js";
@@ -1180,9 +1182,29 @@ export async function handleListMessages({
       let msgAttachments: RuntimeAttachmentMetadata[] = [];
       if (m.id) {
         const idsToQuery = [m.id, ...mergedMessageIds];
-        const linked = idsToQuery.flatMap((id) =>
-          getAttachmentMetadataForMessage(id),
-        );
+        const linkedRows = getAttachmentMetadataForMessages(idsToQuery);
+        const computerUseScreenshotIdsByMessage = new Map<
+          string,
+          Set<string>
+        >();
+        const linked = linkedRows.map((row) => {
+          let screenshotIds = computerUseScreenshotIdsByMessage.get(
+            row.messageId,
+          );
+          if (!screenshotIds) {
+            screenshotIds = new Set(
+              computerUseScreenshotAttachmentIdsFromMetadata(
+                parseMessageMetadata(row.messageMetadata),
+              ),
+            );
+            computerUseScreenshotIdsByMessage.set(row.messageId, screenshotIds);
+          }
+          return {
+            ...row.attachment,
+            computerUseScreenshot:
+              screenshotIds.has(row.attachment.id) || undefined,
+          };
+        });
         if (linked.length > 0) {
           msgAttachments = await Promise.all(
             linked.map(async (a) => {
@@ -1221,6 +1243,9 @@ export async function handleListMessages({
                   ? { thumbnailData: a.thumbnailBase64 }
                   : {}),
                 fileBacked: true,
+                ...(a.computerUseScreenshot
+                  ? { computerUseScreenshot: true }
+                  : {}),
               };
             }),
           );

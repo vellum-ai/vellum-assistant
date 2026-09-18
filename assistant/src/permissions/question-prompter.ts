@@ -77,6 +77,7 @@ export interface QuestionPromptParamsEntry {
   description?: string;
   options: QuestionOption[];
   freeTextPlaceholder?: string;
+  presentation?: QuestionEntry["presentation"];
 }
 
 export interface QuestionPromptParams {
@@ -201,6 +202,7 @@ export class QuestionPrompter {
       description: q.description,
       options: q.options,
       freeTextPlaceholder: q.freeTextPlaceholder,
+      ...(q.presentation ? { presentation: q.presentation } : {}),
     }));
     const orderedIds = entries.map((e) => e.id);
     const optionsById: Record<string, string[]> = {};

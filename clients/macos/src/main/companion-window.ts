@@ -32,6 +32,7 @@ import {
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_VERSION,
   companionBoxFor,
   companionCardSideFor,
   companionDockIsSide,
@@ -70,9 +71,10 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
+  clearCompanionIntroSeen,
   readCompanionCallDock,
   readCompanionHidden,
-  readCompanionIntroSeen,
+  readCompanionIntroSeenVersion,
   readCompanionSize,
   writeCompanionCallDock,
   writeCompanionIntroSeen,
@@ -119,6 +121,12 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
+import { getPermissionsService } from "./permissions-service";
+import {
+  answerScreenRecordingRefusal,
+  isScreenRecordingRefusal,
+  screenRecordingGranted,
+} from "./screen-recording-permission";
 import {
   current as currentMainWindow,
   dispatchToMain,
@@ -431,10 +439,94 @@ let geometry: CompanionGeometry = geometryFor(
 let intro: CompanionIntroBeat | null = null;
 
 /**
+ * Whether the surface is parked over the app's own window for the
+ * introduction, rather than sitting where it lives.
+ *
+ * The surface steps off the screen while Vellum is frontmost with its window
+ * showing (see {@link syncFrontmost}), which is exactly the moment a new user
+ * is looking at the app: the introduction ran on a window nobody could see,
+ * and users reported not knowing the companion existed. So a due run holds the
+ * surface on screen and stands it in the middle of the app's window, where the
+ * user already is, and the run ends by taking it home.
+ *
+ * Held apart from {@link introScrim}, which is the app's own dimming: the two
+ * start together and stop at different moments, because the surface has to stay
+ * in front while it flies home and the app must be usable again the instant the
+ * flight begins.
+ */
+let introStaged = false;
+
+/**
+ * Whether the app's own window should currently be dimmed for a run.
+ *
+ * **What the renderer is told, and what it can ask for.** A scrim that read
+ * {@link introStaged} would go opaque for a window that mounted during the
+ * landing grace, and the timer that ends that grace sends nothing, so the app
+ * would stay dark and unclickable until the next reload. This is the fact the
+ * scrim is actually about, so it is the fact both the push and the pull carry.
+ */
+let introScrim = false;
+
+/**
+ * How long the surface stays put after landing before the ordinary
+ * frontmost rule takes it off the screen again.
+ *
+ * The flight is the answer to "where did it go": landing and vanishing in the
+ * same moment would tell the user where it lives and then take it away before
+ * they had looked at it.
+ */
+const INTRO_LANDING_GRACE_MS = 1_500;
+
+/** The timer that unstages the surface after it has landed, if one is set. */
+let introLanding: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Tell the app's window whether a run is staged on it, so it can dim itself
+ * for the length of one.
+ *
+ * Sent on every change and never inferred from anything the renderer holds:
+ * the window can reload mid-run, and a dimmed window with nothing staged over
+ * it is an app nobody can use.
+ */
+const setIntroScrim = (on: boolean): void => {
+  introScrim = on;
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+  win.webContents.send("vellum:companion:introStage", on);
+};
+
+/**
+ * Take the surface out of the staged run, whether it ended by being watched,
+ * by being put away, or by the window going. The app's window is told either
+ * way, so nothing is left dimmed.
+ */
+const unstageIntro = (): void => {
+  cancelIntroLanding();
+  if (!introStaged && !introScrim) {
+    return;
+  }
+  introStaged = false;
+  setIntroScrim(false);
+};
+
+const cancelIntroLanding = (): void => {
+  if (introLanding === null) {
+    return;
+  }
+  clearTimeout(introLanding);
+  introLanding = null;
+};
+
+/**
  * The introduction after a press, which is `null` once it is over.
  *
  * `dismiss` ends it wherever it is; `next` walks to the following beat and
- * falls off the end into `null`. Resolved against the beat main is actually on
+ * falls off the end into `null`; `back` walks the other way and holds at the
+ * first beat rather than falling off that end, since a step back that ended the
+ * run would be the one press here nobody could undo; `try` leaves it exactly
+ * where it is. Resolved against the beat main is actually on
  * rather than one the renderer names, so a press from a renderer a beat behind
  * lands where the user could see that it would.
  *
@@ -444,12 +536,64 @@ export const introOnAdvance = (
   current: CompanionIntroBeat | null,
   action: CompanionIntroAction,
 ): CompanionIntroBeat | null => {
+  // `try` is an offer taken up, not a step: the beat stays, so the card comes
+  // back on it when the session it started is over.
+  //
+  // Except on the last beat, which *is* the offer: a user who has taken it has
+  // done the one thing the run was for, and a card waiting for them when the
+  // call ends would be the introduction asking for another press after the
+  // finish. So it ends the run, and main records it as seen.
+  if (action === "try") {
+    return current === COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.length - 1]
+      ? null
+      : current;
+  }
   if (current === null || action === "dismiss") {
     return null;
   }
-  const next =
-    COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
-  return next ?? null;
+  const at = COMPANION_INTRO_BEATS.indexOf(current);
+  // Held at the first beat rather than walked off it: `back` is the one control
+  // here that reads as recoverable, and ending the run on it would be the press
+  // that proves otherwise.
+  if (action === "back") {
+    return COMPANION_INTRO_BEATS[Math.max(0, at - 1)] ?? current;
+  }
+  return COMPANION_INTRO_BEATS[at + 1] ?? null;
+};
+
+/**
+ * Whether a session starting now finishes the run.
+ *
+ * The rule is the last beat's own: it is the beat whose offer *is* a
+ * conversation, which {@link introOnAdvance} already states by ending the run
+ * on a `try` there. Read from that rather than restated, so a beat added after
+ * it cannot leave the two disagreeing about which card is the finish.
+ *
+ * Exported for its tests, as {@link introOnAdvance} is.
+ */
+export const introEndsOnSession = (beat: CompanionIntroBeat | null): boolean =>
+  beat !== null && introOnAdvance(beat, "try") === null;
+
+/**
+ * A real conversation has started, so finish a run whose last beat was the
+ * offer of one.
+ *
+ * **The last card advertises two ways in, and only one of them is a press on
+ * it.** A double tap on the key reaches the window that owns the voice key and
+ * starts a session directly: nothing about it comes back through the run, so
+ * without this the beat survives the call, the card returns when it ends, and
+ * the install is never recorded as introduced. Either gesture is the user doing
+ * the thing the run exists to teach, so either one finishes it.
+ *
+ * Only the last beat. A session started from an earlier one is the run being
+ * interrupted by the user's own business, and main holds the beat so the card
+ * picks up where it left off once the call is over.
+ */
+const finishIntroOnSession = (): void => {
+  if (!introEndsOnSession(intro)) {
+    return;
+  }
+  finishIntro();
 };
 
 /**
@@ -465,7 +609,10 @@ const finishIntro = (): void => {
     return;
   }
   intro = null;
-  writeCompanionIntroSeen();
+  writeCompanionIntroSeen(COMPANION_INTRO_VERSION);
+  if (introStaged) {
+    landIntroHome();
+  }
 };
 
 /**
@@ -1030,6 +1177,63 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
   return placed.origin;
 };
 
+/**
+ * Where the canvas opens for a staged introduction: the middle of the app's
+ * own window, so the surface is the thing the user is already looking at.
+ *
+ * The centre of the window rather than of the display, because onboarding runs
+ * in a small window that is not itself centred, and a surface in the middle of
+ * the screen beside it would read as unrelated to it. Falls back to where the
+ * surface would ordinarily open when there is no window to stand in, which is
+ * a real state: the tray can ask for a replay with the window closed.
+ */
+const stagedCanvasOrigin = (): { x: number; y: number } => {
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    return defaultCanvasOrigin();
+  }
+  const bounds = win.getBounds();
+  const centre = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(centre.x),
+    y: Math.round(centre.y),
+  });
+  const placed = placeCanvas(centre, workArea, geometry);
+  cardGrowth = placed.cardGrowth;
+  return placed.origin;
+};
+
+/**
+ * Take the surface from where the introduction ran to where it lives, and let
+ * the ordinary frontmost rule have it back once it is there.
+ *
+ * The same glide a call's dock uses, so the move the user watches here is the
+ * move they will see every time the bar goes home.
+ */
+const landIntroHome = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  cancelIntroLanding();
+  if (win === null || win.isDestroyed()) {
+    unstageIntro();
+    return;
+  }
+  // The dimming goes as the flight begins, so the desktop the surface is
+  // heading for is the thing lit while it travels. The surface itself stays in
+  // front until it has landed, which is what `introStaged` still being set
+  // holds it there for.
+  setIntroScrim(false);
+  const { workArea } = displayUnder(avatarCentre(win));
+  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  introLanding = setTimeout(() => {
+    introLanding = null;
+    introStaged = false;
+    syncFrontmost();
+  }, COMPANION_GLIDE_MS + INTRO_LANDING_GRACE_MS);
+};
+
 const pushState = (): void => {
   const state = currentState();
   // The glow reads the same state the surface does, for the same reason the
@@ -1590,6 +1794,12 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
+ * The frame window that has not painted yet, so nothing shows it before its
+ * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ */
+let frameAwaitingPaint: BrowserWindow | null = null;
+
+/**
  * Give the frame the mouse, or give it back to the desktop.
  *
  * Forwarded mouse-move only while the frame has stepped aside for a scroll:
@@ -1626,7 +1836,11 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  frame.focus();
+  // `focus` puts a window on screen, and a frame still waiting on its first
+  // paint must stay off it. The paint runs this again.
+  if (frame !== frameAwaitingPaint) {
+    frame.focus();
+  }
 };
 
 /**
@@ -2215,7 +2429,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    if (!existing.isVisible()) {
+    // A frame still waiting on its first paint is shown by that paint.
+    // Shown any earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
       existing.showInactive();
     }
     return;
@@ -2225,6 +2441,13 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
+    // **Shown once its page has painted, never before.** A frame put on
+    // screen while its page is still loading stays blank on a whole display:
+    // the page draws the border and the label, and the screen keeps showing
+    // the empty window until something makes macOS take it again (Mission
+    // Control, or showing the window a second time). Moving it, resizing it
+    // and repainting the page do not.
+    showWhenReady: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2246,6 +2469,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
+  frameAwaitingPaint = win;
+  win.once("ready-to-show", () => {
+    if (frameAwaitingPaint === win) {
+      frameAwaitingPaint = null;
+    }
+    // Key status is lent with a `focus` that would have shown the window
+    // early, so a mode that was on when this frame opened takes it now.
+    applyFrameMouse();
+  });
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
@@ -2756,12 +2988,27 @@ const mainWindowShowing = (): boolean => {
  * forwarding that makes the canvas hit-testable, which is what `blur` would
  * not have (see the note at `openCompanionWindow`).
  */
+/**
+ * Whether the surface belongs off the screen: the app is in front with its own
+ * window showing, and no introduction is being staged on it.
+ *
+ * Exported for its tests, as {@link shouldShowCompanionSurface} is. The rule
+ * has two inputs that pull opposite ways, and the one case worth pinning is
+ * the overlap: a due run holds the surface in front of the very window that
+ * would otherwise hide it.
+ */
+export const surfaceAwayFor = (
+  appInFront: boolean,
+  mainShowing: boolean,
+  staged: boolean,
+): boolean => appInFront && mainShowing && !staged;
+
 const syncFrontmost = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
   }
-  const away = appActive && mainWindowShowing();
+  const away = surfaceAwayFor(appActive, mainWindowShowing(), introStaged);
   if (away === surfaceAway) {
     return;
   }
@@ -2878,6 +3125,30 @@ export const companionContextMenuTemplate = (
     },
   },
 ];
+
+/**
+ * Whether a share may start, as far as the grant goes. A read that fails
+ * says yes: the capture itself is the final word, and a check that cannot
+ * run is no reason to refuse a share that might work.
+ */
+const screenRecordingAllowed = (): Promise<boolean> =>
+  screenRecordingGranted().catch((err: unknown) => {
+    log.warn("[companion] could not read the Screen Recording grant:", err);
+    return true;
+  });
+
+/**
+ * Send the user to Screen Recording in System Settings, with the helper
+ * listed there to turn on. Settings opening is itself the message: the share
+ * cannot happen until that row is on.
+ */
+const askForScreenRecording = async (): Promise<void> => {
+  try {
+    await getPermissionsService()?.openSettings("screen");
+  } catch (err) {
+    log.warn("[companion] could not open Screen Recording settings:", err);
+  }
+};
 
 export const installCompanionWindow = (): void => {
   if (installed) {
@@ -3017,11 +3288,17 @@ export const installCompanionWindow = (): void => {
    * on demand: the desktop changes under every push, and the list is only
    * worth anything at the moment it is drawn.
    */
-  handle("vellum:companion:listCaptureSources", z.tuple([]), () => {
+  handle("vellum:companion:listCaptureSources", z.tuple([]), async () => {
     // A picker opening again is the user starting over: whatever pick was
     // still resolving belonged to the choice they just left.
     pickGeneration += 1;
-    return listCaptureSources();
+    // Read beside the list so the picker can ask for the grant in place of
+    // tiles nothing could be shown from.
+    const [sources, granted] = await Promise.all([
+      listCaptureSources(),
+      screenRecordingAllowed(),
+    ]);
+    return { ...sources, screenRecordingGranted: granted };
   });
 
   /**
@@ -3045,12 +3322,29 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const generation = ++pickGeneration;
-      void resolveCapturePick(pick).then((target) => {
-        if (target === null || generation !== pickGeneration) {
-          return;
-        }
-        dispatchWithoutRaising({ kind: "setScreenShare", target });
-      });
+      // The grant first, before a tab is raised for a share that cannot
+      // start. Without it every frame would be refused and the share would
+      // stop itself a moment after it began, so the press sends the user to
+      // the grant instead. The keyboard's share reaches here with no picker
+      // to have asked, which is why this is not left to the picker.
+      void screenRecordingAllowed()
+        .then(async (granted) => {
+          if (generation !== pickGeneration) {
+            return;
+          }
+          if (!granted) {
+            await askForScreenRecording();
+            return;
+          }
+          const target = await resolveCapturePick(pick);
+          if (target === null || generation !== pickGeneration) {
+            return;
+          }
+          dispatchWithoutRaising({ kind: "setScreenShare", target });
+        })
+        .catch((err: unknown) => {
+          log.warn("[companion] could not start the share:", err);
+        });
     },
   );
 
@@ -3173,7 +3467,15 @@ export const installCompanionWindow = (): void => {
   handle(
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
-    ([target]) => captureTargetFrame(target),
+    ([target]) =>
+      // A refusal for want of the grant is the one miss the user must hear
+      // about: every frame after it would be refused too. The renderer still
+      // gets its null and stops the share.
+      captureTargetFrame(target, (err) => {
+        if (isScreenRecordingRefusal(err)) {
+          void answerScreenRecordingRefusal(askForScreenRecording);
+        }
+      }),
   );
 
   /**
@@ -3477,6 +3779,16 @@ export const installCompanionWindow = (): void => {
         intro = next;
       }
       pushState();
+      // **A `try` is a press on Talk, made from the card.** Started here the
+      // same way the creature's own press starts one, so the dial is drawn in
+      // this beat rather than after a round trip, and the card withdraws
+      // itself for as long as the session lasts.
+      if (action === "try") {
+        if (dialOnTalk(call)) {
+          setDialing(true);
+        }
+        dispatchWithoutRaising({ kind: "startVoice" });
+      }
     },
   );
 
@@ -3531,6 +3843,9 @@ export const installCompanionWindow = (): void => {
       // with the call on it and not a beat of neither.
       disarmDial();
       dialing = false;
+      // However this session was started, it is the thing the introduction's
+      // last beat asks for. See {@link finishIntroOnSession}.
+      finishIntroOnSession();
       syncCallSurface();
       pushState();
     },
@@ -3710,6 +4025,14 @@ export const installCompanionWindow = (): void => {
   // before its subscription registers is dropped. It pulls this once mounted.
   handle("vellum:companion:getState", z.tuple([]), () => currentState());
 
+  // The app's window is told when to dim itself for a run, and a push that
+  // lands before its scrim has subscribed is dropped the same way a surface
+  // state is: the window can be mid-load when a run starts, and it reloads. It
+  // pulls this on mount, and what it pulls is the dimming rather than the
+  // staging: a window that mounts while the surface is flying home is owed
+  // "not dimmed", because it is not.
+  handle("vellum:companion:getIntroStage", z.tuple([]), () => introScrim);
+
   // Registered once here rather than per window: `refreshGrowth` no-ops
   // while no surface exists, and the surface can be closed and reopened from
   // the tray, which must not stack duplicate listeners. A display added,
@@ -3730,8 +4053,12 @@ export const openCompanionWindow = (): void => {
   // being introduced is there to be pointed at. Set before the window is
   // created so the state its route pulls on mount already carries the beat,
   // rather than the surface appearing plain and being annotated a frame later.
-  if (!readCompanionIntroSeen()) {
+  if (readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION) {
     intro = COMPANION_INTRO_BEATS[0];
+    // Held in front and stood over the app's window for the run, rather than
+    // opening where it lives and being hidden a frame later by the frontmost
+    // rule (see `introStaged`).
+    introStaged = true;
   }
 
   const win = createFloatingWindow({
@@ -3741,7 +4068,7 @@ export const openCompanionWindow = (): void => {
     height: geometry.canvasHeight,
     // The canvas is a click-through sheet until the pointer reaches the pill.
     ignoreMouseEvents: { forward: true },
-    position: defaultCanvasOrigin,
+    position: introStaged ? stagedCanvasOrigin : defaultCanvasOrigin,
     browserWindow: {
       // The window draws no shadow of its own: `hasShadow` would outline the
       // invisible canvas rect rather than the pill inside it. Same reason the
@@ -3796,7 +4123,22 @@ export const openCompanionWindow = (): void => {
   // window must not be sent to: it opens where every window opens. A glide
   // still in flight has nothing left to move.
   win.on("closed", () => {
+    // **Only if this was the last surface.** A replay closes the surface and
+    // opens another one at once, and `getFloatingWindow` reports a destroyed
+    // window as gone the moment it is destroyed, so the new surface is built
+    // and staged before the old one's `closed` lands. Tearing down from here
+    // then undoes the run that has just started: the beats play on, staged and
+    // centred, with the app's dimming pulled out from under them. A live
+    // surface here means this event belongs to a window that has already been
+    // replaced, and nothing about it is ours to end.
+    if (getFloatingWindow(COMPANION_KIND) !== null) {
+      return;
+    }
     cancelGlide();
+    // A landing owed to a window that no longer exists is one nothing can
+    // land, and the staging it was going to lift must not outlive it: the
+    // app's window would be left dimmed with nothing staged over it.
+    unstageIntro();
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -3810,6 +4152,11 @@ export const openCompanionWindow = (): void => {
   // off the screen: it is due when the user leaves.
   surfaceAway = false;
   syncFrontmost();
+  // Dim the app's window for the run, now that the surface it is staged over
+  // is actually on screen.
+  if (introStaged) {
+    setIntroScrim(true);
+  }
   // A surface shown mid-call is the call's from its first frame, and one
   // shown mid-session has the frame beside it rather than under the cursor.
   syncCallSurface();
@@ -3847,6 +4194,45 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   // has already decided what they think.
   finishIntro();
   closeCompanionWindow();
+};
+
+/**
+ * Run the introduction again from the first beat, as a new user gets it.
+ *
+ * For the developer tray item. It goes through the ordinary path rather than
+ * poking the beat straight in: forgetting the record and reopening the surface
+ * is what a first run actually is, staging and flight included, so what is
+ * being tested is the thing users will get. A surface the user has hidden is
+ * brought back first, since there is nothing to introduce otherwise.
+ */
+export const replayCompanionIntro = (): void => {
+  clearCompanionIntroSeen();
+  // A replay during a run is a run ending: the window it was staged over stops
+  // being dimmed for it, and the one opened below dims it for the new run.
+  unstageIntro();
+  const bringBack = (): void => {
+    // A surface the user has hidden comes back through the tray's own path, so
+    // the preference is cleared as well as the window opened; anything else
+    // would open a window the next launch refuses to.
+    if (readCompanionHidden()) {
+      setCompanionSurfaceVisible(true);
+      return;
+    }
+    syncCompanionSurface();
+  };
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null) {
+    bringBack();
+    return;
+  }
+  // **Waited for, not fired and forgotten.** `close()` starts a close; the
+  // window is destroyed a tick later, and until it is, `getFloatingWindow`
+  // still reports it as alive, so an open in this tick sees a live surface and
+  // returns having done nothing. That is one press that only closes the
+  // surface and a second that opens it, which is exactly how this read from
+  // the tray before.
+  win.once("closed", bringBack);
+  win.close();
 };
 
 /**

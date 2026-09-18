@@ -175,6 +175,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });
@@ -188,6 +189,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });
@@ -3633,4 +3635,9 @@ describe("ConversationMessage wire shape", () => {
     expect(msg.textSegments).toBeUndefined();
     expect(msg.contentOrder).toBeUndefined();
   });
+});
+
+test("parses desktop activity notifications for status refresh", () => {
+  const parsed = parseAssistantEvent({ type: "desktop_activity_changed" });
+  expect(parsed.message).toEqual({ type: "desktop_activity_changed" });
 });

@@ -2694,7 +2694,7 @@ async function main() {
               attachmentIds = result.attachmentIds;
               normalized.event.message.content = appendFailedAttachmentNotice(
                 normalized.event.message.content,
-                result.failedAttachmentNames,
+                result,
               );
             }
 

@@ -129,7 +129,7 @@ function latestThinkingText(section: PhaseSection): string | undefined {
  * Detail-map key for a step that can open a nested detail view: a tool step's
  * `toolCallId`, or a thinking step's `detailKey` (stamped by the subagent
  * projection). `undefined` for steps with no detail / no key, which stay
- * non-interactive. Mirrors the keys `buildSubagentStepDetails` emits.
+ * non-interactive. A tool key is the call's id in the subagent's history.
  */
 function stepDetailKey(step: ToolCallCardStep): string | undefined {
   if (step.kind === "tool") {

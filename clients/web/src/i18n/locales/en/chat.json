@@ -61,12 +61,24 @@
     "takingLonger": "Your assistant is taking longer than expected.",
     "tryAgain": "Try again"
   },
+  "mobileDetailSheet": {
+    "title": "Activity details"
+  },
   "activityStepsPanel": {
     "backAria": "Back to all steps",
     "backTooltip": "All steps",
     "closeSteps": "Close steps",
+    "screenshotAria": "Preview screenshot from {activity}",
+    "screenshotFallbackAria": "Preview computer screenshot",
+    "screenshotFallbackTitle": "Computer screenshot",
+    "screenshotTitle": "Screenshot from {activity}",
     "thinkingTitle": "Thinking",
     "viewThinkingAria": "View thinking"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "Latest screenshot unavailable.",
+    "unavailableShowingPrevious": "Latest screenshot unavailable. Showing previous screenshot.",
+    "updating": "Updating screenshot..."
   },
   "addToChatSheet": {
     "camera": "Camera",
@@ -102,6 +114,7 @@
     "hideAria": "Hide virtual desktop",
     "closeAria": "Close virtual desktop preview",
     "moveAria": "Move virtual desktop preview (arrow keys)",
+    "resizeAria": "Resize virtual desktop preview (arrow keys)",
     "expandAria": "Expand virtual desktop",
     "busy": "The virtual desktop is in use by another viewer.",
     "connecting": "Connecting to the virtual desktop…",
@@ -437,7 +450,17 @@
     "seeAllAppsAria": "See all apps",
     "seeAllFilesAria": "See all documents and images",
     "seeAllFramesAria": "See all camera frames",
-    "title": "Chat Info"
+    "title": "Chat Info",
+    "retry": "Retry",
+    "retrySourceAria": "Retry {source}",
+    "documentsSource": "Documents",
+    "attachmentsSource": "Attachments",
+    "sourceLoading": "Loading {source}…",
+    "sourceLoadFailed": "{source} could not be loaded.",
+    "sourceRefreshFailed": "{source} could not be refreshed. Showing saved results.",
+    "sourcePageFailed": "More {source} could not be loaded.",
+    "framesUnsupported": "Camera frame classification is unavailable on this assistant version.",
+    "loadedHistory": "Attachments are from the loaded chat history only."
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -682,7 +705,12 @@
     "ariaLabelUnavailable": "Conversation assets, could not be loaded",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
     "label": "{count, plural, one {# asset} other {# assets}}",
-    "labelUnavailable": "Assets could not be loaded"
+    "labelUnavailable": "Assets could not be loaded",
+    "labelPartial": "Some assets could not be loaded",
+    "ariaLabelPartial": "Conversation assets, some could not be loaded",
+    "labelLoaded": "{count, plural, one {# loaded asset} other {# loaded assets}}",
+    "ariaLabelLoaded": "Conversation assets, {count, plural, one {# loaded item} other {# loaded items}}",
+    "ariaLabelLoadedUnseen": "Conversation assets, {count, plural, one {# loaded item} other {# loaded items}} (unseen changes)"
   },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
@@ -693,10 +721,6 @@
   "copyBlockSurface": {
     "copied": "Copied",
     "copy": "Copy"
-  },
-  "copyButton": {
-    "copied": "Copied",
-    "copyFailed": "Could not copy to the clipboard."
   },
   "copyIdToClipboard": {
     "conversationCopied": "Conversation ID copied to clipboard.",
@@ -999,7 +1023,13 @@
     "pictureInPictureUnavailable": "Picture in Picture isn't available"
   },
   "localFileLink": {
-    "unavailable": "This file isn't available here"
+    "closePreview": "Close preview: {filename}",
+    "fileOptions": "File options: {filename}",
+    "openInWorkspace": "Open in workspace: {filename}",
+    "openPreview": "Open preview: {filename}",
+    "unavailable": "This file isn't available here",
+    "unavailableLabel": "File unavailable: {filename}",
+    "viewImage": "View image: {filename}"
   },
   "localFileMenu": {
     "download": "Download",
@@ -1572,6 +1602,8 @@
     "submitFailed": "Failed to submit secret. Please try again."
   },
   "secretPromptCard": {
+    "showValue": "Show value",
+    "hideValue": "Hide value",
     "cancel": "Cancel",
     "domains": "Domains: {list}",
     "placeholder": "Enter secret value...",
@@ -1625,16 +1657,18 @@
     "titleFallback": "Skill"
   },
   "skillExecuteDetail": {
-    "parameters": "Parameters",
-    "rawInput": "Raw input",
     "runningSuffix": " · running"
   },
   "skillLoadCard": {
     "view": "View"
   },
   "skillLoadDetail": {
+    "failed": "Failed to load",
+    "loading": "Loading skill…",
     "loadingAria": "Loading skill",
+    "notApproved": "Not approved",
     "provides": "Provides",
+    "unnamedSkill": "Skill",
     "usedSkill": "Used Skill"
   },
   "skillLoadOutput": {
@@ -1709,7 +1743,8 @@
   "tableSurface": {
     "copied": "Copied",
     "copy": "Copy",
-    "copyAria": "Copy table as markdown"
+    "copyAria": "Copy table as markdown",
+    "copyFailed": "Couldn't copy the table."
   },
   "taskPreferencesSurface": {
     "continue": "Continue",
@@ -1757,10 +1792,16 @@
     "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
-    "input": "Input",
     "output": "Output",
     "requestedChanges": "Requested changes",
     "running": "Running…"
+  },
+  "toolInputParameters": {
+    "parameters": "Parameters",
+    "rawInput": "Raw input"
+  },
+  "toolParamFields": {
+    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
   "toolStepPill": {
     "openAria": "Open {label}",
@@ -1994,5 +2035,14 @@
     "savedTime": "Saved {time}",
     "pendingAria": "Camera frame, image still loading. {time}",
     "timeUnavailable": "Time unavailable"
+  },
+  "desktopHelpCard": {
+    "showPreview": "Show live preview",
+    "needsHelp": "The virtual desktop needs your help.",
+    "stepIn": "Step In",
+    "done": "Done",
+    "skip": "Skip",
+    "showMore": "Show more",
+    "showLess": "Show less"
   }
 }

@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "Cuando está activado, el personal de Vellum podrá acceder a tu asistente y a sus datos con fines de depuración. Se recomienda dejarlo desactivado y activarlo solo temporalmente si necesitas ayuda de Soporte de Vellum para investigar un problema.",
+    "expiresAt": "El acceso del personal termina {when}.",
+    "extend": "Extender 24 horas",
     "loadError": "No se pudo cargar la configuración de consentimiento.",
     "loginNotice": "Inicia sesión en la plataforma de Vellum para gestionar el acceso de administración a los datos.",
     "title": "Permitir acceso del personal",
     "toastDisabled": "Acceso de administración a los datos desactivado.",
     "toastEnabled": "Acceso de administración a los datos activado.",
+    "toastExtended": "Acceso de administración a los datos extendido.",
     "toastUpdateFailed": "No se pudo actualizar el consentimiento de acceso a los registros."
   },
   "adjustPlanModal": {
@@ -409,6 +412,19 @@
     "pickModelError": "Elige un modelo",
     "providerLabel": "Proveedor",
     "unavailableOption": "{name} (no disponible)"
+  },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "Tuve una mala experiencia con el soporte",
+    "optionLowQuality": "La calidad no cumplió mis expectativas",
+    "optionMissingFeatures": "Le faltan funciones que necesito",
+    "optionOther": "Otro",
+    "optionSwitchedService": "Cambié a otro servicio",
+    "optionTooComplex": "Es demasiado complicado",
+    "optionTooExpensive": "Es demasiado caro",
+    "optionUnused": "No lo uso lo suficiente",
+    "otherLabel": "Cuéntanos más",
+    "otherPlaceholder": "¿Qué podríamos haber hecho mejor?",
+    "title": "¿Por qué cancelas?"
   },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Puede que tú o el administrador de tu equipo tengáis que activar la autorización por código de dispositivo <settingsLink>en los ajustes de ChatGPT</settingsLink>.",
@@ -869,27 +885,9 @@
     "title": "Generación de imágenes",
     "vellumNote": "La generación de imágenes se ejecuta a través de tu cuenta de Vellum."
   },
-  "integrationDetailModal": {
-    "accountFallback": "Cuenta de {name}",
-    "close": "Cerrar",
-    "confirm": "Confirmar",
-    "disconnect": "Desconectar",
-    "disconnectFailedToast": "No se pudo desconectar la cuenta de {name}.",
-    "disconnectMessage": "¿Desconectar {account}? Puedes volver a conectarla más tarde.",
-    "disconnectTitle": "¿Desconectar {name}?",
-    "disconnectedToast": "Cuenta de {name} desconectada.",
-    "loginNotice": "Inicia sesión en la plataforma Vellum para administrar las conexiones OAuth.",
-    "managedTab": "Administrada",
-    "oauthModeAriaLabel": "Modo OAuth",
-    "subtitle": "Configurar OAuth de {name}",
-    "subtitleWithDescription": "Configurar OAuth de {name} para {description}",
-    "title": "OAuth de {name}",
-    "yourOwnTab": "Propia"
-  },
   "integrationRow": {
-    "configure": "Configurar",
+    "configureLabel": "Configurar {name}",
     "connect": "Conectar",
-    "connected": "Conectada",
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",
     "needsAttention": "Requiere atención"
   },
@@ -909,6 +907,7 @@
     "oauthErrorStateExpired": "La autorización expiró. Inténtalo de nuevo.",
     "oauthErrorStateInvalid": "El estado de autorización no era válido. Inténtalo de nuevo.",
     "oauthUnavailable": "No se pudieron cargar algunas integraciones OAuth. Las conexiones MCP siguen disponibles.",
+    "pluginCatalogUnavailable": "No se pudieron cargar las integraciones de plugins. Tus integraciones existentes siguen disponibles.",
     "searchAriaLabel": "Buscar integraciones",
     "searchPlaceholder": "Buscar integraciones",
     "sectionAvailable": "Disponibles",
@@ -980,18 +979,6 @@
     "summaryTwoClauses": "\"{display}\" {clause1} y {clause2}. Elige un reemplazo abajo y esas referencias se moverán a él; después se eliminará \"{display}\".",
     "title": "Elige un perfil de reemplazo"
   },
-  "managedOauthTab": {
-    "accountFallback": "Cuenta de {name}",
-    "cancel": "Cancelar",
-    "connectAccount": "Conectar cuenta",
-    "connectAccountLower": "Conectar cuenta",
-    "connectToContinue": "Conecta una cuenta para continuar",
-    "disconnectAriaLabel": "Desconectar {account}",
-    "statusConnected": "Conectada",
-    "statusNeedsAttention": "Requiere atención",
-    "tenantHostInvalid": "Introduce un {label} válido, por ejemplo {placeholder}",
-    "waitingForAuthorization": "Esperando autorización..."
-  },
   "mcpAddServerModal": {
     "addServer": "Agregar servidor",
     "adding": "Agregando...",
@@ -1047,13 +1034,13 @@
   "mcpServerCard": {
     "actionsSheetClose": "Cerrar",
     "configure": "Configurar",
+    "configureLabel": "Configurar {serverId}",
     "connecting": "Conectando...",
     "finishConnecting": "Completar conexión",
     "managePlugin": "Administrar plugin",
     "moreActions": "Más acciones para {serverId}",
     "reconnect": "Reconectar",
     "removeServer": "Eliminar",
-    "statusConnected": "Conectado",
     "statusNeedsAttention": "Requiere atención",
     "viewDetails": "Ver detalles"
   },
@@ -1264,11 +1251,14 @@
     "nextPlan": "Siguiente plan",
     "powerUp": "Potenciar",
     "powerUpFor": "Potenciar por +{amount}/mes",
-    "renewsOn": "Pago mensual • Tu suscripción se renovará automáticamente el {date}.",
     "usageBalanceAddCredits": "Añadir",
+    "usageBalanceBarRenews": "Uso actual, se renueva el {date}",
+    "usageBalanceBarResets": "Uso actual, se restablece el {date}",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
-    "usageBalanceTitle": "Saldo de uso",
+    "usageBalanceRenews": "Se renueva el {date}",
+    "usageBalanceResets": "Se restablece el {date}",
+    "usageBalanceTitle": "Uso actual",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "viewAllPlans": "Ver todos los planes"
   },

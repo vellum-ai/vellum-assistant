@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-01T17:54:05.000Z"
+      "updatedAt": "2026-09-16T20:26:12.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-14T17:16:59.000Z"
+      "updatedAt": "2026-09-16T18:49:49.000Z"
     },
     {
       "id": "notion",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-14T10:34:19.000Z"
+      "updatedAt": "2026-09-16T20:19:35.000Z"
     },
     {
       "id": "public-ingress",
@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-14T20:20:30.000Z"
+      "updatedAt": "2026-09-16T20:26:12.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -993,7 +993,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-15T19:25:15.000Z"
+      "updatedAt": "2026-09-16T19:51:15.000Z"
     },
     {
       "id": "twilio-setup",
@@ -1056,7 +1056,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T23:37:12.000Z"
+      "updatedAt": "2026-09-16T17:57:36.000Z"
     },
     {
       "id": "vellum-client-capabilities",

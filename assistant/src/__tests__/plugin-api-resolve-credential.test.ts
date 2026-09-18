@@ -14,6 +14,7 @@ import {
 
 import { credentialKey } from "@vellumai/credential-storage";
 
+import { PLUGIN_NAME_ENV } from "../plugin-api/plugin-name-env.js";
 import {
   CredentialResolutionError,
   resolveCredential,
@@ -22,8 +23,10 @@ import { runInPluginContext } from "../plugins/plugin-execution-context.js";
 import * as secureKeys from "../security/secure-keys.js";
 import {
   _setMetadataPath,
+  type CredentialMetadata,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
+import * as metadataStore from "../tools/credentials/metadata-store.js";
 
 // Real metadata store backed by a temp file (no module mocking — a mock.module
 // on metadata-store / secure-keys would replace the whole module namespace and
@@ -65,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   getSpy.mockRestore();
+  delete process.env[PLUGIN_NAME_ENV];
 });
 
 afterAll(() => {
@@ -144,6 +148,99 @@ describe("resolveCredential", () => {
           resolveCredential("imessage/photon_project_id"),
         ),
       ).resolves.toBe("proj-id");
+    });
+
+    test("scopes resolution from VELLUM_PLUGIN_NAME when ALS is empty", async () => {
+      seedCredential("sms", "account_sid", "sid-secret");
+      process.env[PLUGIN_NAME_ENV] = "sms";
+      await expect(resolveCredential("sms/account_sid")).resolves.toBe(
+        "sid-secret",
+      );
+    });
+
+    test("blocks another service when identity comes from VELLUM_PLUGIN_NAME", async () => {
+      seedCredential("openai", "api_key", "sk-secret");
+      process.env[PLUGIN_NAME_ENV] = "sms";
+      await expect(resolveCredential("openai/api_key")).rejects.toThrow(
+        /out of scope/,
+      );
+    });
+  });
+
+  describe("live catalog on cache miss", () => {
+    function liveRecord(
+      service: string,
+      field: string,
+    ): CredentialMetadata {
+      return {
+        credentialId: `${service}-${field}`,
+        service,
+        field,
+        allowedTools: [],
+        allowedDomains: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+    }
+
+    test("consults the live catalog when plugin context is set and the cache misses", async () => {
+      const liveSpy = spyOn(
+        metadataStore,
+        "listCredentialRecordsLive",
+      ).mockResolvedValue({
+        records: [liveRecord("sms", "account_sid")],
+        unreachable: false,
+      });
+      secureStore.set(credentialKey("sms", "account_sid"), "live-sid");
+      process.env[PLUGIN_NAME_ENV] = "sms";
+
+      try {
+        await expect(resolveCredential("sms/account_sid")).resolves.toBe(
+          "live-sid",
+        );
+        expect(liveSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        liveSpy.mockRestore();
+      }
+    });
+
+    test("does not list live records when no plugin is in context", async () => {
+      const liveSpy = spyOn(
+        metadataStore,
+        "listCredentialRecordsLive",
+      ).mockResolvedValue({
+        records: [liveRecord("sms", "account_sid")],
+        unreachable: false,
+      });
+      secureStore.set(credentialKey("sms", "account_sid"), "live-sid");
+
+      try {
+        await expect(resolveCredential("sms/account_sid")).rejects.toThrow(
+          /Credential not found/,
+        );
+        expect(liveSpy).not.toHaveBeenCalled();
+      } finally {
+        liveSpy.mockRestore();
+      }
+    });
+
+    test("reports an unreachable live catalog instead of not found", async () => {
+      const liveSpy = spyOn(
+        metadataStore,
+        "listCredentialRecordsLive",
+      ).mockResolvedValue({
+        records: [],
+        unreachable: true,
+      });
+      process.env[PLUGIN_NAME_ENV] = "sms";
+
+      try {
+        await expect(resolveCredential("sms/account_sid")).rejects.toThrow(
+          /unreachable/,
+        );
+      } finally {
+        liveSpy.mockRestore();
+      }
     });
   });
 });

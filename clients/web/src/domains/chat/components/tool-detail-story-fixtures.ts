@@ -434,6 +434,30 @@ export const unknownToolDetail: ToolDetailPayload = payload({
 // ---------------------------------------------------------------------------
 
 /**
+ * A third-party tool whose input carries a list of records. The list lays out
+ * as a table with a column per key across the records; the second contact has
+ * no `owner`, so that cell is empty rather than breaking the table.
+ */
+export const recordListDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-contacts-import-1",
+  toolName: "acme_crm_import_contacts",
+  title: "Working",
+  activity: "Importing three contacts into the inbound list",
+  input: {
+    activity: "Importing three contacts into the inbound list",
+    list: "Inbound",
+    contacts: [
+      { email: "ada@example.com", stage: "qualified", owner: "growth" },
+      { email: "grace@example.com", stage: "new" },
+      { email: "linus@example.com", stage: "trial", owner: "sales" },
+    ],
+    skip_existing: true,
+  },
+  result: JSON.stringify({ imported: 3, skipped: 0 }, null, 2),
+  riskLevel: "medium",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well

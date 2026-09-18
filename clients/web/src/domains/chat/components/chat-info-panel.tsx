@@ -10,7 +10,7 @@
  */
 
 import { ChevronLeft, Layers } from "lucide-react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { Button } from "@vellumai/design-library";
@@ -38,12 +38,17 @@ import {
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
 import {
-  openAppFromChat,
+  useOpenAppFromChat,
   useOpenDocumentFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
+import {
+  summarizeAssetSources,
+  type ConversationAssetSource,
+} from "@/lib/conversation-asset-sources";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   type ChatInfoCategory,
   type ChatInfoPayload,
@@ -65,10 +70,12 @@ export function ChatInfoPanel({
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
   const { assistantId, conversationId } = payload;
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const openDocument = useOpenDocumentFromChat(
     assistantId,
     useViewerStore.getState().closeChatInfo,
   );
+  const openApp = useOpenAppFromChat();
 
   // No `refreshKey`: the header trigger owns invalidation.
   const {
@@ -78,6 +85,11 @@ export function ChatInfoPanel({
     counts,
     count,
     status,
+    allFailed,
+    countsExact,
+    sources,
+    retrySource,
+    retryFailedSources,
     hasMoreFiles,
     hasMoreFrames,
     loadMoreFiles,
@@ -121,15 +133,30 @@ export function ChatInfoPanel({
     }
   }, [clearConversation, conversationId, unseenDocuments]);
 
-  // Closing first returns the viewer to whatever the panel was opened from,
-  // so the asset lands there rather than behind the panel. The app opens
-  // under the panel's own assistant, which need not be the active one.
+  // The panel is about one assistant's conversation and its tiles reach that
+  // assistant's apps, so it does not outlive a switch away from it. A cleared
+  // id is a teardown or a gap between two connects, not a switch.
+  useEffect(() => {
+    if (activeAssistantId !== null && activeAssistantId !== assistantId) {
+      useViewerStore.getState().closeChatInfo();
+    }
+  }, [activeAssistantId, assistantId]);
+
+  // An app is a route under the active assistant, so a tile opens only while
+  // this panel's assistant is that one; the dismissal above runs in an effect,
+  // so a click in the same commit still has to refuse. Closing first returns
+  // the viewer to whatever the panel was opened from, so the app lands there
+  // rather than behind the panel. The app hangs off the conversation this
+  // panel is about, not whatever the route names.
   const handleOpenApp = useCallback(
     (appId: string) => {
+      if (assistantId !== activeAssistantId) {
+        return;
+      }
       useViewerStore.getState().closeChatInfo();
-      void openAppFromChat(assistantId, appId);
+      void openApp(appId, { conversationId });
     },
-    [assistantId],
+    [activeAssistantId, assistantId, conversationId, openApp],
   );
 
   const handleOpenFile = useCallback(
@@ -150,13 +177,90 @@ export function ChatInfoPanel({
     frames: t("chatInfoPanel.framesTitle"),
   };
   const categoryLists = { apps, files, frames };
+  const categorySources: Record<ChatInfoCategory, ConversationAssetSource[]> = {
+    apps: ["apps"],
+    files: ["documents", "attachments"],
+    frames: ["frames"],
+  };
+  const sourceNames = {
+    apps: t("chatInfoPanel.appsTitle"),
+    documents: t("chatInfoPanel.documentsSource"),
+    attachments: t("chatInfoPanel.attachmentsSource"),
+    frames: t("chatInfoPanel.framesTitle"),
+  };
+  const sourceNotices = (category: ChatInfoCategory) =>
+    categorySources[category].map((source) => {
+      const state = sources[source];
+      const name = sourceNames[source];
+      if (!state.supported) {
+        return (
+          <DetailShellNotice key={source}>
+            {t("chatInfoPanel.framesUnsupported")}
+          </DetailShellNotice>
+        );
+      }
+      if (state.failure) {
+        const messageKey =
+          state.failure === "page"
+            ? "chatInfoPanel.sourcePageFailed"
+            : state.failure === "refresh"
+              ? "chatInfoPanel.sourceRefreshFailed"
+              : "chatInfoPanel.sourceLoadFailed";
+        return (
+          <div
+            key={source}
+            className="flex flex-wrap items-center gap-2"
+            role="status"
+          >
+            <DetailShellNotice>
+              {t(messageKey, { source: name })}
+            </DetailShellNotice>
+            {(!allFailed || level !== null) && (
+              <Button
+                variant="outlined"
+                size="compact"
+                disabled={state.fetching}
+                onClick={() => retrySource(source)}
+                aria-label={t("chatInfoPanel.retrySourceAria", {
+                  source: name,
+                })}
+              >
+                {t("chatInfoPanel.retry")}
+              </Button>
+            )}
+          </div>
+        );
+      }
+      if (state.pending) {
+        return (
+          <DetailShellNotice key={source}>
+            {t("chatInfoPanel.sourceLoading", { source: name })}
+          </DetailShellNotice>
+        );
+      }
+      if (state.scope === "loaded-history") {
+        return (
+          <Fragment key={source}>
+            <DetailShellNotice>
+              {t("chatInfoPanel.loadedHistory")}
+            </DetailShellNotice>
+            <DetailShellNotice>
+              {t("chatInfoPanel.framesUnsupported")}
+            </DetailShellNotice>
+          </Fragment>
+        );
+      }
+      return null;
+    });
 
   // A category emptied while drilled in (the last app deleted) falls back to
   // the top level rather than rendering an empty page. Only once the sources
   // are ready: a category not loaded yet is empty for a different reason.
   const emptiedCategory =
-    status === "ready" &&
     payload.category !== null &&
+    summarizeAssetSources(
+      categorySources[payload.category].map((source) => sources[source]),
+    ).status === "ready" &&
     categoryLists[payload.category].length === 0;
   const level = emptiedCategory ? null : payload.category;
 
@@ -171,14 +275,20 @@ export function ChatInfoPanel({
 
   const renderFileRow = (category: ChatInfoFileCategory) => {
     const items = categoryLists[category];
-    if (items.length === 0) {
+    if (
+      items.length === 0 &&
+      categorySources[category].every(
+        (source) => !sources[source].pending && !sources[source].failure,
+      )
+    ) {
       return null;
     }
     return (
       <ChatInfoFileRow
         category={category}
         title={categoryTitles[category]}
-        count={counts[category]}
+        count={countsExact[category] ? counts[category] : null}
+        notice={sourceNotices(category)}
         items={items}
         seeAllAriaLabel={
           category === "files"
@@ -218,25 +328,26 @@ export function ChatInfoPanel({
       <ChatInfoFileGrid
         items={categoryLists[level]}
         assistantId={assistantId}
-        hasMore={level === "files" ? hasMoreFiles : hasMoreFrames}
+        hasMore={
+          (level === "files" ? hasMoreFiles : hasMoreFrames) &&
+          !sources[level === "files" ? "attachments" : "frames"].failure
+        }
+        loading={sources[level === "files" ? "attachments" : "frames"].fetching}
         onLoadMore={level === "files" ? loadMoreFiles : loadMoreFrames}
         onOpen={handleOpenFile}
       />
     );
   } else {
-    // Every category holding anything is listed whatever the sources are
-    // doing, since the transcript attachments are on screen from the first
-    // paint. A source still loading says nothing at all: a flash of copy reads
-    // as an answer the loaded panel then replaces.
     body = (
       <div className="flex flex-col gap-8">
         {status === "ready" && count === 0 && (
           <DetailShellNotice>{t("chatInfoPanel.empty")}</DetailShellNotice>
         )}
-        {apps.length > 0 && (
+        {(apps.length > 0 || sources.apps.pending || sources.apps.failure) && (
           <ChatInfoSection
             title={categoryTitles.apps}
-            count={counts.apps}
+            count={countsExact.apps ? counts.apps : null}
+            notice={sourceNotices("apps")}
             items={apps}
             tileWidth={CHAT_INFO_APP_TILE_WIDTH_PX}
             seeAllAriaLabel={t("chatInfoPanel.seeAllAppsAria")}
@@ -278,12 +389,13 @@ export function ChatInfoPanel({
               className="shrink-0"
             />
           ),
-          titleNode: (
+          title: countsExact[level] ? undefined : categoryTitles[level],
+          titleNode: countsExact[level] ? (
             <DetailShellTitleWithCount
               title={categoryTitles[level]}
               count={counts[level]}
             />
-          ),
+          ) : undefined,
         };
 
   return (
@@ -293,11 +405,20 @@ export function ChatInfoPanel({
       closeTooltip={t("chatInfoPanel.closeAria")}
       onClose={onClose}
     >
-      {/* Above the body at every level: a category drilled into with nothing
-          cached would otherwise be a blank grid with no reason given. */}
-      {status === "error" && (
-        <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
+      {level === null && allFailed && (
+        <div className="flex flex-wrap items-center gap-2" role="status">
+          <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
+          <Button
+            variant="outlined"
+            size="compact"
+            disabled={Object.values(sources).some((source) => source.fetching)}
+            onClick={retryFailedSources}
+          >
+            {t("chatInfoPanel.retry")}
+          </Button>
+        </div>
       )}
+      {level !== null && sourceNotices(level)}
       {body}
       {/* Both overlays live in the body so a level switch cannot unmount them. */}
       {previewModal}

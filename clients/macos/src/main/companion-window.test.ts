@@ -332,8 +332,14 @@ let locateHeldBy: Promise<void> | null = null;
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
-  captureTargetFrame: async (target: unknown) => {
+  captureTargetFrame: async (
+    target: unknown,
+    onError?: (err: unknown) => void,
+  ) => {
     framesAsked.push(target);
+    if (frameError !== null) {
+      onError?.(frameError);
+    }
     return capturedFrame;
   },
   captureSourceThumbnail: async (target: unknown) => {
@@ -351,6 +357,31 @@ mock.module("./companion-capture-sources", () => ({
     }
     return located;
   },
+}));
+
+/** Whether the helper holds Screen Recording, as main reads it. */
+let screenGranted = true;
+/** What a frame was refused with, or null when frames come back. */
+let frameError: unknown = null;
+/** The refusal the permission module recognises as a missing grant. */
+const SCREEN_REFUSAL = new Error("Screen Recording permission denied");
+/** Every permission main sent the user to Settings for. */
+const settingsOpened: string[] = [];
+
+mock.module("./screen-recording-permission", () => ({
+  screenRecordingGranted: async () => screenGranted,
+  isScreenRecordingRefusal: (err: unknown) => err === SCREEN_REFUSAL,
+  answerScreenRecordingRefusal: async (ask: () => Promise<unknown>) => {
+    await ask();
+  },
+}));
+
+mock.module("./permissions-service", () => ({
+  getPermissionsService: () => ({
+    openSettings: async (kind: string) => {
+      settingsOpened.push(kind);
+    },
+  }),
 }));
 
 mock.module("./ipc", () => ({
@@ -402,6 +433,7 @@ type GlowWindow = {
   close: () => void;
   isDestroyed: () => boolean;
   on: () => void;
+  once: (event: string, listener: () => void) => void;
   /** Whether the frame is on screen: hidden while its window is not. */
   visible: boolean;
   hide: () => void;
@@ -476,6 +508,12 @@ const openGlow = (options: {
     },
     isDestroyed: () => false,
     on: () => {},
+    // Painted at once: the real window's first paint is the renderer's.
+    once: (event, listener) => {
+      if (event === "ready-to-show") {
+        listener();
+      }
+    },
     visible: true,
     hide: () => {
       window.visible = false;
@@ -595,8 +633,9 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   // Stubbed rather than omitted, like every other export here: the module
   // under test imports these, and one missing from a whole-module mock is a
   // load-time failure for the file rather than a failing case.
-  readCompanionIntroSeen: () => true,
+  readCompanionIntroSeenVersion: () => Number.MAX_SAFE_INTEGER,
   writeCompanionIntroSeen: () => {},
+  clearCompanionIntroSeen: () => {},
 }));
 
 // Dynamic, so the mocks above are installed before the module graph loads:
@@ -617,10 +656,12 @@ const {
   COMPANION_GLIDE_MS,
   dialOnTalk,
   glideProgress,
+  introEndsOnSession,
   introOnAdvance,
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
+  surfaceAwayFor,
   showCompanionCoachmarks,
   installCompanionWindow,
   shownPopover,
@@ -2061,7 +2102,23 @@ describe("the picker behind Teach", () => {
   test("lists what a session could read on demand", async () => {
     const list = invocable.get("vellum:companion:listCaptureSources");
     expect(list).toBeDefined();
-    expect(await list?.([])).toEqual(listedSources);
+    expect(await list?.([])).toEqual({
+      ...listedSources,
+      screenRecordingGranted: true,
+    });
+  });
+
+  test("says when nothing listed could be captured for want of the grant", async () => {
+    screenGranted = false;
+    try {
+      const list = invocable.get("vellum:companion:listCaptureSources");
+      expect(await list?.([])).toEqual({
+        ...listedSources,
+        screenRecordingGranted: false,
+      });
+    } finally {
+      screenGranted = true;
+    }
   });
 
   test("a press with no pick is the toggle it always was", () => {
@@ -2249,20 +2306,77 @@ describe("the session main holds", () => {
  * and every wrong answer here is either a run that repeats or one that ends
  * before it has said anything.
  */
+/**
+ * The last card advertises two ways into a conversation and only one of them is
+ * a press on it: a double tap on the key reaches the window that owns the voice
+ * key and starts a session directly. So main finishes the run on the session
+ * itself, and this is the rule that decides which sessions count.
+ */
+describe("introEndsOnSession", () => {
+  test("a session on the last beat is the run's finish", () => {
+    expect(introEndsOnSession("try")).toBe(true);
+  });
+
+  // Every other beat is the run being interrupted by the user's own business.
+  // Main holds the beat, so the card picks up where it left off afterwards.
+  test("a session on any earlier beat leaves the run alone", () => {
+    expect(introEndsOnSession("idle")).toBe(false);
+    expect(introEndsOnSession("key")).toBe(false);
+    expect(introEndsOnSession("mute")).toBe(false);
+  });
+
+  test("a session with no run going finishes nothing", () => {
+    expect(introEndsOnSession(null)).toBe(false);
+  });
+});
+
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
+    expect(introOnAdvance("idle", "next")).toBe("meet");
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("menu");
+    expect(introOnAdvance("talk", "next")).toBe("key");
+    expect(introOnAdvance("key", "next")).toBe("share");
+    expect(introOnAdvance("share", "next")).toBe("draw");
+    expect(introOnAdvance("draw", "next")).toBe("mute");
+    expect(introOnAdvance("mute", "next")).toBe("try");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
   // the run being over and worth recording.
   test("falls off the end of the last beat", () => {
-    expect(introOnAdvance("menu", "next")).toBe(null);
+    expect(introOnAdvance("try", "next")).toBe(null);
+  });
+
+  test("walks back to the beat before", () => {
+    expect(introOnAdvance("try", "back")).toBe("mute");
+    expect(introOnAdvance("share", "back")).toBe("key");
+    expect(introOnAdvance("key", "back")).toBe("talk");
+    expect(introOnAdvance("talk", "back")).toBe("meet");
+    expect(introOnAdvance("meet", "back")).toBe("idle");
+  });
+
+  // Back is the one control in the run that reads as recoverable, so the far
+  // end of it holds rather than ending the run: a first beat that vanished on
+  // a press for the previous one would be the press that proves otherwise.
+  test("holds at the first beat rather than ending the run", () => {
+    expect(introOnAdvance("idle", "back")).toBe("idle");
+  });
+
+  // The offer a beat makes to do the thing for real. The session withdraws the
+  // card on its own, so the run has to be left exactly where it was.
+  test("taking up a beat's offer leaves the run on that beat", () => {
+    expect(introOnAdvance("talk", "try")).toBe("talk");
+    expect(introOnAdvance("share", "try")).toBe("share");
+  });
+
+  // Except on the last beat, which is itself the offer: taking it is the finish
+  // of the run, not a session to come back from.
+  test("the last beat's offer ends the run", () => {
+    expect(introOnAdvance("try", "try")).toBe(null);
   });
 
   test("dismiss ends the run from any beat", () => {
-    expect(introOnAdvance("meet", "dismiss")).toBe(null);
+    expect(introOnAdvance("idle", "dismiss")).toBe(null);
     expect(introOnAdvance("talk", "dismiss")).toBe(null);
   });
 
@@ -2271,6 +2385,7 @@ describe("introOnAdvance", () => {
   // beat rather than only in theory.
   test("stays over once it is over", () => {
     expect(introOnAdvance(null, "next")).toBe(null);
+    expect(introOnAdvance(null, "back")).toBe(null);
     expect(introOnAdvance(null, "dismiss")).toBe(null);
   });
 });
@@ -2300,6 +2415,31 @@ describe("shouldShowCompanionSurface", () => {
   // distinct from the one above rather than collapsing into it.
   test("stays away with no assistant even when not hidden", () => {
     expect(shouldShowCompanionSurface(false, true)).toBe(false);
+  });
+});
+
+/**
+ * Whether the surface steps off the screen for the app being in front, and the
+ * one exception: the introduction, which is staged on the app's own window
+ * because that is where a new user is looking.
+ */
+describe("surfaceAwayFor", () => {
+  test("steps off the screen while the app is in front", () => {
+    expect(surfaceAwayFor(true, true, false)).toBe(true);
+  });
+
+  test("stays for an app in front whose window is put away", () => {
+    expect(surfaceAwayFor(true, false, false)).toBe(false);
+  });
+
+  test("stays once the user has left the app", () => {
+    expect(surfaceAwayFor(false, true, false)).toBe(false);
+  });
+
+  // The case the flag exists for: a run explaining the surface must not be
+  // played to an empty screen.
+  test("holds a staged introduction in front of the app's own window", () => {
+    expect(surfaceAwayFor(true, true, true)).toBe(false);
   });
 });
 
@@ -4008,6 +4148,52 @@ describe("Share on the companion surface", () => {
     release();
     await Bun.sleep(0);
     expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+  });
+
+  test("a pick without the grant sends the user to it and starts nothing", async () => {
+    screenGranted = false;
+    settingsOpened.length = 0;
+    const resolvedBefore = picksResolved.length;
+    try {
+      send("vellum:companion:setScreenShare", {
+        kind: "display",
+        displayId: 2,
+      });
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual(["screen"]);
+      expect(picksResolved).toHaveLength(resolvedBefore);
+      expect(dispatched).toEqual([]);
+    } finally {
+      screenGranted = true;
+    }
+  });
+
+  test("a frame refused for want of the grant sends the user to it", async () => {
+    settingsOpened.length = 0;
+    frameError = SCREEN_REFUSAL;
+    capturedFrame = null;
+    try {
+      const capture = invocable.get("vellum:companion:captureScreen");
+      expect(await capture?.([{ kind: "display", displayId: 2 }])).toBeNull();
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual(["screen"]);
+    } finally {
+      frameError = null;
+    }
+  });
+
+  test("a frame missed for any other reason sends nobody anywhere", async () => {
+    settingsOpened.length = 0;
+    frameError = new Error("The window to capture is no longer on screen");
+    capturedFrame = null;
+    try {
+      const capture = invocable.get("vellum:companion:captureScreen");
+      expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual([]);
+    } finally {
+      frameError = null;
+    }
   });
 
   test("takes a frame of the shared target from the helper", async () => {

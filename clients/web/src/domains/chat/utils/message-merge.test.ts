@@ -148,6 +148,104 @@ describe("mergeAdjacentAssistantMessages · standalone rows", () => {
   });
 });
 
+/** The turn row a `react_to_message` call leaves behind: activity, no text. */
+function makeReactToolTurn(id: string, timestamp: number): DisplayMessage {
+  return makeAssistant({
+    id,
+    timestamp,
+    toolCalls: [{ id: "tu-1", name: "react_to_message", input: {} }],
+    contentOrder: [{ type: "tool", id: "0" }],
+  });
+}
+
+/** The assistant's own reaction record as `/messages` serves it. */
+function makeReactionRow(id: string, timestamp: number): DisplayMessage {
+  return makeAssistant({
+    id,
+    ...textBody("[reaction]"),
+    timestamp,
+    reaction: {
+      emoji: "eyes",
+      emojiKind: "unicode",
+      emojiName: "👀",
+      op: "added",
+      targetMessageId: "1700000000.111111",
+      selfAuthored: true,
+    },
+  });
+}
+
+describe("mergeAdjacentAssistantMessages · reaction rows", () => {
+  test("a reaction row never folds, in either direction", () => {
+    // The fold keeps only the survivor's fields: folded into the preceding
+    // turn, the row's reaction fact is dropped and its stored sentinel text
+    // renders as assistant speech under that turn's activity.
+    const messages = [
+      makeReactToolTurn("a-1", 1000),
+      makeReactionRow("react-1", 1010),
+      makeAssistant({ id: "a-2", ...textBody("later"), timestamp: 1020 }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "react-1", "a-2"]);
+    expect(result[1]!.reaction?.emoji).toBe("eyes");
+    expect(messageText(result[0]!)).not.toContain("[reaction]");
+  });
+
+  test("a reaction row carrying only its Slack view never folds", () => {
+    // The render dispatch classifies a row by either fact
+    // (`getMessageRenderKind`), so the fold reads both.
+    const messages = [
+      makeAssistant({ id: "a-1", ...textBody("speech "), timestamp: 1000 }),
+      makeAssistant({
+        id: "react-1",
+        ...textBody("[reaction]"),
+        timestamp: 1010,
+        slackMessage: {
+          channelId: "C0123",
+          channelTs: "1700000000.111111",
+          eventKind: "reaction",
+          reaction: {
+            emoji: "eyes",
+            targetChannelTs: "1700000000.111111",
+            op: "added",
+          },
+        },
+      }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "react-1"]);
+    expect(messageText(result[0]!)).toBe("speech ");
+  });
+});
+
+describe("mergeAdjacentAssistantMessages · no-response rows", () => {
+  test("a deliberate-silence row never folds, in either direction", () => {
+    // Folded into the preceding tool-call turn, the row's marker is dropped
+    // and the turn shows its activity with no sign the assistant chose
+    // silence.
+    const messages = [
+      makeReactToolTurn("a-1", 1000),
+      makeAssistant({ id: "quiet-1", timestamp: 1010, isNoResponse: true }),
+      makeAssistant({ id: "a-2", ...textBody("later"), timestamp: 1020 }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "quiet-1", "a-2"]);
+    expect(result[1]!.isNoResponse).toBe(true);
+  });
+
+  test("a reaction-only turn keeps its three rows apart", () => {
+    // The rows a reaction-only channel turn persists, as the daemon serves
+    // them: the tool call, the silence marker, then the reaction record.
+    const messages = [
+      makeReactToolTurn("a-1", 1000),
+      makeAssistant({ id: "quiet-1", timestamp: 1010, isNoResponse: true }),
+      makeReactionRow("react-1", 1020),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result).toBe(messages);
+  });
+});
+
 describe("mergeAdjacentAssistantMessages · channel-deleted rows", () => {
   test("a row deleted on its channel never folds, in either direction", () => {
     // Mirrors the daemon's `isStandaloneAssistantMessage`: the fold keeps
@@ -274,6 +372,82 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
       { type: "attachment", id: "0" },
       { type: "attachment", id: "2" },
     ]);
+  });
+
+  test("preserves donor automatic screenshot provenance without mutating inputs", () => {
+    const survivor = makeAssistant({
+      id: "anchor",
+      slackMessage: {
+        channelId: "channel-1",
+        channelTs: "100.1",
+      },
+      attachments: [
+        {
+          id: "explicit-file",
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 20,
+          previewUrl: null,
+        },
+      ],
+      contentBlocks: [
+        {
+          type: "attachment",
+          attachment: {
+            id: "explicit-file",
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 20,
+            kind: "document",
+          },
+        },
+      ],
+    });
+    const donor = makeAssistant({
+      id: "reply-donor",
+      attachments: [
+        {
+          id: "cloned-image",
+          filename: "computer-use-click.png",
+          mimeType: "image/png",
+          sizeBytes: 10,
+          previewUrl: null,
+          computerUseScreenshot: true,
+        },
+      ],
+      contentBlocks: [
+        {
+          type: "attachment",
+          attachment: {
+            id: "cloned-image",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            sizeBytes: 10,
+            kind: "image",
+            computerUseScreenshot: true,
+          },
+        },
+      ],
+    });
+    const original = structuredClone([survivor, donor]);
+
+    const result = mergeAdjacentAssistantMessages([survivor, donor]);
+
+    expect(
+      result[0]?.attachments?.map((attachment) => ({
+        id: attachment.id,
+        computerUseScreenshot: attachment.computerUseScreenshot,
+      })),
+    ).toEqual([
+      { id: "explicit-file", computerUseScreenshot: undefined },
+      { id: "cloned-image", computerUseScreenshot: true },
+    ]);
+    expect(result[0]?.contentBlocks).toEqual([
+      survivor.contentBlocks![0],
+      donor.contentBlocks![0],
+    ]);
+    expect(result[0]?.slackMessage).toEqual(survivor.slackMessage);
+    expect([survivor, donor]).toEqual(original);
   });
 
   // Server history payloads reference toolCalls / surfaces *positionally*

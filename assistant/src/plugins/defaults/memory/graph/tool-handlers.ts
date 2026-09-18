@@ -6,7 +6,6 @@
 // into concept pages.
 // ---------------------------------------------------------------------------
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -15,6 +14,7 @@ import {
 } from "../../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { appendBufferAndArchive } from "../buffer-file.js";
 import { formatRememberEntry } from "../buffer-format.js";
 import { getWorkspaceDir } from "../paths.js";
 import type { GraphStats } from "./store.js";
@@ -97,47 +97,6 @@ export function handleRemember(
   });
 
   return { success: true, message };
-}
-
-/**
- * Append `entry` to `<rootDir>/buffer.md` and `<rootDir>/archive/<today>.md`,
- * creating the archive directory and seeding the archive header if missing.
- *
- * Returns the absolute paths of both files so callers can fan out follow-up
- * work.
- *
- * Exported so background jobs (`sweep`, future LLM-driven extractors) can
- * append to `memory/buffer.md` + `memory/archive/<today>.md` with exactly the
- * same format `remember()` produces, keeping the two write paths
- * byte-compatible for downstream consumers (consolidation, search).
- */
-export function appendBufferAndArchive(args: {
-  rootDir: string;
-  entry: string;
-  now: Date;
-}): { bufferPath: string; archivePath: string } {
-  const { rootDir, entry, now } = args;
-  const archiveDir = join(rootDir, "archive");
-  mkdirSync(archiveDir, { recursive: true });
-
-  const bufferPath = join(rootDir, "buffer.md");
-  appendFileSync(bufferPath, entry, "utf-8");
-
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const archivePath = join(archiveDir, `${yyyy}-${mm}-${dd}.md`);
-  if (!existsSync(archivePath)) {
-    const month = now.toLocaleString("en-US", { month: "short" });
-    appendFileSync(
-      archivePath,
-      `# ${month} ${now.getDate()}, ${yyyy}\n\n`,
-      "utf-8",
-    );
-  }
-  appendFileSync(archivePath, entry, "utf-8");
-
-  return { bufferPath, archivePath };
 }
 
 // ---------------------------------------------------------------------------

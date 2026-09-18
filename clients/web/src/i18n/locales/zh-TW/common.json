@@ -138,21 +138,49 @@
   },
   "companionIntro": {
     "ariaLabel": "介紹您的助理",
-    "done": "知道了",
-    "meet": {
-      "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。",
-      "title": "這就是我",
-      "titleNamed": "我是 {name}"
+    "back": "上一步",
+    "call": {
+      "click": "點擊",
+      "line": "正在聆聽",
+      "shortcut": "快速鍵"
     },
-    "menu": {
-      "body": "您可以在這裡隱藏我或變更我的大小。",
-      "title": "右鍵點擊我"
+    "close": "關閉",
+    "done": "知道了",
+    "draw": {
+      "body": "指出螢幕上的任何內容",
+      "title": "標註"
+    },
+    "idle": {
+      "body": "把游標移到我上面，我就出來。",
+      "title": "嘿，是我",
+      "titleNamed": "嘿，我是 {name}"
+    },
+    "key": {
+      "scolded": "不是這個，是鍵盤上的那個鍵"
+    },
+    "meet": {
+      "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。"
+    },
+    "mute": {
+      "body": "點擊麥克風把自己靜音，點擊喇叭把我靜音",
+      "title": "靜音"
     },
     "next": "下一步",
-    "skip": "跳過",
+    "share": {
+      "body": "把分頁、視窗或整個螢幕分享給我",
+      "title": "分享您的螢幕"
+    },
     "talk": {
-      "body": "開始語音對話。",
-      "title": "交談"
+      "body": "點擊我就能開始對話。",
+      "gesture": "或者連按兩次這個鍵：",
+      "greeted": "成功了！就這麼簡單。",
+      "prompt": "我會請求使用您的麥克風",
+      "title": "和我說話"
+    },
+    "try": {
+      "body": "跟我打個招呼，我會說出聲來回答。",
+      "how": "點擊我，或連按兩次這個鍵",
+      "title": "試試看"
     }
   },
   "companionPopover": {
@@ -242,6 +270,10 @@
   "conversationTitle": {
     "untitled": "未命名"
   },
+  "copyButton": {
+    "copied": "已複製",
+    "copyFailed": "無法複製到剪貼簿。"
+  },
   "createAssistantDialog": {
     "cancel": "取消",
     "create": "建立",
@@ -278,7 +310,6 @@
     "tooltip": "停止"
   },
   "detailPrimitives": {
-    "copied": "已複製",
     "copy": "複製",
     "showLess": "顯示較少",
     "showMore": "顯示更多"
@@ -709,7 +740,7 @@
     "copied": "已複製！",
     "copyName": "複製名稱",
     "displayNameHint": "對於顯示名稱，<strong>{suggestedName}</strong> 可讓此機器人與您的助理相符。使用者名稱是獨立的，不一定要相符。",
-    "dmOnlyNotice": "目前僅支援私人聊天。群組、超級群組與頻道中的訊息與按鈕點擊尚不支援。",
+    "chatScopeNotice": "支援私人聊天與群組。在群組中，助理會在被提及或有人回覆它時回應。不支援廣播頻道。",
     "inBotFather": "在 BotFather 中：",
     "intro": "Telegram 機器人是透過傳送訊息給 <strong>@BotFather</strong> 來建立的。開啟它，按照提示操作，然後帶著它給您的權杖回來。",
     "next": "下一步",

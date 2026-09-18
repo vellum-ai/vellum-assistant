@@ -32,6 +32,7 @@ interface MockProviderRow {
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  responseOkField: string | null;
 }
 
 const baseProvider: MockProviderRow = {
@@ -44,6 +45,7 @@ const baseProvider: MockProviderRow = {
   pingMethod: null,
   pingHeaders: null,
   pingBody: null,
+  responseOkField: null,
 };
 
 let mockProviders: Record<string, MockProviderRow> = {};
@@ -586,6 +588,37 @@ describe("POST oauth/ping", () => {
     expect(result.status).toBe(401);
     expect(result.hint).toContain("oauth connect");
   });
+
+  // Slack's auth.test refuses a revoked token inside an HTTP 200, so a ping
+  // that read only the status would report a dead bot credential as healthy.
+  test("a 2xx ping whose body reports failure in the declared ok field is not ok", async () => {
+    const seed = PROVIDER_SEED_DATA.slack_channel;
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      pingUrl: seed.pingUrl ?? null,
+      responseOkField: seed.responseOkField ?? null,
+    };
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "invalid_auth" },
+    };
+    const result = (await getRoute("POST", "oauth/ping").handler(
+      makeArgs({ body: { provider: "slack_channel" } }),
+    )) as {
+      ok: boolean;
+      status: number;
+      error: string;
+      body?: unknown;
+      hint?: string;
+    };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.error).toContain("ok: false");
+    expect(result.body).toEqual({ ok: false, error: "invalid_auth" });
+    expect(result.hint).toContain("oauth connect");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -665,51 +698,47 @@ describe("POST oauth/request", () => {
     expect(result.body).toEqual({ hello: "world" });
   });
 
-  // The recovery hint on a 401/403 follows the credential's kind. A channel
-  // bot's token is stored by the channel's setup, so the OAuth status and
-  // connect commands cannot repair it; the hint must name the channel's own
-  // diagnostics, through whichever door the request came.
-  test("401 as a channel bot points at the channel's diagnostics, never the OAuth commands", async () => {
-    mockProviders.slack_channel = {
-      ...baseProvider,
-      provider: "slack_channel",
-      authorizeUrl: "urn:manual-token",
-      managedServiceConfigKey: null,
-      baseUrl: "https://slack.com/api",
-    };
-    mockResolveResponse = {
-      status: 401,
-      headers: { "content-type": "application/json" },
-      body: { ok: false, error: "invalid_auth" },
-    };
-    const result = (await getRoute("POST", "oauth/request").handler(
-      makeArgs({
-        body: { provider: "slack_channel", url: "/conversations.history" },
-      }),
-    )) as { ok: boolean; status: number; hint?: string };
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(401);
-    expect(result.hint).toContain("slack bot credential");
-    expect(result.hint).toContain("assistant channels get slack");
-    expect(result.hint).not.toContain("oauth status");
-    expect(result.hint).not.toContain("oauth connect");
-  });
-
-  test("403 as a person's OAuth integration keeps the OAuth recovery steps", async () => {
+  // The hint's wording is pinned in oauth-request-hints.test.ts. Here only
+  // the facts the route hands the composer are proved to arrive: the
+  // response headers, the base the request resolved against, and the bot
+  // channel resolved from the provider key.
+  test("hands the composer the response, the resolved base, and the identity", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
     mockResolveResponse = {
       status: 403,
-      headers: { "content-type": "application/json" },
-      body: { error: "forbidden" },
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: "<html><title>Slack</title></html>",
     };
-    const result = (await getRoute("POST", "oauth/request").handler(
+    const asBot = (await getRoute("POST", "oauth/request").handler(
       makeArgs({
-        body: { provider: "google", url: "https://api.google.com/v1/me" },
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
       }),
     )) as { ok: boolean; status: number; hint?: string };
-    expect(result.status).toBe(403);
-    expect(result.hint).toContain("assistant oauth status google");
-    expect(result.hint).toContain("oauth connect");
-    expect(result.hint).not.toContain("channels get");
+    expect(asBot.ok).toBe(false);
+    expect(asBot.status).toBe(403);
+    // An absolute URL's own origin is the resolved base.
+    expect(asBot.hint).toContain("from files.slack.com");
+    expect(asBot.hint).toContain("assistant channels get slack");
+
+    // A relative path resolves against the provider's base.
+    mockResolveResponse = {
+      status: 404,
+      headers: { "content-type": "text/html; charset=UTF-8" },
+      body: "<html><title>Error 404 (Not Found)</title></html>",
+    };
+    const relative = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "/calendar/v3/calendars/primary/events",
+        },
+      }),
+    )) as { ok: boolean; hint?: string };
+    expect(relative.ok).toBe(false);
+    expect(relative.hint).toContain('base URL "https://api.google.com"');
   });
 
   test("passes a pre-parsed string body through to the connection unchanged", async () => {
@@ -917,6 +946,7 @@ describe("POST oauth/request", () => {
       managedServiceConfigKey: null,
       baseUrl: seed.baseUrl ?? null,
       injectionTemplates: JSON.stringify(seed.injectionTemplates),
+      responseOkField: seed.responseOkField ?? null,
     };
   }
 
@@ -1050,84 +1080,6 @@ describe("POST oauth/request", () => {
     ]);
   });
 
-  test("attaches reconnect hint on 401 response", async () => {
-    mockResolveResponse = { status: 401, headers: {}, body: { error: "no" } };
-    const result = (await getRoute("POST", "oauth/request").handler(
-      makeArgs({
-        body: { provider: "google", url: "https://api.google.com/v1/me" },
-      }),
-    )) as { ok: boolean; hint?: string };
-    expect(result.ok).toBe(false);
-    expect(result.hint).toContain("oauth status");
-  });
-
-  test("attaches wrong-host/path hint on HTML 404 for a relative path", async () => {
-    mockResolveResponse = {
-      status: 404,
-      headers: { "content-type": "text/html; charset=UTF-8" },
-      body: "<html><title>Error 404 (Not Found)</title></html>",
-    };
-    const result = (await getRoute("POST", "oauth/request").handler(
-      makeArgs({
-        body: {
-          provider: "google",
-          url: "/calendar/v3/calendars/primary/events",
-        },
-      }),
-    )) as { ok: boolean; status: number; hint?: string };
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(404);
-    expect(result.hint).toContain("HTML");
-    // Reports the resolved base URL the relative path was joined onto.
-    expect(result.hint).toContain("https://api.google.com");
-    // Steers the caller toward an absolute URL.
-    expect(result.hint).toContain("absolute URL");
-  });
-
-  test("does not attach HTML-404 hint when a 404 body is JSON", async () => {
-    mockResolveResponse = {
-      status: 404,
-      headers: { "content-type": "application/json" },
-      body: { error: "not found" },
-    };
-    const result = (await getRoute("POST", "oauth/request").handler(
-      makeArgs({
-        body: { provider: "google", url: "/v1/missing" },
-      }),
-    )) as { ok: boolean; status: number; hint?: string };
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe(404);
-    expect(result.hint).toBeUndefined();
-  });
-
-  test("HTML-404 hint reports an absolute URL's own host as the resolved base", async () => {
-    mockProviders.google = {
-      ...baseProvider,
-      injectionTemplates: JSON.stringify([
-        {
-          hostPattern: "www.googleapis.com",
-          injectionType: "header",
-          headerName: "Authorization",
-          valuePrefix: "Bearer ",
-        },
-      ]),
-    };
-    mockResolveResponse = {
-      status: 404,
-      headers: { "content-type": "text/html" },
-      body: "<html>nope</html>",
-    };
-    const result = (await getRoute("POST", "oauth/request").handler(
-      makeArgs({
-        body: {
-          provider: "google",
-          url: "https://www.googleapis.com/calendar/v3/nope",
-        },
-      }),
-    )) as { hint?: string };
-    expect(result.hint).toContain("https://www.googleapis.com");
-  });
-
   test("rejects unregistered client_id in BYO mode", async () => {
     // No entry in mockApps for google:client-x
     await expect(
@@ -1141,6 +1093,67 @@ describe("POST oauth/request", () => {
         }),
       ),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  // Slack documents that every Web API response carries a top-level boolean
+  // `ok`, false on failure, under a successful status. The provider row
+  // declares that field, and the door reads it, so a refused call is not
+  // reported as a success to the caller.
+  test("a 2xx whose body reports failure in the provider's declared ok field is not ok", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "/chat.postMessage",
+          parsed_data: { channel: "C1", text: "digest" },
+        },
+      }),
+    )) as { ok: boolean; status: number; body: unknown; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: false, error: "not_in_channel" });
+    expect(result.hint).toContain("ok: false");
+  });
+
+  test("a body without the declared ok field leaves the status as the verdict", async () => {
+    // A file download from the same credential answers with bytes, not the
+    // envelope, and must not read as a refusal.
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "image/png" },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; hint?: string };
+    expect(result.ok).toBe(true);
+    expect(result.hint).toBeUndefined();
+  });
+
+  test("a provider that declares no ok field is judged by status alone", async () => {
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_an_envelope" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "google", url: "https://api.google.com/v1/me" },
+      }),
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
   });
 });
 

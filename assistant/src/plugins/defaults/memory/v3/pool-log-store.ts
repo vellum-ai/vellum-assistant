@@ -27,17 +27,39 @@
  * Rows are per-turn diagnostics (roughly 10KB each) with no retention job;
  * a conversation delete purges them with the other conversation-keyed memory
  * tables (`conversation-memory-purge.ts`).
+ *
+ * Under `memory.v3.poolLog.captureInput` (off by default) the turn's row is
+ * joined by the selector's exact input, for offline selector evaluation and
+ * training data: `memory_v3_pool_inputs` (one row per `(conversation,
+ * turn)`: the context strings the selector was given, the selector prompt's
+ * content hash, the gate reason, the keep-all flag, and the content hash of
+ * every pooled candidate's rendered text in pool order, aligned with
+ * `candidates_json`) and `memory_v3_pool_texts` (each rendered text once,
+ * keyed by that hash). `buildPoolInput` derives both from the same
+ * orchestrate result and turn as the pool record, and `writePoolInput` runs
+ * in `writeTurnLog`'s transaction with the pool and selection rows. The
+ * input row is purged with the conversation; the texts are page-derived and
+ * content-keyed, so they are not.
  */
+
+import { createHash } from "node:crypto";
 
 import { getLogger } from "../logging.js";
 import type { MemorySqlite } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import {
   ensuredMemorySqlite,
+  ensureMemoryV3PoolInputsSchemaOnce,
   ensureMemoryV3PoolsSchemaOnce,
   memoryReader,
 } from "./plugin-schema.js";
-import { type FinderLane, sectionKey, type Slug } from "./types.js";
+import { renderFinderLine } from "./pool-select.js";
+import {
+  type FinderLane,
+  type MemoryRoutingTurn,
+  sectionKey,
+  type Slug,
+} from "./types.js";
 
 const log = getLogger("memory-v3-pool-log");
 
@@ -288,4 +310,234 @@ export function readPoolForMessageIds(messageIds: string[]): StoredPool | null {
         )
         .get(...messageIds) as PoolRow | null,
   );
+}
+
+/** Content hash of a rendered candidate text or a selector prompt: the key
+ *  of `memory_v3_pool_texts`. */
+export function hashPoolText(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+/** The selector's exact input for one turn, persisted under
+ *  `memory.v3.poolLog.captureInput` beside the turn's pool record. */
+export interface PoolInputRecord {
+  situational_context: string | null;
+  recent_context: string;
+  current_message: string;
+  previous_assistant_message: string | null;
+  /** Content hash of the selector system prompt the turn ran with; null
+   *  when the selector was not run. */
+  selector_prompt_hash: string | null;
+  /** Whether the selector's recall-safe keep-all fallback fired. */
+  kept_all: boolean;
+  /** The injection gate's reason code; null when the gate did not run. */
+  gate_reason: string | null;
+  /** Content hash of each pooled candidate's rendered text, in pool order:
+   *  index `i` describes the turn's pool record candidate `i`, which the
+   *  selector saw under pool number `i + 1`. Empty when the record is, and
+   *  when the texts could not be captured (a consumer zips by index and
+   *  treats a length mismatch as texts unavailable). */
+  candidate_text_hashes: string[];
+}
+
+/** A turn's input record with the rendered texts its hashes name. */
+export interface PoolInputCapture {
+  input: PoolInputRecord;
+  texts: Map<string, string>;
+}
+
+/**
+ * Build the turn's input capture from an orchestrate result and the turn it
+ * ran on. Each candidate text is exactly what the selector was shown minus
+ * its pool number: a stable-prefix candidate's pre-rendered card, a finder
+ * candidate's rendered line ({@link renderFinderLine}), in the pool
+ * record's order ({@link buildPoolRecord}). A turn whose pool record is
+ * empty (the selector never judged a pool and nothing was selected)
+ * captures the context strings and no candidate texts, so the hashes stay
+ * aligned with that record; a result that carries no selector pool, or one
+ * that disagrees with its lanes on the candidate count, captures no texts
+ * either and logs the mismatch.
+ */
+export function buildPoolInput(
+  result: OrchestrateResult,
+  turn: MemoryRoutingTurn,
+  selectorPrompt: string | undefined,
+): PoolInputCapture {
+  const texts = new Map<string, string>();
+  const hashes: string[] = [];
+  const recordsPool = result.selectorRan || result.selections.length > 0;
+  if (recordsPool) {
+    const { core, hot, fresh, always, finder } = result.lanes;
+    const expected =
+      core.length + hot.length + fresh.length + always.length + finder.length;
+    const rendered =
+      result.pool === undefined
+        ? undefined
+        : [
+            ...result.pool.stable.map((candidate) => candidate.card),
+            ...result.pool.finder.map((candidate) =>
+              renderFinderLine(candidate),
+            ),
+          ];
+    if (rendered === undefined || rendered.length !== expected) {
+      log.warn(
+        {
+          conversationId: turn.conversationId,
+          turnNumber: turn.turnNumber,
+          rendered: rendered?.length ?? null,
+          expected,
+        },
+        "memory-v3 pool input capture: the result's pool does not match its lanes; capturing no candidate texts",
+      );
+    } else {
+      for (const text of rendered) {
+        const hash = hashPoolText(text);
+        hashes.push(hash);
+        texts.set(hash, text);
+      }
+    }
+  }
+  return {
+    input: {
+      situational_context: turn.situationalContext ?? null,
+      recent_context: turn.recentContext,
+      current_message: turn.currentMessage,
+      previous_assistant_message: turn.previousAssistantMessage ?? null,
+      selector_prompt_hash:
+        result.selectorRan && selectorPrompt !== undefined
+          ? hashPoolText(selectorPrompt)
+          : null,
+      kept_all: result.keptAll ?? false,
+      gate_reason: result.gateReason ?? null,
+      candidate_text_hashes: hashes,
+    },
+    texts,
+  };
+}
+
+/**
+ * Write the turn's input row and its candidate texts on `raw`, their tables
+ * ensured first (`plugin-schema.ts`). The row's PK is `(conversation_id,
+ * turn)`, so a re-observed turn overwrites it in step with its pool row;
+ * each text is inserted by hash and ignored when already stored. Throws on
+ * a failed statement: `writeTurnLog` in `shadow-plugin.ts` runs this inside
+ * the transaction that writes the turn's pool and selection rows, and owns
+ * the best-effort boundary around it.
+ */
+export function writePoolInput(
+  raw: MemorySqlite,
+  conversationId: string,
+  turn: number,
+  capture: PoolInputCapture,
+): void {
+  ensureMemoryV3PoolInputsSchemaOnce(raw);
+  const now = Date.now();
+  const { input, texts } = capture;
+  raw
+    .query(
+      /*sql*/ `
+      INSERT OR REPLACE INTO memory_v3_pool_inputs (
+        conversation_id, turn, created_at, situational_context, recent_context,
+        current_message, previous_assistant_message, selector_prompt_hash,
+        kept_all, gate_reason, candidate_text_hashes_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    )
+    .run(
+      conversationId,
+      turn,
+      now,
+      input.situational_context,
+      input.recent_context,
+      input.current_message,
+      input.previous_assistant_message,
+      input.selector_prompt_hash,
+      input.kept_all ? 1 : 0,
+      input.gate_reason,
+      JSON.stringify(input.candidate_text_hashes),
+    );
+  const insertText = raw.query(/*sql*/ `
+      INSERT OR IGNORE INTO memory_v3_pool_texts (text_hash, text, created_at)
+      VALUES (?, ?, ?)
+    `);
+  for (const [hash, text] of texts) {
+    insertText.run(hash, text, now);
+  }
+}
+
+interface PoolInputRow {
+  situational_context: string | null;
+  recent_context: string;
+  current_message: string;
+  previous_assistant_message: string | null;
+  selector_prompt_hash: string | null;
+  kept_all: number;
+  gate_reason: string | null;
+  candidate_text_hashes_json: string;
+}
+
+/** Best-effort read over the capture tables, degrading to the fallback when
+ *  the memory connection is unavailable or a statement fails
+ *  (`plugin-schema.ts`). */
+const readPoolInputOr = memoryReader(
+  (context) => ensuredMemorySqlite(context, ensureMemoryV3PoolInputsSchemaOnce),
+  (err, context) =>
+    log.warn(
+      { err, context },
+      "failed to read memory-v3 pool input; treating it as unrecorded",
+    ),
+);
+
+/**
+ * Read the input record for an exact `(conversation, turn)`. `null` when the
+ * turn has none (it ran with the capture off or predates it) or the read
+ * degraded.
+ */
+export function readPoolInputForTurn(
+  conversationId: string,
+  turn: number,
+): PoolInputRecord | null {
+  return readPoolInputOr("readPoolInputForTurn", null, (raw) => {
+    const row = raw
+      .query(
+        /*sql*/ `
+        SELECT situational_context, recent_context, current_message,
+               previous_assistant_message, selector_prompt_hash, kept_all,
+               gate_reason, candidate_text_hashes_json
+        FROM memory_v3_pool_inputs
+        WHERE conversation_id = ? AND turn = ?
+      `,
+      )
+      .get(conversationId, turn) as PoolInputRow | null;
+    if (!row) {
+      return null;
+    }
+    const hashes: unknown = JSON.parse(row.candidate_text_hashes_json);
+    if (!Array.isArray(hashes)) {
+      throw new Error("candidate_text_hashes_json is not an array");
+    }
+    return {
+      situational_context: row.situational_context,
+      recent_context: row.recent_context,
+      current_message: row.current_message,
+      previous_assistant_message: row.previous_assistant_message,
+      selector_prompt_hash: row.selector_prompt_hash,
+      kept_all: row.kept_all === 1,
+      gate_reason: row.gate_reason,
+      candidate_text_hashes: hashes as string[],
+    };
+  });
+}
+
+/** The rendered text stored under `textHash`, or `null` when none is or the
+ *  read degraded. */
+export function readPoolText(textHash: string): string | null {
+  return readPoolInputOr("readPoolText", null, (raw) => {
+    const row = raw
+      .query(
+        /*sql*/ `SELECT text FROM memory_v3_pool_texts WHERE text_hash = ?`,
+      )
+      .get(textHash) as { text: string } | null;
+    return row?.text ?? null;
+  });
 }

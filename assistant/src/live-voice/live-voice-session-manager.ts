@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientFrame,
@@ -52,6 +53,9 @@ export interface LiveVoiceSession {
   handleClientFrame(frame: LiveVoiceClientFrame): MaybePromise<void>;
   handleBinaryAudio(chunk: Uint8Array): MaybePromise<void>;
   close(reason: LiveVoiceSessionCloseReason): MaybePromise<void>;
+  receiveSubagentNotification?(
+    notification: SubagentParentNotification,
+  ): boolean;
 }
 
 export interface LiveVoiceServerFrameSink {
@@ -262,6 +266,17 @@ export class LiveVoiceSessionManager {
 
   get activeSessionId(): string | null {
     return this.activeSession?.sessionId ?? null;
+  }
+
+  deliverSubagentNotification(
+    conversationId: string,
+    notification: SubagentParentNotification,
+  ): boolean {
+    const active = this.activeSession;
+    if (active === null || active.holder.conversationId !== conversationId) {
+      return false;
+    }
+    return active.session.receiveSubagentNotification?.(notification) ?? false;
   }
 
   async startSession(

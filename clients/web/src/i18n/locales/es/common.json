@@ -138,21 +138,49 @@
   },
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
-    "done": "Entendido",
-    "meet": {
-      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista.",
-      "title": "Este soy yo",
-      "titleNamed": "Soy {name}"
+    "back": "Atrás",
+    "call": {
+      "click": "Clic",
+      "line": "Escuchando",
+      "shortcut": "Atajo"
     },
-    "menu": {
-      "body": "Ahí puedes ocultarme o cambiar mi tamaño.",
-      "title": "Haz clic derecho sobre mí"
+    "close": "Cerrar",
+    "done": "Entendido",
+    "draw": {
+      "body": "Señala cualquier cosa de tu pantalla",
+      "title": "Dibuja"
+    },
+    "idle": {
+      "body": "Pasa el cursor por encima y saldré.",
+      "title": "Hola, soy yo",
+      "titleNamed": "Hola, soy {name}"
+    },
+    "key": {
+      "scolded": "No, la tecla de tu teclado"
+    },
+    "meet": {
+      "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
+    },
+    "mute": {
+      "body": "Toca el micrófono para silenciarte o el altavoz para silenciarme",
+      "title": "Silenciar"
     },
     "next": "Siguiente",
-    "skip": "Omitir",
+    "share": {
+      "body": "Muéstrame una pestaña, una ventana o toda la pantalla",
+      "title": "Comparte tu pantalla"
+    },
     "talk": {
-      "body": "Inicia una conversación por voz.",
-      "title": "Talk"
+      "body": "Haz clic en mí para empezar una conversación.",
+      "gesture": "O pulsa dos veces esta tecla:",
+      "greeted": "¡Lo lograste! Así de simple.",
+      "prompt": "Te pediré permiso para usar tu micrófono",
+      "title": "Habla conmigo"
+    },
+    "try": {
+      "body": "Dime hola y te responderé en voz alta.",
+      "how": "Haz clic en mí, o pulsa dos veces la tecla",
+      "title": "Pruébalo"
     }
   },
   "companionPopover": {
@@ -188,8 +216,10 @@
     "captureNothing": "Nada que mostrar",
     "capturePicker": "Qué enseñar",
     "captureScreen": "Pantalla {n}",
+    "captureScreenRecordingOff": "La grabación de pantalla está desactivada",
     "captureScreens": "Pantallas",
     "captureTabs": "Pestañas de Chrome",
+    "captureTurnOnScreenRecording": "Activar",
     "captureWindows": "Ventanas",
     "draw": "Dibujar",
     "clearMarks": "Borrar marcas",
@@ -240,6 +270,10 @@
   "conversationTitle": {
     "untitled": "Sin título"
   },
+  "copyButton": {
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar al portapapeles."
+  },
   "createAssistantDialog": {
     "cancel": "Cancelar",
     "create": "Crear",
@@ -276,7 +310,6 @@
     "tooltip": "Detener"
   },
   "detailPrimitives": {
-    "copied": "Copiado",
     "copy": "Copiar",
     "showLess": "Mostrar menos",
     "showMore": "Mostrar más"
@@ -707,7 +740,7 @@
     "copied": "¡Copiado!",
     "copyName": "Copiar nombre",
     "displayNameHint": "Para el nombre visible, <strong>{suggestedName}</strong> mantiene este bot alineado con tu asistente. El nombre de usuario es independiente y no tiene que coincidir.",
-    "dmOnlyNotice": "Los chats privados sí están admitidos. Los mensajes y las pulsaciones de botones en grupos, supergrupos y canales aún no están admitidos.",
+    "chatScopeNotice": "Los chats privados y los grupos están admitidos. En un grupo, el asistente responde cuando lo mencionan o cuando alguien responde a uno de sus mensajes. Los canales de difusión no están admitidos.",
     "inBotFather": "En BotFather:",
     "intro": "Los bots de Telegram se crean enviando un mensaje a <strong>@BotFather</strong>. Ábrelo, sigue las indicaciones y vuelve con el token que te dé.",
     "next": "Siguiente",

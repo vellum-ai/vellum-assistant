@@ -8,6 +8,7 @@ import {
   NORMAL_UPDATES_MARKER,
   parseTerminalSessionControl,
   type SessionControlRequest,
+  TASK_STOP_MARKER,
 } from "../calls/voice-control-protocol.js";
 import type { VoiceProgressConfig } from "../config/schemas/voice.js";
 import type { LiveVoiceSessionControl } from "./protocol.js";
@@ -86,6 +87,8 @@ export function lookFollowUpNote(action: LookSessionControl): string {
 // to carry it out.
 const UPDATES_LINE = `- To hear fewer spoken progress updates while you work (for example "don't give me updates so often"), confirm that you will only check in now and then and will tell them when it is done, then end your reply with ${FEWER_UPDATES_MARKER}. If they later want regular updates back, confirm and end with ${NORMAL_UPDATES_MARKER}.`;
 
+const TASK_STOP_LINE = `- To abandon the unfinished task while keeping the call open (for example "stop that" or "never mind about that task"), confirm briefly, then end your reply with ${TASK_STOP_MARKER}. Use this only when they want the task abandoned, not when they interrupt with a question or correction.`;
+
 /**
  * The control-prompt block that teaches the session controls: the ones the
  * client declared plus the progress-update cadence. Every leg gets it,
@@ -98,7 +101,7 @@ const UPDATES_LINE = `- To hear fewer spoken progress updates while you work (fo
 export function sessionControlTeaching(
   controls: readonly LiveVoiceSessionControl[],
   leg: { frontDoor?: boolean },
-  client: { lookFrames?: boolean } = {},
+  client: { lookFrames?: boolean; unfinishedTaskPending?: boolean } = {},
 ): string {
   const lines =
     client.lookFrames === true
@@ -109,6 +112,7 @@ export function sessionControlTeaching(
     ...controls.map((control) => lines[control]),
     ...lookGuidance(controls),
     UPDATES_LINE,
+    ...(client.unfinishedTaskPending === true ? [TASK_STOP_LINE] : []),
     `The marker must be the very last thing in your reply. It is never spoken and does nothing anywhere else.${leg.frontDoor === true ? "" : " Never emit any other bracketed marker."}`,
   ].join("\n");
 }
@@ -137,7 +141,7 @@ function lookGuidance(controls: readonly LiveVoiceSessionControl[]): string[] {
 /** A session control the client carries out, sent as a `session_control` frame. */
 export type ClientSessionControlRequest = Exclude<
   SessionControlRequest,
-  { action: "updates" }
+  { action: "updates" } | { action: "task_stop" }
 >;
 
 /**
@@ -154,7 +158,7 @@ export function requestedSessionControl(
   if (request === null) {
     return null;
   }
-  if (request.action === "updates") {
+  if (request.action === "updates" || request.action === "task_stop") {
     return request;
   }
   return controls.includes(request.action) ? request : null;

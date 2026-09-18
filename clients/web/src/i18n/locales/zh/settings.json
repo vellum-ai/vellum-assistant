@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "启用后，Vellum 员工将能够访问您的助手及其数据以进行调试。建议您保持此功能关闭，仅在需要 Vellum 支持团队协助调查问题时暂时开启。",
+    "expiresAt": "员工访问将于{when}结束。",
+    "extend": "延长 24 小时",
     "loadError": "未能加载同意设置。",
     "loginNotice": "登录 Vellum 平台以管理管理员数据访问权限。",
     "title": "允许员工访问",
     "toastDisabled": "管理员数据访问已禁用。",
     "toastEnabled": "管理员数据访问已启用。",
+    "toastExtended": "管理员数据访问已延长。",
     "toastUpdateFailed": "未能更新日志访问同意。"
   },
   "adjustPlanModal": {
@@ -409,6 +412,19 @@
     "pickModelError": "选择一个模型",
     "providerLabel": "提供商",
     "unavailableOption": "{name} (不可用)"
+  },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "客服体验不佳",
+    "optionLowQuality": "质量没有达到我的预期",
+    "optionMissingFeatures": "缺少我需要的功能",
+    "optionOther": "其他",
+    "optionSwitchedService": "我换用了其他服务",
+    "optionTooComplex": "太复杂了",
+    "optionTooExpensive": "太贵了",
+    "optionUnused": "我用得不多",
+    "otherLabel": "告诉我们更多",
+    "otherPlaceholder": "我们可以在哪些方面做得更好？",
+    "title": "您为什么要取消？"
   },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "您或您的团队管理员可能需要在 <settingsLink>ChatGPT 设置</settingsLink> 中启用设备代码授权。",
@@ -869,27 +885,9 @@
     "title": "图像生成",
     "vellumNote": "图像生成通过您的 Vellum 账户运行。"
   },
-  "integrationDetailModal": {
-    "accountFallback": "{name} 账户",
-    "close": "关闭",
-    "confirm": "确认",
-    "disconnect": "断开连接",
-    "disconnectFailedToast": "断开 {name} 账户连接失败。",
-    "disconnectMessage": "断开 {account} 的连接？您可以稍后重新连接。",
-    "disconnectTitle": "断开 {name} 的连接？",
-    "disconnectedToast": "{name} 账户已断开连接。",
-    "loginNotice": "登录 Vellum 平台以管理 OAuth 连接。",
-    "managedTab": "已管理",
-    "oauthModeAriaLabel": "OAuth 模式",
-    "subtitle": "配置 {name} OAuth",
-    "subtitleWithDescription": "为 {description} 配置 {name} OAuth",
-    "title": "{name} OAuth",
-    "yourOwnTab": "您自己的"
-  },
   "integrationRow": {
-    "configure": "配置",
+    "configureLabel": "配置 {name}",
     "connect": "连接",
-    "connected": "已连接",
     "connectedAccounts": "{count, plural, other {# 个已连接账号}}",
     "needsAttention": "需要处理"
   },
@@ -909,6 +907,7 @@
     "oauthErrorStateExpired": "授权已过期。请重试。",
     "oauthErrorStateInvalid": "授权状态无效。请重试。",
     "oauthUnavailable": "部分 OAuth 集成无法加载。MCP 连接仍然可用。",
+    "pluginCatalogUnavailable": "无法加载插件集成。现有集成仍然可用。",
     "searchAriaLabel": "搜索集成",
     "searchPlaceholder": "搜索集成",
     "sectionAvailable": "可用",
@@ -980,18 +979,6 @@
     "summaryTwoClauses": "“{display}” {clause1} 和 {clause2}。请在下方选择一个替换项，这些引用将移至该替换项，然后“{display}”将被删除。",
     "title": "选择一个替换配置文件"
   },
-  "managedOauthTab": {
-    "accountFallback": "{name} 账户",
-    "cancel": "取消",
-    "connectAccount": "连接账户",
-    "connectAccountLower": "连接账户",
-    "connectToContinue": "连接账户以继续",
-    "disconnectAriaLabel": "断开 {account}",
-    "statusConnected": "已连接",
-    "statusNeedsAttention": "需要处理",
-    "tenantHostInvalid": "请输入有效的{label}，例如 {placeholder}",
-    "waitingForAuthorization": "正在等待授权..."
-  },
   "mcpAddServerModal": {
     "addServer": "添加服务器",
     "adding": "正在添加...",
@@ -1047,13 +1034,13 @@
   "mcpServerCard": {
     "actionsSheetClose": "关闭",
     "configure": "配置",
+    "configureLabel": "配置 {serverId}",
     "connecting": "正在连接...",
     "finishConnecting": "完成连接",
     "managePlugin": "管理插件",
     "moreActions": "{serverId} 的更多操作",
     "reconnect": "重新连接",
     "removeServer": "移除",
-    "statusConnected": "已连接",
     "statusNeedsAttention": "需要处理",
     "viewDetails": "查看详情"
   },
@@ -1264,11 +1251,14 @@
     "nextPlan": "下一套餐",
     "powerUp": "升级",
     "powerUpFor": "升级至 +{amount}/月",
-    "renewsOn": "按月支付 • 您的订阅将于 {date} 自动续订。",
     "usageBalanceAddCredits": "添加",
+    "usageBalanceBarRenews": "当前使用量，{date} 续订",
+    "usageBalanceBarResets": "当前使用量，{date} 重置",
     "usageBalanceExhausted": "添加点数以继续使用您的助手",
     "usageBalancePctUsed": "已使用 {pct}%",
-    "usageBalanceTitle": "使用余额",
+    "usageBalanceRenews": "{date} 续订",
+    "usageBalanceResets": "{date} 重置",
+    "usageBalanceTitle": "当前使用量",
     "usageChip": "{name} 使用量，每月重置",
     "viewAllPlans": "查看所有套餐"
   },

@@ -29,6 +29,9 @@ export function runtimeAttachmentsToDisplay(
       sizeBytes: a.sizeBytes,
       previewUrl,
       thumbnailUrl,
+      ...(a.computerUseScreenshot !== undefined
+        ? { computerUseScreenshot: a.computerUseScreenshot }
+        : {}),
     };
   });
 }

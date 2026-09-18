@@ -34,6 +34,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 
 import {
@@ -50,19 +51,29 @@ import {
   makeElementSizeMock,
   makePendingChatInfoQueryClient,
   makeTranscriptRow,
+  reportAssistantVersion,
   seedChatInfoConversation,
   seedQueryFailure,
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
+import { conversationAttachmentListArgs } from "@/domains/chat/hooks/use-conversation-attachments";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const OTHER_CONVERSATION_ID = "conv-2";
+const APP_ID = "app-1";
+const CONVERSATION_PATH = routes.conversation(CONVERSATION_ID);
+const APP_PATH = routes.conversation(CONVERSATION_ID, APP_ID);
 
 const restoreDomStubs = installChatInfoDomStubs();
 
@@ -74,17 +85,25 @@ mock.module("@/hooks/use-element-size", () =>
 mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
 
 const calls: string[] = [];
+/** Where the route stood at each `closeChatInfo`, for the open sequence. */
+const routeAtClose: string[] = [];
 
 const { ChatInfoPanel } = await import(
   "@/domains/chat/components/chat-info-panel"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
+const { showPath } = await import("@/stores/open-app.test-helper");
 const { useUnseenDocumentChangesStore } = await import(
   "@/domains/chat/unseen-document-changes-store"
 );
-const { appsGetQueryKey, documentsGetQueryKey } = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
+const {
+  appsGetQueryKey,
+  attachmentsGetInfiniteQueryKey,
+  documentsGetQueryKey,
+} = await import("@/generated/daemon/@tanstack/react-query.gen");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } = await import(
   "@/domains/chat/components/chat-attachments/attachment-fixtures"
 );
@@ -161,10 +180,12 @@ const LEGACY_ROWS: DisplayMessage[] = [
 
 const closeChatInfo = mock((): void => {
   calls.push("closeChatInfo");
+  routeAtClose.push(currentLocation().pathname);
 });
 const loadApp = mock(
-  async (_assistantId: string, _appId: string): Promise<void> => {
+  async (_assistantId: string, _appId: string): Promise<boolean> => {
     calls.push("loadApp");
+    return true;
   },
 );
 const loadDocument = mock(
@@ -187,6 +208,8 @@ const {
   loadApp: realLoadApp,
   loadDocument: realLoadDocument,
 } = useViewerStore.getState();
+const realActiveAssistantId =
+  useResolvedAssistantsStore.getState().activeAssistantId;
 
 interface Seed {
   apps?: AppSummary[];
@@ -195,6 +218,11 @@ interface Seed {
   client?: QueryClient;
   /** Runs once the conversation is seeded, for a test that then breaks it. */
   afterSeed?: (client: QueryClient) => void;
+  /**
+   * Where both routes the app opener straddles start: the probe router's and
+   * the window's, which the imperative route helpers read.
+   */
+  path?: string;
 }
 
 /** Fills both sources the panel's hook reads, and returns its client. */
@@ -222,9 +250,12 @@ async function renderChatInfo(
   seed: Seed = {},
 ): Promise<void> {
   const client = seedPanel(seed);
+  const path = seed.path ?? CONVERSATION_PATH;
+  showPath(path);
   await act(async () => {
     render(
-      <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
+      <MemoryRouter initialEntries={[path]}>
+        <LocationProbe />
         <QueryClientProvider client={client}>
           <ChatInfoPanel
             payload={{
@@ -249,6 +280,7 @@ beforeEach(() => {
   // requested.
   releaseOrgHeader = holdOrgHeaderUnresolved();
   calls.length = 0;
+  routeAtClose.length = 0;
   viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   loadApp.mockClear();
@@ -257,6 +289,8 @@ beforeEach(() => {
   onClose.mockClear();
   onSelectCategory.mockClear();
   useViewerStore.setState({ closeChatInfo, loadApp, loadDocument });
+  // The shared opener the app tiles go through reads the active assistant.
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
 });
 
 afterEach(() => {
@@ -275,6 +309,9 @@ afterAll(() => {
     loadApp: realLoadApp,
     loadDocument: realLoadDocument,
   });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: realActiveAssistantId,
+  });
   restoreDomStubs();
   mock.restore();
 });
@@ -284,13 +321,16 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe("ChatInfoPanel top level", () => {
-  test("heads every non-empty category with its title and exact total", async () => {
+  test("shows exact app totals and omits transcript-only file totals", async () => {
     await renderChatInfo();
 
     expect(screen.getByText("Apps")).toBeDefined();
     expect(screen.getByText("Documents & Images")).toBeDefined();
     expect(screen.getByText("12")).toBeDefined();
-    expect(screen.getByText("4")).toBeDefined();
+    expect(screen.queryByText("4")).toBeNull();
+    expect(
+      screen.getByText("Attachments are from the loaded chat history only."),
+    ).toBeDefined();
     // Nothing carries the camera-frame tag on the transcript path.
     expect(screen.queryByText("Camera Frames")).toBeNull();
   });
@@ -329,13 +369,69 @@ describe("ChatInfoPanel top level", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test("leaves the panel before opening an app, under the payload's assistant", async () => {
+  test("leaves the panel, then opens the app as a navigation", async () => {
     await renderChatInfo();
 
     fireEvent.click(screen.getByLabelText("Open App 1"));
 
+    // The panel is gone before the app route lands, so the app opens where
+    // the panel was rather than behind it, and the app hangs off the
+    // conversation the payload names.
+    expect(calls).toEqual(["closeChatInfo"]);
+    expect(routeAtClose).toEqual([CONVERSATION_PATH]);
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  // Through the shared opener, so the route the user is already on reloads
+  // rather than collecting a second history entry for itself.
+  test("reloads in place when the route already names the app", async () => {
+    await renderChatInfo(null, { path: APP_PATH });
+
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
     expect(calls).toEqual(["closeChatInfo", "loadApp"]);
-    expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, "app-1");
+    expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  test("dismisses itself when another assistant takes over", async () => {
+    await renderChatInfo();
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    expect(closeChatInfo).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays open while no assistant is active", async () => {
+    await renderChatInfo();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+  });
+
+  // The dismissal lands in an effect, so a tile clicked in the same commit
+  // still has to refuse: its app id belongs to the payload's assistant.
+  test("opens no app while its assistant is not the active one", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+
+    await renderChatInfo();
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentLocation().pathname).toBe(CONVERSATION_PATH);
   });
 
   test("reads the assets of the conversation its payload names", async () => {
@@ -514,24 +610,168 @@ describe("ChatInfoPanel unsettled sources", () => {
     expect(screen.queryByText("Assets could not be loaded")).toBeNull();
   });
 
-  test("heads the categories it does have with the failure", async () => {
+  test("places a document failure inside Files alongside available attachments", async () => {
     await renderChatInfo(null, { apps: [], afterSeed: failDocuments });
 
-    const notice = screen.getByText("Assets could not be loaded");
+    const notice = screen.getByText("Documents could not be loaded.");
     const filesTitle = screen.getByText("Documents & Images");
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
     expect(
       notice.compareDocumentPosition(filesTitle) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+        Node.DOCUMENT_POSITION_PRECEDING,
     ).toBeGreaterThan(0);
   });
 
   // The notice sits above the body at every level, so a category drilled into
   // while a source is down is not a silent grid.
-  test("heads a drilled-in category with the failure too", async () => {
+  test("names the failed source in its drilled-in category", async () => {
     await renderChatInfo("files", { apps: [], afterSeed: failDocuments });
 
-    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
+    expect(screen.getByText("Documents could not be loaded.")).toBeDefined();
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
+  });
+});
+
+describe("ChatInfoPanel retry controls", () => {
+  test("retries only documents and preserves the selected Files view and existing tiles", async () => {
+    const client = makeChatInfoQueryClient();
+    const documentKey = documentsGetQueryKey({
+      path: { assistant_id: ASSISTANT_ID },
+      query: { conversationId: CONVERSATION_ID },
+    });
+    await renderChatInfo("files", {
+      client,
+      afterSeed: (cache) => {
+        seedQueryFailure(cache, documentKey);
+      },
+    });
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    let release: (() => void) | undefined;
+    const response = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchMock: typeof fetch = async (input) => {
+      requests.push(input instanceof Request ? input.url : String(input));
+      await response;
+      return new Response(JSON.stringify({ documents: DOCUMENTS }), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    fetchMock.preconnect = originalFetch.preconnect;
+    globalThis.fetch = fetchMock;
+    try {
+      const existingTile = screen.getByLabelText("Preview photo-0.png");
+      fireEvent.click(screen.getByRole("button", { name: "Retry Documents" }));
+      await waitFor(() => expect(requests).toHaveLength(1));
+      await waitFor(() =>
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Retry Documents",
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(true),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Retry Documents" }));
+      expect(requests).toHaveLength(1);
+      expect(screen.getByLabelText("Preview photo-0.png")).toBe(existingTile);
+      expect(screen.getByLabelText("Back to chat info")).toBeDefined();
+      expect(onSelectCategory).not.toHaveBeenCalled();
+      expect(closeChatInfo).not.toHaveBeenCalled();
+      release!();
+      await waitFor(() =>
+        expect(
+          Boolean(
+            screen.queryByText(
+              "Documents could not be refreshed. Showing saved results.",
+            ),
+          ),
+        ).toBe(false),
+      );
+      expect(screen.getByLabelText("Open Trip Notes")).toBeDefined();
+      expect(requests[0]).toContain("/documents?");
+      expect(requests).toHaveLength(1);
+    } finally {
+      release?.();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("offers one full-failure Retry that recovers every failed source", async () => {
+    const restoreVersion = reportAssistantVersion();
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    const fetchMock: typeof fetch = async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push(url);
+      const data = url.includes("/apps?")
+        ? { apps: [] }
+        : url.includes("/documents?")
+          ? { documents: [] }
+          : { attachments: [], total: 0, hasMore: false };
+      return new Response(JSON.stringify(data), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    fetchMock.preconnect = originalFetch.preconnect;
+    try {
+      await renderChatInfo(null, {
+        apps: [],
+        documents: [],
+        messages: [],
+        afterSeed: (cache) => {
+          const args = {
+            path: { assistant_id: ASSISTANT_ID },
+            query: { conversationId: CONVERSATION_ID },
+          };
+          const keys = [
+            appsGetQueryKey(args),
+            documentsGetQueryKey(args),
+            ...(["exclude", "only"] as const).map((filter) =>
+              attachmentsGetInfiniteQueryKey(
+                conversationAttachmentListArgs(
+                  ASSISTANT_ID,
+                  CONVERSATION_ID,
+                  filter,
+                ),
+              ),
+            ),
+          ];
+          for (const queryKey of keys) {
+            cache.removeQueries({ queryKey });
+            seedQueryFailure(cache, queryKey);
+          }
+        },
+      });
+      expect(screen.getByText("Assets could not be loaded")).toBeDefined();
+      expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+      globalThis.fetch = fetchMock;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await screen.findByText("No assets in this chat yet");
+      expect(requests).toHaveLength(4);
+      expect(screen.queryByText("Assets could not be loaded")).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      act(() => restoreVersion());
+    }
+  });
+
+  test("does not put a document failure above a healthy Apps view", async () => {
+    await renderChatInfo("apps", {
+      afterSeed: (cache) => {
+        const queryKey = documentsGetQueryKey({
+          path: { assistant_id: ASSISTANT_ID },
+          query: { conversationId: CONVERSATION_ID },
+        });
+        cache.removeQueries({ queryKey });
+        seedQueryFailure(cache, queryKey);
+      },
+    });
+    expect(screen.getAllByLabelText(/^Open App \d+$/)).toHaveLength(12);
+    expect(screen.queryByText("Documents could not be loaded.")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Retry Documents" }),
+    ).toBeNull();
   });
 });

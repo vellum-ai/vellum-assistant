@@ -8,6 +8,8 @@ import type { AssistantState } from "@/assistant/types";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { decideGraduationDispatches } from "@/domains/chat/hooks/attention-tracking-utils";
 import { reconcileAttentionKeys } from "@/domains/chat/utils/reconcile-attention-keys";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
+import { reconcileDesktopHelp } from "@/domains/chat/desktop/reconcile-desktop-help";
 
 import { useActiveConversation } from "./use-active-conversation";
 import { useMarkSeenOnOpen } from "./use-mark-seen-on-open";
@@ -75,6 +77,12 @@ export function useAttentionTracking({
   );
 
   const initialAttentionSweepDoneRef = useRef(false);
+
+  useEffect(() => {
+    if (assistantId) {
+      void reconcileDesktopHelp(assistantId);
+    }
+  }, [assistantId]);
 
   // -------------------------------------------------------------------------
   // Mark conversation as seen when opened
@@ -200,6 +208,9 @@ export function useAttentionTracking({
     if (event.type !== "interaction_resolved") {
       return;
     }
+    if (event.kind === "question") {
+      useDesktopPreviewStore.getState().resolveHelpSubmission(event.requestId);
+    }
     if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) {
       return;
     }
@@ -234,7 +245,11 @@ export function useAttentionTracking({
   // "fresh") because the initial-sweep effect below handles that.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ cause }) => {
-    if (!assistantId || cause === "fresh") {
+    if (!assistantId) {
+      return;
+    }
+    void reconcileDesktopHelp(assistantId);
+    if (cause === "fresh") {
       return;
     }
     void reconcileAttentionKeys(assistantId, {

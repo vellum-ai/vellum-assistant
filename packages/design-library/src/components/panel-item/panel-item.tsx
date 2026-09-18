@@ -103,7 +103,8 @@ interface PanelItemFrameProps {
 
 /** PanelItem renders the row's contents from these props. */
 interface PanelItemContentProps
-  extends PanelItemFrameProps,
+  extends
+    PanelItemFrameProps,
     Omit<ComponentProps<"div">, "children" | "className" | "aria-label"> {
   asChild?: false;
   /** Ignored: this variant builds its own children from the props below. */
@@ -149,6 +150,15 @@ interface PanelItemContentProps
    */
   trailingAction?: ReactNode;
   /**
+   * Keep `trailingAction` painted regardless of hover, the way an `active`
+   * row keeps its own. For a row whose trailing action is the point of the
+   * row rather than a secondary command tucked behind it: a dismiss on an
+   * entry that exists to be declined, a control the user was told to look
+   * for. Without it the action is still there on hover, focus, and on every
+   * device that cannot hover.
+   */
+  revealHold?: boolean;
+  /**
    * Disabled state for the `onSelect` variant. Blocks click and Enter/Space
    * activation, removes the row from the tab order, and sets `aria-disabled`.
    * No effect on the `asChild` / non-interactive variants.
@@ -186,7 +196,8 @@ interface PanelItemContentProps
  * silently dropped at runtime.
  */
 interface PanelItemSlotProps
-  extends PanelItemFrameProps,
+  extends
+    PanelItemFrameProps,
     Omit<HTMLAttributes<HTMLElement>, "children" | "className" | "aria-label"> {
   asChild: true;
   /**
@@ -203,6 +214,7 @@ interface PanelItemSlotProps
   badge?: never;
   badgeBare?: never;
   trailingAction?: never;
+  revealHold?: never;
   marqueeOnHover?: never;
   disabled?: never;
   onSelect?: never;
@@ -334,7 +346,7 @@ const LEFT_CLUSTER_CLASSES =
 
 /**
  * `--panel-item-icon-fg` lets a caller recolor just the leading icon (e.g. the
- * New Chat row's plus, tinted to the assistant's own accent) without touching
+ * sidebar's New Chat plus, tinted to the assistant's own accent) without touching
  * every other icon on the surface: it falls back to the usual tertiary gray,
  * so a row that never declares it looks exactly as before.
  */
@@ -471,6 +483,7 @@ function PanelItemContentRow({
   badge,
   badgeBare = false,
   trailingAction,
+  revealHold = false,
   shape = "row",
   active = false,
   activeVariant = "default",
@@ -629,7 +642,7 @@ function PanelItemContentRow({
         aria-disabled={disabled || undefined}
         className={classes}
         data-reveal-row=""
-        data-reveal-hold={active ? "" : undefined}
+        data-reveal-hold={active || revealHold ? "" : undefined}
         aria-current={ariaCurrent}
         aria-label={resolvedAriaLabel}
         onClick={composedOnClick}
@@ -646,7 +659,7 @@ function PanelItemContentRow({
       ref={ref}
       className={classes}
       data-reveal-row=""
-      data-reveal-hold={active ? "" : undefined}
+      data-reveal-hold={active || revealHold ? "" : undefined}
       aria-current={ariaCurrent}
       aria-label={resolvedAriaLabel}
       onClick={onClick}

@@ -21,8 +21,13 @@ export async function readLimitedAttachmentResponse(
 ): Promise<ArrayBuffer> {
   const result = await readLimitedBodyBytes(response, maxBytes);
   if (result.status === "too_large") {
+    // The size stays unknown here: a declared Content-Length is only an
+    // early rejection, since providers can misstate it, so it is never
+    // presented as the file's size. A provider that states the size in its
+    // own metadata (WhatsApp) names it at its own throw site.
     throw new AttachmentTooLargeError(
       `Attachment ${attachmentId} exceeds the ${maxBytes}-byte limit`,
+      { limit: maxBytes },
     );
   }
   if (result.status === "unreadable") {

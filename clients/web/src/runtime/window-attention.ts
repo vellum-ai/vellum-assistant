@@ -69,6 +69,10 @@ export function subscribeToWindowAttention(
   };
 }
 
+export function supportsWindowAttention(): boolean {
+  return isElectron() && !!window.vellum?.notifications?.onWindowAttention;
+}
+
 /**
  * Whether the desktop window is on screen, unminimized, and focused.
  *

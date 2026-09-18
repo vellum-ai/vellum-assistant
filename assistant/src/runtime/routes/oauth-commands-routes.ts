@@ -20,7 +20,10 @@ import {
   type Services,
   ServicesSchema,
 } from "../../config/schemas/services.js";
-import type { OAuthConnectionRequest } from "../../oauth/connection.js";
+import type {
+  OAuthConnectionRequest,
+  OAuthConnectionResponse,
+} from "../../oauth/connection.js";
 import {
   isBinaryOAuthBody,
   jsonSafeOAuthBody,
@@ -30,6 +33,7 @@ import {
   type ResolveOAuthConnectionOptions,
   resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
+import { providerReportsFailure } from "../../oauth/identity-verifier.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -54,6 +58,7 @@ import {
 } from "../../util/oauth-request-body.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { composeRequestHint } from "./oauth-request-hints.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("oauth-commands-routes");
@@ -231,6 +236,27 @@ function assertOAuthRequestUrlAllowed(
       `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
     );
   }
+}
+
+/**
+ * The verdict on a provider exchange: whether the status said success, and
+ * whether the provider's declared ok field (`responseOkField`) then took it
+ * back. The field is read only under a 2xx, so a 429 or 5xx whose body
+ * happens to carry it stays a transport failure rather than a refusal.
+ * `reportedFailure` is the one-line account of a refusal, absent otherwise.
+ */
+function judgeProviderResponse(
+  providerRow: OAuthProviderRow,
+  response: OAuthConnectionResponse,
+): { ok: boolean; reportedFailure?: string } {
+  const httpOk = response.status >= 200 && response.status < 300;
+  if (httpOk && providerReportsFailure(providerRow, response.body)) {
+    return {
+      ok: false,
+      reportedFailure: `${providerRow.provider} answered HTTP ${response.status} but reported ${providerRow.responseOkField}: false`,
+    };
+  }
+  return { ok: httpOk };
 }
 
 /**
@@ -689,7 +715,8 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ...(pingBody !== undefined ? { body: pingBody } : {}),
   });
 
-  if (response.status >= 200 && response.status < 300) {
+  const verdict = judgeProviderResponse(providerRow, response);
+  if (verdict.ok) {
     return { ok: true, provider: b.provider, status: response.status };
   }
 
@@ -697,10 +724,21 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ok: false,
     provider: b.provider,
     status: response.status,
-    error: `Ping failed with HTTP ${response.status}`,
+    error: verdict.reportedFailure
+      ? `Ping failed: ${verdict.reportedFailure}`
+      : `Ping failed with HTTP ${response.status}`,
   };
+  if (verdict.reportedFailure) {
+    payload.body = response.body;
+  }
 
-  if (response.status === 401 || response.status === 403) {
+  // A provider that refuses the ping inside a 2xx is refusing the credential
+  // the same way a 401 does.
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    verdict.reportedFailure
+  ) {
     payload.hint =
       `Run 'assistant oauth status ${b.provider}' to check connection health. ` +
       `To reconnect, run 'assistant oauth connect --help'.`;
@@ -978,8 +1016,10 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const response = await connection.request(req);
   const encodedBody = jsonSafeOAuthBody(response.body);
 
+  const verdict = judgeProviderResponse(providerRow, response);
+
   const result: Record<string, unknown> = {
-    ok: response.status >= 200 && response.status < 300,
+    ok: verdict.ok,
     status: response.status,
     headers: response.headers,
     body: encodedBody.body,
@@ -1001,58 +1041,21 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
-    // The recovery steps follow the credential's kind, not the door the
-    // request came through: a channel bot's token was stored by the channel's
-    // setup, so the OAuth status and connect commands cannot repair it.
-    const botChannel = channelForBotProvider(b.provider);
-    result.hint = botChannel
-      ? `Request returned HTTP ${response.status}. The ${botChannel} bot credential was rejected; it may have been revoked or reinstalled with fewer scopes.\n\n` +
-        `Run 'assistant channels get ${botChannel}' to re-probe the channel and see what it reports.\n` +
-        `To reconnect, run the channel's setup skill again.`
-      : managed
-        ? `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-          `Run 'assistant oauth status ${b.provider}' to check connection health.\n` +
-          `To reconnect, run 'assistant oauth connect --help'.`
-        : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-          `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
-          `To reconnect, run 'assistant oauth connect --help'.`;
-  } else if (response.status === 404 && isHtmlResponse(response.headers)) {
-    // An HTML 404 (rather than a JSON API error) is the signature of a request
-    // reaching a valid host but a path that host does not serve — e.g. a
-    // relative path resolved against a base URL that points at the wrong
-    // product. Surface the resolved base so the caller can tell where the path
-    // landed, and steer them to an absolute URL for non-default services.
-    const resolvedBaseUrl =
-      baseUrl ?? providerRow.baseUrl ?? "(none configured)";
-    result.hint =
-      `Request returned HTTP ${response.status} with an HTML body, which usually means ` +
-      `the path does not exist on the base URL it resolved against.\n\n` +
-      `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
-      `If you meant a different service on this provider, pass an absolute URL ` +
-      `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
-  }
-
-  const missingScopes = missingScopesForConnection(providerRow, connection.id);
-  if (missingScopes.length > 0) {
-    const scopeHint =
-      `The ${b.provider} connection is missing required scopes: ${missingScopes.join(", ")}. ` +
-      `It was connected before they were required, so calls that need them fail. ` +
-      `Reconnect it from Integrations, or run 'assistant oauth connect ${b.provider}', to grant them.`;
-    result.hint = result.hint ? `${scopeHint}\n\n${result.hint}` : scopeHint;
+  const hint = composeRequestHint({
+    provider: b.provider,
+    status: response.status,
+    headers: response.headers,
+    reportedFailure: verdict.reportedFailure,
+    botChannel: channelForBotProvider(b.provider),
+    managed,
+    resolvedBaseUrl: baseUrl ?? providerRow.baseUrl ?? undefined,
+    missingScopes: missingScopesForConnection(providerRow, connection.id),
+  });
+  if (hint) {
+    result.hint = hint;
   }
 
   return result;
-}
-
-/** True when the response's Content-Type header indicates an HTML body. */
-function isHtmlResponse(headers: Record<string, string>): boolean {
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === "content-type") {
-      return value.toLowerCase().includes("text/html");
-    }
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

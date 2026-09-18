@@ -11,16 +11,24 @@ import type { useMcpConnections } from "./use-mcp-connections";
 export function McpConnectionDialogs({
   connections,
   allowAdd,
+  attemptReportedElsewhere = false,
 }: {
   connections: ReturnType<typeof useMcpConnections>;
   allowAdd: boolean;
+  /**
+   * Set while another surface already draws the sign-in in flight, so the
+   * same attempt is not reported twice on one page. The notice stays for
+   * attempts started from a custom server's card, which has nowhere else to
+   * show them.
+   */
+  attemptReportedElsewhere?: boolean;
 }) {
   const { t } = useTranslation("settings");
   const { auth, add, save, remove, details, configureServer } = connections;
 
   return (
     <>
-      {auth.attempt ? (
+      {auth.attempt && !attemptReportedElsewhere ? (
         <Notice tone={auth.attempt.error ? "warning" : "info"}>
           <div className="space-y-2">
             <p className="[overflow-wrap:anywhere]">

@@ -318,6 +318,39 @@ describe("normalizeDiscordMessage", () => {
     expect(event?.actor.actorExternalId).toBe("user-1");
   });
 
+  test("states whether the bot was mentioned when it knows its own id", () => {
+    // The fact rides the event so the runtime can expect a reply before any
+    // text exists. Read from the same `mentions` array the admission gate
+    // keys on, so the two can never disagree about one message.
+    const mentioned = messagePayload();
+    expect(
+      normalizeDiscordMessage(parse(mentioned), {
+        raw: mentioned,
+        botUserId: "bot-1",
+      })?.source.botMentioned,
+    ).toBe(true);
+
+    const unmentioned = messagePayload({
+      guild_id: undefined,
+      channel_id: "dm-channel-1",
+      mentions: [],
+    });
+    expect(
+      normalizeDiscordMessage(parse(unmentioned), {
+        raw: unmentioned,
+        botUserId: "bot-1",
+      })?.source.botMentioned,
+    ).toBe(false);
+  });
+
+  test("leaves the mention fact unstated without its own id", () => {
+    // Absent means "not established", never "not mentioned".
+    const raw = messagePayload();
+    expect(
+      normalizeDiscordMessage(parse(raw), { raw })?.source.botMentioned,
+    ).toBeUndefined();
+  });
+
   test("keeps a file-only DM routable with empty content", () => {
     const raw = messagePayload({
       guild_id: undefined,
@@ -354,7 +387,7 @@ describe("normalizeDiscordMessage", () => {
       admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
       }),
-    ).toEqual({ admitted: true });
+    ).toEqual({ admitted: true, botMentioned: false });
   });
 
   test("a malformed guild id stays a guild message, not a DM", () => {

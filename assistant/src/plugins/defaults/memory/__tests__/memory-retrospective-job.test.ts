@@ -117,9 +117,13 @@ let loadedConversations: Record<string, { processing: boolean }> = {};
 // the stale-flag override's age check. Absent ids read as null (stampless).
 let processingStartedAtById: Record<string, number | null> = {};
 
-// The source conversation's recorded wire tool surface (what its last live
-// turn sent to the provider). `null` = no live turn has recorded one yet.
-let mockSourceToolSurface: Array<Record<string, unknown>> | null = null;
+// The source conversation's recorded wire surface (what its last live turn
+// sent to the provider, and whether that turn's prompt rendered the
+// delegation section). `null` = no live turn has recorded one yet.
+let mockSourceToolSurface: {
+  tools: Array<Record<string, unknown>>;
+  delegateIndependentTasks: boolean | null;
+} | null = null;
 let toolSurfaceReads: string[] = [];
 mock.module("../../../../persistence/conversation-tool-surface.js", () => ({
   getConversationToolSurface: (conversationId: string) => {
@@ -1856,12 +1860,15 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("replays the source's recorded wire tool surface verbatim on the fork wake", async () => {
-    mockSourceToolSurface = [
-      { name: "bash", description: "Run", input_schema: {} },
-      { name: "remember", description: "Save", input_schema: {} },
-      { name: "bell_jingle", description: "Ring", input_schema: {} },
-      { type: "web_search_20250305", name: "web_search", max_uses: 5 },
-    ];
+    mockSourceToolSurface = {
+      tools: [
+        { name: "bash", description: "Run", input_schema: {} },
+        { name: "remember", description: "Save", input_schema: {} },
+        { name: "bell_jingle", description: "Ring", input_schema: {} },
+        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+      ],
+      delegateIndependentTasks: true,
+    };
 
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
@@ -1870,11 +1877,31 @@ describe("memoryRetrospectiveJob", () => {
     // The exact recorded array rides to the wake; the fork sends it in place
     // of the surface it would resolve for itself.
     expect(wakeCalls[0]!.opts.wireToolDefinitions).toEqual(
-      mockSourceToolSurface,
+      mockSourceToolSurface.tools,
     );
+    // The delegation-section state the source's prompt rendered rides with
+    // it, so the fork's system prompt matches too.
+    expect(wakeCalls[0]!.opts.delegateIndependentTasks).toBe(true);
     // The execution-side pin still rides alongside it.
     expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
     expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
+  });
+
+  test("a surface recorded without the delegation state leaves the fork to derive the section", async () => {
+    // A row written before the state was recorded: the array still replays,
+    // and the prompt gate falls back to the wake's own answer.
+    mockSourceToolSurface = {
+      tools: [{ name: "remember", description: "Save", input_schema: {} }],
+      delegateIndependentTasks: null,
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.wireToolDefinitions).toEqual(
+      mockSourceToolSurface.tools,
+    );
+    expect("delegateIndependentTasks" in wakeCalls[0]!.opts).toBe(false);
   });
 
   test("no recorded source surface → no wireToolDefinitions; the pin alone shapes the wire", async () => {
@@ -1885,6 +1912,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(toolSurfaceReads).toEqual(["src-conv-1"]);
     expect(wakeCalls).toHaveLength(1);
     expect("wireToolDefinitions" in wakeCalls[0]!.opts).toBe(false);
+    expect("delegateIndependentTasks" in wakeCalls[0]!.opts).toBe(false);
     expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 

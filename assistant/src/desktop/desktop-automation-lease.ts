@@ -1,4 +1,4 @@
-import { getConfig } from "../config/loader.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
@@ -21,6 +21,7 @@ type Owner = {
   actions: number;
   lastActivity: number;
   desktopLost: boolean;
+  humanHelp?: symbol;
 };
 
 export class DesktopAutomationLease {
@@ -35,13 +36,32 @@ export class DesktopAutomationLease {
       ready: () => boolean;
       ensureReady: (signal: AbortSignal) => Promise<void>;
       manager: () => DesktopSessionManager;
+      notify: () => Promise<unknown>;
     } = {
-      enabled: () => isVirtualDesktopEnabled(getConfig()),
+      enabled: isVirtualDesktopEnabled,
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
       ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
       manager: getDesktopSessionManager,
+      notify: async () =>
+        broadcastMessage({ type: "desktop_activity_changed" }),
     },
   ) {}
+
+  get isActive(): boolean {
+    return (
+      this.owner !== null &&
+      !this.owner.humanHelp &&
+      !this.owner.abort.signal.aborted
+    );
+  }
+
+  private notify(): void {
+    void this.deps
+      .notify()
+      .catch((err) =>
+        log.warn({ err }, "Desktop browser activity notification failed"),
+      );
+  }
 
   private exclusive<T>(run: () => Promise<T>): Promise<T> {
     const next = this.tail.then(run, run);
@@ -84,9 +104,25 @@ export class DesktopAutomationLease {
     }
     this.generation += 1;
     owner.abort.abort();
-    void this.exclusive(() => this.release()).catch((err) =>
-      log.warn({ err }, "Desktop browser session cleanup failed"),
-    );
+    this.releaseCancelledOwner(owner);
+  }
+
+  private releaseCancelledOwner(owner: Owner): void {
+    void this.exclusive(async () => {
+      if (this.owner === owner) {
+        await this.release();
+      }
+    }).catch((err) => {
+      log.warn({ err }, "Desktop browser session cleanup failed");
+      const retry = setTimeout(() => this.releaseCancelledOwner(owner), 1_000);
+      retry.unref?.();
+    });
+  }
+
+  releaseForConversation(conversationId: string): void {
+    if (this.owner?.conversationId === conversationId) {
+      this.cancel(this.owner);
+    }
   }
 
   private bindCancellation(owner: Owner, signal?: AbortSignal): void {
@@ -122,12 +158,17 @@ export class DesktopAutomationLease {
       throw new Error("The desktop is busy or shutting down");
     }
     this.owner = owner;
+    owner.abort.signal.addEventListener("abort", () => this.notify(), {
+      once: true,
+    });
+    this.notify();
     this.bindCancellation(owner, context.signal);
     const cancel = () => this.cancel(owner);
     this.watchdog = setInterval(() => {
       try {
         if (
-          Date.now() - owner.lastActivity > IDLE_TIMEOUT_MS ||
+          (!owner.humanHelp &&
+            Date.now() - owner.lastActivity > IDLE_TIMEOUT_MS) ||
           !this.deps.enabled() ||
           !this.deps.ready()
         ) {
@@ -156,6 +197,44 @@ export class DesktopAutomationLease {
     }
   }
 
+  async reserveForHuman(
+    context: ToolContext,
+  ): Promise<(resume: boolean) => Promise<void>> {
+    let reservedOwner: Owner | undefined;
+    const reservation = Symbol("human-help");
+    const result = await this.runBrowser(context, async () => {
+      await this.deps.manager().browser.release();
+      reservedOwner = this.owner!;
+      reservedOwner.humanHelp = reservation;
+      this.notify();
+      return { content: "", isError: false };
+    });
+    if (result.isError || !reservedOwner) {
+      throw new Error(
+        "Desktop help was interrupted before control could be handed over.",
+      );
+    }
+    const owner = reservedOwner;
+    return (resume) =>
+      this.exclusive(async () => {
+        if (this.owner !== owner || owner.humanHelp !== reservation) {
+          return;
+        }
+        if (resume && !owner.abort.signal.aborted) {
+          owner.humanHelp = undefined;
+          owner.lastActivity = Date.now();
+          this.notify();
+        } else {
+          try {
+            await this.release();
+          } catch (error) {
+            this.releaseCancelledOwner(owner);
+            throw error;
+          }
+        }
+      });
+  }
+
   runBrowser(
     context: ToolContext,
     operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
@@ -178,6 +257,11 @@ export class DesktopAutomationLease {
           this.owner.actorId !== context.sourceActorPrincipalId)
       ) {
         throw new Error("Another conversation is controlling the desktop");
+      }
+      if (this.owner?.humanHelp) {
+        throw new Error(
+          "The desktop is reserved while the user is helping. Wait for Done or Skip.",
+        );
       }
       if (done) {
         await this.release();

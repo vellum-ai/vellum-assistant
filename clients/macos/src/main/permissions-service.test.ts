@@ -45,6 +45,10 @@ class FakeElectronNotification {
   }
 }
 
+/** The helper launches and Settings opens, in the order they happened. */
+const helperCalls: string[] = [];
+let helperScreenStatus = "denied";
+
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
@@ -55,11 +59,16 @@ mock.module("electron", () => ({
   },
   BrowserWindow: { getAllWindows: () => [] },
   Notification: FakeElectronNotification,
-  desktopCapturer: { getSources: async () => [] },
-  shell: { openExternal: async () => undefined },
+  shell: {
+    openExternal: async (url: string) => {
+      helperCalls.push(`open ${url}`);
+    },
+  },
   systemPreferences: {
     isTrustedAccessibilityClient: () => true,
     askForMediaAccess: async () => true,
+    // The app's own grant, which says nothing about the helper's: granted
+    // here so a screen status that followed it would be caught.
     getMediaAccessStatus: () => "granted",
   },
 }));
@@ -93,13 +102,20 @@ mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async () => "granted",
   queryMacHelperPermission: async () => "granted",
   requestMacHelperInputMonitoringPermission: async () => undefined,
+  requestMacHelperScreenRecordingPermission: async () => {
+    helperCalls.push("request screen");
+  },
   requestMacHelperSpeechRecognitionPermission: async () => undefined,
+}));
+
+mock.module("./screen-recording-permission", () => ({
+  readScreenRecordingPermission: async () => helperScreenStatus,
 }));
 
 let notifier: Notifier | null = null;
 let authorizationResult: NotifierAuthorizationResult | null = { granted: true };
-let authorizationRequest = async (): Promise<NotifierAuthorizationResult | null> =>
-  authorizationResult;
+let authorizationRequest =
+  async (): Promise<NotifierAuthorizationResult | null> => authorizationResult;
 let preparedSenderCurrent = true;
 let nativeShowError: Error | null = null;
 const nativePosts: NotifierRequest[] = [];
@@ -120,9 +136,8 @@ mock.module("./notifier", () => ({
   requestNotifierAuthorization: () => authorizationRequest(),
 }));
 
-const { PermissionsService, installPermissionsService } = await import(
-  "./permissions-service"
-);
+const { PermissionsService, installPermissionsService } =
+  await import("./permissions-service");
 
 const nativeNotifier = (isSupported = true): Notifier => ({
   isSupported: () => isSupported,
@@ -416,5 +431,37 @@ describe("notification permission requests", () => {
 
     expect(item.status).toBe("restricted");
     expect(electronNotificationsConstructed).toBe(0);
+  });
+});
+
+describe("screen recording", () => {
+  beforeEach(() => {
+    helperCalls.length = 0;
+    helperScreenStatus = "denied";
+  });
+
+  test("reports the helper's grant, not the app's", async () => {
+    const state = await new PermissionsService().state();
+
+    expect(state.screen.status).toBe("denied");
+    expect(state.screen.requiresRestart).toBe(false);
+  });
+
+  test("asks the helper before opening Settings, so its row is there", async () => {
+    await new PermissionsService().openSettings("screen");
+
+    expect(helperCalls).toEqual([
+      "request screen",
+      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    ]);
+  });
+
+  test("a request asks the helper", async () => {
+    helperScreenStatus = "granted";
+
+    const item = await new PermissionsService().request("screen");
+
+    expect(helperCalls).toEqual(["request screen"]);
+    expect(item.status).toBe("granted");
   });
 });

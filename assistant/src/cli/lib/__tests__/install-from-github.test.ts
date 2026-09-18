@@ -39,6 +39,7 @@ import {
   resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
+import { readValidatedPluginIcon } from "../plugin-icon-file.js";
 
 const CANON_REPO = "vellum-ai/vellum-assistant";
 /** Synthetic host the fixtures use for Contents API `download_url`s. */
@@ -251,6 +252,113 @@ describe("installPlugin — install lifecycle", () => {
 
   afterEach(() => {
     rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs a bundled standard package and discovers its MCP server", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.0",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+        materializeLocalPackage: (path, version, destination) => {
+          expect(path).toBe("plugins/mcp-catalog/fathom");
+          expect(version).toBe("1.0.0");
+          writeFileSync(
+            join(destination, "plugin.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+              name: "fathom",
+              version: "1.0.0",
+            }),
+          );
+          writeFileSync(
+            join(destination, "mcp.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+              mcpServers: {
+                fathom: {
+                  type: "streamable-http",
+                  url: "https://api.fathom.ai/mcp",
+                },
+              },
+            }),
+          );
+          return 2;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      fileCount: 2,
+      ref: "1.0.0",
+      commit: null,
+    });
+    expect(readInstallMeta(result.target)?.source).toEqual({
+      kind: "local",
+      path: "plugins/mcp-catalog/fathom",
+      version: "1.0.0",
+    });
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+      }),
+    ]);
+  });
+
+  test("installs the reviewed Fathom package from the generated bundle", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.2",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      ref: "1.0.2",
+      commit: null,
+    });
+    expect(readValidatedPluginIcon(result.target).hasIcon).toBe(true);
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+        config: expect.objectContaining({
+          transport: expect.objectContaining({
+            url: "https://api.fathom.ai/mcp",
+          }),
+        }),
+      }),
+    ]);
   });
 
   test("refuses to overwrite an existing install without --force", async () => {

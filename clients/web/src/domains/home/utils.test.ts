@@ -117,6 +117,30 @@ describe("resolveFeedItemTitle", () => {
   });
 });
 
+describe("sortFeedItems", () => {
+  test("orders items of equal priority by recency", () => {
+    const older = feedItem({ id: "older", createdAt: "2024-01-01T00:00:00Z" });
+    const newer = feedItem({ id: "newer", createdAt: "2024-01-01T00:00:01Z" });
+    expect(sortFeedItems([older, newer]).map((i) => i.id)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+
+  test("holds the given order for items the comparator cannot separate", () => {
+    const first = feedItem({ id: "first" });
+    const second = feedItem({ id: "second" });
+    expect(sortFeedItems([first, second]).map((i) => i.id)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(sortFeedItems([second, first]).map((i) => i.id)).toEqual([
+      "second",
+      "first",
+    ]);
+  });
+});
+
 function guardianItem(
   status: NonNullable<FeedItem["guardianRequest"]>["status"],
   overrides: Partial<FeedItem> = {},

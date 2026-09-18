@@ -16,14 +16,18 @@ const TOC_ITEMS = [
 export function SkillsReferenceImageStudioContent() {
   return (
     <>
-      <DocsContent title="Image Studio" breadcrumb="Docs / Skills Reference / Image Studio">
+      <DocsContent
+        title="Image Studio"
+        breadcrumb="Docs / Skills Reference / Image Studio"
+      >
         <section id="what-it-does">
           <SectionHeading id="what-it-does" level={2}>
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Generates and edits images using AI models. Create illustrations, modify photos,
-            generate art, and produce visual assets from text descriptions.
+            Generates and edits images using AI models. Create illustrations,
+            modify photos, generate art, and produce visual assets from text
+            descriptions.
           </p>
         </section>
 
@@ -32,8 +36,8 @@ export function SkillsReferenceImageStudioContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-A Gemini API key is required. If one isn&apos;t configured, your assistant will
-            prompt you to set it up on first use
+            A Gemini API key is required. If one isn&apos;t configured, your
+            assistant will prompt you to set it up on first use
           </p>
         </section>
 
@@ -43,7 +47,9 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>No macOS permissions needed for generation</li>
-            <li>File system permission needed if saving images to your machine</li>
+            <li>
+              File system permission needed if saving images to your machine
+            </li>
           </ul>
         </section>
 
@@ -74,27 +80,22 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Make me a logo for a coffee shop called &apos;Brew&apos;&rdquo;
+                    &ldquo;Make me a logo for a coffee shop called
+                    &apos;Brew&apos;&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Generates a logo design
-                  </td>
+                  <td className="px-3 py-2">Generates a logo design</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Edit this image to remove the background&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Modifies an existing image
-                  </td>
+                  <td className="px-3 py-2">Modifies an existing image</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Create a cartoon version of this photo&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Transforms an image style
-                  </td>
+                  <td className="px-3 py-2">Transforms an image style</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -108,9 +109,7 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
                   <td className="px-3 py-2">
                     &ldquo;Generate 4 variations of this design&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Multiple options to choose from
-                  </td>
+                  <td className="px-3 py-2">Multiple options to choose from</td>
                 </tr>
               </tbody>
             </table>
@@ -123,16 +122,16 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Models:</strong> Nano Banana 2 (default, fast) or Nano Banana Pro
-              (higher quality, slower)
+              <strong>Models:</strong> Nano Banana 2 (default, fast) or Nano
+              Banana Pro (higher quality, slower)
             </li>
             <li>
-              <strong>Variants:</strong> Generate 1&ndash;4 variations per prompt to pick the
-              best result
+              <strong>Variants:</strong> Generate 1&ndash;4 variations per
+              prompt to pick the best result
             </li>
             <li>
-              <strong>Modes:</strong> Text-to-image (generate from a prompt) or edit mode
-              (modify an existing image)
+              <strong>Modes:</strong> Text-to-image (generate from a prompt) or
+              edit mode (modify an existing image)
             </li>
           </ul>
         </section>
@@ -143,23 +142,27 @@ A Gemini API key is required. If one isn&apos;t configured, your assistant will
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Be descriptive:</strong> The more detail in your prompt, the better the
-              result. &ldquo;A watercolor painting of a golden retriever sitting in a field of
-              lavender at sunset&rdquo; beats &ldquo;a dog.&rdquo;
+              <strong>Be descriptive:</strong> The more detail in your prompt,
+              the better the result. &ldquo;A watercolor painting of a golden
+              retriever sitting in a field of lavender at sunset&rdquo; beats
+              &ldquo;a dog.&rdquo;
             </li>
             <li>
-              <strong>Iterate:</strong> First generation not perfect? Say &ldquo;make it more colorful&rdquo;
-              or &ldquo;try a different angle.&rdquo; Your assistant refines based on feedback.
+              <strong>Iterate:</strong> First generation not perfect? Say
+              &ldquo;make it more colorful&rdquo; or &ldquo;try a different
+              angle.&rdquo; Your assistant refines based on feedback.
             </li>
             <li>
-              <strong>Formats:</strong> Images are generated as PNG or JPEG. Specify if you have
-              a preference.
+              <strong>Formats:</strong> Images are generated as PNG or JPEG.
+              Specify if you have a preference.
             </li>
             <li>
-              <strong>File delivery:</strong> Generated images appear inline in your assistant&rsquo;s
-              reply and are saved in its workspace, so you can refer back to them or ask for edits
-              later. You can also ask your assistant to save them to a specific folder on your
-              machine (requires file access permission).
+              <strong>File delivery:</strong> Generated images appear inline in
+              your assistant&rsquo;s reply and are saved in its workspace, so
+              you can refer back to them or ask for edits later. A View image
+              link opens a preview; choose Download in the preview to save the
+              image. You can also ask your assistant to save them to a specific
+              folder on your machine (requires file access permission).
             </li>
           </ul>
         </section>

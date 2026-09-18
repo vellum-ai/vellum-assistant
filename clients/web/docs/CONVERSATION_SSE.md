@@ -3,7 +3,9 @@
 How the web client turns the assistant's Server-Sent Event stream into the rendered
 chat transcript. This is the one subsystem that intentionally keeps a
 client-owned materialized view of server data, because the source of truth comes from
-two APIs: the snapshot (GET /messages) and the stream (GET /events). Everywhere else, [server data has one owner: its query cache](./STATE_MANAGEMENT.md).
+two APIs: the snapshot (GET /messages) and the stream (GET /events). It keeps that
+view for the active conversation and, with the same reducer and seed rule, for each
+subagent's child conversation (see [Subagent histories](#subagent-histories)). Everywhere else, [server data has one owner: its query cache](./STATE_MANAGEMENT.md).
 
 ## The shape
 
@@ -86,7 +88,10 @@ later can't be ring-replayed. The recovery path is a refetch:
 - Every committed `/messages` fetch **reseeds** the snapshot (`seedSnapshot`):
   it replays the buffered event tail with `seq > snapshot.seq` onto the fresh
   server snapshot (`resolveSnapshot`), so events that raced the fetch aren't
-  lost. A buffer gap (eviction) falls back to the fetched snapshot alone.
+  lost. The drop rules below live in `resolveSeed`, a pure function in
+  `rolling-snapshot.ts`, so any view seeded the same way applies the same
+  rule; subagent histories do. A buffer gap (eviction) falls back to the
+  fetched snapshot alone.
   An **anchor-less** fetch (`seq: null` — the daemon has persisted no stream
   content yet, e.g. a fresh conversation's first turn racing the 1s
   partial-persist debounce) is **dropped** when the live view has already
@@ -105,6 +110,41 @@ later can't be ring-replayed. The recovery path is a refetch:
 - When a turn returns to idle, history is invalidated; the committed-snapshot
   effect then reseeds from the authoritative server copy (canonical ids/ordering,
   persisted surfaces), replacing the client-folded turn.
+
+## Subagent histories
+
+A subagent runs in its own child conversation, and its events reach the client
+wrapped in the parent's stream as `subagent_event`. The child conversation's
+history uses the same shape and the same fold as the parent's, so a subagent's
+tool calls are the canonical `ChatMessageToolCall` the main chat renders.
+
+- Each `SubagentEntry` holds `history: PaginatedHistoryResult | null` in the
+  subagent store. `use-event-stream` unwraps every `subagent_event` for the
+  active conversation and folds the inner event into that entry's history
+  (`applySubagentEnvelope`). The parent's fold ignores `subagent_event`.
+- The child's `seq` and the wrapper's `seq` come from the same assistant-wide
+  counter, so the child's `/messages` anchor and the wrapped events are
+  idempotent against each other exactly as the parent's are.
+- A history is fetched when something reads it: the subagent detail panel calls
+  `loadHistoryIfNeeded`, which fetches the child's `/messages` and seeds it with
+  `seedHistory` under the same rules as `seedSnapshot` (`resolveSeed`, with the
+  buffered wrapped tail as the replay). Until then the history is `null` and live
+  events are not folded; the seed replays them. A failed fetch leaves it `null`,
+  so the next read retries.
+- A subagent whose `subagent_spawned` arrives live, or that has no child
+  conversation to fetch, seeds an empty history at spawn and is built from the
+  stream alone.
+- A subagent's timeline pills come from its flattened timeline events, and a
+  tool pill's detail merges two copies (`resolveSubagentStepDetail`): the
+  canonical call from the history as the base, every field it leaves empty
+  filled from the detail built from those events, and the more final of the two
+  statuses. A call the history lacks (not yet loaded, or keyed by a positional
+  id an older assistant synthesized) opens the event-built detail alone. The
+  merge is remade from the live call on every render, so nothing either copy
+  knows is lost and a pill that renders always opens something.
+- A proven seq gap on the parent stream drops the fetched subagent histories
+  (`invalidateHistories`) alongside the parent's authoritative reconcile, so they
+  are refetched rather than advanced with missing events.
 
 ## Invariant
 
@@ -126,3 +166,4 @@ produces the same history as a clean one. Keep new reducer cases pure and
 | Send / optimistic / queue | `hooks/use-send-message.ts`, `hooks/use-message-queue.ts` |
 | Reseed + reconnect refetch | `hooks/use-conversation-history.ts`, `hooks/use-message-reconciliation.ts` |
 | Event buffer (resync tail) | `lib/streaming/stream-debug.ts` |
+| Subagent histories (fold, seed, invalidate) | `subagent-store.ts` |

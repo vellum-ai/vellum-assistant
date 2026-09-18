@@ -27,7 +27,7 @@
     },
     "image-studio": {
       "docsSlug": "image-studio",
-      "sha256": "53a3c4669dda0ed8a2d0080c2ca52200429db0bd33a570581915cc5804feb51a"
+      "sha256": "20b556e8da2423e07114c2eac6ac20e3f770457f36ac869896a3b89293b7db61"
     },
     "media-processing": {
       "docsSlug": "media-processing",
@@ -47,11 +47,11 @@
     },
     "schedule": {
       "docsSlug": "schedule",
-      "sha256": "44111c34086ca786a38971be41b789bfcf21a02af5db70d4387a7c6aabc5e47a"
+      "sha256": "ebfad7b3518fab2bf210721459566c0071046bab83428804c8cf8c73a9d4afe9"
     },
     "skill-management": {
       "docsSlug": "skill-management",
-      "sha256": "cc095fdb54af9ab614227aca110449b7ae6d4466e80ee4b36f0b9ce04e7aa92d"
+      "sha256": "57dac1438ed7c7587a5cff1a9140155479fc8e4df3022e9189c919bac6d12bb4"
     },
     "subagent": {
       "docsSlug": "subagent",

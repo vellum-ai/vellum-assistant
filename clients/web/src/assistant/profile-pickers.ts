@@ -9,6 +9,7 @@
  * the trigger with an empty label and the user wondering what's in effect.
  */
 
+import { catalogModelSupportsText } from "@/assistant/llm-model-catalog";
 import { resolveModelDisplayName } from "@/assistant/model-display";
 import type {
   ProfileEntry,
@@ -45,17 +46,33 @@ export interface ProfileDispatchOptions {
    * profile, so only the disabled check applies there.
    */
   readonly requireOwnProviderAndModel: boolean;
+  /**
+   * Whether a profile must name a chat-text model. Conversation pickers
+   * keep the default (true) so structured-decision models cannot be the
+   * conversation model. Call-site override pickers pass false so those
+   * profiles can be assigned for experimentation.
+   */
+  readonly requireTextGeneration?: boolean;
 }
 
 /** A profile that names no other profiles: it dispatches on its own fields. */
 function isDispatchableStandardProfile(
   p: ProfilePickerEntry,
-  { requireOwnProviderAndModel }: ProfileDispatchOptions,
+  {
+    requireOwnProviderAndModel,
+    requireTextGeneration = true,
+  }: ProfileDispatchOptions,
 ): boolean {
   if (p.status === "disabled") {
     return false;
   }
-  return requireOwnProviderAndModel ? !!p.provider && !!p.model : true;
+  if (requireOwnProviderAndModel && (!p.provider || !p.model)) {
+    return false;
+  }
+  if (requireTextGeneration) {
+    return catalogModelSupportsText(p.provider, p.model);
+  }
+  return true;
 }
 
 /**
@@ -190,6 +207,9 @@ export function undispatchableProfileReason(p: ProfilePickerEntry): string {
   const base = p.label ?? p.name;
   if (p.mix != null) {
     return `"${base}" mixes a profile that has no provider and model, so some turns would fall back to another profile.`;
+  }
+  if (p.provider && p.model && !catalogModelSupportsText(p.provider, p.model)) {
+    return `"${base}" uses a model that returns structured answers rather than chat text, so it cannot be the conversation model.`;
   }
   return `"${base}" has no provider and model, so it cannot be used and the action falls back to another profile.`;
 }

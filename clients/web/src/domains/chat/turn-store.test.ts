@@ -12,6 +12,7 @@ import {
   type DomainEvent,
   INITIAL_TURN_STATE,
   turnReducer,
+  isActivityLive,
   isSending,
   isThinking,
   useTurnStore,
@@ -53,6 +54,16 @@ describe("INITIAL_TURN_STATE", () => {
 
   test("isSending is false in initial state", () => {
     expect(isSending(INITIAL_TURN_STATE.phase)).toBe(false);
+  });
+
+  test("activity is live only while response output can append", () => {
+    expect(isActivityLive("queued")).toBe(true);
+    expect(isActivityLive("thinking")).toBe(true);
+    expect(isActivityLive("streaming")).toBe(true);
+    expect(isActivityLive("awaiting_user_input")).toBe(false);
+    expect(isActivityLive("idle")).toBe(false);
+    expect(isActivityLive("errored")).toBe(false);
+    expect(isSending("awaiting_user_input")).toBe(true);
   });
 
   test("isThinking is false in initial state", () => {

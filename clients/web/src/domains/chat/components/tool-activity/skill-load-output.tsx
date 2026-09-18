@@ -3,7 +3,7 @@
  * 7778-163402): a Clean/Raw switch over one card, clamped to a readable height
  * with a Show more control.
  *
- * `skill_load`'s output is the skill body itself — markdown that renders
+ * `skill_load`'s output is the skill body itself: markdown that renders
  * properly (Clean) but that an operator sometimes needs to see verbatim, header
  * lines and tool manifest included (Raw). Those were two separate collapsed
  * disclosures; the segment control makes them one thing viewed two ways, which
@@ -14,7 +14,11 @@ import { useState } from "react";
 
 import { SegmentControl } from "@vellumai/design-library";
 
-import { DetailBlock, SectionLabel } from "@/components/detail-primitives";
+import {
+  CodePre,
+  DetailBlock,
+  SectionLabel,
+} from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { useTranslation } from "@/i18n";
 
@@ -55,7 +59,7 @@ export function SkillLoadOutput({
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
         {/* The row owns the spacing under the header, so the label drops its
-            own bottom margin — otherwise it sits off-centre from the switch. */}
+            own bottom margin. Otherwise it sits off-centre from the switch. */}
         <SectionLabel className="mb-0">
           {t("skillLoadOutput.output")}
         </SectionLabel>
@@ -84,9 +88,7 @@ export function SkillLoadOutput({
             assistantId={assistantId}
           />
         ) : (
-          <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-            {raw}
-          </pre>
+          <CodePre text={raw} />
         )}
       </DetailBlock>
     </div>

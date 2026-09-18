@@ -5,6 +5,7 @@ export {
   type ButtonVariant,
   type ButtonSize,
 } from "./components/button";
+export { SplitButton, type SplitButtonProps } from "./components/split-button";
 export {
   Card,
   CardRoot,
@@ -13,6 +14,22 @@ export {
   CardFooter,
   type CardRootProps,
 } from "./components/card";
+export {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  type TableAlign,
+  type TableCellProps,
+  type TableDensity,
+  type TableDividers,
+  type TableHeadProps,
+  type TableProps,
+  type TableRowProps,
+} from "./components/table";
 export { CrossfadeStack } from "./components/crossfade-stack";
 export { Notice, type NoticeProps, type NoticeTone } from "./components/notice";
 export { ProgressBar, type ProgressBarProps } from "./components/progress-bar";

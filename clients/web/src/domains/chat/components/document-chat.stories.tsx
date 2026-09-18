@@ -10,6 +10,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { message } from "@/domains/chat/transcript/transcript-story-fixtures";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 import { client } from "@/generated/daemon/client.gen";
+import { fixtureNotFound, stubClientFetch } from "@/lib/stub-client-fetch";
 import type {
   AttachmentsPostResponse,
   DocumentsByIdCommentsGetResponse,
@@ -58,7 +59,11 @@ const ATTACHMENT: ChatAttachment = {
 };
 
 const TRANSCRIPT = [
-  message("message-1", "user", "Draft a short guide to planning a quiet weekend."),
+  message(
+    "message-1",
+    "user",
+    "Draft a short guide to planning a quiet weekend.",
+  ),
   message(
     "message-2",
     "assistant",
@@ -101,7 +106,9 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
   const [queuedMessages, setQueuedMessages] = useState(
     state === "queued" ? [QUEUED_MESSAGE] : [],
   );
-  const [isBusy, setIsBusy] = useState(state === "working" || state === "queued");
+  const [isBusy, setIsBusy] = useState(
+    state === "working" || state === "queued",
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
   const showingDocument = presentation === "document";
@@ -164,7 +171,9 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
             useComposerStore.getState().addFiles(files, ASSISTANT_ID);
           }}
           voiceInputRef={voiceInputRef}
-          onVoiceTranscript={(text) => useComposerStore.getState().setInput(text)}
+          onVoiceTranscript={(text) =>
+            useComposerStore.getState().setInput(text)
+          }
           onVoiceBeforeStart={() => false}
         />
       }
@@ -240,22 +249,25 @@ const meta: Meta<typeof DocumentChatStory> = {
     const composerSnapshot = useComposerStore.getState();
     const interactionSnapshot = useInteractionStore.getState();
     const turnSnapshot = useTurnStore.getState();
-    const clientSnapshot = client.getConfig();
     const hasDraft =
-      args.state === "idle" || args.state === "uploading" || args.state === "error";
+      args.state === "idle" ||
+      args.state === "uploading" ||
+      args.state === "error";
     useComposerStore.setState({
       input: hasDraft ? DRAFT : "",
       restoredDraftConversationId: null,
       attachmentLastError: null,
       attachments:
         args.state === "uploading"
-          ? [{
-              kind: "uploading",
-              localId: "attachment-uploading-1",
-              filename: "trip-checklist.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 4096,
-            }]
+          ? [
+              {
+                kind: "uploading",
+                localId: "attachment-uploading-1",
+                filename: "trip-checklist.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: 4096,
+              },
+            ]
           : hasDraft
             ? [ATTACHMENT]
             : [],
@@ -286,46 +298,39 @@ const meta: Meta<typeof DocumentChatStory> = {
             : "idle",
       pendingQueuedCount: args.state === "queued" ? 1 : 0,
     });
-    client.setConfig({
-      baseUrl: "https://storybook.invalid",
-      fetch: Object.assign(async (input: RequestInfo | URL) => {
-        const request = input instanceof Request ? input : new Request(input);
-        const path = new URL(request.url).pathname;
-        if (path.endsWith("/documents") && request.method === "POST") {
+    const restoreClient = stubClientFetch(client, async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith("/documents") && request.method === "POST") {
+        return Response.json({
+          success: true,
+          surfaceId: SURFACE_ID,
+        } satisfies DocumentsPostResponse);
+      }
+      if (path.endsWith("/comments") && request.method === "GET") {
+        return Response.json({
+          comments: [],
+        } satisfies DocumentsByIdCommentsGetResponse);
+      }
+      if (path.endsWith("/attachments") && request.method === "POST") {
+        const data = await request.formData();
+        const file = data.get("file");
+        if (file instanceof File) {
           return Response.json({
-            success: true,
-            surfaceId: SURFACE_ID,
-          } satisfies DocumentsPostResponse);
+            id: "attachment-story-upload",
+            filename: file.name,
+            mimeType: file.type,
+            sizeBytes: file.size,
+            kind: "document",
+          } satisfies AttachmentsPostResponse);
         }
-        if (path.endsWith("/comments") && request.method === "GET") {
-          return Response.json({
-            comments: [],
-          } satisfies DocumentsByIdCommentsGetResponse);
-        }
-        if (path.endsWith("/attachments") && request.method === "POST") {
-          const data = await request.formData();
-          const file = data.get("file");
-          if (file instanceof File) {
-            return Response.json({
-              id: "attachment-story-upload",
-              filename: file.name,
-              mimeType: file.type,
-              sizeBytes: file.size,
-              kind: "document",
-            } satisfies AttachmentsPostResponse);
-          }
-        }
-        return Response.json(
-          { error: "This request is not part of the presentation fixture." },
-          { status: 404 },
-        );
-      }, { preconnect: () => {} }),
+      }
+      return fixtureNotFound();
     });
     return () => {
       useComposerStore.setState(composerSnapshot, true);
       useInteractionStore.setState(interactionSnapshot, true);
       useTurnStore.setState(turnSnapshot, true);
-      client.setConfig(clientSnapshot);
+      restoreClient();
     };
   },
 };
@@ -377,13 +382,17 @@ export const MobilePreservesComposer: Story = {
     await expect(textarea).toHaveValue(expectedDraft);
     await expect(canvas.getByText(ATTACHMENT.filename)).toBeVisible();
     await expect(editor).not.toBeVisible();
-    await userEvent.click(canvas.getByRole("button", { name: "Reopen document" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Reopen document" }),
+    );
     await expect(canvas.getByPlaceholderText(PLACEHOLDER)).toBe(textarea);
     await expect(textarea).toHaveValue(expectedDraft);
     await expect(canvas.getByText(ATTACHMENT.filename)).toBeVisible();
-    await expect(canvasElement.querySelector(
-      '[data-slot="document-content"] [contenteditable="true"]',
-    )).toBe(editor);
+    await expect(
+      canvasElement.querySelector(
+        '[data-slot="document-content"] [contenteditable="true"]',
+      ),
+    ).toBe(editor);
     await expect(editor).toBeVisible();
     await expect(editor).toHaveTextContent(edit.trim());
     await expect(

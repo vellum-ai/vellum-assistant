@@ -85,6 +85,39 @@ describe("GET events/tail", () => {
     expect(body.frontier).toBe(5);
   });
 
+  test("returns terminal attachment provenance without rewriting the event", () => {
+    stampAndBuffer(
+      mkEvent({
+        message: {
+          type: "message_complete",
+          conversationId: CONV,
+          messageId: "reply-1",
+          attachments: [
+            {
+              id: "screenshot-1",
+              filename: "computer-use-click.png",
+              mimeType: "image/png",
+              data: "c2NyZWVuc2hvdA==",
+              computerUseScreenshot: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    const body = callTail({ conversationId: CONV, fromSeq: "0" });
+
+    expect(body.events[0]?.message).toMatchObject({
+      type: "message_complete",
+      attachments: [
+        {
+          id: "screenshot-1",
+          computerUseScreenshot: true,
+        },
+      ],
+    });
+  });
+
   test("an up-to-date anchor yields an empty but complete tail", () => {
     // GIVEN three buffered events (seq 1..3)
     for (let i = 0; i < 3; i++) {

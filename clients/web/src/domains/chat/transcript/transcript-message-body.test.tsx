@@ -8,6 +8,7 @@ import {
   test,
 } from "bun:test";
 import type { ReactNode } from "react";
+import type { ChatMarkdownMessageProps } from "@/domains/chat/components/chat-markdown-message";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   act,
@@ -30,7 +31,23 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 mock.module(
   "@/domains/chat/components/chat-attachments/message-attachments",
   () => ({
-    MessageAttachments: () => <div data-testid="attachments" />,
+    MessageAttachments: ({
+      attachments,
+      panelAttachments,
+    }: {
+      attachments: Array<{ id: string }>;
+      panelAttachments?: Array<{ id: string }>;
+    }) => (
+      <div
+        data-testid="attachments"
+        data-visible-attachment-ids={attachments
+          .map((attachment) => attachment.id)
+          .join(",")}
+        data-panel-attachment-ids={(panelAttachments ?? attachments)
+          .map((attachment) => attachment.id)
+          .join(",")}
+      />
+    ),
   }),
 );
 
@@ -150,17 +167,14 @@ mock.module("@/domains/chat/components/chat-markdown-message", () => ({
     hardLineBreaks,
     onVellumLinkClick,
     redactedCredentialChips,
-  }: {
-    content: string;
-    hardLineBreaks?: boolean;
-    onVellumLinkClick?: (href: string, linkText: string) => void;
-    redactedCredentialChips?: boolean;
-  }) => {
+    fileLinkLabels,
+  }: ChatMarkdownMessageProps) => {
     lastVellumLinkClick = onVellumLinkClick;
     return (
       <div
         data-testid="markdown"
         data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+        data-file-link-labels={fileLinkLabels}
         data-redacted-credential-chips={
           redactedCredentialChips ? "true" : "false"
         }
@@ -204,9 +218,13 @@ mock.module(
       autoExpand,
       toolCalls,
       items,
+      active,
+      groupToolCallIds,
     }: {
       autoExpand?: boolean;
       toolCalls: Array<{ id: string }>;
+      active?: boolean;
+      groupToolCallIds?: string[];
       items?: Array<
         | { kind: "thinking"; text: string }
         | { kind: "toolCall"; toolCall: { id: string } }
@@ -215,7 +233,9 @@ mock.module(
       <div
         data-testid="tool-progress-card"
         data-auto-expand={autoExpand ? "true" : "false"}
+        data-active={active ? "true" : "false"}
         data-tool-call-ids={toolCalls.map((tc) => tc.id).join(",")}
+        data-group-tool-call-ids={groupToolCallIds?.join(",") ?? ""}
         // Surface the ordered items so the merged-card tests can assert the
         // interleaved thinking + tool steps the card would render in its body.
         data-item-kinds={items?.map((i) => i.kind).join(",") ?? ""}
@@ -334,8 +354,26 @@ import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compa
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 
 const noop = () => {};
+const realImageDecode = globalThis.Image.prototype.decode;
+globalThis.Image.prototype.decode = async () => {};
+
+async function waitForComputerUseScreenshot(
+  container: HTMLElement,
+): Promise<HTMLImageElement> {
+  await waitFor(() => {
+    expect(
+      container.querySelector(
+        "[data-testid='computer-use-screenshot-displayed']",
+      ),
+    ).not.toBeNull();
+  });
+  return container.querySelector<HTMLImageElement>(
+    "[data-testid='computer-use-screenshot-displayed']",
+  )!;
+}
 
 /**
  * Drives a `vellum://` link click through the mocked markdown renderer. The
@@ -387,11 +425,13 @@ function surfaceBlock(surfaceId: string): ConversationContentBlock {
 }
 
 afterAll(() => {
+  globalThis.Image.prototype.decode = realImageDecode;
   mock.restore();
 });
 afterEach(() => {
   cleanup();
   useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+  useWorkflowStore.getState().reset();
 });
 
 function renderMessage(
@@ -1711,6 +1751,110 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("pins only the group that owns the selected computer-use screenshot", async () => {
+    const first: ChatMessageToolCall = {
+      id: "cu-earlier",
+      name: "computer_use_screenshot",
+      input: { activity: "Opening the report" },
+      imageDataList: ["earlier"],
+      completedAt: 1,
+    };
+    const selected: ChatMessageToolCall = {
+      id: "cu-selected",
+      name: "computer_use_screenshot",
+      input: { activity: "Confirming the report" },
+      imageDataList: ["selected"],
+      completedAt: 2,
+    };
+    const { container, getByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-disclosure",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I am opening the report."),
+            toolUseBlock(first),
+            textBlock("I am checking the result."),
+            toolUseBlock(selected),
+            textBlock("The report is ready."),
+          ],
+          toolCalls: [first, selected],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    await waitForComputerUseScreenshot(container);
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']"),
+    ).toHaveLength(1);
+
+    fireEvent.click(getByRole("button", { name: "Earlier activity" }));
+
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']"),
+    ).toHaveLength(2);
+    expect(
+      container.querySelectorAll(
+        "[data-testid='computer-use-screenshot-displayed']",
+      ),
+    ).toHaveLength(1);
+
+    expect(
+      container
+        .querySelectorAll("[data-testid='tool-progress-card']")[0]
+        ?.getAttribute("data-group-tool-call-ids"),
+    ).toBe("cu-earlier");
+  });
+
+  test("keeps a pending earlier screenshot call pinned after another screenshot wins", async () => {
+    const pending: ChatMessageToolCall = {
+      id: "cu-pending",
+      name: "computer_use_screenshot",
+      input: { activity: "Opening the report" },
+      imageDataList: ["earlier"],
+      pendingConfirmation: {
+        requestId: "confirm-screenshot",
+        title: "Allow the next computer action?",
+      },
+    };
+    const selected: ChatMessageToolCall = {
+      id: "cu-selected",
+      name: "computer_use_screenshot",
+      input: { activity: "Confirming the report" },
+      imageDataList: ["selected"],
+      completedAt: 2,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-confirmation",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I am opening the report."),
+            toolUseBlock(pending),
+            textBlock("I checked the result."),
+            toolUseBlock(selected),
+            textBlock("The report is ready."),
+          ],
+          toolCalls: [pending, selected],
+        }}
+        onSurfaceAction={noop}
+        onConfirmationSubmit={noop}
+      />,
+    );
+
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']"),
+    ).toHaveLength(2);
+    expect(
+      container
+        .querySelectorAll("[data-testid='tool-progress-card']")[0]
+        ?.getAttribute("data-tool-call-ids"),
+    ).toBe("cu-pending");
+    await waitForComputerUseScreenshot(container);
+  });
+
   test("opens the one disclosure above the pinned rows it cannot swallow", () => {
     // The shape the containment rule is for: work, a still-running tool that
     // must stay visible, more work, then the answer. One trigger, anchored
@@ -1787,17 +1931,211 @@ describe("TranscriptMessageBody", () => {
     );
     expect(first.getAttribute("data-item-thinking")).toBe("reason A|reason B");
     expect(first.getAttribute("data-item-tool-ids")).toBe("tc-a");
+    expect(first.getAttribute("data-group-tool-call-ids")).toBe("tc-a");
 
     // The second card carries the trailing tool + thinking run.
     const second = cards[1]!;
     expect(second.getAttribute("data-item-kinds")).toBe("toolCall,thinking");
     expect(second.getAttribute("data-item-tool-ids")).toBe("tc-b");
+    expect(second.getAttribute("data-group-tool-call-ids")).toBe("tc-b");
 
     // The text between the two runs renders.
     const markdowns = container.querySelectorAll("[data-testid='markdown']");
     expect(
       Array.from(markdowns).some((m) => m.textContent === "the middle answer"),
     ).toBe(true);
+  });
+
+  test("keeps raw group ids when a process-backed call is suppressed", () => {
+    useWorkflowStore.getState().startRun({
+      runId: "wf-1",
+      toolUseId: "tc-process",
+      timestamp: 1,
+    });
+    const processCall: ChatMessageToolCall = {
+      id: "tc-process",
+      name: "run_workflow",
+      input: {},
+      result: JSON.stringify({ runId: "wf-1" }),
+      completedAt: 1,
+    };
+    const visibleCall: ChatMessageToolCall = {
+      id: "tc-visible",
+      name: "bash",
+      input: { command: "pwd" },
+      completedAt: 2,
+    };
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-process-suppression",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(processCall), toolUseBlock(visibleCall)],
+          toolCalls: [processCall, visibleCall],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const card = getByTestId("tool-progress-card");
+    expect(card.getAttribute("data-tool-call-ids")).toBe("tc-visible");
+    expect(card.getAttribute("data-group-tool-call-ids")).toBe(
+      "tc-process,tc-visible",
+    );
+  });
+
+  test("keeps a blank-separated ordinary run in one active header while streaming", () => {
+    const message: DisplayMessage = {
+      id: "m-blank-streaming",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("plan"),
+        textBlock("\n"),
+        toolUseBlock({
+          id: "tc-first",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("  "),
+        thinkingBlock("prepare next step"),
+        textBlock("\t"),
+        toolUseBlock({ id: "tc-next", name: "bash", input: {} }),
+        textBlock("\n"),
+      ],
+    };
+
+    const { container, queryByRole } = render(
+      <TranscriptMessageBody
+        message={message}
+        onSurfaceAction={noop}
+        isStreaming
+        isLatestMessage
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    const cards = container.querySelectorAll(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,thinking,toolCall",
+    );
+    expect(cards[0]!.getAttribute("data-item-tool-ids")).toBe(
+      "tc-first,tc-next",
+    );
+    expect(cards[0]!.getAttribute("data-active")).toBe("true");
+  });
+
+  test("settles a blank-separated run without losing its ordered steps", () => {
+    const message: DisplayMessage = {
+      id: "m-blank-settled",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("plan"),
+        textBlock("\n"),
+        toolUseBlock({
+          id: "tc-first",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("  "),
+        thinkingBlock("done"),
+        textBlock("\n"),
+      ],
+    };
+
+    const { container, queryByRole } = render(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card?.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,thinking",
+    );
+    expect(card?.getAttribute("data-active")).toBe("false");
+    expect(container.querySelector("[data-testid='markdown']")).toBeNull();
+  });
+
+  test("keeps partial and complete no-response sentinels hidden across blanks", () => {
+    for (const [id, sentinel] of [
+      ["partial", "<no_resp"],
+      ["complete", "<no_response/>"],
+    ] as const) {
+      const html = renderMessage(
+        {
+          id: `m-no-response-${id}`,
+          role: "assistant",
+          contentBlocks: [
+            textBlock("\n"),
+            textBlock(sentinel),
+            textBlock("  "),
+          ],
+        },
+        { isStreaming: true },
+      );
+      expect(html).not.toContain(sentinel);
+    }
+  });
+
+  test("renders ordinary text that only begins like a no-response sentinel", async () => {
+    const { findByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-no-response-lookalike",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("\n"),
+            textBlock("<no_responseful text"),
+            textBlock("\t"),
+          ],
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(await findByText("<no_responseful text")).toBeTruthy();
+  });
+
+  test("keeps nonblank prose as an exact boundary between activity runs", () => {
+    const message: DisplayMessage = {
+      id: "m-visible-separator",
+      role: "assistant",
+      contentBlocks: [
+        toolUseBlock({
+          id: "tc-first",
+          name: "bash",
+          input: {},
+          completedAt: 1,
+        }),
+        textBlock("  Intermediate result.  "),
+        toolUseBlock({
+          id: "tc-next",
+          name: "bash",
+          input: {},
+          completedAt: 2,
+        }),
+        textBlock("Final answer."),
+      ],
+    };
+
+    const { container, getByRole, getByText } = render(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    expect(getByRole("button", { name: "Earlier activity" })).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Earlier activity" }));
+    expect(
+      Array.from(container.querySelectorAll("[data-testid='markdown']")).some(
+        (element) => element.textContent === "  Intermediate result.  ",
+      ),
+    ).toBe(true);
+    expect(getByText("Final answer.")).toBeTruthy();
   });
 
   test("renders a lone bash tool_use as the inline chip, not a card", () => {
@@ -1828,6 +2166,41 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test.each([
+    ["direct", "computer_use_screenshot", {}],
+    ["wrapped", "skill_execute", { tool: "computer_use_screenshot" }],
+  ])(
+    "routes a lone %s computer-use call to the activity header",
+    (_kind, name, input) => {
+      const { container } = render(
+        <TranscriptMessageBody
+          message={{
+            id: `computer-use-${_kind}`,
+            role: "assistant",
+            contentBlocks: [
+              toolUseBlock({
+                id: `tc-${_kind}`,
+                name,
+                input,
+                imageDataList: ["AAAA"],
+                completedAt: 1,
+              }),
+            ],
+            timestamp: 1_000,
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(
+        container.querySelector("[data-testid='inline-tool-link']"),
+      ).toBeNull();
+      expect(
+        container.querySelector("[data-testid='tool-progress-card']"),
+      ).not.toBeNull();
+    },
+  );
+
   test("renders images returned by an assistant tool result", () => {
     const toolCall: ChatMessageToolCall = {
       id: "tc-img",
@@ -1857,6 +2230,410 @@ describe("TranscriptMessageBody", () => {
     expect(images.length).toBe(2);
     expect(images[0]!.getAttribute("src")).toBe("data:image/png;base64,img-a");
     expect(images[1]!.getAttribute("src")).toBe("data:image/png;base64,img-b");
+  });
+
+  test("renders only the final screenshot-bearing computer-use occurrence", async () => {
+    const calls: ChatMessageToolCall[] = [
+      {
+        id: "cu-first",
+        name: "computer_use_screenshot",
+        input: { activity: "Opening the dashboard" },
+        imageDataList: ["first"],
+        completedAt: 30,
+      },
+      {
+        id: "cu-second",
+        name: "computer_use_screenshot",
+        input: { activity: "Checking the dashboard" },
+        imageDataList: ["second"],
+        completedAt: 20,
+      },
+      {
+        id: "cu-selected",
+        name: "computer_use_screenshot",
+        input: { activity: "Confirming the dashboard" },
+        imageDataList: ["selected"],
+        completedAt: 10,
+      },
+    ];
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-latest",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(calls[0]!),
+            textBlock("I opened the first view."),
+            toolUseBlock(calls[1]!),
+            textBlock("I checked another view."),
+            toolUseBlock(calls[2]!),
+            textBlock("The dashboard is ready."),
+          ],
+          toolCalls: calls,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const image = await waitForComputerUseScreenshot(container);
+    expect(image.getAttribute("src")).toBe("data:image/png;base64,selected");
+  });
+
+  test("keeps the latest screenshot when later calls have no screenshot or ordinary images", async () => {
+    const selected: ChatMessageToolCall = {
+      id: "cu-selected",
+      name: "computer_use_screenshot",
+      input: { activity: "Reviewing the page" },
+      imageDataList: ["selected"],
+      completedAt: 1,
+    };
+    const screenshotFree: ChatMessageToolCall = {
+      id: "cu-no-image",
+      name: "computer_use_click",
+      input: { activity: "Closing the menu" },
+      completedAt: 2,
+    };
+    const ordinary: ChatMessageToolCall = {
+      id: "generated-later",
+      name: "media_generate_image",
+      input: { prompt: "summary chart" },
+      imageDataList: ["ordinary"],
+      completedAt: 3,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-and-ordinary",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(selected),
+            textBlock("I reviewed the page."),
+            toolUseBlock(screenshotFree),
+            textBlock("I closed the menu."),
+            toolUseBlock(ordinary),
+            textBlock("Here is the summary."),
+          ],
+          toolCalls: [ordinary, screenshotFree, selected],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    await waitForComputerUseScreenshot(container);
+    expect(
+      Array.from(
+        container.querySelectorAll(
+          "[data-testid='computer-use-screenshot-displayed'], [data-testid='tool-result-image']",
+        ),
+      ).map((image) => image.getAttribute("src")),
+    ).toEqual([
+      "data:image/png;base64,selected",
+      "data:image/png;base64,ordinary",
+    ]);
+  });
+
+  test("filters only automatic screenshots from the assistant strip and keeps Files canonical", async () => {
+    const screenshot: ChatMessageToolCall = {
+      id: "cu-selected",
+      name: "computer_use_screenshot",
+      input: { activity: "Checking the report" },
+      imageDataList: ["selected"],
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-attachments",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(screenshot),
+            textBlock("The report is ready."),
+          ],
+          toolCalls: [screenshot],
+          attachments: [
+            {
+              id: "automatic-shot",
+              filename: "automatic.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+              computerUseScreenshot: true,
+            },
+            {
+              id: "report",
+              filename: "report.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1,
+              previewUrl: null,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const strip = container.querySelector("[data-testid='attachments']");
+    expect(strip?.getAttribute("data-visible-attachment-ids")).toBe("report");
+    expect(strip?.getAttribute("data-panel-attachment-ids")).toBe(
+      "automatic-shot,report",
+    );
+    await waitForComputerUseScreenshot(container);
+  });
+
+  test("mounts Files access when every canonical overflow attachment is filtered", async () => {
+    const screenshot: ChatMessageToolCall = {
+      id: "cu-selected",
+      name: "computer_use_screenshot",
+      input: { activity: "Checking the report" },
+      imageDataList: ["selected"],
+      completedAt: 1,
+    };
+    const attachments = Array.from({ length: 6 }, (_, index) => ({
+      id: `automatic-shot-${index}`,
+      filename: `automatic-${index}.png`,
+      mimeType: "image/png",
+      sizeBytes: 1,
+      previewUrl: null,
+      computerUseScreenshot: true,
+    }));
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-overflow",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(screenshot),
+            textBlock("The report is ready."),
+          ],
+          toolCalls: [screenshot],
+          attachments,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const strip = container.querySelector("[data-testid='attachments']");
+    expect(strip?.getAttribute("data-visible-attachment-ids")).toBe("");
+    expect(strip?.getAttribute("data-panel-attachment-ids")).toBe(
+      attachments.map((attachment) => attachment.id).join(","),
+    );
+    await waitForComputerUseScreenshot(container);
+  });
+
+  test("retains an automatic screenshot attachment when no tool image exists", () => {
+    const screenshotFree: ChatMessageToolCall = {
+      id: "cu-no-image",
+      name: "computer_use_click",
+      input: { activity: "Checking the report" },
+      completedAt: 1,
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-fallback",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(screenshotFree),
+            textBlock("The report is ready."),
+          ],
+          toolCalls: [screenshotFree],
+          attachments: [
+            {
+              id: "automatic-shot",
+              filename: "automatic.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: null,
+              computerUseScreenshot: true,
+            },
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const strip = container.querySelector("[data-testid='attachments']");
+    expect(strip?.getAttribute("data-visible-attachment-ids")).toBe(
+      "automatic-shot",
+    );
+    expect(
+      container.querySelector("[data-testid='tool-result-image']"),
+    ).toBeNull();
+  });
+
+  test("uses content-block call order instead of a redundant flat call array", async () => {
+    const blockCall: ChatMessageToolCall = {
+      id: "block-call",
+      name: "computer_use_screenshot",
+      input: {},
+      imageDataList: ["block-image"],
+    };
+    const flatCall: ChatMessageToolCall = {
+      id: "flat-call",
+      name: "computer_use_screenshot",
+      input: {},
+      imageDataList: ["flat-image"],
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "content-block-order",
+          role: "assistant",
+          contentBlocks: [toolUseBlock(blockCall), textBlock("Done.")],
+          toolCalls: [flatCall],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      (await waitForComputerUseScreenshot(container)).getAttribute("src"),
+    ).toBe("data:image/png;base64,block-image");
+  });
+
+  test("selects from content blocks when the flat tool-call array is absent", async () => {
+    const blockCall: ChatMessageToolCall = {
+      id: "block-only-call",
+      name: "computer_use_screenshot",
+      input: {},
+      imageDataList: ["block-only-image"],
+    };
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "content-block-only",
+          role: "assistant",
+          contentBlocks: [
+            toolUseBlock(blockCall),
+            textBlock("The dashboard is ready."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      (await waitForComputerUseScreenshot(container)).getAttribute("src"),
+    ).toBe("data:image/png;base64,block-only-image");
+  });
+
+  test("keeps one screenshot across inline completion and referenced history", async () => {
+    const inline: ChatMessageToolCall = {
+      id: "cu-transition",
+      name: "computer_use_screenshot",
+      input: { activity: "Checking the dashboard" },
+      imageDataList: ["inline-image"],
+    };
+    const referenced: ChatMessageToolCall = {
+      ...inline,
+      imageDataList: undefined,
+      imageAttachmentIds: ["history-shot"],
+      completedAt: 2,
+    };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const row = (toolCall: ChatMessageToolCall, complete: boolean) => (
+      <QueryClientProvider client={client}>
+        <TranscriptMessageBody
+          message={{
+            id: "computer-use-transition",
+            role: "assistant",
+            contentBlocks: [
+              toolUseBlock(toolCall),
+              textBlock("The dashboard is ready."),
+            ],
+            toolCalls: [toolCall],
+            attachments: complete
+              ? [
+                  {
+                    id: "history-shot",
+                    filename: "dashboard.png",
+                    mimeType: "image/png",
+                    sizeBytes: 1,
+                    previewUrl: null,
+                    computerUseScreenshot: true,
+                  },
+                ]
+              : undefined,
+          }}
+          onSurfaceAction={noop}
+        />
+      </QueryClientProvider>
+    );
+    const { container, rerender } = render(row(inline, false));
+
+    const displayed = await waitForComputerUseScreenshot(container);
+    rerender(row(referenced, true));
+
+    expect(await waitForComputerUseScreenshot(container)).toBe(displayed);
+    const strip = container.querySelector("[data-testid='attachments']");
+    expect(strip?.getAttribute("data-visible-attachment-ids")).toBe("");
+    expect(strip?.getAttribute("data-panel-attachment-ids")).toBe(
+      "history-shot",
+    );
+  });
+
+  test("keeps the previous screenshot when prose moves the latest image to another group", async () => {
+    const first: ChatMessageToolCall = {
+      id: "cu-first-group",
+      name: "computer_use_screenshot",
+      input: { activity: "Opening the dashboard" },
+      imageDataList: ["first-group"],
+    };
+    const next: ChatMessageToolCall = {
+      id: "cu-next-group",
+      name: "computer_use_screenshot",
+      input: { activity: "Checking the dashboard" },
+      imageDataList: ["next-group"],
+    };
+    const row = (showNext: boolean) => (
+      <TranscriptMessageBody
+        message={{
+          id: "computer-use-group-transition",
+          role: "assistant",
+          contentBlocks: showNext
+            ? [
+                toolUseBlock(first),
+                textBlock("I opened the dashboard."),
+                toolUseBlock(next),
+              ]
+            : [toolUseBlock(first)],
+          toolCalls: showNext ? [first, next] : [first],
+        }}
+        onSurfaceAction={noop}
+      />
+    );
+    const { container, rerender } = render(row(false));
+    await waitForComputerUseScreenshot(container);
+
+    let resolveNext!: () => void;
+    globalThis.Image.prototype.decode = function () {
+      return this.src.endsWith("next-group")
+        ? new Promise<void>((resolve) => {
+            resolveNext = resolve;
+          })
+        : Promise.resolve();
+    };
+    try {
+      rerender(row(true));
+
+      expect(
+        (await waitForComputerUseScreenshot(container)).getAttribute("src"),
+      ).toBe("data:image/png;base64,first-group");
+      expect(screen.getByText("Updating screenshot...")).toBeTruthy();
+
+      await act(async () => resolveNext());
+      await waitFor(() =>
+        expect(
+          container
+            .querySelector("[data-testid='computer-use-screenshot-displayed']")
+            ?.getAttribute("src"),
+        ).toBe("data:image/png;base64,next-group"),
+      );
+    } finally {
+      globalThis.Image.prototype.decode = async () => {};
+    }
   });
 
   test("infers non-png MIME types for assistant tool-result images", () => {
@@ -2869,7 +3646,33 @@ describe("TranscriptMessageBody — generic inline process cards", () => {
   });
 });
 
-describe("TranscriptMessageBody — redacted-credential chip version gate", () => {
+describe("TranscriptMessageBody: file link captions", () => {
+  test.each(["assistant", "user"] as const)(
+    "%s messages choose the appropriate file link captions",
+    (role) => {
+      const { getByTestId } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "m-file-link",
+            role,
+            contentBlocks: [
+              textBlock("[my chart](vellum://workspace/chart.png)"),
+            ],
+            timestamp: 1_000,
+          }}
+          assistantId="asst-1"
+          onSurfaceAction={noop}
+        />,
+      );
+
+      expect(
+        getByTestId("markdown").getAttribute("data-file-link-labels"),
+      ).toBe(role === "user" ? "markdown" : "action");
+    },
+  );
+});
+
+describe("TranscriptMessageBody: redacted-credential chip version gate", () => {
   const GATE_ASSISTANT_ID = "asst-gate";
 
   function chipFlag(

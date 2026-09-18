@@ -176,7 +176,8 @@ describe("useConversationAttachments", () => {
     expect(result.current.totalFiles).toBe(2);
     // The transcript never carries the frame tag, so this source has none.
     expect(result.current.totalFrames).toBe(0);
-    expect(result.current.sourceState).toBe("ready");
+    expect(result.current.filesState.pending).toBe(false);
+    expect(result.current.filesState.failure).toBeNull();
     expect(result.current.hasMoreFiles).toBe(false);
     expect(result.current.hasMoreFrames).toBe(false);
   });
@@ -456,7 +457,7 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
-    expect(result.current.sourceState).toBe("unresolved");
+    expect(result.current.filesState.pending).toBe(true);
   });
 
   test("lists nothing when another assistant owns the snapshot", () => {
@@ -484,7 +485,7 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
-    expect(result.current.sourceState).toBe("unresolved");
+    expect(result.current.filesState.pending).toBe(true);
   });
 
   // An owned conversation with no snapshot yet is the first paint of a chat:
@@ -494,7 +495,7 @@ describe("useConversationAttachments", () => {
 
     const { result } = renderAttachments();
 
-    expect(result.current.sourceState).toBe("unresolved");
+    expect(result.current.filesState.pending).toBe(true);
     expect(result.current.entries).toHaveLength(0);
   });
 
@@ -506,7 +507,8 @@ describe("useConversationAttachments", () => {
 
     const { result } = renderAttachments();
 
-    expect(result.current.sourceState).toBe("ready");
+    expect(result.current.filesState.pending).toBe(false);
+    expect(result.current.filesState.failure).toBeNull();
     expect(result.current.entries).toHaveLength(0);
   });
 
@@ -560,7 +562,8 @@ describe("useConversationAttachments on the daemon path", () => {
       "photo-1",
       "frame-1",
     ]);
-    expect(result.current.sourceState).toBe("ready");
+    expect(result.current.filesState.pending).toBe(false);
+    expect(result.current.filesState.failure).toBeNull();
   });
 
   test("carries a frame's tag, its capture time, and its thumbnail", () => {
@@ -705,7 +708,8 @@ describe("useConversationAttachments on the daemon path", () => {
     expect(result.current.totalFiles).toBe(1);
     expect(result.current.totalFrames).toBe(0);
     expect(result.current.hasMoreFrames).toBe(false);
-    expect(result.current.sourceState).toBe("ready");
+    expect(result.current.filesState.pending).toBe(false);
+    expect(result.current.filesState.failure).toBeNull();
   });
 
   // A build carrying the gated version but cut before the route landed is the
@@ -728,7 +732,8 @@ describe("useConversationAttachments on the daemon path", () => {
     expect(result.current.entries.map((entry) => entry.key)).toEqual([
       "from-transcript",
     ]);
-    expect(result.current.sourceState).toBe("ready");
+    expect(result.current.filesState.pending).toBe(false);
+    expect(result.current.filesState.failure).toBeNull();
   });
 
   test("reports a settled list failure as a failed source", () => {
@@ -743,12 +748,11 @@ describe("useConversationAttachments on the daemon path", () => {
 
     const { result } = renderAttachments({ client });
 
-    expect(result.current.sourceState).toBe("failed");
+    expect(result.current.framesState.failure).toBe("load");
+    expect(result.current.filesState.failure).toBeNull();
   });
 
-  // The panel is never empty on open: the transcript's own files are on screen
-  // from the first paint, and the lists replace them once both have answered.
-  test("shows the transcript's files while the lists are unresolved", () => {
+  test("does not misclassify transcript attachments while modern lists are unresolved", () => {
     openGate();
     // The org header is the gate the list reads wait on, so an unresolved one
     // leaves them unanswered with nothing requested.
@@ -761,9 +765,7 @@ describe("useConversationAttachments on the daemon path", () => {
 
     const { result } = renderAttachments();
 
-    expect(result.current.entries.map((entry) => entry.key)).toEqual([
-      "from-transcript",
-    ]);
-    expect(result.current.sourceState).toBe("unresolved");
+    expect(result.current.entries.map((entry) => entry.key)).toEqual([]);
+    expect(result.current.filesState.pending).toBe(true);
   });
 });

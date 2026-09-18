@@ -20,9 +20,10 @@
  */
 
 import { ChevronLeft } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
+import { isComputerUseToolCall } from "@vellumai/assistant-api";
 
 import {
   DetailShell,
@@ -37,8 +38,16 @@ import {
 } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import {
   DefaultStepPill,
+  isWorkingPhaseLabel,
   PhaseGroupedStepList,
+  type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { ActivityScreenshotTile } from "@/domains/chat/components/activity-screenshot-tile";
+import {
+  projectToolResultImages,
+  type ToolResultImage,
+} from "@/domains/chat/components/chat-attachments/tool-result-images";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import {
@@ -50,7 +59,9 @@ import {
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { useLiveActivityGroup } from "@/domains/chat/hooks/use-live-activity-group";
+import { TRANSCRIPT_TOOL_CALL_SOURCE } from "@/domains/chat/hooks/use-live-tool-call";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
+import { isActivityLive, useTurnStore } from "@/domains/chat/turn-store";
 import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardStep,
@@ -71,11 +82,56 @@ import type {
  */
 const THINKING_PILL_MAX_CHARS = 60;
 
-export function ActivityStepsPanel({
-  payload,
-  onClose,
-  assistantId,
-}: {
+export interface ActivityScreenshotOccurrence {
+  image: ToolResultImage;
+  occurrenceKey: string;
+}
+
+/** Ordered computer screenshots joined to the rendered tool-step sequence. */
+export function buildActivityScreenshotGallery(
+  toolCalls: ChatMessageToolCall[],
+  steps: ToolCallCardStep[],
+): ActivityScreenshotOccurrence[] {
+  return buildActivityScreenshotGalleryForIds(
+    toolCalls,
+    steps.flatMap((step) => (step.kind === "tool" ? [step.toolCallId] : [])),
+  );
+}
+
+function buildActivityScreenshotGalleryForIds(
+  toolCalls: ChatMessageToolCall[],
+  orderedToolCallIds: string[],
+): ActivityScreenshotOccurrence[] {
+  const eligibleIds = new Set(
+    toolCalls
+      .filter((toolCall) =>
+        isComputerUseToolCall(toolCall.name, toolCall.input),
+      )
+      .map((toolCall) => toolCall.id),
+  );
+  const imageByToolCallId = new Map<string, ToolResultImage>();
+  for (const image of projectToolResultImages(toolCalls)) {
+    if (eligibleIds.has(image.toolCallId)) {
+      imageByToolCallId.set(image.toolCallId, image);
+    }
+  }
+
+  const gallery: ActivityScreenshotOccurrence[] = [];
+  const seen = new Set<string>();
+  for (const toolCallId of orderedToolCallIds) {
+    if (seen.has(toolCallId)) {
+      continue;
+    }
+    const image = imageByToolCallId.get(toolCallId);
+    if (image) {
+      seen.add(toolCallId);
+      gallery.push({ image, occurrenceKey: toolCallId });
+    }
+  }
+  return gallery;
+}
+
+interface ActivityStepsPanelProps {
   payload: ActivityStepsPayload;
   onClose: () => void;
   /**
@@ -84,17 +140,110 @@ export function ActivityStepsPanel({
    * resolve against the right workspace.
    */
   assistantId?: string | null;
-}) {
+}
+
+export function ActivityStepsPanel({
+  payload,
+  onClose,
+  assistantId,
+}: ActivityStepsPanelProps) {
+  return (
+    <ActivityStepsPanelTarget
+      key={activityStepsTargetKey(payload)}
+      payload={payload}
+      onClose={onClose}
+      assistantId={assistantId}
+    />
+  );
+}
+
+function activityStepsTargetKey(payload: ActivityStepsPayload): string {
+  if (payload.messageId != null) {
+    const rawToolCallId = payload.groupToolCallIds?.[0];
+    return rawToolCallId != null
+      ? JSON.stringify(["message", payload.messageId, "tool", rawToolCallId])
+      : JSON.stringify([
+          "message",
+          payload.messageId,
+          "index",
+          payload.groupIndex ?? null,
+        ]);
+  }
+
+  const snapshotToolCallId = payload.toolCalls[0]?.id;
+  return snapshotToolCallId != null
+    ? JSON.stringify(["snapshot", "tool", snapshotToolCallId])
+    : JSON.stringify(["snapshot", "index", payload.groupIndex ?? null]);
+}
+
+function ActivityStepsPanelTarget({
+  payload,
+  onClose,
+  assistantId,
+}: ActivityStepsPanelProps) {
   const { t } = useTranslation("chat");
   // Level-2 drill-in: the step detail currently open, or null for the
   // timeline. Local state — the drawer level is navigation within the panel,
   // not shared app state.
   const [stepDetail, setStepDetail] = useState<ToolDetailPayload | null>(null);
 
-  const live = useLiveActivityGroup(payload.messageId, payload.groupIndex);
+  const anchorToolCallId =
+    payload.groupToolCallIds?.[0] ?? payload.toolCalls[0]?.id;
+
+  const live = useLiveActivityGroup(
+    payload.messageId,
+    payload.groupIndex,
+    anchorToolCallId,
+  );
   const items = live?.items ?? payload.items;
   const toolCalls = live?.toolCalls ?? payload.toolCalls;
-  const cardData = useToolCallCardDataFromItems(items);
+  const turnPhase = useTurnStore.use.phase();
+  const ownsActiveGroup = live
+    ? live.isLastGroup && live.isLatestMessage
+    : payload.messageId == null;
+  const active =
+    payload.active === true && ownsActiveGroup && isActivityLive(turnPhase);
+  const cardData = useToolCallCardDataFromItems(items, { active });
+  const orderedToolCallIds = useMemo(
+    () =>
+      items.flatMap((item) =>
+        item.kind === "toolCall" ? [item.toolCall.id] : [],
+      ),
+    [items],
+  );
+  const screenshotGallery = useMemo(
+    () => buildActivityScreenshotGalleryForIds(toolCalls, orderedToolCallIds),
+    [toolCalls, orderedToolCallIds],
+  );
+  const screenshotKeys = useMemo(
+    () => screenshotGallery.map((entry) => entry.occurrenceKey),
+    [screenshotGallery],
+  );
+  const screenshotIndexByToolCallId = useMemo(
+    () =>
+      new Map(
+        screenshotGallery.map((entry, index) => [entry.occurrenceKey, index]),
+      ),
+    [screenshotGallery],
+  );
+  const screenshotImages = useMemo(
+    () => screenshotGallery.map((entry) => entry.image),
+    [screenshotGallery],
+  );
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previewScope = `${assistantId ?? ""}:${payload.messageId ?? ""}:${anchorToolCallId ?? payload.groupIndex ?? ""}`;
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    screenshotImages,
+    screenshotKeys,
+    {
+      scopeKey: previewScope,
+      getFallbackFocus: () =>
+        panelRef.current?.querySelector<HTMLElement>(
+          'button, [role="button"][tabindex="0"]',
+        ) ?? null,
+    },
+  );
 
   const outcomes = countStepOutcomes(cardData.steps);
   const summaryState = deriveSummaryState(cardData.state, cardData.steps);
@@ -112,77 +261,144 @@ export function ActivityStepsPanel({
   const title = isRunning ? cardData.currentStepTitle || summary : summary;
 
   // The pill's click handler reads the raw call to build the detail payload.
-  const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
+  const toolCallById = useMemo(
+    () => new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall])),
+    [toolCalls],
+  );
 
   // Level-2 header title: the step's own label, prefixed by the back
   // chevron. Mirrors `ToolDetailPanel`'s activity-first title for tools.
   return (
-    <DetailShell
-      // Drilled into a step, the back control takes the leading slot the glyph
-      // would occupy: same placement, variant, and spacing as the subagent,
-      // workflow, and ACP run panels' Back buttons.
-      icon={
-        stepDetail ? (
-          <Button
-            variant="outlined"
-            iconOnly={<ChevronLeft />}
-            aria-label={t("activityStepsPanel.backAria")}
-            tooltip={t("activityStepsPanel.backTooltip")}
-            onClick={() => setStepDetail(null)}
-            className="shrink-0"
-          />
-        ) : undefined
-      }
-      titleNode={
-        stepDetail ? (
-          // Drilled into a step: the step's title replaces the run summary, so
-          // the header always names what the body shows.
-          stepDetail.kind === "thinking" ? (
-            <Typography
-              variant="title-medium"
-              className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-            >
-              {t("activityStepsPanel.thinkingTitle")}
-            </Typography>
-          ) : (
-            <ToolDetailHeaderTitle detail={stepDetail} />
-          )
-        ) : (
-          <DetailShellTitleWithCount
-            title={
-              isRunning ? (
-                <StreamingShimmerText>{title}</StreamingShimmerText>
-              ) : (
-                title
-              )
-            }
-            count={cardData.stepCount}
-          />
-        )
-      }
-      closeLabel={t("activityStepsPanel.closeSteps")}
-      onClose={onClose}
-    >
-      {stepDetail ? (
-        <StepDetailLevel detail={stepDetail} assistantId={assistantId} />
-      ) : (
-        <PhaseGroupedStepList
-          steps={cardData.steps}
-          timeline
-          renderStep={(step) => (
-            <TimelineStep
-              step={step}
-              activeDetail={stepDetail}
-              onOpenDetail={setStepDetail}
-              lookupToolCall={(id) => toolCallById.get(id)}
-              messageId={payload.messageId}
-              groupIndex={payload.groupIndex}
+    <div ref={panelRef} className="contents">
+      <DetailShell
+        // Drilled into a step, the back control takes the leading slot the glyph
+        // would occupy: same placement, variant, and spacing as the subagent,
+        // workflow, and ACP run panels' Back buttons.
+        icon={
+          stepDetail ? (
+            <Button
+              variant="outlined"
+              iconOnly={<ChevronLeft />}
+              aria-label={t("activityStepsPanel.backAria")}
+              tooltip={t("activityStepsPanel.backTooltip")}
+              onClick={() => setStepDetail(null)}
+              className="shrink-0"
             />
-          )}
-        />
-      )}
-    </DetailShell>
+          ) : undefined
+        }
+        titleNode={
+          stepDetail ? (
+            // Drilled into a step: the step's title replaces the run summary, so
+            // the header always names what the body shows.
+            stepDetail.kind === "thinking" ? (
+              <Typography
+                variant="title-medium"
+                className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
+              >
+                {t("activityStepsPanel.thinkingTitle")}
+              </Typography>
+            ) : (
+              <ToolDetailHeaderTitle
+                detail={stepDetail}
+                source={TRANSCRIPT_TOOL_CALL_SOURCE}
+              />
+            )
+          ) : (
+            <DetailShellTitleWithCount
+              title={
+                isRunning ? (
+                  <StreamingShimmerText>{title}</StreamingShimmerText>
+                ) : (
+                  title
+                )
+              }
+              count={cardData.stepCount}
+            />
+          )
+        }
+        closeLabel={t("activityStepsPanel.closeSteps")}
+        onClose={onClose}
+      >
+        {stepDetail ? (
+          <StepDetailLevel detail={stepDetail} assistantId={assistantId} />
+        ) : (
+          <PhaseGroupedStepList
+            steps={cardData.steps}
+            timeline
+            renderStep={(step) => (
+              <TimelineStep
+                step={step}
+                activeDetail={stepDetail}
+                onOpenDetail={setStepDetail}
+                lookupToolCall={(id) => toolCallById.get(id)}
+                messageId={payload.messageId}
+                groupIndex={live?.groupIndex ?? payload.groupIndex}
+              />
+            )}
+            renderPhaseFooter={(section) => {
+              const representative = phaseScreenshotRepresentative(
+                section,
+                screenshotGallery,
+                screenshotIndexByToolCallId,
+              );
+              if (!representative) {
+                return null;
+              }
+              const { entry, step, index } = representative;
+              const activity = step.activity?.trim();
+              const title = activity
+                ? t("activityStepsPanel.screenshotTitle", { activity })
+                : t("activityStepsPanel.screenshotFallbackTitle");
+              const ariaLabel = activity
+                ? t("activityStepsPanel.screenshotAria", { activity })
+                : t("activityStepsPanel.screenshotFallbackAria");
+              return (
+                <ActivityScreenshotTile
+                  assistantId={assistantId}
+                  image={entry.image}
+                  title={title}
+                  ariaLabel={ariaLabel}
+                  onPreview={(trigger) =>
+                    openPreview(entry.image, index, trigger)
+                  }
+                />
+              );
+            }}
+          />
+        )}
+        {previewModal}
+      </DetailShell>
+    </div>
   );
+}
+
+function phaseScreenshotRepresentative(
+  section: PhaseSection,
+  gallery: ActivityScreenshotOccurrence[],
+  indexByToolCallId: ReadonlyMap<string, number>,
+): {
+  entry: ActivityScreenshotOccurrence;
+  step: Extract<ToolCallCardStep, { kind: "tool" }>;
+  index: number;
+} | null {
+  if (!isWorkingPhaseLabel(section.label)) {
+    return null;
+  }
+  for (let index = section.steps.length - 1; index >= 0; index -= 1) {
+    const step = section.steps[index];
+    if (step?.kind !== "tool") {
+      continue;
+    }
+    const galleryIndex = indexByToolCallId.get(step.toolCallId);
+    if (galleryIndex !== undefined) {
+      return {
+        entry: gallery[galleryIndex]!,
+        step,
+        index: galleryIndex,
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -286,7 +502,11 @@ function StepDetailLevel({
       {detail.kind === "thinking" ? (
         <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
       ) : (
-        <ToolDetailBody detail={detail} assistantId={assistantId} />
+        <ToolDetailBody
+          detail={detail}
+          source={TRANSCRIPT_TOOL_CALL_SOURCE}
+          assistantId={assistantId}
+        />
       )}
     </div>
   );

@@ -18,9 +18,10 @@
  * route captured calls back to the originating conversation's probe arrays.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
+import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
 
 // ── Per-conversation capture registry ────────────────────────────────
 //
@@ -1364,15 +1365,17 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.toolContextPin).toBeUndefined();
   });
 
-  test("applies wireToolDefinitions alongside the allowlist and restores it after the wake", async () => {
+  test("applies wireToolDefinitions and the delegation state alongside the allowlist and restores both after the wake", async () => {
     const replay = [
       { name: "remember", description: "Save", input_schema: {} },
       { name: "bell_jingle", description: "Ring", input_schema: {} },
     ];
     let replayDuringRun: unknown;
+    let delegationDuringRun: unknown;
     const conversation = makeWakeConversation({
       runImpl: async (input) => {
         replayDuringRun = conversation.wireToolReplay;
+        delegationDuringRun = conversation.delegateIndependentTasksReplay;
         return runResult([
           ...input,
           { role: "assistant", content: [{ type: "text", text: "Saved." }] },
@@ -1388,16 +1391,22 @@ describe("wakeAgentForOpportunity", () => {
         allowedTools: ["remember"],
         toolGateMode: "execution",
         wireToolDefinitions: replay,
+        delegateIndependentTasks: true,
       },
       { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     // The replay array is live on the conversation for the duration of the
-    // run (the tool resolver returns it as the wire array)...
+    // run (the tool resolver returns it as the wire array), as is the
+    // delegation-section state the source's prompt rendered (the prompt
+    // build reads it)...
     expect(replayDuringRun).toEqual(replay);
-    // ...and cleared alongside the allowlist + gate mode after the wake.
+    expect(delegationDuringRun).toBe(true);
+    // ...and both are cleared alongside the allowlist + gate mode after the
+    // wake.
     expect(conversation.wireToolReplay).toBeUndefined();
+    expect(conversation.delegateIndependentTasksReplay).toBeUndefined();
   });
 
   test("defaults to the wire gate mode when toolGateMode is absent", async () => {
@@ -1559,6 +1568,47 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.pushedMessages[1]).toEqual(toolResultUserMsg);
     expect(conversation.pushedMessages[2]).toEqual(followupAssistant);
   });
+
+  for (const fails of [false, true]) {
+    test(`releases desktop control before a ${fails ? "failed" : "completed"} wake drains the queue`, async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "reply" }],
+        },
+        ...(fails
+          ? {
+              runImpl: async () => {
+                throw new Error("wake failed");
+              },
+            }
+          : {}),
+      });
+      const release = spyOn(desktopAutomationLease, "releaseForConversation");
+      const setProcessing = conversation.setProcessing.bind(conversation);
+      conversation.setProcessing = (processing) => {
+        if (!processing) {
+          expect(release).toHaveBeenCalledWith(conversation.conversationId);
+        }
+        setProcessing(processing);
+      };
+      try {
+        const result = await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "x",
+            source: "unit-test",
+          },
+          { resolveTarget: async () => conversation },
+        );
+        expect(result.invoked).toBe(!fails);
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(conversation.drainQueueCalls).toBe(1);
+      } finally {
+        release.mockRestore();
+      }
+    });
+  }
 
   test("marks processing true during the run and false afterwards", async () => {
     const conversation = makeWakeConversation({

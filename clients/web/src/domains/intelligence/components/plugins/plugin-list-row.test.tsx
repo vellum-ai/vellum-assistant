@@ -27,7 +27,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row.js";
-import type { PluginListItem } from "@/domains/intelligence/plugins/types.js";
+import type { PluginListItem } from "@/lib/plugins/types.js";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift.js";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js";
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons.js";

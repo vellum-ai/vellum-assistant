@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -47,7 +47,10 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
 import { autoSendPromptState } from "@/utils/auto-send-prompt";
-import { navigateToConversation } from "@/utils/conversation-navigation";
+import {
+  closeAppRoute,
+  navigateToConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
@@ -96,6 +99,7 @@ import {
   usePageSurfaceStore,
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
+import { CompanionIntroScrim } from "@/components/companion-intro-scrim";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { RoutePendingIndicator } from "@/components/route-pending-indicator";
@@ -189,8 +193,7 @@ export function RootLayout() {
   const authUser = useAuthStore.use.user();
   const requestOrganizationId = useRequestOrganizationId();
   const assistantVersion = useAssistantIdentityStore.use.version();
-  const platformAccountId =
-    authUser?.kind === "platform" ? authUser.id : null;
+  const platformAccountId = authUser?.kind === "platform" ? authUser.id : null;
   const connectionFallback =
     getSelfHostedIngressUrl() ??
     (typeof globalThis.location === "undefined"
@@ -343,7 +346,22 @@ export function RootLayout() {
   // at the root because downloads start from every domain (chat attachments,
   // workspace files, invoices, inspector exports).
   useDownloadFeedback();
-  useEffect(() => subscribeAndroidBackButtonSource(), []);
+  // Android Back closes a minimized app the WebView history root cannot pop.
+  // The listener is armed once and reads the current entry's recorded return
+  // through the ref.
+  const locationStateRef = useRef(location.state);
+  useEffect(() => {
+    locationStateRef.current = location.state;
+  }, [location.state]);
+  useEffect(
+    () =>
+      subscribeAndroidBackButtonSource({
+        closeAppRoute: () => {
+          closeAppRoute(navigate, { state: locationStateRef.current });
+        },
+      }),
+    [navigate],
+  );
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
@@ -705,6 +723,10 @@ export function RootLayout() {
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
+
+      {/* The app dimmed while the companion introduces itself over this
+          window. Inert off Electron and on the shells with no surface. */}
+      <CompanionIntroScrim />
 
       {feedbackOpen ? (
         <ShareFeedbackModalLazy

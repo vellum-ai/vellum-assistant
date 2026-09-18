@@ -1,5 +1,5 @@
 /**
- * Tests for `ToolDetailPanel` — the side-drawer body for a tool-call step.
+ * Tests for `ToolDetailPanel`, the side-drawer body for a tool-call step.
  *
  * Runs under happy-dom (see clients/web/test-setup.ts) so we can render
  * interactively and assert click / clipboard behavior.
@@ -11,6 +11,7 @@ import {
   cleanup,
   fireEvent,
   render as rtlRender,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -68,8 +69,8 @@ const render = (ui: Parameters<typeof rtlRender>[0]) =>
  * folds into the materialized snapshot, so this writes the snapshot.
  */
 function seedHistory(messages: DisplayMessage[]) {
-  // History now folds into the materialized snapshot — the single source the
-  // drawer reads — so seed it there.
+  // History folds into the materialized snapshot (the single source the
+  // drawer reads), so seed it there.
   useChatSessionStore.setState({ snapshot: snap(messages) });
 }
 
@@ -111,8 +112,8 @@ afterEach(() => {
 });
 
 describe("ToolDetailPanel", () => {
-  test("renders the activity title, friendly tool name, input JSON and output", () => {
-    const { getAllByText, container } = render(
+  test("renders the activity title, friendly tool name, parameters and output", () => {
+    const { getAllByText, getByText, container } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
@@ -122,10 +123,139 @@ describe("ToolDetailPanel", () => {
     ).toHaveLength(1);
     // The tool is named once, in the header beneath the activity.
     expect(getAllByText("Subagent Spawn")).toHaveLength(1);
-    // Input JSON + output appear inside <pre> blocks.
+    // Each parameter is a field of its key and its value, not a JSON literal.
+    expect(getByText("label")).toBeDefined();
+    expect(getByText("toronto-location")).toBeDefined();
     const text = container.textContent ?? "";
-    expect(text).toContain('"toronto-location"');
+    expect(text).not.toContain('"toronto-location"');
     expect(text).toContain("Toronto is in Ontario, Canada.");
+  });
+
+  test("keeps the raw input, activity included, one disclosure away", () => {
+    const detail = makeDetail({
+      input: {
+        activity: "Spawning subagent to research Toronto's location",
+        label: "toronto-location",
+      },
+    });
+    const { getByText, queryByText, container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // The header already shows the activity sentence, so it is not a field.
+    expect(queryByText("activity")).toBeNull();
+    expect(container.textContent).not.toContain('"activity"');
+
+    act(() => {
+      fireEvent.click(getByText("Raw input"));
+    });
+
+    expect(container.textContent).toContain('"activity"');
+    expect(container.textContent).toContain('"toronto-location"');
+  });
+
+  test("shows only the raw input when the call has no parameters", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ input: {} })} onClose={noop} />,
+    );
+
+    expect(queryByText("Parameters")).toBeNull();
+    expect(getByText("Raw input")).toBeDefined();
+  });
+
+  test("renders a structured parameter as labelled fields, not JSON", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_upsert_contact",
+      input: {
+        record: {
+          stage: "qualified",
+          owner: { team: "growth" },
+          tags: ["inbound", "trial"],
+        },
+      },
+    });
+    const { getByText, container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText("record")).toBeDefined();
+    expect(getByText("stage")).toBeDefined();
+    expect(getByText("qualified")).toBeDefined();
+    // A small object reads as key and value pairs on one line.
+    expect(getByText("owner")).toBeDefined();
+    expect(getByText("team")).toBeDefined();
+    // A short list reads as one line.
+    expect(getByText("inbound, trial")).toBeDefined();
+    expect(container.textContent).not.toContain('"stage"');
+  });
+
+  test("renders a list of records as a table, one column per key", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_import_contacts",
+      input: {
+        contacts: [
+          { email: "ada@example.com", stage: "qualified", owner: "growth" },
+          { email: "grace@example.com", stage: "new" },
+        ],
+      },
+    });
+    const { getAllByRole, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(
+      getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual(["email", "stage", "owner"]);
+    const cellsOf = (row: HTMLElement) =>
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    const [, first, second] = getAllByRole("row");
+    expect(first && cellsOf(first)).toEqual([
+      "ada@example.com",
+      "qualified",
+      "growth",
+    ]);
+    // The record without an owner keeps its row, with that cell empty.
+    expect(second && cellsOf(second)).toEqual(["grace@example.com", "new", ""]);
+    // A cell is a machine value, set in the same monospace as the other values.
+    const firstCell = first && within(first).getAllByRole("cell")[0];
+    expect(firstCell?.querySelector(".font-mono")?.textContent).toBe(
+      "ada@example.com",
+    );
+    // No positional labels: the records are rows, not a numbered group.
+    expect(queryByText("1")).toBeNull();
+  });
+
+  test("sets long text as a copyable code block", () => {
+    const query =
+      "SELECT week, count(DISTINCT person_id) AS users FROM events GROUP BY week ORDER BY week";
+    const detail = makeDetail({
+      toolName: "mcp__analytics__exec",
+      input: { query },
+    });
+    const { getByText, getAllByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText(query).tagName).toBe("PRE");
+    // One copy button for the query, one for the output.
+    expect(getAllByLabelText("Copy")).toHaveLength(2);
+  });
+
+  test("counts the items past the first twenty instead of listing them", () => {
+    const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
+    const detail = makeDetail({
+      toolName: "acme_bulk_archive",
+      input: { ids },
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText("id-20")).toBeDefined();
+    expect(queryByText("id-21")).toBeNull();
+    expect(getByText("3 more in Raw input")).toBeDefined();
   });
 
   test("omits the Technical details label", () => {
@@ -242,6 +372,26 @@ describe("ToolDetailPanel", () => {
     expect(getByTestId("tool-output-notice").textContent).toBe(
       "This tool call was not approved, so it did not run.",
     );
+  });
+
+  test("keeps saying a denied call did not run once its denial result lands", () => {
+    // The daemon answers a refusal with a result addressed to the model. It is
+    // not output, so the reader still sees why the call did not run.
+    const { getByTestId, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          result:
+            'Permission denied. The "subagent_spawn" tool was not allowed. Do NOT retry this tool call immediately.',
+          status: "denied",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+    expect(queryByText(/Do NOT retry/)).toBeNull();
   });
 
   test("picks up a denial that lands while the drawer is open", () => {
@@ -519,16 +669,28 @@ describe("ToolDetailPanel", () => {
   });
 
   test("copy button writes the content to the clipboard", () => {
-    const { getAllByLabelText } = render(
+    const { getAllByLabelText, getByText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Two copy buttons: one for input, one for output.
+    // Short parameters are fields with nothing to copy, so at rest only the
+    // output has a copy button. Opening the raw input adds its own.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    act(() => {
+      fireEvent.click(getByText("Raw input"));
+    });
     const copyButtons = getAllByLabelText("Copy");
     expect(copyButtons.length).toBe(2);
 
     fireEvent.click(copyButtons[0]!);
     expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      JSON.stringify(
+        { label: "toronto-location", role: "researcher" },
+        null,
+        2,
+      ),
+    );
   });
 
   test("thinking variant renders the reasoning markdown without input/output sections", () => {

@@ -464,7 +464,9 @@ describe("document conversation route", () => {
       const historyBack = spyOn(window.history, "back").mockImplementation(
         () => {},
       );
-      const unsubscribe = subscribeAndroidBackButtonSource();
+      const unsubscribe = subscribeAndroidBackButtonSource({
+        closeAppRoute: () => {},
+      });
       try {
         const page = renderRoute();
         await waitFor(() => expect(typeof backButtonHandler).toBe("function"));

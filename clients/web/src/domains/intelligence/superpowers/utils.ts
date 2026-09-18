@@ -1,4 +1,4 @@
-import type { PluginFilter } from "@/domains/intelligence/plugins/types";
+import type { PluginFilter } from "@/lib/plugins/types";
 
 import type { SuperpowerFilter } from "./types";
 
@@ -7,7 +7,9 @@ import type { SuperpowerFilter } from "./types";
  * The type filters carry no skill narrowing (`skills` shows everything
  * skill-side; `plugins` disables the skills query entirely).
  */
-export function skillParamsForFilter(filter: SuperpowerFilter): {
+export function skillParamsForFilter(
+  filter: SuperpowerFilter,
+): {
   origin?: string;
   kind?: "installed" | "available";
 } {

@@ -512,6 +512,16 @@ export interface CompanionCallShortcuts {
   muteAssistant: string;
 }
 
+/**
+ * A control drawn as though the pointer were on it, for the beat of the
+ * introduction that is about it: the name and the key are revealed with no
+ * hover and no dwell.
+ *
+ * `talk` is the creature itself, which is the call button and carries its name
+ * above it; the rest are controls on the call's bar.
+ */
+export type CompanionSurfaceSpotlight = "talk" | "share" | "draw" | "mute";
+
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
   /**
@@ -639,7 +649,30 @@ export interface CompanionSurfaceProps {
    * room, where a hand reaching for the creature is the whole point of the
    * frame.
    */
-  spotlight?: "talk";
+  spotlight?: CompanionSurfaceSpotlight;
+  /**
+   * Call the creature out of its own spot and into whatever the caller has
+   * marked with `data-avatar-stage` inside {@link CompanionSurfaceProps.intro}.
+   *
+   * The introduction's card uses it to hold the creature in its middle while it
+   * says "click me": the sentence and the thing it names then occupy one place,
+   * and nothing on the card has to explain where to look. The marker at home
+   * goes out while it is away, since a lit spot the creature has just left
+   * reads as a second creature.
+   */
+  avatarStaged?: boolean;
+  /**
+   * Keep the creature tucked behind the resting marker even while the
+   * introduction's card is on screen.
+   *
+   * The run opens on what the user is actually looking at: the lit sliver, with
+   * the creature still inside it. Every other beat needs the creature drawn
+   * (a card pointing at an empty marker is the one thing this must not do), so
+   * the card being up is normally enough to bring it out; this is the one beat
+   * that wants the surface exactly as it found it, and a hover still brings the
+   * creature out for real while the card says so.
+   */
+  avatarTucked?: boolean;
   /**
    * Start or stop the session that reads the screen, which is what Watch does.
    *
@@ -944,6 +977,8 @@ export function CompanionSurface({
   onSurfacePointerDown,
   onSurfaceContextMenu,
   spotlight,
+  avatarStaged = false,
+  avatarTucked = false,
   onWatch,
   onTeach,
   picking = false,
@@ -1004,6 +1039,55 @@ export function CompanionSurface({
     phase === "summary" ||
     phase === "watching";
   /**
+   * Where the creature stands while a beat of the introduction is about one
+   * control: over that control, rather than on its own spot.
+   *
+   * Measured from the control's own element, because which controls the bar
+   * carries depends on the session's state, so their positions are not
+   * something this component can derive from the two boxes it is drawn at. The
+   * measurement is repeated across the pill's 300ms width animation and then
+   * left alone, so a beat that arrives while the bar is still unfurling ends
+   * up over the right control rather than over where it used to be.
+   */
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [perch, setPerch] = useState<number | null>(null);
+  const perchFor = spotlight === "talk" ? undefined : spotlight;
+  useEffect(() => {
+    if (perchFor === undefined) {
+      setPerch(null);
+      return;
+    }
+    return trackInBox(boxRef, `[data-control="${perchFor}"]`, (point) => {
+      setPerch(point.x);
+    });
+  }, [perchFor, phase, sharing]);
+
+  /**
+   * Where the creature is standing while it has been called into something
+   * drawn beside it, which is the introduction's card asking to be clicked.
+   *
+   * **The creature goes to the sentence about it.** A card that says "click me"
+   * beside a creature sitting somewhere else asks the reader to find the thing
+   * first; the creature walking into the middle of the card puts the sentence
+   * and the thing it names in one place, and what to press is then obvious
+   * without a word about where it is.
+   *
+   * Measured from whatever the caller staged rather than derived, because the
+   * card's own box is the card's business: it reserves the room and marks the
+   * spot, and the surface only has to find the mark. Repeated across the
+   * card's arrival, so a creature called while the card is still landing ends
+   * up in the middle of where it landed.
+   */
+  const [stage, setStage] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!avatarStaged) {
+      setStage(null);
+      return;
+    }
+    return trackInBox(boxRef, "[data-avatar-stage]", setStage);
+  }, [avatarStaged, phase]);
+
+  /**
    * Whether the hand has dwelt on the creature long enough to be told its
    * name for a press.
    *
@@ -1025,7 +1109,19 @@ export function CompanionSurface({
       clearTimeout(timer);
     };
   }, [phase]);
-  const named = spotlight === "talk" || (phase === "hover" && dwelt);
+  // Never while the introduction is up (`intro` is the card itself): that card
+  // names whatever the beat is about, in more words and with the reason
+  // attached, and this label under it would be the same word again with a card
+  // held 20 units off the creature to make room for it.
+  // Never while the introduction is up (`intro` is its card): that card names
+  // whatever the beat is about, in more words and with the reason attached, and
+  // this label under it would be the same word again with a card held clear of
+  // it. `spotlight` still forces it for the demo reel, which has no pointer in
+  // the room and no card either.
+  const named =
+    intro === null || intro === undefined
+      ? spotlight === "talk" || (phase === "hover" && dwelt)
+      : false;
   /**
    * Whether the summary of a finished session is still being written.
    *
@@ -1288,17 +1384,32 @@ export function CompanionSurface({
    * duration, so the two read as one object changing shape.
    */
   const creatureLeft =
-    inCall && !vertical
-      ? `calc(50% - ${barWidth / 2 + inUnits(avatarHalf + gap)}px)`
-      : "50%";
+    stage !== null
+      ? `${stage.x}px`
+      : perch !== null && !vertical
+        ? `${perch}px`
+        : inCall && !vertical
+          ? `calc(50% - ${barWidth / 2 + inUnits(avatarHalf + gap)}px)`
+          : "50%";
   /**
    * The same step, read up the column: on a side dock the creature stands at
    * the column's top end, across the gap, and the column is centred on the
    * creature's point vertically the way the row is horizontally.
    */
-  const creatureTop = vertical
-    ? `calc(50% - ${height / 2 + inUnits(avatarHalf + gap)}px)`
-    : avatarLine;
+  const creatureTop =
+    stage !== null
+      ? // Both halves of a staged point, unlike a perch: the creature has been
+        // called into the middle of something rather than onto the top of it.
+        `${stage.y}px`
+      : perch !== null && !vertical
+        ? // Standing on the bar's own top edge, a gap and its own half box up,
+          // which is the same step the pill takes off the creature everywhere
+          // else read the other way round, and then the hop that clears the
+          // bar itself.
+          `calc(${avatarLine} - ${inUnits(avatarHalf + gap) + COMPANION_PERCH_HOP}px)`
+        : vertical
+          ? `calc(50% - ${height / 2 + inUnits(avatarHalf + gap)}px)`
+          : avatarLine;
 
   return (
     // The box the whole surface is drawn in: the canvas divided by the options
@@ -1311,6 +1422,7 @@ export function CompanionSurface({
     // animates from state to state and be clipped by the pill's own rounding,
     // and beside it they all hang off the same fixed avatar position.
     <div
+      ref={boxRef}
       className="absolute top-0 left-0 origin-top-left"
       style={{
         width: `${100 / scale}%`,
@@ -1442,6 +1554,7 @@ export function CompanionSurface({
                 <CallBody
                   call={call}
                   assistantName={assistantName}
+                  spotlight={spotlight}
                   watching={watching}
                   watchEnabled={watchEnabled}
                   picking={picking}
@@ -1474,7 +1587,13 @@ export function CompanionSurface({
                   voicesPickable={voicesPickable}
                   onPicker={onPicker}
                   pickerSide={
-                    vertical ? (dock === "left" ? "right" : "left") : dock === "top" ? "below" : "above"
+                    vertical
+                      ? dock === "left"
+                        ? "right"
+                        : "left"
+                      : dock === "top"
+                        ? "below"
+                        : "above"
                   }
                   shortcuts={shortcuts}
                   promptsDeferred={promptsDeferred}
@@ -1573,7 +1692,16 @@ export function CompanionSurface({
             // hands the surface over to. Not unmounted: the fade is what makes
             // the two read as one surface changing shape rather than one
             // object replacing another.
-            opacity: creatureOut ? 0 : 1,
+            //
+            // Gone too while the creature has been called away into the card,
+            // and on every beat of the introduction after the first: this
+            // marker is the creature's resting place, and left lit behind a
+            // creature that is standing up, or visibly somewhere else, it reads
+            // as a second object rather than as the place the first one sleeps.
+            opacity:
+              creatureOut || stage !== null || (introDrawn && !avatarTucked)
+                ? 0
+                : 1,
           }}
         />
       </div>
@@ -1600,7 +1728,7 @@ export function CompanionSurface({
           // goes through `inUnits` the way `edgeAt`/`lineAt` do) plus a few
           // flat pixels in the caption's own authored scale: enough that the
           // beak lands on the avatar's edge rather than short of it.
-          transform: `translate(-50%, calc(-100% - ${inUnits(avatarHalf)}px - 4px))`,
+          transform: `translate(-50%, calc(-100% - ${inUnits(avatarHalf)}px - ${NAME_CAPTION_LIFT}px))`,
         }}
         label={t("companionSurface.talk")}
       />
@@ -1633,7 +1761,7 @@ export function CompanionSurface({
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
         // introducing an empty marker is the one thing this must not do.
-        collapsed={!creatureOut && !introDrawn}
+        collapsed={!creatureOut && (!introDrawn || avatarTucked)}
         // The peek rides the marker, which is drawn at one size on every
         // setting, so it counters what this node carries. That is the avatar's
         // box over the authored one: the options scale on the box above
@@ -1642,6 +1770,11 @@ export function CompanionSurface({
         style={{
           left: creatureLeft,
           top: creatureTop,
+          // Over the card rather than under it while it is standing in the
+          // card's middle. The card is drawn after the creature, so that they
+          // are siblings is not enough: without this the creature flies behind
+          // the very panel that asked it over.
+          zIndex: stage === null ? undefined : 2,
           // Centred on the point the host put the window around, then
           // scaled about that centre by whatever the creature's own size
           // asks for beyond the options scale the box above already carries.
@@ -1658,7 +1791,15 @@ export function CompanionSurface({
           // bar.
           transition: reduce
             ? undefined
-            : "left 300ms cubic-bezier(.2,.8,.2,1), top 300ms cubic-bezier(.2,.8,.2,1)",
+            : perch === null && stage === null
+              ? "left 300ms cubic-bezier(.2,.8,.2,1), top 300ms cubic-bezier(.2,.8,.2,1)"
+              : // Being called somewhere the introduction is pointing, which
+                // overshoots and settles: the creature hops onto the control,
+                // or up into the card, rather than sliding to a halt there. A
+                // call's own glide keeps its easing above, where the creature
+                // and the bar are one shape moving and an overshoot would pull
+                // them apart.
+                "left 420ms cubic-bezier(.34,1.56,.64,1), top 420ms cubic-bezier(.34,1.56,.64,1)",
         }}
         elementRef={avatarRef}
         onPointerDown={onSurfacePointerDown}
@@ -1697,6 +1838,78 @@ const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
  * that transparency.
  */
 const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
+
+/**
+ * Follow the centre of the first element matching `selector` inside `box`, in
+ * the units that box's contents are authored in, for as long as it might still
+ * be moving.
+ *
+ * **Measured, not derived.** What the creature is called to are things whose
+ * position this component cannot work out: which controls a call's bar carries
+ * depends on the session, and where a card's middle is depends on the card. So
+ * the caller marks the spot in its own markup and this finds it.
+ *
+ * Repeated across the pill's 300ms width animation and the card's arrival and
+ * then left alone: a creature called while either is still moving ends up where
+ * the thing settled rather than where it was when the call came.
+ *
+ * Client rects are in screen pixels and the box is drawn scaled, so the offset
+ * is divided back into the units everything inside it is stated in.
+ */
+const trackInBox = (
+  box: { current: HTMLElement | null },
+  selector: string,
+  onPoint: (point: { x: number; y: number }) => void,
+): (() => void) => {
+  let frame = 0;
+  const startedAt = performance.now();
+  const measure = (): void => {
+    const root = box.current;
+    // Searched from the box rather than from the pill, which the host owns the
+    // ref to: what is being looked for is inside this box either way, and one
+    // element cannot carry two refs without the merge being written out by
+    // hand on every render.
+    const target = root?.querySelector<HTMLElement>(selector);
+    if (root && target) {
+      const rootBox = root.getBoundingClientRect();
+      const targetBox = target.getBoundingClientRect();
+      const scaleNow =
+        rootBox.width === 0 ? 1 : root.offsetWidth / rootBox.width;
+      onPoint({
+        x: (targetBox.left + targetBox.width / 2 - rootBox.left) * scaleNow,
+        y: (targetBox.top + targetBox.height / 2 - rootBox.top) * scaleNow,
+      });
+    }
+    if (performance.now() - startedAt < 500) {
+      frame = requestAnimationFrame(measure);
+    }
+  };
+  measure();
+  return () => {
+    cancelAnimationFrame(frame);
+  };
+};
+
+/**
+ * How far above its own line the creature stands while perched on a control,
+ * beyond the step everything beside the creature takes.
+ *
+ * Flat rather than scaled, like the caption's lift: it is the clearance over
+ * the bar's top edge, and that edge is the same few pixels away at every size.
+ *
+ * Exported for the introduction's card, which hangs off the same line and has
+ * to leave the perched creature its room. See `CompanionIntro`.
+ */
+export const COMPANION_PERCH_HOP = 22;
+
+/**
+ * The lift that puts the caption's beak on the creature's edge rather than
+ * short of it, in those same units.
+ *
+ * Flat rather than scaled: it closes the seam between the beak and what it
+ * points at, and a seam is the same few pixels at every size of creature.
+ */
+const NAME_CAPTION_LIFT = 4;
 
 /**
  * A name for a thing under the pointer, the way the Dock names an icon: a
@@ -1740,7 +1953,7 @@ function Caption({
 } & Partial<Record<`data-${string}`, string>>) {
   return (
     <span
-      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${className}`}
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] leading-4 font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${className}`}
       style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
       aria-hidden
       {...data}
@@ -2105,12 +2318,14 @@ function TeachButton({
   watching,
   watchEnabled,
   picking,
+  dimmed,
   onWatch,
   onTeach,
 }: {
   watching: boolean;
   watchEnabled: boolean;
   picking: boolean;
+  dimmed?: boolean;
   onWatch?: () => void;
   onTeach?: () => void;
 }) {
@@ -2122,6 +2337,7 @@ function TeachButton({
     <PillButton
       icon={<Eye className="size-4" />}
       label={t("companionSurface.teach")}
+      dimmed={dimmed}
       // Held down for the session and for the choice before it alike: both
       // are states this press is in the middle of, and the second press ends
       // either one.
@@ -2298,6 +2514,7 @@ function PromptShelf({
 function CallBody({
   call,
   assistantName,
+  spotlight,
   watching,
   watchEnabled,
   picking,
@@ -2360,6 +2577,7 @@ function CallBody({
   /** Where the popover a chevron opens hangs from the bar, which it points at. */
   pickerSide: DrawToolsPlacement;
   shortcuts?: CompanionCallShortcuts;
+  spotlight?: CompanionSurfaceSpotlight;
   promptsDeferred?: number;
   onReviewPrompts?: () => void;
   /** Width past its own the line takes, to fill a bar a prompt widened. */
@@ -2441,6 +2659,7 @@ function CallBody({
         watching={watching}
         watchEnabled={watchEnabled}
         picking={picking}
+        dimmed={spotlight !== undefined}
         onWatch={onWatch}
         onTeach={onTeach}
       />
@@ -2452,6 +2671,8 @@ function CallBody({
         shareEnabled={shareEnabled}
         sharePicking={sharePicking}
         shortcut={shareEnabled ? shortcuts?.share : undefined}
+        spotlit={spotlight === "share"}
+        dimmed={spotlight !== undefined && spotlight !== "share"}
         onShare={onShare}
         onStopShare={onStopShare}
       />
@@ -2460,6 +2681,8 @@ function CallBody({
       <DrawButton
         sharing={sharing}
         annotating={annotating}
+        spotlit={spotlight === "draw"}
+        dimmed={spotlight !== undefined && spotlight !== "draw"}
         shortcut={shareEnabled ? shortcuts?.draw : undefined}
         tool={annotationTool}
         placement={drawToolsPlacement}
@@ -2473,6 +2696,7 @@ function CallBody({
       <ClearButton
         sharing={sharing}
         marked={marked}
+        dimmed={spotlight !== undefined}
         onClearMarks={onClearMarks}
       />
       <PillButton
@@ -2485,6 +2709,9 @@ function CallBody({
             : t("companionSurface.muteMicrophone")
         }
         shortcut={shortcuts?.muteMicrophone}
+        control="mute"
+        spotlit={spotlight === "mute"}
+        dimmed={spotlight !== undefined && spotlight !== "mute"}
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -2512,6 +2739,11 @@ function CallBody({
             : t("companionSurface.muteAssistant")
         }
         shortcut={shortcuts?.muteAssistant}
+        // The mute beat is about both directions, so both controls are lit:
+        // the sentence says "either of us" and a row that lit one of them
+        // would be pointing at half of it.
+        spotlit={spotlight === "mute"}
+        dimmed={spotlight !== undefined && spotlight !== "mute"}
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
@@ -2527,7 +2759,7 @@ function CallBody({
           onPicker={onPicker}
         />
       ) : null}
-      <EndCallButton onControl={onControl} />
+      <EndCallButton dimmed={spotlight !== undefined} onControl={onControl} />
     </>
   );
 }
@@ -2602,6 +2834,8 @@ function ShareButton({
   shareEnabled,
   sharePicking,
   shortcut,
+  spotlit,
+  dimmed,
   onShare,
   onStopShare,
 }: {
@@ -2609,6 +2843,8 @@ function ShareButton({
   shareEnabled: boolean;
   sharePicking: boolean;
   shortcut?: string;
+  spotlit?: boolean;
+  dimmed?: boolean;
   onShare?: () => void;
   onStopShare?: () => void;
 }) {
@@ -2621,6 +2857,9 @@ function ShareButton({
       icon={<ScreenShare className="size-4" />}
       label={t("companionSurface.share")}
       shortcut={shortcut}
+      control="share"
+      spotlit={spotlit}
+      dimmed={dimmed}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
@@ -2653,6 +2892,8 @@ function DrawButton({
   sharing,
   annotating,
   shortcut,
+  spotlit,
+  dimmed,
   tool,
   placement,
   toolsRef,
@@ -2662,6 +2903,8 @@ function DrawButton({
   sharing: boolean;
   annotating: boolean;
   shortcut?: string;
+  spotlit?: boolean;
+  dimmed?: boolean;
   /** Absent on a shell with only the pencil, which draws no strip. */
   tool?: CompanionAnnotationTool;
   placement: DrawToolsPlacement;
@@ -2679,6 +2922,9 @@ function DrawButton({
         icon={<Pencil className="size-4" />}
         label={t("companionSurface.draw")}
         shortcut={shortcut}
+        control="draw"
+        spotlit={spotlit}
+        dimmed={dimmed}
         pressed={annotating}
         // The anchor the strip hangs off. See `.companion-draw-anchor`.
         className="companion-draw-anchor"
@@ -2805,10 +3051,12 @@ function DrawTools({
 function ClearButton({
   sharing,
   marked,
+  dimmed,
   onClearMarks,
 }: {
   sharing: boolean;
   marked: boolean;
+  dimmed?: boolean;
   onClearMarks?: () => void;
 }) {
   const { t } = useTranslation();
@@ -2819,6 +3067,7 @@ function ClearButton({
     <PillButton
       icon={<Eraser className="size-4" />}
       label={t("companionSurface.clearMarks")}
+      dimmed={dimmed}
       onClick={() => {
         onClearMarks?.();
       }}
@@ -2833,8 +3082,10 @@ function ClearButton({
  * included: there it is the press that takes the request back.
  */
 function EndCallButton({
+  dimmed,
   onControl,
 }: {
+  dimmed?: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
 }) {
   const { t } = useTranslation();
@@ -2843,6 +3094,7 @@ function EndCallButton({
       icon={<X className="size-4" strokeWidth={2.5} />}
       label={t("companionSurface.endSession")}
       tone="negative"
+      dimmed={dimmed}
       onClick={() => {
         onControl?.("endSession");
       }}
@@ -3004,6 +3256,9 @@ function PillButton({
   tone,
   showLabel = false,
   pressed,
+  spotlit = false,
+  dimmed = false,
+  control,
   narrow = false,
   className = "",
   onClick,
@@ -3015,6 +3270,25 @@ function PillButton({
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
+  /**
+   * Drawn as the control in use, for the beat of the introduction that is
+   * about it: the same held-down look a press gives it, with no pointer on it.
+   * See {@link CompanionSurfaceSpotlight}.
+   */
+  spotlit?: boolean;
+  /**
+   * Stood down, because the introduction is describing a different control.
+   * Every other control on the row dims rather than staying at full strength,
+   * so the one being described is the only live thing on the bar.
+   */
+  dimmed?: boolean;
+  /**
+   * Which control this is, in the introduction's vocabulary, written onto the
+   * element as `data-control`. The introduction's card finds it there to aim
+   * its beak at, which is a measurement rather than a layout the card could
+   * derive: this row's controls come and go with the session's state.
+   */
+  control?: CompanionSurfaceSpotlight;
   /** Drawn to its icon's width, for a chevron riding beside another control. */
   narrow?: boolean;
   /** A name for the stylesheet, for a control something else is placed against. */
@@ -3027,17 +3301,18 @@ function PillButton({
       type="button"
       aria-label={label}
       aria-pressed={pressed}
+      data-control={control}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full text-[12px] transition-colors hover:bg-white/15 ${
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full text-[12px] transition-[background-color,opacity] duration-200 hover:bg-white/15 ${
         narrow ? "-mx-1 px-0.5" : "px-2"
       } ${className} ${
-        pressed === true ? "bg-white/15" : ""
-      } ${
+        pressed === true || spotlit ? "bg-white/15" : ""
+      } ${dimmed ? "opacity-35" : ""} ${
         tone === "negative"
           ? "text-[#ff6b6b]"
           : tone === "positive"

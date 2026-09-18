@@ -503,8 +503,6 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       "reprovision-api-key",
       "secrets",
       "secrets",
-      "secrets",
-      "secrets",
     ]);
     expect(
       requests.find((request) =>
@@ -532,11 +530,6 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       type: "credential",
       name: "vellum:assistant_api_key",
       value: "reprovisioned-key",
-    });
-    expect(injectedSecrets).toContainEqual({
-      type: "credential",
-      name: "vellum:platform_assistant_id",
-      value: PLATFORM_ASSISTANT_ID,
     });
     expect(injectedSecrets).toContainEqual({
       type: "credential",
@@ -691,7 +684,8 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
     // must never leave the key stored without the rest.
     expect(storedSecrets.at(-1)).toBe("vellum:assistant_api_key");
     expect(storedSecrets).toContain("vellum:platform_base_url");
-    expect(storedSecrets).toContain("vellum:platform_organization_id");
+    expect(storedSecrets).not.toContain("vellum:platform_assistant_id");
+    expect(storedSecrets).not.toContain("vellum:platform_organization_id");
   });
 
   test("retries after the daemon-unreachable window and stores the credentials", async () => {

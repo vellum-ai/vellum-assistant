@@ -376,6 +376,12 @@ export interface WakeToolScopeOptions {
    * prompt-cache parity). Changes nothing about what may execute.
    */
   wireToolDefinitions?: readonly ToolDefinition[];
+  /**
+   * The delegation section's rendered state recorded with the source's
+   * surface, replayed into the wake's system prompt alongside
+   * `wireToolDefinitions`. Changes nothing about what may execute.
+   */
+  delegateIndependentTasks?: boolean;
 }
 
 /**
@@ -392,6 +398,7 @@ export function scopeWakeAllowedTools(
     toolContextPin,
     preactivateSkillIds,
     wireToolDefinitions,
+    delegateIndependentTasks,
   }: WakeToolScopeOptions = {},
 ): () => void {
   const previous = conversation.subagentAllowedTools;
@@ -400,10 +407,13 @@ export function scopeWakeAllowedTools(
   const previousRequestOrigin = conversation.currentTurnRequestOrigin;
   const previousPreactivated = conversation.preactivatedSkillIds;
   const previousWireToolReplay = conversation.wireToolReplay;
+  const previousDelegateIndependentTasksReplay =
+    conversation.delegateIndependentTasksReplay;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
   conversation.toolContextPin = toolContextPin;
   conversation.wireToolReplay = wireToolDefinitions;
+  conversation.delegateIndependentTasksReplay = delegateIndependentTasks;
   if (toolContextPin?.requestOrigin !== undefined) {
     conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
   }
@@ -417,5 +427,7 @@ export function scopeWakeAllowedTools(
     conversation.currentTurnRequestOrigin = previousRequestOrigin;
     conversation.setPreactivatedSkillIds(previousPreactivated);
     conversation.wireToolReplay = previousWireToolReplay;
+    conversation.delegateIndependentTasksReplay =
+      previousDelegateIndependentTasksReplay;
   };
 }

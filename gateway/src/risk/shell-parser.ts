@@ -171,6 +171,87 @@ const SENSITIVE_PATH_PREFIXES = [
 // opens a network connection with no network command on the line to classify.
 const NETWORK_DEVICE_PREFIXES = ["/dev/tcp/", "/dev/udp/"];
 
+// Expansions make a redirect target unknowable before execution, so a redirect
+// that carries one is opaque rather than a checkable literal path.
+const REDIRECT_EXPANSION_TYPES = new Set([
+  "simple_expansion",
+  "expansion",
+  "command_substitution",
+  "arithmetic_expansion",
+  "process_substitution",
+]);
+
+function hasExpansion(n: TSNode): boolean {
+  if (REDIRECT_EXPANSION_TYPES.has(n.type)) {
+    return true;
+  }
+  return n.children.some((child) => hasExpansion(child));
+}
+
+const ANSI_C_SIMPLE_ESCAPES: Record<string, string> = {
+  "\\": "\\",
+  "'": "'",
+  '"': '"',
+  "?": "?",
+  a: "\x07",
+  b: "\b",
+  e: "\x1b",
+  E: "\x1b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  v: "\v",
+};
+
+function decodeAnsiCEscapes(body: string): string {
+  return body.replace(
+    /\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|[\\'"?abeEfnrtv])/g,
+    (match, escape: string) => {
+      const kind = escape[0];
+      if (kind === "x" || kind === "u" || kind === "U") {
+        const code = parseInt(escape.slice(1), 16);
+        return code <= 0x10ffff ? String.fromCodePoint(code) : match;
+      }
+      if (/^[0-7]/.test(escape)) {
+        return String.fromCodePoint(parseInt(escape, 8));
+      }
+      return ANSI_C_SIMPLE_ESCAPES[kind] ?? match;
+    },
+  );
+}
+
+// The path bash opens after quote removal, resolved per quoting context: a
+// backslash escapes the next character in a bare word, stays literal inside
+// single quotes, and inside double quotes escapes only `$`, backtick, `"`,
+// `\`, and newline. ANSI-C strings decode their escapes. Expansions keep their
+// source text so the `$HOME` prefix alternative still matches and an
+// unresolvable target can never spell a watched prefix.
+function literalRedirectTarget(n: TSNode): string {
+  switch (n.type) {
+    case "concatenation":
+    case "string":
+      return n.children.map((child) => literalRedirectTarget(child)).join("");
+    case "string_content":
+      return n.text.replace(/\\([$`"\\\n])/g, "$1");
+    case "raw_string":
+      return n.text.slice(1, -1);
+    case "ansi_c_string":
+      return decodeAnsiCEscapes(n.text.slice(2, -1));
+    case "word":
+      return n.text.replace(/\\(.)/gs, "$1");
+    default:
+      return n.isNamed ? n.text : "";
+  }
+}
+
+// Tilde expansion applies only to an unquoted leading `~`, so a quoted
+// `'~/.ssh/x'` names a directory literally called `~`.
+function tildeExpands(n: TSNode): boolean {
+  const first = n.type === "concatenation" ? n.children[0] : n;
+  return first?.type === "word" && first.text.startsWith("~");
+}
+
 // Expected SHA-256 checksums for WASM binaries.
 // Update these when intentionally upgrading web-tree-sitter or tree-sitter-bash.
 // Generate with: shasum -a 256 node_modules/web-tree-sitter/web-tree-sitter.wasm node_modules/tree-sitter-bash/tree-sitter-bash.wasm
@@ -598,7 +679,8 @@ function detectDangerousPatterns(
       const dest = n.lastChild;
       if (dest) {
         const destText = dest.text;
-        const destPath = destText.replace(/^["']|["']$/g, "");
+        const destPath = literalRedirectTarget(dest);
+        const homeRelative = tildeExpands(dest);
         if (
           NETWORK_DEVICE_PREFIXES.some((prefix) => destPath.startsWith(prefix))
         ) {
@@ -609,10 +691,11 @@ function detectDangerousPatterns(
           });
         }
         for (const prefix of SENSITIVE_PATH_PREFIXES) {
-          if (
-            destText.startsWith(prefix) ||
-            destText.startsWith(prefix.replace("~", "$HOME"))
-          ) {
+          const matchesHome = prefix.startsWith("~")
+            ? (homeRelative && destPath.startsWith(prefix)) ||
+              destPath.startsWith(prefix.replace("~", "$HOME"))
+            : destPath.startsWith(prefix);
+          if (matchesHome) {
             patterns.push({
               type: "sensitive_redirect",
               description: `Redirect to sensitive path: ${destText}`,
@@ -690,6 +773,15 @@ function detectOpaqueConstructs(
       n.type === "herestring_redirect"
     ) {
       return true;
+    }
+
+    // A redirect target expanded at runtime cannot be checked against the
+    // sensitive-path or network-device prefixes.
+    if (n.type === "file_redirect") {
+      const dest = n.lastChild;
+      if (dest && hasExpansion(dest)) {
+        return true;
+      }
     }
 
     // Variable expansion used as command name

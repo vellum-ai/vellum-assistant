@@ -19,6 +19,8 @@ import {
 } from "bun:test";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type * as FetchSubagentHistory from "@/domains/chat/fetch-subagent-history";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
 /** Stands in for the assistant version the identity store hydrates async. */
@@ -43,11 +45,16 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     response: { ok: false },
   }),
 }));
+mock.module(
+  "@/domains/chat/fetch-subagent-history",
+  (): Partial<typeof FetchSubagentHistory> => ({
+    fetchSubagentHistory: async () => emptyHistory(),
+  }),
+);
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
 
-const { useSubagentReconcile } = await import(
-  "@/domains/chat/hooks/use-subagent-reconcile"
-);
+const { useSubagentReconcile } =
+  await import("@/domains/chat/hooks/use-subagent-reconcile");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 const ASSISTANT = "asst-1";

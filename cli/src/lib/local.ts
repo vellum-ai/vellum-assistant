@@ -607,6 +607,24 @@ type DaemonStartOptions = {
 };
 
 /**
+ * Directory that holds the local CES Unix socket (`ces.sock`).
+ *
+ * Matches CES's local data root: `{CREDENTIAL_SECURITY_DIR}/credential-executor`.
+ * Local CLI and managed sidecars share `CES_BOOTSTRAP_SOCKET_DIR`; this is the
+ * writable per-instance directory used outside containers.
+ */
+function resolveCesBootstrapSocketDir(
+  resources?: LocalInstanceResources,
+  env?: Record<string, string | undefined>,
+): string {
+  const securityDir = resources
+    ? join(resources.instanceDir, ".vellum", "protected")
+    : env?.CREDENTIAL_SECURITY_DIR?.trim() ||
+      join(homedir(), ".vellum", "protected");
+  return join(securityDir, "credential-executor");
+}
+
+/**
  * Apply per-instance resource overrides and shared daemon options to an
  * environment object. Called from all daemon spawn paths (source, watch,
  * bundled binary) to eliminate drift between the three.
@@ -644,11 +662,10 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
-  // Pin the daemon to the exact socket the sibling binds so the two agree
-  // regardless of any stale CES_LOCAL_SOCKET inherited from the parent
-  // environment. The assistant connects to the sibling instead of spawning
-  // its own CES.
-  env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
+  // CES and the assistant resolve the socket from CES_BOOTSTRAP_SOCKET_DIR.
+  const bootstrapDir = resolveCesBootstrapSocketDir(resources, env);
+  env.CES_BOOTSTRAP_SOCKET_DIR = bootstrapDir;
+  mkdirSync(bootstrapDir, { recursive: true });
   applyIpcSocketDirOverride(env);
 }
 
@@ -1022,26 +1039,18 @@ function resolveCesDir(resources?: LocalInstanceResources): string {
 
 /**
  * Resolve the local IPC endpoint shared by the CLI-launched CES sibling and
- * assistant. Windows uses a named pipe. POSIX uses a Unix socket, including
- * the existing short macOS fallback.
+ * assistant. CES binds this path from `CES_BOOTSTRAP_SOCKET_DIR` via the same
+ * `resolveIpcEndpoint("ces")` helper. Windows uses a named pipe. POSIX uses
+ * a Unix socket, including the shared macOS AF_UNIX fallback.
  */
 export function resolveCesSocketPath(
   resources?: LocalInstanceResources,
   hostPlatform: NodeJS.Platform = platform(),
 ): string {
-  const workspaceDir = resources
-    ? join(resources.instanceDir, ".vellum", "workspace")
-    : join(homedir(), ".vellum", "workspace");
-  if (hostPlatform === "win32") {
-    return resolveIpcEndpoint("ces", {
-      workspaceDir,
-      platform: hostPlatform,
-    }).path;
-  }
-  const override = computeIpcSocketDirOverride(workspaceDir);
-  const socketDir = override ?? workspaceDir;
-  mkdirSync(socketDir, { recursive: true });
-  return join(socketDir, "ces.sock");
+  return resolveIpcEndpoint("ces", {
+    workspaceDir: resolveCesBootstrapSocketDir(resources),
+    platform: hostPlatform,
+  }).path;
 }
 
 async function isIpcEndpointReady(endpointPath: string): Promise<boolean> {
@@ -1101,13 +1110,15 @@ export async function startCes(
   const workspaceDir = resources
     ? join(resources.instanceDir, ".vellum", "workspace")
     : join(homedir(), ".vellum", "workspace");
+  const bootstrapDir = resolveCesBootstrapSocketDir(resources);
   mkdirSync(securityDir, { recursive: true });
+  mkdirSync(bootstrapDir, { recursive: true });
 
   const cesEnv: Record<string, string | undefined> = {
     ...process.env,
-    CES_LOCAL_SOCKET: socketPath,
     CREDENTIAL_SECURITY_DIR: securityDir,
     VELLUM_WORKSPACE_DIR: workspaceDir,
+    CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
   };
 
   let ces;
@@ -1168,14 +1179,6 @@ export async function startCes(
   } else {
     console.log("✅ credential-executor started\n");
   }
-}
-
-/**
- * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
- * This replaces the socket-based `isSocketResponsive()` check.
- */
-async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
-  return httpHealthCheck(daemonPort);
 }
 
 /**
@@ -1273,7 +1276,7 @@ async function checkOrphanedDaemon(
   pidFile: string,
   daemonPort: number,
 ): Promise<boolean> {
-  if (!(await isDaemonResponsive(daemonPort))) return false;
+  if (!(await httpHealthCheck(daemonPort))) return false;
 
   const recoveredPid = recoverPidFile(pidFile, daemonPort);
   if (recoveredPid) {
@@ -1671,7 +1674,7 @@ export async function startLocalDaemon(
       const daemonSpawnEnv = envWithCompiledRuntimeNodePath(daemonEnv);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
-      // see the file and fall through to the isDaemonResponsive() port check
+      // see the file and fall through to the httpHealthCheck() port check
       // instead of racing to spawn a duplicate daemon.
       writeFileSync(pidFile, "starting", "utf-8");
 

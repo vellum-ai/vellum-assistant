@@ -229,6 +229,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "OpenCode",
   "Baseten",
   "Poolside",
+  "TypeSafe",
 ];
 
 /** The create-mode Provider dropdown is labelled via `aria-labelledby`. */
@@ -1098,7 +1099,9 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectModel("Llama 3.2");
     fireEvent.click(getButton("Advanced"));
-    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe("Llama 3.2");
+    expect(getInputByPlaceholder("e.g. Claude Opus 4.8").value).toBe(
+      "Llama 3.2",
+    );
 
     // A Name the editor filled in itself follows the next model pick.
     selectModel("Mistral");

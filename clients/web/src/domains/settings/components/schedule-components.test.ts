@@ -10,6 +10,7 @@ import { createElement } from "react";
 import type { NavigateFunction } from "react-router";
 
 import * as schedulesApi from "@/domains/settings/api/schedules";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 import type {
@@ -50,15 +51,17 @@ mock.module("@/domains/settings/api/schedules", () => ({
   createSchedule: createScheduleMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
-mock.module("@/utils/conversation-navigation", () => ({
-  // Behavioral stub: performs the route change the navigation test asserts,
-  // without the real module's store resets and haptics.
-  navigateToConversation: mock(
-    (navigate: NavigateFunction, conversationId: string) => {
-      void navigate(routes.conversation(conversationId));
-    },
-  ),
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    // Behavioral stub: performs the route change the navigation test asserts,
+    // without the real module's store resets and haptics.
+    navigateToConversation: mock(
+      (navigate: NavigateFunction, conversationId: string) => {
+        void navigate(routes.conversation(conversationId));
+      },
+    ),
+  }),
+);
 
 const {
   scheduleUsageSummaryQueryOptions,

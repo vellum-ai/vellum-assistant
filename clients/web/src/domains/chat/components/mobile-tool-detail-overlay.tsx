@@ -1,6 +1,6 @@
-import { lazy, type MouseEvent } from "react";
+import { lazy } from "react";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
+import { MobileDetailSheet } from "@/domains/chat/components/mobile-detail-sheet";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const ToolDetailPanel = lazy(() =>
@@ -10,7 +10,7 @@ const ToolDetailPanel = lazy(() =>
 );
 
 interface MobileToolDetailOverlayProps {
-  /** When `null`, the overlay renders nothing. */
+  /** When `null`, closes the sheet. */
   detail: ToolDetailPayload | null;
   /** Closes the overlay. */
   onClose: () => void;
@@ -18,48 +18,21 @@ interface MobileToolDetailOverlayProps {
   assistantId?: string | null;
 }
 
-/**
- * Mobile-only full-screen overlay that hosts the tool-call detail panel.
- *
- * **Mounting constraint**: must render inside `RootLayout`'s
- * `#viewport-overlays` portal, outside the main content wrapper.
- */
+/** Mobile detail presentation, mounted under the viewport portal provider. */
 export function MobileToolDetailOverlay({
   detail,
   onClose,
   assistantId,
 }: MobileToolDetailOverlayProps) {
-  if (!detail) {
-    return null;
-  }
-
-  const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 h-[100dvh] bg-black/40"
-      style={{
-        paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-        paddingBottom:
-          "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        paddingLeft:
-          "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-        paddingRight:
-          "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-      }}
-      onClick={handleBackdropClick}
-    >
-      <LazyBoundary>
+    <MobileDetailSheet data={detail} onClose={onClose}>
+      {(value) => (
         <ToolDetailPanel
-          detail={detail}
+          detail={value}
           onClose={onClose}
           assistantId={assistantId}
         />
-      </LazyBoundary>
-    </div>
+      )}
+    </MobileDetailSheet>
   );
 }

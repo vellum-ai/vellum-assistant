@@ -28,6 +28,9 @@ export const AssistantOutboundAttachmentSchema = z.object({
    *  true and the client should hydrate via the /content endpoint. */
   data: z.string(),
   sourceType: z.enum(["sandbox_file", "host_file", "tool_block"]).optional(),
+  /** True when this existing computer-use screenshot was linked to the reply
+   *  automatically. Missing or false identifies legacy or explicit placement. */
+  computerUseScreenshot: z.boolean().optional(),
   /** Original file size in bytes. Present when `data` was omitted to
    *  keep payloads small. */
   sizeBytes: z.number().optional(),

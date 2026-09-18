@@ -31,6 +31,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { Trans, useTranslation } from "@/i18n";
+import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
 /**
  * Hard character cap for the thinking text shown in the collapsed header's
@@ -43,6 +44,8 @@ const HEADER_INFO_MAX_CHARS = 80;
 
 export interface MultiActivityGroupProps {
   toolCalls: ChatMessageToolCall[];
+  /** The group is the trailing activity in the currently streaming message. */
+  active?: boolean;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -73,6 +76,8 @@ export interface MultiActivityGroupProps {
    */
   messageId?: string;
   groupIndex?: number;
+  /** Tool-call occurrence ids from the group before display suppression. */
+  groupToolCallIds?: string[];
   /**
    * Ordered (thinking | toolCall) items driving the steps timeline. When
    * supplied, the group interleaves thinking steps between tool steps in the
@@ -200,14 +205,11 @@ export function activityRunSummaryLabel(
  * timeline in the activity-steps side panel (see `ActivityStepsPanel`);
  * clicking it again closes the panel (toggle).
  *
- * Special cases short-circuit before the header:
+ * One special case short-circuits before the header:
  *
- * - a LONE `web_search` call → render the inline, expand-in-place
+ * - a LONE `web_search` call with no rendered thinking or confirmation → render the inline, expand-in-place
  *   `SingleActivity variant="web"` link. Lone `web_fetch`, grouped (2+)
  *   web, and mixed groups fall through to the unified header.
- * - any tool call in this group carries a `pendingConfirmation` → render the
- *   inline confirmation UI via {@link ToolCallChip} so the approve/deny path
- *   is preserved bit-for-bit from the legacy card.
  * - Zero renderable steps (today: a group made up entirely of
  *   `subagent_spawn` calls, which `useToolCallCardData` filters out) → render
  *   `null`; the spawned subagents render as inline `InlineProcessCard`s (via the
@@ -233,29 +235,31 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
     () => props.items ?? buildDefaultItems(toolCalls),
     [props.items, toolCalls],
   );
-  const cardData = useToolCallCardDataFromItems(effectiveItems);
+  const cardData = useToolCallCardDataFromItems(effectiveItems, {
+    active: props.active,
+  });
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(cardId);
 
-  // Confirmation short-circuit — render the inline approve/deny UI via the
-  // existing chip-based rendering. Bypasses the progress-card chrome
-  // entirely so the confirmation card sits flush in the transcript and the
-  // user can act on it without first expanding a collapsed card.
-  if (hasActiveConfirmation) {
-    return <ConfirmationView {...props} />;
-  }
-
-  // No renderable steps — every tool call in the group was filtered out
-  // (today that means a `subagent_spawn`-only group). Inline subagent cards
-  // handle the rendering elsewhere, so we return nothing here.
+  // No renderable steps means every call was filtered out (today this is a
+  // `subagent_spawn`-only group). Keep a pending confirmation reachable, then
+  // let inline subagent cards handle the normal rendering elsewhere.
   if (cardData.steps.length === 0) {
-    return null;
+    return hasActiveConfirmation ? <ConfirmationView {...props} /> : null;
   }
 
   // A LONE web_search call renders as the inline, expand-in-place
   // `SingleActivity variant="web"` link. Lone web_fetch, grouped (2+) web, and
   // mixed groups fall through to the unified header below.
-  if (toolCalls.length === 1 && toolCalls[0]!.name === "web_search") {
+  const hasRenderedThinking = effectiveItems.some(
+    (item) => item.kind === "thinking" && item.text.trim().length > 0,
+  );
+  if (
+    !hasActiveConfirmation &&
+    !hasRenderedThinking &&
+    toolCalls.length === 1 &&
+    toolCalls[0]!.name === "web_search"
+  ) {
     return (
       <LoneWebSearch
         toolCalls={toolCalls}
@@ -329,19 +333,24 @@ function LoneWebSearch({
  * activity-steps side panel. The full phase-grouped timeline lives in that
  * panel (`ActivityStepsPanel`); the header itself has no expandable body.
  */
-function UnifiedMultiActivityGroup({
-  toolCalls,
-  cardData,
-  effectiveItems,
-  onOpenRuleEditor,
-  unknownNudgeToolCallIds,
-  onDismissUnknownNudge,
-  messageId,
-  groupIndex,
-}: MultiActivityGroupProps & {
-  cardData: ToolCallCardData;
-  effectiveItems: ToolCallCardItem[];
-}) {
+function UnifiedMultiActivityGroup(
+  props: MultiActivityGroupProps & {
+    cardData: ToolCallCardData;
+    effectiveItems: ToolCallCardItem[];
+  },
+) {
+  const {
+    toolCalls,
+    cardData,
+    effectiveItems,
+    onOpenRuleEditor,
+    unknownNudgeToolCallIds,
+    onDismissUnknownNudge,
+    messageId,
+    groupIndex,
+    groupToolCallIds,
+    active,
+  } = props;
   const { t } = useTranslation("chat");
   const toggleActivitySteps = useViewerStore.use.toggleActivitySteps();
   const mainView = useViewerStore.use.mainView();
@@ -358,10 +367,19 @@ function UnifiedMultiActivityGroup({
     () => ({
       messageId,
       groupIndex,
+      groupToolCallIds,
       items: effectiveItems,
       toolCalls,
+      active,
     }),
-    [messageId, groupIndex, effectiveItems, toolCalls],
+    [
+      messageId,
+      groupIndex,
+      groupToolCallIds,
+      effectiveItems,
+      toolCalls,
+      active,
+    ],
   );
 
   // The header whose steps panel is currently open renders with the persistent
@@ -403,7 +421,9 @@ function UnifiedMultiActivityGroup({
   // carried on the step descriptor.
   const nudgeTargets =
     unknownNudgeToolCallIds && onOpenRuleEditor
-      ? toolCalls.filter((tc) => unknownNudgeToolCallIds.has(tc.id))
+      ? toolCalls.filter(
+          (tc) => !tc.pendingConfirmation && unknownNudgeToolCallIds.has(tc.id),
+        )
       : [];
 
   return (
@@ -424,7 +444,7 @@ function UnifiedMultiActivityGroup({
         stepCount={cardData.stepCount}
         // Clicking anywhere on the header toggles the steps side panel — the
         // timeline no longer expands in place beneath the header.
-        onHeaderClick={() => toggleActivitySteps(payload)}
+        onHeaderClick={(event) => openDetailSheetFromTrigger(event, () => toggleActivitySteps(payload))}
         headerAriaLabel={t("multiActivityGroup.viewSteps")}
         headerActive={headerActive}
       />
@@ -436,6 +456,7 @@ function UnifiedMultiActivityGroup({
           onDismiss={onDismissUnknownNudge}
         />
       ))}
+      <ConfirmationView {...props} />
     </div>
   );
 }
@@ -526,16 +547,16 @@ function UnknownCommandNudge({
 }
 
 // ---------------------------------------------------------------------------
-// Confirmation view — preserved bit-for-bit from the legacy card
+// Confirmation view
 // ---------------------------------------------------------------------------
 
 /**
  * Inline approve/deny UI for a group that contains an active permission
- * prompt. Renders each tool call as an embedded `ToolCallChip` (the chip
- * itself owns the `InlineConfirmationCard` mounting for the matching call).
+ * prompt. Renders only pending calls as embedded `ToolCallChip`s (each chip
+ * owns the `InlineConfirmationCard` mounting for its matching call).
  *
- * Kept structurally identical to the legacy card's confirmation branch so
- * existing tests, screenshots, and keyboard flows stay unchanged.
+ * The chip keeps the existing confirmation behavior and callbacks while the
+ * surrounding compact summary remains visible for renderable activity.
  */
 function ConfirmationView({
   toolCalls,
@@ -545,34 +566,32 @@ function ConfirmationView({
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
 }: MultiActivityGroupProps) {
+  const pendingToolCalls = toolCalls.filter((tc) => tc.pendingConfirmation);
+  if (pendingToolCalls.length === 0) {
+    return null;
+  }
+
   return (
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">
-        {toolCalls.map((tc) => {
-          const isConfirmationTarget = !!tc.pendingConfirmation;
-          return (
-            <Fragment key={tc.id}>
-              <ToolCallChip
+        {pendingToolCalls.map((tc) => (
+          <Fragment key={tc.id}>
+            <ToolCallChip
+              toolCall={tc}
+              onOpenRuleEditor={onOpenRuleEditor}
+              embedded
+              onConfirmationSubmit={onConfirmationSubmit}
+              onAllowAndCreateRule={onAllowAndCreateRule}
+            />
+            {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
+              <UnknownCommandNudge
                 toolCall={tc}
                 onOpenRuleEditor={onOpenRuleEditor}
-                embedded
-                {...(isConfirmationTarget
-                  ? {
-                      onConfirmationSubmit,
-                      onAllowAndCreateRule,
-                    }
-                  : {})}
+                onDismiss={onDismissUnknownNudge}
               />
-              {unknownNudgeToolCallIds?.has(tc.id) && onOpenRuleEditor && (
-                <UnknownCommandNudge
-                  toolCall={tc}
-                  onOpenRuleEditor={onOpenRuleEditor}
-                  onDismiss={onDismissUnknownNudge}
-                />
-              )}
-            </Fragment>
-          );
-        })}
+            )}
+          </Fragment>
+        ))}
       </div>
     </div>
   );

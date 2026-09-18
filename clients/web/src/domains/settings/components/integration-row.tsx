@@ -1,3 +1,5 @@
+import { Settings } from "lucide-react";
+
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -6,10 +8,14 @@ import { useTranslation } from "@/i18n";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 
-import { summarizeOAuthConnections } from "../integration-items";
 import {
+  summarizeIntegrationConnections,
+  summarizeOAuthConnections,
+  type McpPluginMethod,
+} from "../integration-items";
+import {
+  INTEGRATION_ACTION_SIZING,
   IntegrationListRow,
-  type IntegrationListLayout,
 } from "./integration-list-row";
 
 interface IntegrationRowProps {
@@ -18,8 +24,8 @@ interface IntegrationRowProps {
   description: string | null;
   logoUrl: string | null;
   connections: OAuthConnection[];
+  mcpMethods?: McpPluginMethod[];
   disabled?: boolean;
-  layout?: IntegrationListLayout;
   onConfigure: () => void;
 }
 
@@ -29,17 +35,20 @@ export function IntegrationRow({
   description,
   logoUrl,
   connections,
+  mcpMethods = [],
   disabled,
-  layout,
   onConfigure,
 }: IntegrationRowProps) {
   const { t } = useTranslation("settings");
-  const { connectedCount, needsAttention } =
+  const { connectedCount: connectedAccountCount } =
     summarizeOAuthConnections(connections);
+  const { needsAttention, configured } = summarizeIntegrationConnections(
+    connections,
+    mcpMethods,
+  );
 
   return (
     <IntegrationListRow
-      layout={layout}
       icon={
         <IntegrationIcon
           providerKey={providerKey}
@@ -50,27 +59,34 @@ export function IntegrationRow({
       }
       title={displayName}
       subtitle={
-        connectedCount > 0
-          ? t("integrationRow.connectedAccounts", { count: connectedCount })
+        connectedAccountCount > 0
+          ? t("integrationRow.connectedAccounts", {
+              count: connectedAccountCount,
+            })
           : description
       }
       status={
-        connectedCount > 0 ? (
-          <Tag tone="positive">{t("integrationRow.connected")}</Tag>
-        ) : needsAttention ? (
+        needsAttention ? (
           <Tag tone="negative">{t("integrationRow.needsAttention")}</Tag>
         ) : undefined
       }
       primaryAction={
-        <Button
-          variant={connections.length > 0 ? "outlined" : "primary"}
-          onClick={onConfigure}
-          disabled={disabled}
-        >
-          {connections.length > 0
-            ? t("integrationRow.configure")
-            : t("integrationRow.connect")}
-        </Button>
+        configured ? (
+          <Button
+            variant="outlined"
+            className={INTEGRATION_ACTION_SIZING}
+            iconOnly={<Settings />}
+            aria-label={t("integrationRow.configureLabel", {
+              name: displayName,
+            })}
+            onClick={onConfigure}
+            disabled={disabled}
+          />
+        ) : (
+          <Button variant="primary" onClick={onConfigure} disabled={disabled}>
+            {t("integrationRow.connect")}
+          </Button>
+        )
       }
     />
   );

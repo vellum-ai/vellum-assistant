@@ -724,6 +724,44 @@ describe("startVoiceTurn camera-frame attachments", () => {
 });
 
 describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  test("task announcements retain metadata and cron attribution without a user echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const loopOptions: unknown[] = [];
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      loopOptions.push(args[2]);
+    };
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        label: "Compare options",
+        status: "completed",
+      },
+    };
+    const echoes = await collectUserMessageEchoes(async () => {
+      await startVoiceTurn({
+        ...makeTurnOptions(),
+        content: "Comparison completed",
+        hiddenSyntheticPrompt: true,
+        subagentNotification: {
+          taskId: "task-1",
+          message: "Comparison completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      });
+    });
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      ...metadata,
+      hidden: true,
+      scripted: true,
+      voiceSessionTurn: true,
+    });
+    expect(loopOptions).toEqual([
+      expect.objectContaining({ cronRunId: "run-123" }),
+    ]);
+    expect(echoes).toEqual([]);
+  });
   // A caller whose internal instruction is composed per call carries no
   // sentinel for the content comparisons to recognize, so it declares itself.
   const SYNTHETIC_CONTENT =
@@ -840,6 +878,17 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     });
     expect(installed()).toContain(LIVE_VOICE_PROMPT);
     expect(installed()).toContain(escalatedContinuationRule());
+  });
+
+  test("a direct escalated turn keeps the caller-supplied resume prompt verbatim", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+      directEscalated: true,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
   });
 
   test("the auto-built phone prompt carries the front-door rule anchored to the caller's words", async () => {
@@ -1966,7 +2015,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
+  test("tool_use_start delivers the tool name, input, and active allowlist", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1975,6 +2024,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
         toolUseId: "toolu-1",
       },
     ]);
+    (
+      fakeConversation as typeof fakeConversation & {
+        allowedToolNames?: Set<string>;
+      }
+    ).allowedToolNames = new Set(["web_search"]);
 
     const starts: Array<{ toolName: string; detail?: unknown }> = [];
     await startVoiceTurn({
@@ -1988,7 +2042,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
     expect(starts).toEqual([
       {
         toolName: "web_search",
-        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+        detail: {
+          toolUseId: "toolu-1",
+          input: { query: "weather" },
+          allowedToolNames: new Set(["web_search"]),
+        },
       },
     ]);
   });

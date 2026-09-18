@@ -383,6 +383,32 @@ describe("setInferenceProfileSession", () => {
     );
   });
 
+  test("open with a non-text catalog model — refuses the pin", async () => {
+    const conv = createConversation("sess-handler-jev-profile");
+    setConfig("llm", {
+      profiles: {
+        jev: {
+          source: "user",
+          provider: "typesafe",
+          model: "jev-latest",
+          status: "active",
+        },
+      },
+    });
+    try {
+      const promise = setInferenceProfileSession({
+        conversationId: conv.id,
+        profile: "jev",
+      });
+      await expect(promise).rejects.toThrow(
+        /structured answers rather than chat text/,
+      );
+      expect(getConversation(conv.id)?.inferenceProfile).toBeNull();
+    } finally {
+      setConfig("llm", {});
+    }
+  });
+
   test("open with an unavailable profile — refuses the pin and names the fix", async () => {
     const conv = createConversation("sess-handler-unavailable-profile");
     managedProxyEnabled = false;

@@ -193,8 +193,7 @@ export function CallSiteOverrideRow({
           {
             value: storedProvider,
             label: t("callSiteOverridesRow.unavailableOption", {
-              name:
-                PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
+              name: PROVIDER_DISPLAY_NAMES[storedProvider] ?? storedProvider,
             }),
           },
         ]

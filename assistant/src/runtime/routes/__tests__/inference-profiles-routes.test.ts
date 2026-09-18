@@ -123,8 +123,7 @@ function seedVellumConnection(): void {
 
 function persistedProfiles(): Record<string, unknown> {
   const llm = loadRawConfig().llm as
-    | { profiles?: Record<string, unknown> }
-    | undefined;
+    { profiles?: Record<string, unknown> } | undefined;
   return llm?.profiles ?? {};
 }
 
@@ -921,6 +920,29 @@ describe("PUT inference/active-profile validation", () => {
     await expect(
       call("inference_profiles_set_active", { body: { name: "my-fast" } }),
     ).rejects.toThrow(/disabled/);
+  });
+
+  test("rejects a profile whose catalog model does not produce chat text", async () => {
+    setConfig("llm", {
+      profiles: {
+        jev: {
+          source: "user",
+          provider: "typesafe",
+          model: "jev-latest",
+          status: "active",
+        },
+      },
+    });
+    const promise = call("inference_profiles_set_active", {
+      body: { name: "jev" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(BadRequestError);
+    await expect(promise).rejects.toThrow(
+      /structured answers rather than chat text/,
+    );
+    expect(
+      (loadRawConfig().llm as { activeProfile?: string }).activeProfile,
+    ).toBeUndefined();
   });
 
   test("rejects a profile that cannot serve requests — no escape hatch", async () => {

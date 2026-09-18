@@ -109,8 +109,8 @@ export function classifyKind(mimeType: string): "image" | "video" | "document" {
 // Validation / cap enforcement
 // ---------------------------------------------------------------------------
 
-interface ValidatedDrafts {
-  accepted: AssistantAttachmentDraft[];
+interface ValidatedDrafts<T extends AssistantAttachmentDraft> {
+  accepted: T[];
   warnings: string[];
 }
 
@@ -119,10 +119,10 @@ interface ValidatedDrafts {
  *
  * - Rejects individual drafts that exceed `MAX_ASSISTANT_ATTACHMENT_BYTES`.
  */
-export function validateDrafts(
-  drafts: AssistantAttachmentDraft[],
-): ValidatedDrafts {
-  const accepted: AssistantAttachmentDraft[] = [];
+export function validateDrafts<T extends AssistantAttachmentDraft>(
+  drafts: T[],
+): ValidatedDrafts<T> {
+  const accepted: T[] = [];
   const warnings: string[] = [];
 
   for (const draft of drafts) {
@@ -800,6 +800,16 @@ function toolNameToFilePrefix(toolName?: string): string {
     .toLowerCase();
 }
 
+/** Shared download name for an image produced by a tool result. */
+export function toolImageFilename(
+  mediaType: string,
+  toolName?: string,
+  title?: string,
+): string {
+  const ext = mediaType.split("/")[1] ?? "png";
+  return `${title || toolNameToFilePrefix(toolName)}.${ext}`;
+}
+
 /**
  * Convert tool content blocks (images/files from tool results) into
  * attachment drafts. Blocks that aren't image or file types are skipped.
@@ -820,12 +830,10 @@ export function contentBlocksToDrafts(
       const src = b.source as ImageBlock["source"];
       const data = src.data;
       const mimeType = src.media_type;
-      const ext = mimeType.split("/")[1] ?? "png";
       const title = typeof b._title === "string" ? b._title : undefined;
-      const prefix = title || toolNameToFilePrefix(toolName);
       drafts.push({
         sourceType: "tool_block",
-        filename: `${prefix}.${ext}`,
+        filename: toolImageFilename(mimeType, toolName, title),
         mimeType,
         dataBase64: data,
         sizeBytes: estimateBase64Bytes(data),
@@ -918,9 +926,9 @@ export function cleanAssistantContent(content: readonly unknown[]): {
  * data from being attached twice when it appears as both a directive tag
  * (user-chosen name) and an auto-converted tool block ("tool-output.png").
  */
-export function deduplicateDrafts(
-  drafts: AssistantAttachmentDraft[],
-): AssistantAttachmentDraft[] {
+export function deduplicateDrafts<T extends AssistantAttachmentDraft>(
+  drafts: T[],
+): T[] {
   const seenKeys = new Set<string>();
   const seenDirectiveHashes = new Set<string>();
   return drafts.filter((d) => {

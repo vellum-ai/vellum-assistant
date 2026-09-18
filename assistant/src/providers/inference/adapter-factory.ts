@@ -35,6 +35,7 @@ import { AtlasCloudProvider } from "../atlascloud/client.js";
 import { BasetenProvider } from "../baseten/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
+import { JevProvider } from "../jev/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { OllamaProvider } from "../ollama/client.js";
@@ -202,6 +203,11 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   poolside: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new PoolsideProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  typesafe: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new JevProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),

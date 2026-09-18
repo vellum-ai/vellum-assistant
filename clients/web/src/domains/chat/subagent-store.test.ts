@@ -6,7 +6,18 @@ import {
   mock,
   setSystemTime,
 } from "bun:test";
-import type { SubagentInnerEvent } from "@vellumai/assistant-api";
+import type {
+  AssistantEventEnvelope,
+  SubagentInnerEvent,
+} from "@vellumai/assistant-api";
+import type * as FetchSubagentHistory from "./fetch-subagent-history";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
+import {
+  pushSseEvent,
+  resetSseDebugStateForTests,
+} from "@/lib/streaming/stream-debug";
 
 let selfLookupSupported = true;
 mock.module("@/lib/backwards-compat/subagent-detail-self-lookup", () => ({
@@ -26,6 +37,17 @@ const fetchSubagentDetail = mock(
   ): Promise<null> => null,
 );
 mock.module("./fetch-subagent-detail", () => ({ fetchSubagentDetail }));
+
+const fetchSubagentHistory = mock(
+  async (
+    _assistantId: string,
+    _conversationId: string,
+  ): Promise<PaginatedHistoryResult> => emptyHistory(),
+);
+mock.module(
+  "./fetch-subagent-history",
+  (): Partial<typeof FetchSubagentHistory> => ({ fetchSubagentHistory }),
+);
 
 interface ReconcileReply {
   ok: boolean;
@@ -79,13 +101,11 @@ mock.module("@/lib/diagnostics", () => ({
 
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 // Imported after the SDK mock so it binds to the same mocked store module.
-const { reconcileSubagentStoreFromNotifications } = await import(
-  "@/domains/chat/hooks/reconcile-subagent-hydration"
-);
+const { reconcileSubagentStoreFromNotifications } =
+  await import("@/domains/chat/hooks/reconcile-subagent-hydration");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,6 +140,8 @@ beforeEach(() => {
   selfLookupSupported = true;
   reconcileSupported = true;
   fetchSubagentDetail.mockClear();
+  fetchSubagentHistory.mockClear();
+  resetSseDebugStateForTests();
   subagentsReconcileGet.mockClear();
   reconcileRequests.length = 0;
   reconcileReply = { ok: true, subagents: {} };
@@ -3148,5 +3170,270 @@ describe("attachParentMessage", () => {
     getState().attachParentMessage("sa-missing", "msg-1");
 
     expect(getState().byId).toBe(byIdBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// history: the subagent's canonical transcript, fetched and streamed
+// ---------------------------------------------------------------------------
+
+describe("history", () => {
+  const PARENT = "conv-parent";
+
+  /** A `subagent_event` envelope wrapping `event`, stamped at `seq`. */
+  function subagentEnvelope(
+    seq: number,
+    event: SubagentInnerEvent,
+  ): AssistantEventEnvelope {
+    return {
+      id: `evt-${seq}`,
+      conversationId: PARENT,
+      seq,
+      emittedAt: new Date(NOW + seq).toISOString(),
+      message: {
+        type: "subagent_event",
+        conversationId: PARENT,
+        subagentId: "sa-1",
+        event,
+      },
+    };
+  }
+
+  const toolStart = (seq: number) =>
+    subagentEnvelope(seq, {
+      type: "tool_use_start",
+      toolName: "bash",
+      input: { command: "ls" },
+      toolUseId: "tu-1",
+      messageId: "msg-1",
+      startedAt: NOW,
+    });
+
+  const toolResult = (seq: number) =>
+    subagentEnvelope(seq, {
+      type: "tool_result",
+      toolName: "bash",
+      result: "file-a",
+      toolUseId: "tu-1",
+      messageId: "msg-1",
+      riskLevel: "low",
+      completedAt: NOW + 500,
+    });
+
+  /** Deliver `envelope` the way the stream does: buffered, then folded. */
+  function stream(envelope: AssistantEventEnvelope) {
+    pushSseEvent("client-1", envelope);
+    getState().applySubagentEnvelope(envelope);
+  }
+
+  /** The child's `/messages` snapshot anchored at `seq`, the call unresolved. */
+  function snapshotAt(seq: number | null): PaginatedHistoryResult {
+    return {
+      ...emptyHistory(),
+      seq,
+      messages: [
+        {
+          id: "msg-1",
+          role: "assistant",
+          toolCalls: [
+            {
+              id: "tu-1",
+              name: "bash",
+              input: { command: "ls" },
+              startedAt: NOW,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  const earlierCall: ChatMessageToolCall = {
+    id: "tu-0",
+    name: "bash",
+    input: { command: "pwd" },
+    result: "/",
+  };
+
+  function toolCalls(): ChatMessageToolCall[] {
+    return (getState().byId["sa-1"]?.history?.messages ?? []).flatMap(
+      (m) => m.toolCalls ?? [],
+    );
+  }
+
+  function spawn(status: "running" | "completed" = "running") {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "",
+      status,
+      conversationId: "conv-child",
+      parentConversationId: PARENT,
+      timestamp: NOW,
+    });
+  }
+
+  it("does not fold events into an unseeded entry", () => {
+    spawn();
+    getState().applySubagentEnvelope(toolStart(1));
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+  });
+
+  it("folds live events into a seeded entry with their own timing", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(1));
+    stream(toolResult(2));
+
+    expect(toolCalls()).toEqual([
+      expect.objectContaining({
+        id: "tu-1",
+        result: "file-a",
+        riskLevel: "low",
+        startedAt: NOW,
+        completedAt: NOW + 500,
+      }),
+    ]);
+  });
+
+  it("events applied, then a snapshot arrives: one call, nothing lost", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(10));
+    stream(toolResult(11));
+
+    // Persisted through the start only, and carrying an earlier call this
+    // client never saw streamed; the result is in the buffered tail.
+    const snapshot = snapshotAt(10);
+    snapshot.messages = [
+      { id: "msg-0", role: "assistant", toolCalls: [earlierCall] },
+      ...snapshot.messages,
+    ];
+    getState().seedHistory("sa-1", snapshot);
+
+    expect(toolCalls().map((tc) => tc.id)).toEqual(["tu-0", "tu-1"]);
+    expect(toolCalls()[1]).toMatchObject({ result: "file-a" });
+    expect(getState().byId["sa-1"]?.history?.seq).toBe(11);
+  });
+
+  it("a snapshot, then replayed events: one call, replays are no-ops", () => {
+    spawn();
+    pushSseEvent("client-1", toolStart(5));
+    pushSseEvent("client-1", toolResult(6));
+
+    getState().seedHistory("sa-1", snapshotAt(5));
+    expect(toolCalls()).toHaveLength(1);
+    expect(toolCalls()[0]).toMatchObject({ id: "tu-1", result: "file-a" });
+
+    const seeded = getState().byId["sa-1"]?.history;
+    getState().applySubagentEnvelope(toolStart(5));
+    getState().applySubagentEnvelope(toolResult(6));
+    expect(getState().byId["sa-1"]?.history).toBe(seeded);
+  });
+
+  it("an anchor-less snapshot never replaces a live view that folded events", () => {
+    spawn();
+    getState().seedLiveHistory("sa-1");
+    stream(toolStart(3));
+
+    getState().seedHistory("sa-1", emptyHistory());
+
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("loadHistoryIfNeeded seeds the history from the child conversation", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).toHaveBeenCalledWith(
+      "assistant-1",
+      "conv-child",
+    );
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("fetchDetailIfNeeded leaves the history for the panel to load", async () => {
+    spawn("completed");
+
+    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).not.toHaveBeenCalled();
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+  });
+
+  it("concurrent loads share one fetch", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+
+    await Promise.all([
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+    ]);
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed fetch leaves the history unseeded, and the next load retries", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockRejectedValueOnce(new Error("offline"));
+
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("a stream gap during a fetch discards that fetch and refetches", async () => {
+    spawn("completed");
+    let resolveFirst: (snapshot: PaginatedHistoryResult) => void = () => {};
+    fetchSubagentHistory.mockImplementationOnce(
+      () =>
+        new Promise<PaginatedHistoryResult>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    const load = getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+    // The refetch carries the call; the pre-gap snapshot is empty.
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    resolveFirst(emptyHistory());
+    await load;
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
+    expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("a stream gap drops fetched histories so the next load refetches", async () => {
+    spawn();
+    getState().spawnSubagent({
+      subagentId: "sa-live-only",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: PARENT,
+      timestamp: NOW,
+    });
+    // Known only by its parent, so nothing can refetch it: its history is
+    // whatever the stream folded.
+    getState().seedLiveHistory("sa-live-only");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+    // No child conversation to refetch from, so its live history is kept.
+    expect(getState().byId["sa-live-only"]?.history).not.toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
   });
 });

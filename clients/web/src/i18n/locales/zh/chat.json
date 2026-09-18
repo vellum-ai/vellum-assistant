@@ -61,12 +61,24 @@
     "takingLonger": "您的助手响应时间超出预期。",
     "tryAgain": "重试"
   },
+  "mobileDetailSheet": {
+    "title": "活动详情"
+  },
   "activityStepsPanel": {
     "backAria": "返回所有步骤",
     "backTooltip": "所有步骤",
     "closeSteps": "关闭步骤",
+    "screenshotAria": "预览来自“{activity}”的屏幕截图",
+    "screenshotFallbackAria": "预览电脑屏幕截图",
+    "screenshotFallbackTitle": "电脑屏幕截图",
+    "screenshotTitle": "来自“{activity}”的屏幕截图",
     "thinkingTitle": "思考中",
     "viewThinkingAria": "查看思考过程"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "最新屏幕截图不可用。",
+    "unavailableShowingPrevious": "最新屏幕截图不可用。正在显示上一张屏幕截图。",
+    "updating": "正在更新屏幕截图..."
   },
   "addToChatSheet": {
     "camera": "相机",
@@ -102,6 +114,7 @@
     "hideAria": "隐藏虚拟桌面",
     "closeAria": "关闭虚拟桌面预览",
     "moveAria": "移动虚拟桌面预览（方向键）",
+    "resizeAria": "调整虚拟桌面预览大小（方向键）",
     "expandAria": "展开虚拟桌面",
     "busy": "虚拟桌面正在被其他用户使用。",
     "connecting": "正在连接虚拟桌面…",
@@ -429,7 +442,17 @@
     "seeAllAppsAria": "查看全部应用",
     "seeAllFilesAria": "查看全部文档与图片",
     "seeAllFramesAria": "查看全部相机帧",
-    "title": "聊天信息"
+    "title": "聊天信息",
+    "retry": "重试",
+    "retrySourceAria": "重试加载{source}",
+    "documentsSource": "文档",
+    "attachmentsSource": "附件",
+    "sourceLoading": "正在加载{source}…",
+    "sourceLoadFailed": "无法加载{source}。",
+    "sourceRefreshFailed": "无法刷新{source}。正在显示已保存的结果。",
+    "sourcePageFailed": "无法加载更多{source}。",
+    "framesUnsupported": "此助手版本不支持摄像头画面分类。",
+    "loadedHistory": "附件仅来自已加载的聊天记录。"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -671,7 +694,12 @@
     "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
     "label": "{count, plural, one {# 个资产} other {# 个资产}}",
-    "labelUnavailable": "无法加载资产"
+    "labelUnavailable": "无法加载资产",
+    "labelPartial": "部分资源无法加载",
+    "ariaLabelPartial": "对话资源，部分无法加载",
+    "labelLoaded": "{count, plural, other {已加载 # 个资源}}",
+    "ariaLabelLoaded": "对话资源，{count, plural, other {已加载 # 项}}",
+    "ariaLabelLoadedUnseen": "对话资源，{count, plural, other {已加载 # 项}}（有未查看的更改）"
   },
   "conversationStarterDock": {
     "caption": "尝试以下建议："
@@ -682,10 +710,6 @@
   "copyBlockSurface": {
     "copied": "已复制",
     "copy": "复制"
-  },
-  "copyButton": {
-    "copied": "已复制",
-    "copyFailed": "无法复制到剪贴板。"
   },
   "copyIdToClipboard": {
     "conversationCopied": "对话ID已复制到剪贴板。",
@@ -988,7 +1012,13 @@
     "pictureInPictureUnavailable": "画中画不可用"
   },
   "localFileLink": {
-    "unavailable": "此文件在此处不可用"
+    "closePreview": "关闭预览：{filename}",
+    "fileOptions": "文件选项：{filename}",
+    "openInWorkspace": "在工作区中打开：{filename}",
+    "openPreview": "打开预览：{filename}",
+    "unavailable": "此文件在此处不可用",
+    "unavailableLabel": "文件不可用：{filename}",
+    "viewImage": "查看图片：{filename}"
   },
   "localFileMenu": {
     "download": "下载",
@@ -1561,6 +1591,8 @@
     "submitFailed": "提交密钥失败。请重试。"
   },
   "secretPromptCard": {
+    "showValue": "显示值",
+    "hideValue": "隐藏值",
     "cancel": "取消",
     "domains": "域：{list}",
     "placeholder": "输入密钥值...",
@@ -1614,16 +1646,18 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "parameters": "参数",
-    "rawInput": "原始输入",
     "runningSuffix": " · 正在运行"
   },
   "skillLoadCard": {
     "view": "查看"
   },
   "skillLoadDetail": {
+    "failed": "加载失败",
+    "loading": "正在加载技能…",
     "loadingAria": "正在加载技能",
+    "notApproved": "未获批准",
     "provides": "提供",
+    "unnamedSkill": "技能",
     "usedSkill": "已用技能"
   },
   "skillLoadOutput": {
@@ -1698,7 +1732,8 @@
   "tableSurface": {
     "copied": "已复制",
     "copy": "复制",
-    "copyAria": "将表格复制为 Markdown"
+    "copyAria": "将表格复制为 Markdown",
+    "copyFailed": "无法复制表格。"
   },
   "taskPreferencesSurface": {
     "continue": "继续",
@@ -1746,10 +1781,16 @@
     "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
-    "input": "输入",
     "output": "输出",
     "requestedChanges": "请求的更改",
     "running": "正在运行…"
+  },
+  "toolInputParameters": {
+    "parameters": "参数",
+    "rawInput": "原始输入"
+  },
+  "toolParamFields": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
   "toolStepPill": {
     "openAria": "打开 {label}",
@@ -1994,5 +2035,14 @@
     "savedTime": "保存于 {time}",
     "pendingAria": "摄像头画面，图像仍在加载。{time}",
     "timeUnavailable": "时间不可用"
+  },
+  "desktopHelpCard": {
+    "showPreview": "显示实时预览",
+    "needsHelp": "虚拟桌面需要你的帮助。",
+    "stepIn": "接管",
+    "done": "完成",
+    "skip": "跳过",
+    "showMore": "展开",
+    "showLess": "收起"
   }
 }

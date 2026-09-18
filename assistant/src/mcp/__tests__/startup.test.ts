@@ -15,7 +15,21 @@
 
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
-const start = jest.fn(async () => [] as unknown[]);
+function startResult(servers: unknown[] = []) {
+  return {
+    servers,
+    configuredServerCount: servers.length,
+    connectedServerCount: servers.length,
+    errorServerCount: 0,
+    needsAuthServerCount: 0,
+    discoveredToolCount: servers.length,
+    keptToolCount: servers.length,
+    droppedToolCount: 0,
+    truncatedServerIds: [] as string[],
+  };
+}
+
+const start = jest.fn(async () => startResult());
 
 mock.module("../manager.js", () => ({
   getMcpServerManager: () => ({
@@ -88,20 +102,24 @@ afterEach(() => {
 
 describe("startConfiguredMcpServers", () => {
   test("registers the tools a server reports, namespaced by server id", async () => {
-    start.mockResolvedValueOnce([serverReporting("fastmail", "search_email")]);
+    start.mockResolvedValueOnce(
+      startResult([serverReporting("fastmail", "search_email")]),
+    );
 
     const registered = await startConfiguredMcpServers(
       workspaceConfigWith("fastmail") as never,
     );
 
-    expect(registered).toBe(1);
+    expect(registered.registeredToolCount).toBe(1);
+    expect(registered.connectedServerCount).toBe(1);
     expect(getTool("mcp__fastmail__search_email")).toBeDefined();
   });
 
   test("does nothing when no servers are configured", async () => {
     const registered = await startConfiguredMcpServers(undefined);
 
-    expect(registered).toBe(0);
+    expect(registered.registeredToolCount).toBe(0);
+    expect(registered.configuredServerCount).toBe(0);
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -112,13 +130,16 @@ describe("startConfiguredMcpServers", () => {
       workspaceConfigWith("fastmail") as never,
     );
 
-    expect(registered).toBe(0);
+    expect(registered.registeredToolCount).toBe(0);
+    expect(registered.configuredServerCount).toBe(1);
   });
 });
 
 describe("restartConfiguredMcpServers", () => {
   test("drops tools the reconnected set no longer reports", async () => {
-    start.mockResolvedValueOnce([serverReporting("fastmail", "search_email")]);
+    start.mockResolvedValueOnce(
+      startResult([serverReporting("fastmail", "search_email")]),
+    );
     await startConfiguredMcpServers(workspaceConfigWith("fastmail") as never);
     expect(getTool("mcp__fastmail__search_email")).toBeDefined();
 
@@ -135,7 +156,9 @@ describe("restartConfiguredMcpServers", () => {
   });
 
   test("reconnects from the config on disk rather than the previous set", async () => {
-    start.mockResolvedValueOnce([serverReporting("fastmail", "search_email")]);
+    start.mockResolvedValueOnce(
+      startResult([serverReporting("fastmail", "search_email")]),
+    );
     await startConfiguredMcpServers(workspaceConfigWith("fastmail") as never);
     start.mockClear();
 

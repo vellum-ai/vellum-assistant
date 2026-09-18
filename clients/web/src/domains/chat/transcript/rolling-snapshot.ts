@@ -84,6 +84,7 @@ export function appendEventToMessages(
         at,
       );
     case "message_complete":
+    case "generation_handoff":
       // The turn produced its final row, so no announced visual can still be
       // coming. Retire every placeholder along with the row finalization.
       return clearPendingVisualSurfaces(
@@ -352,4 +353,66 @@ export function resolveSnapshot(
   tail: readonly AssistantEventEnvelope[] | null,
 ): PaginatedHistoryResult {
   return tail === null ? snapshot : applyEventsToHistory(snapshot, tail);
+}
+
+/** A history with no rows and no anchor, the seed for a view whose every event
+ *  will arrive live. */
+export function emptyHistory(): PaginatedHistoryResult {
+  return {
+    messages: [],
+    seq: null,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    processing: undefined,
+  };
+}
+
+/**
+ * The outcome of seeding a live view from a fetched snapshot: the resolved
+ * history to store, or the reason the fetch is dropped in favor of the live
+ * view.
+ */
+export type SeedResolution =
+  | { kind: "seed"; history: PaginatedHistoryResult }
+  | { kind: "skip_anchorless"; liveSeq: number }
+  | { kind: "skip_stale_anchor"; liveSeq: number; fetchedSeq: number };
+
+/**
+ * Decide how a fetched snapshot lands on the live view `current`, replaying
+ * `tail` (the buffered events with `seq > snapshot.seq`, or `null` when the
+ * buffer can't bridge the snapshot's anchor) onto it.
+ *
+ * Two fetches are provably behind a live view that has folded seq-stamped
+ * events, and are dropped:
+ *
+ * - Anchor-less (`seq` null): the daemon has persisted no stream content yet,
+ *   typically while the partial-persist debounce outlives a short reply. With
+ *   no cursor to replay from, taking it wholesale would wipe every folded
+ *   event (the mid-turn "vanishing prefix" flicker). The live view is a
+ *   superset of anything such a fetch can hold.
+ * - Stale-anchored (`seq` below the live view's) with no bridging tail: the
+ *   fetch was in flight before newer content folded in, and taking it
+ *   wholesale would regress the view (for example erase a just-sent user row
+ *   whose echo already retired the optimistic copy). A later fetch with a
+ *   caught-up anchor seeds normally.
+ */
+export function resolveSeed(
+  current: PaginatedHistoryResult | null,
+  snapshot: PaginatedHistoryResult,
+  tail: readonly AssistantEventEnvelope[] | null,
+): SeedResolution {
+  if (current !== null && typeof current.seq === "number") {
+    if (snapshot.seq == null) {
+      return { kind: "skip_anchorless", liveSeq: current.seq };
+    }
+    if (tail === null && snapshot.seq < current.seq) {
+      return {
+        kind: "skip_stale_anchor",
+        liveSeq: current.seq,
+        fetchedSeq: snapshot.seq,
+      };
+    }
+  }
+  return { kind: "seed", history: resolveSnapshot(snapshot, tail) };
 }

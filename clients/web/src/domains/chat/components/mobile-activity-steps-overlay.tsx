@@ -1,6 +1,6 @@
-import { lazy, type MouseEvent } from "react";
+import { lazy } from "react";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
+import { MobileDetailSheet } from "@/domains/chat/components/mobile-detail-sheet";
 import type { ActivityStepsPayload } from "@/stores/viewer-store";
 
 const ActivityStepsPanel = lazy(() =>
@@ -10,7 +10,7 @@ const ActivityStepsPanel = lazy(() =>
 );
 
 interface MobileActivityStepsOverlayProps {
-  /** When `null`, the overlay renders nothing. */
+  /** When `null`, closes the sheet. */
   payload: ActivityStepsPayload | null;
   /** Closes the overlay. */
   onClose: () => void;
@@ -18,49 +18,21 @@ interface MobileActivityStepsOverlayProps {
   assistantId?: string | null;
 }
 
-/**
- * Mobile-only full-screen overlay that hosts the activity-steps panel (one
- * activity group's full timeline, with in-panel drill-in to step details).
- *
- * **Mounting constraint**: must render inside `RootLayout`'s
- * `#viewport-overlays` portal, outside the main content wrapper.
- */
+/** Mobile detail presentation, mounted under the viewport portal provider. */
 export function MobileActivityStepsOverlay({
   payload,
   onClose,
   assistantId,
 }: MobileActivityStepsOverlayProps) {
-  if (!payload) {
-    return null;
-  }
-
-  const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
   return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 h-[100dvh] bg-black/40"
-      style={{
-        paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-        paddingBottom:
-          "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        paddingLeft:
-          "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-        paddingRight:
-          "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-      }}
-      onClick={handleBackdropClick}
-    >
-      <LazyBoundary>
+    <MobileDetailSheet data={payload} onClose={onClose} testId="mobile-activity-steps-overlay">
+      {(value) => (
         <ActivityStepsPanel
-          payload={payload}
+          payload={value}
           onClose={onClose}
           assistantId={assistantId}
         />
-      </LazyBoundary>
-    </div>
+      )}
+    </MobileDetailSheet>
   );
 }

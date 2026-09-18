@@ -10,6 +10,7 @@
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render as rtlRender,
@@ -89,15 +90,17 @@ mock.module("@/domains/chat/components/subagent-phase-timeline", () => ({
   ),
 }));
 
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
-import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import {
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/chat/subagent-store";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
 
-// The nested tool-detail body (`ToolDetailBody`) resolves the live tool call
-// from the transcript union, which is backed by a TanStack Query cache. Render
-// every case under a provider so drilling into a tool step doesn't throw "No
-// QueryClient set". No history is seeded: with no active conversation the
-// history query stays disabled, so the body falls back to the step's open-time
-// snapshot — exactly the values these tests assert.
+// The live tool-call hook also reads the transcript union, which is backed by a
+// TanStack Query cache. Render every case under a provider so drilling into a
+// tool step doesn't throw "No QueryClient set".
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
 });
@@ -124,8 +127,32 @@ function makeEntry(overrides: Partial<SubagentEntry> = {}): SubagentEntry {
     outputTokens: 0,
     spawnedAt: Date.now(),
     events: [],
+    history: null,
     ...overrides,
   };
+}
+
+/**
+ * `entry` with a history holding `toolCalls`, registered in the subagent store,
+ * which is where the nested tool detail reads a subagent's calls from.
+ */
+function withToolCalls(
+  entry: SubagentEntry,
+  toolCalls: ChatMessageToolCall[],
+): SubagentEntry {
+  const seeded: SubagentEntry = {
+    ...entry,
+    history: {
+      ...emptyHistory(),
+      messages: [
+        { id: `msg-${entry.subagentId}`, role: "assistant", toolCalls },
+      ],
+    },
+  };
+  useSubagentStore.setState((s) => ({
+    byId: { ...s.byId, [seeded.subagentId]: seeded },
+  }));
+  return seeded;
 }
 
 /** Skeleton bars (if any) pulse; real values are plain text. */
@@ -135,6 +162,7 @@ function skeletonCount(container: HTMLElement): number {
 
 afterEach(() => {
   cleanup();
+  useSubagentStore.getState().reset();
 });
 afterAll(() => {
   mock.restore();
@@ -260,7 +288,10 @@ describe("SubagentDetailPanel: detail fetch on open", () => {
     // The child-semantic `conversationId` is deliberately unset on such a
     // stub; gating the fetch on it left the panel permanently empty.
     expect(
-      requestedIdsFor({ conversationId: undefined, parentConversationId: "conv-parent" }),
+      requestedIdsFor({
+        conversationId: undefined,
+        parentConversationId: "conv-parent",
+      }),
     ).toEqual(["sub-1"]);
   });
 
@@ -509,39 +540,51 @@ describe("SubagentDetailPanel — objective", () => {
 });
 
 /**
- * A `tool_call`/`tool_result` pair whose `toolUseId` matches the id the stubbed
- * timeline forwards (`tool-1`), so `buildSubagentStepDetails(entry)` produces a
- * payload the panel can swap into. `completed` overrides whether the call has a
- * result (closed) or is still in flight (running output state).
+ * A bash call whose id matches the id the stubbed timeline forwards (`tool-1`),
+ * in both the timeline events and the history the nested detail reads.
+ * `completed` overrides whether the call has a result (closed) or is still in
+ * flight (running output state).
  */
 function entryWithTool(completed: boolean): SubagentEntry {
   const now = Date.now();
-  return makeEntry({
-    events: [
-      {
-        id: "te-call",
-        type: "tool_call",
-        content: "ls -la",
-        toolName: "bash",
-        toolUseId: "tool-1",
-        input: { command: "ls -la" },
-        timestamp: now,
-      },
-      ...(completed
-        ? [
-            {
-              id: "te-result",
-              type: "tool_result" as const,
-              content: "file-listing-output",
-              result: "file-listing-output",
-              toolName: "bash",
-              toolUseId: "tool-1",
-              timestamp: now + 1000,
-            },
-          ]
-        : []),
-    ],
-  });
+  const toolCall: ChatMessageToolCall = {
+    id: "tool-1",
+    name: "bash",
+    input: { command: "ls -la" },
+    startedAt: now,
+    ...(completed
+      ? { result: "file-listing-output", completedAt: now + 1000 }
+      : {}),
+  };
+  return withToolCalls(
+    makeEntry({
+      events: [
+        {
+          id: "te-call",
+          type: "tool_call",
+          content: "ls -la",
+          toolName: "bash",
+          toolUseId: "tool-1",
+          input: { command: "ls -la" },
+          timestamp: now,
+        },
+        ...(completed
+          ? [
+              {
+                id: "te-result",
+                type: "tool_result" as const,
+                content: "file-listing-output",
+                result: "file-listing-output",
+                toolName: "bash",
+                toolUseId: "tool-1",
+                timestamp: now + 1000,
+              },
+            ]
+          : []),
+      ],
+    }),
+    [toolCall],
+  );
 }
 
 /**
@@ -570,36 +613,185 @@ Content:
 The extracted article body.
 </external_content>`;
 
+/** A single timeline event, so the panel renders its (stubbed) timeline. */
+const TOOL_EVENT: SubagentEntry["events"][number] = {
+  id: "te-call",
+  type: "tool_call",
+  content: "",
+  timestamp: 0,
+};
+
 /**
- * A `web_fetch` call/result pair keyed `fetch-1` (the id the stubbed timeline's
- * fetch pill forwards), so `buildSubagentStepDetails` yields a `web_fetch`
- * payload the panel routes to `WebFetchDetailView`.
+ * A settled `web_fetch` call keyed `fetch-1` (the id the stubbed timeline's
+ * fetch pill forwards), which the panel routes to `WebFetchDetailView`.
  */
 function entryWithWebFetch(): SubagentEntry {
   const now = Date.now();
-  return makeEntry({
-    events: [
-      {
-        id: "te-wf-call",
-        type: "tool_call",
-        content: "{}",
-        toolName: "web_fetch",
-        toolUseId: "fetch-1",
-        input: { url: "https://www.example.com/article" },
-        timestamp: now,
-      },
-      {
-        id: "te-wf-res",
-        type: "tool_result",
-        content: WEB_FETCH_RESULT,
-        result: WEB_FETCH_RESULT,
-        toolName: "web_fetch",
-        toolUseId: "fetch-1",
-        timestamp: now + 1000,
-      },
-    ],
-  });
+  return withToolCalls(makeEntry({ events: [TOOL_EVENT] }), [
+    {
+      id: "fetch-1",
+      name: "web_fetch",
+      input: { url: "https://www.example.com/article" },
+      startedAt: now,
+      result: WEB_FETCH_RESULT,
+      completedAt: now + 1000,
+    },
+  ]);
 }
+
+describe("SubagentDetailPanel: nested detail reads the live call", () => {
+  test("the drawer shows the call's risk level and streamed output, then its result", () => {
+    const entry = withToolCalls(makeEntry({ events: [TOOL_EVENT] }), [
+      {
+        id: "tool-1",
+        name: "bash",
+        input: { command: "npm test" },
+        startedAt: Date.now(),
+        riskLevel: "high",
+        streamedOutput: "partial-output",
+      },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(
+      screen.getByTestId("risk-badge").getAttribute("data-risk-level"),
+    ).toBe("high");
+    expect(screen.getByText("partial-output")).toBeDefined();
+
+    // The result lands on the subagent's history while the drawer is open.
+    act(() => {
+      withToolCalls(entry, [
+        {
+          id: "tool-1",
+          name: "bash",
+          input: { command: "npm test" },
+          startedAt: 1,
+          completedAt: 2,
+          riskLevel: "high",
+          result: "all-tests-passed",
+        },
+      ]);
+    });
+    expect(screen.getByText("all-tests-passed")).toBeDefined();
+    expect(screen.queryByTestId("nested-detail-running")).toBeNull();
+  });
+
+  test("a web search shows the query and sources from its activity metadata", () => {
+    const entry = withToolCalls(makeEntry({ events: [TOOL_EVENT] }), [
+      {
+        id: "tool-1",
+        name: "web_search",
+        input: { query: "vellum" },
+        startedAt: 1,
+        completedAt: 2,
+        result: "unparsed provider text",
+        activityMetadata: {
+          webSearch: {
+            query: "vellum assistant",
+            provider: "brave",
+            resultCount: 1,
+            durationMs: 1,
+            results: [
+              {
+                rank: 1,
+                title: "Vellum",
+                url: "https://vellum.ai",
+                domain: "vellum.ai",
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(screen.getByText('"vellum assistant"')).toBeDefined();
+    expect(screen.getByText("Sources (1)")).toBeDefined();
+    expect(screen.queryByText("unparsed provider text")).toBeNull();
+  });
+
+  test("a pill whose call is only in the timeline events opens the event-built detail", () => {
+    const events: SubagentEntry["events"] = [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls" },
+        timestamp: 0,
+      },
+      {
+        id: "te-result",
+        type: "tool_result",
+        content: "event-output",
+        result: "event-output",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        timestamp: 10,
+      },
+    ];
+    // History is present but keyed by an id the events never carried (a
+    // positional id from an older assistant), so the canonical lookup misses.
+    const entry = withToolCalls(makeEntry({ events }), [
+      {
+        id: "tool-history-msg-1-0",
+        name: "bash",
+        input: { command: "ls" },
+        result: "canonical-output",
+      },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(screen.queryByTestId("timeline")).toBeNull();
+    expect(screen.getByText("event-output")).toBeDefined();
+  });
+
+  test("a finished event-built detail wins over a canonical copy still running", () => {
+    const events: SubagentEntry["events"] = [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls" },
+        timestamp: 0,
+      },
+      {
+        id: "te-result",
+        type: "tool_result",
+        content: "event-output",
+        result: "event-output",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        timestamp: 10,
+      },
+    ];
+    // Seeded from a snapshot older than the result the timeline already has.
+    const entry = withToolCalls(makeEntry({ events }), [
+      { id: "tool-1", name: "bash", input: { command: "ls" } },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(screen.getByText("event-output")).toBeDefined();
+  });
+
+  test("a pill with nothing behind it in either source stays on the timeline", () => {
+    render(
+      <SubagentDetailPanel
+        entry={makeEntry({ events: [TOOL_EVENT] })}
+        onClose={noop}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+    expect(screen.getByTestId("timeline")).toBeDefined();
+  });
+});
 
 describe("SubagentDetailPanel — nested tool detail", () => {
   test("the top-level timeline view shows no breadcrumb", () => {
@@ -708,7 +900,7 @@ describe("SubagentDetailPanel — nested tool detail", () => {
 
     rerender(
       <SubagentDetailPanel
-        entry={{ ...entryWithTool(true), subagentId: "sub-2" }}
+        entry={makeEntry({ subagentId: "sub-2", events: [TOOL_EVENT] })}
         onClose={noop}
       />,
     );

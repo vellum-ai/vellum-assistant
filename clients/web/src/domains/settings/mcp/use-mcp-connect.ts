@@ -23,6 +23,8 @@ interface McpConnectAttempt {
   error?: string;
 }
 
+type PrepareMcpConnection = () => Promise<string | null | void>;
+
 export function mcpRuntimeIsReady(
   servers: Array<{ id: string; status: string }>,
   serverId: string,
@@ -47,7 +49,7 @@ export function useMcpConnect(assistantId: string) {
   const popupRef = useRef<Window | null>(null);
   const pendingPreparation = useRef<{
     operationId: string;
-    run: () => Promise<void>;
+    run: PrepareMcpConnection;
   } | null>(null);
 
   const stopWaiting = useCallback(() => {
@@ -244,7 +246,7 @@ export function useMcpConnect(assistantId: string) {
   const connect = useCallback(
     (
       serverId: string,
-      prepare?: () => Promise<void>,
+      prepare?: PrepareMcpConnection,
       displayName = serverId,
     ) => {
       if (activeOperation.current && attempt?.phase !== "error") {
@@ -289,28 +291,44 @@ export function useMcpConnect(assistantId: string) {
         Date.now() < next.startedAt + CONNECTION_POLL_WINDOW_MS;
       void (async () => {
         try {
-          await prepare?.();
+          const preparedServerId = await prepare?.();
           if (pendingPreparation.current?.operationId === operationId) {
             pendingPreparation.current = null;
           }
           if (!stillCurrent()) {
             return;
           }
-          const result = await startMcpAuth(assistantId, serverId);
+          if (preparedServerId === null) {
+            popup?.close();
+            popupRef.current = null;
+            activeOperation.current = null;
+            setAttempt(null);
+            return;
+          }
+          const resolvedAttempt = preparedServerId
+            ? { ...next, serverId: preparedServerId }
+            : next;
+          if (preparedServerId) {
+            setAttempt(resolvedAttempt);
+          }
+          const result = await startMcpAuth(
+            assistantId,
+            resolvedAttempt.serverId,
+          );
           if (!stillCurrent()) {
             return;
           }
           if (result.already_authenticated) {
             popup?.close();
             popupRef.current = null;
-            setAttempt({ ...next, phase: "connecting" });
+            setAttempt({ ...resolvedAttempt, phase: "connecting" });
             return;
           }
           const url = new URL(result.auth_url);
           if (url.protocol !== "https:" && url.protocol !== "http:") {
             throw new Error("Unsupported MCP authorization URL protocol");
           }
-          setAttempt({ ...next, phase: "authorizing" });
+          setAttempt({ ...resolvedAttempt, phase: "authorizing" });
           if (popup) {
             if (!popup.closed) {
               popup.location.replace(url.href);

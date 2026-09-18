@@ -42,6 +42,8 @@ interface MessageAttachmentSquareProps {
    *  blob on a Chromium renderer). Lets the owner null the dead `previewUrl`
    *  so this square falls back to its file-kind icon. */
   onPreviewError?: () => void;
+  /** Omits both caption rows and their layout space. */
+  hideCaptions?: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ export function MessageAttachmentSquare({
   onPreview,
   onDownload,
   onPreviewError,
+  hideCaptions = false,
 }: MessageAttachmentSquareProps) {
   const filename = attachment?.filename ?? "";
   const mimeType = attachment?.mimeType ?? "";
@@ -112,7 +115,11 @@ export function MessageAttachmentSquare({
           : undefined
       }
       data-reveal-row=""
-      className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
+      className={cn(
+        "group flex flex-col",
+        !hideCaptions && "gap-1",
+        isClickable && "cursor-pointer",
+      )}
     >
       <div className="relative w-fit">
         {attachment ? (
@@ -146,21 +153,25 @@ export function MessageAttachmentSquare({
           />
         )}
       </div>
-      <Typography
-        variant="label-small-default"
-        className="max-w-[64px] truncate text-[var(--content-tertiary)]"
-      >
-        {displayName}
-      </Typography>
-      {/* The file size adds noise on the narrow native layout, so the native
-          shell hides it; web/electron keep it. */}
-      {!isNative && displaySize !== null && (
-        <Typography
-          variant="label-small-default"
-          className="text-[var(--content-disabled)]"
-        >
-          {displaySize}
-        </Typography>
+      {!hideCaptions && (
+        <>
+          <Typography
+            variant="label-small-default"
+            className="max-w-[64px] truncate text-[var(--content-tertiary)]"
+          >
+            {displayName}
+          </Typography>
+          {/* The file size adds noise on the narrow native layout, so the native
+              shell hides it; web/electron keep it. */}
+          {!isNative && displaySize !== null && (
+            <Typography
+              variant="label-small-default"
+              className="text-[var(--content-disabled)]"
+            >
+              {displaySize}
+            </Typography>
+          )}
+        </>
       )}
     </div>
   );

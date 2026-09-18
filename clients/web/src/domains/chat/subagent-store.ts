@@ -23,14 +23,24 @@ import { createSelectors } from "@/utils/create-selectors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  AssistantEventSchema,
   SubagentStatusSchema,
+  type AssistantEventEnvelope,
   type SubagentStatus,
   type SubagentInnerEvent,
 } from "@vellumai/assistant-api";
+import {
+  applyEvent,
+  emptyHistory,
+  resolveSeed,
+} from "@/domains/chat/transcript/rolling-snapshot";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus, shouldApplyStatus } from "@/utils/subagent-status";
 import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
+import { fetchSubagentHistory } from "./fetch-subagent-history";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 import {
@@ -63,7 +73,7 @@ export interface SubagentTimelineEvent {
   toolUseId?: string;
   /**
    * `content` remains the ≤120-char summary that drives labels; `input`/
-   * `result` are the raw payloads used only by the nested tool-detail view.
+   * `result` are the raw payloads the timeline's richer labels read.
    */
   input?: Record<string, unknown>;
   result?: string;
@@ -90,6 +100,16 @@ export interface SubagentEntry {
   outputTokens: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
+  /**
+   * The subagent's own conversation in the transcript's canonical form: the
+   * child's `/messages` snapshot advanced by folding its `subagent_event`
+   * inner events, exactly as the main chat folds its own stream. `null` until
+   * seeded, which `loadHistoryIfNeeded` does on demand; while unseeded, live
+   * events are not folded (the seed replays the buffered tail). A subagent
+   * whose spawn arrives live, or with no child conversation to fetch, seeds
+   * empty at spawn, since every event it will have arrives on the stream.
+   */
+  history: PaginatedHistoryResult | null;
   /** The subagent's own conversation ID, used to fetch detail data. */
   conversationId?: string;
   /**
@@ -269,6 +289,45 @@ export interface SubagentActions {
     event: SubagentInnerEvent;
     timestamp: number;
   }) => void;
+
+  /**
+   * Fold one stream envelope into its subagent's history when it is a
+   * `subagent_event` for a seeded entry. Idempotent by the envelope's `seq`,
+   * which the child's `/messages` anchor shares.
+   */
+  applySubagentEnvelope: (envelope: AssistantEventEnvelope) => void;
+
+  /**
+   * Seed (or resync) a subagent's history from its child conversation's
+   * snapshot, replaying the buffered `subagent_event` tail after the
+   * snapshot's anchor. Same merge rule as the main chat's `seedSnapshot`
+   * (`resolveSeed`).
+   */
+  seedHistory: (subagentId: string, snapshot: PaginatedHistoryResult) => void;
+
+  /** Seed an unseeded entry with an empty history so live events fold. */
+  seedLiveHistory: (subagentId: string) => void;
+
+  /**
+   * Fetch and seed a subagent's history from its child conversation when it
+   * has none. Called by the surfaces that read the history (the detail panel),
+   * so a subagent that is never opened costs no request. Concurrent calls for
+   * one subagent share a single fetch. A failed fetch leaves the history
+   * unseeded, so the next call retries rather than settling on an empty one.
+   */
+  loadHistoryIfNeeded: (
+    assistantId: string,
+    subagentId: string,
+  ) => Promise<void>;
+
+  /**
+   * Drop the fetched histories of a parent conversation's subagents after its
+   * stream proved a gap: events the histories never folded are missing, and
+   * the next `loadHistoryIfNeeded` reseeds them from the child conversations.
+   * A fetch already in flight is marked stale and refetches instead of
+   * seeding. A history no fetch can reseed (no child conversation) is kept.
+   */
+  invalidateHistories: (parentConversationId: string) => void;
 
   loadDetail: (params: {
     subagentId: string;
@@ -590,6 +649,68 @@ function extractSearchQuery(event: SubagentInnerEvent): string | undefined {
   return typeof query === "string" && query.length > 0 ? query : undefined;
 }
 
+/**
+ * The inner event of a `subagent_event` envelope re-enveloped under the outer
+ * envelope's `seq` and `emittedAt`, so the transcript fold can apply it. `null`
+ * for any other event, or an inner event the canonical schema rejects.
+ */
+function unwrapSubagentEnvelope(
+  envelope: AssistantEventEnvelope,
+): { subagentId: string; envelope: AssistantEventEnvelope } | null {
+  const message = envelope.message;
+  if (message.type !== "subagent_event") {
+    return null;
+  }
+  const inner = AssistantEventSchema.safeParse(message.event);
+  if (!inner.success) {
+    return null;
+  }
+  return {
+    subagentId: message.subagentId,
+    envelope: { ...envelope, message: inner.data },
+  };
+}
+
+/**
+ * The buffered inner events for one subagent with `seq > sinceSeq`, or `null`
+ * when the buffer can't bridge the anchor (see `getSseEnvelopesSince`). The
+ * wrapping envelopes are scoped to the parent conversation.
+ */
+function subagentEnvelopesSince(
+  parentConversationId: string | undefined,
+  subagentId: string,
+  sinceSeq: number | null,
+): AssistantEventEnvelope[] | null {
+  if (!parentConversationId) {
+    return null;
+  }
+  const tail = getSseEnvelopesSince(parentConversationId, sinceSeq);
+  if (tail === null) {
+    return null;
+  }
+  const inner: AssistantEventEnvelope[] = [];
+  for (const envelope of tail) {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (unwrapped?.subagentId === subagentId) {
+      inner.push(unwrapped.envelope);
+    }
+  }
+  return inner;
+}
+
+/**
+ * An in-flight history fetch. `stale` is set when a stream gap invalidates the
+ * subagent's history while the fetch is out: its snapshot may predate events
+ * the gap dropped, so it must not seed.
+ */
+interface HistoryLoad {
+  promise: Promise<void>;
+  stale: boolean;
+}
+
+/** In-flight history fetches by subagent id, so concurrent loads share one. */
+const historyLoads = new Map<string, HistoryLoad>();
+
 let timelineEventCounter = 0;
 
 /** Generate a unique ID for timeline events. */
@@ -824,6 +945,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens ?? 0,
       spawnedAt: params.timestamp,
       events: [],
+      history: null,
       conversationId: params.conversationId,
       parentConversationId: params.parentConversationId,
       parentMessageStableId: params.parentMessageStableId,
@@ -884,15 +1006,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens,
     });
 
+    const addressable = canAddressSubagentDetail({
+      conversationId: params.conversationId,
+      parentConversationId,
+    });
+    // No fetch can ever seed an unaddressable row, so its history is what the
+    // stream delivers from here on.
+    if (!addressable) {
+      get().seedLiveHistory(params.subagentId);
+    }
     // Only a live row can have its backfill overtaken by streamed events, and
     // only an addressable one has a backfill coming at all.
-    if (
-      !isActiveStatus(status) ||
-      !canAddressSubagentDetail({
-        conversationId: params.conversationId,
-        parentConversationId,
-      })
-    ) {
+    if (!isActiveStatus(status) || !addressable) {
       return;
     }
     const { byId } = get();
@@ -1049,6 +1174,135 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         },
       },
     });
+  },
+
+  applySubagentEnvelope: (envelope) => {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (!unwrapped) {
+      return;
+    }
+    const { byId } = get();
+    const existing = byId[unwrapped.subagentId];
+    if (!existing?.history) {
+      return;
+    }
+    const history = applyEvent(existing.history, unwrapped.envelope);
+    // Events that change no content (usage, lifecycle) leave the entry alone
+    // rather than churn every subscriber for a watermark.
+    if (history.messages === existing.history.messages) {
+      return;
+    }
+    set({
+      byId: {
+        ...byId,
+        [unwrapped.subagentId]: { ...existing, history },
+      },
+    });
+  },
+
+  seedHistory: (subagentId, snapshot) => {
+    const { byId } = get();
+    const existing = byId[subagentId];
+    if (!existing) {
+      return;
+    }
+    const seed = resolveSeed(
+      existing.history,
+      snapshot,
+      subagentEnvelopesSince(
+        existing.parentConversationId,
+        subagentId,
+        snapshot.seq ?? null,
+      ),
+    );
+    if (seed.kind === "skip_anchorless") {
+      recordDiagnostic("subagent_history_seed_skipped_anchorless", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+      });
+      return;
+    }
+    if (seed.kind === "skip_stale_anchor") {
+      recordDiagnostic("subagent_history_seed_skipped_stale_anchor", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+        fetchedSeq: seed.fetchedSeq,
+      });
+      return;
+    }
+    set({
+      byId: { ...byId, [subagentId]: { ...existing, history: seed.history } },
+    });
+  },
+
+  seedLiveHistory: (subagentId) => {
+    if (get().byId[subagentId]?.history !== null) {
+      return;
+    }
+    get().seedHistory(subagentId, emptyHistory());
+  },
+
+  loadHistoryIfNeeded: (assistantId, subagentId) => {
+    const inFlight = historyLoads.get(subagentId);
+    if (inFlight) {
+      return inFlight.promise;
+    }
+    const entry = get().byId[subagentId];
+    const conversationId = entry?.conversationId;
+    if (!entry || entry.history !== null || !conversationId) {
+      return Promise.resolve();
+    }
+    const load: HistoryLoad = { promise: Promise.resolve(), stale: false };
+    load.promise = fetchSubagentHistory(assistantId, conversationId)
+      .then((snapshot) => {
+        if (load.stale) {
+          // Invalidated mid-flight, which also released this load's slot, so
+          // this starts a fresh fetch rather than seeding the old snapshot.
+          return get().loadHistoryIfNeeded(assistantId, subagentId);
+        }
+        get().seedHistory(subagentId, snapshot);
+      })
+      .catch((err: unknown) => {
+        captureError(err, { context: "loadHistoryIfNeeded", bestEffort: true });
+      })
+      .finally(() => {
+        if (historyLoads.get(subagentId) === load) {
+          historyLoads.delete(subagentId);
+        }
+      });
+    historyLoads.set(subagentId, load);
+    return load.promise;
+  },
+
+  invalidateHistories: (parentConversationId) => {
+    const { byId } = get();
+    let next: typeof byId | null = null;
+    const dropped: string[] = [];
+    for (const entry of Object.values(byId)) {
+      if (
+        entry.parentConversationId !== parentConversationId ||
+        !entry.conversationId
+      ) {
+        continue;
+      }
+      const inFlight = historyLoads.get(entry.subagentId);
+      if (inFlight) {
+        inFlight.stale = true;
+        historyLoads.delete(entry.subagentId);
+      }
+      if (entry.history !== null) {
+        next ??= { ...byId };
+        next[entry.subagentId] = { ...entry, history: null };
+        dropped.push(entry.subagentId);
+      }
+    }
+    if (next) {
+      recordDiagnostic("subagent_history_invalidated", {
+        parentConversationId,
+        subagentIds: dropped,
+      });
+      set({ byId: next });
+    }
   },
 
   loadDetail: (params) => {

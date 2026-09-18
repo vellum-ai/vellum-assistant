@@ -15,6 +15,13 @@ import type { ToolContext } from "../types.js";
 // `mock.module` is hoisted by bun before any static import of the tool
 // runs, so the import below sees the stubbed prompter even though
 // `askQuestionTool` captures the symbol at module-eval time.
+const finishDesktopHelp = mock(async (_resume: boolean) => {});
+const prepareDesktopHelp = mock(
+  async (_context: ToolContext) => finishDesktopHelp,
+);
+let promptError: Error | undefined;
+mock.module("../../desktop/desktop-help.js", () => ({ prepareDesktopHelp }));
+
 const calls: QuestionPromptParams[] = [];
 let nextResult: QuestionPromptResult = {
   entries: [{ questionId: "q1", decision: "skipped" }],
@@ -28,6 +35,9 @@ mock.module("../../permissions/question-prompter.js", () => ({
   QuestionPrompter: class {
     async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
       calls.push(params);
+      if (promptError) {
+        throw promptError;
+      }
       // Mirror the real prompter: it mints the request id and assigns the
       // per-question `q1..qN` ids, then returns them alongside the resolution.
       return {
@@ -61,6 +71,9 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 // `setNextResult()` before invoking `askQuestionTool.execute(...)`.
 beforeEach(() => {
   calls.length = 0;
+  prepareDesktopHelp.mockClear();
+  finishDesktopHelp.mockClear();
+  promptError = undefined;
   nextResult = {
     entries: [{ questionId: "q1", decision: "skipped" }],
     overall: "completed",
@@ -100,7 +113,7 @@ describe("askQuestionTool definition", () => {
     expect(def.description).toContain("up to 5");
     expect(def.description).toContain("Skip button");
 
-    const schema = def.input_schema as {
+    const schema = def.input_schema as unknown as {
       properties: Record<
         string,
         {
@@ -670,7 +683,7 @@ describe("AskQuestionTool batched input", () => {
 });
 
 describe("askQuestionTool definition (batched schema)", () => {
-  test("exposes `questions[]` shape, requires it, and drops the flat fields", () => {
+  test("exposes batched questions and a desktop help alternative", () => {
     const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
@@ -708,9 +721,7 @@ describe("askQuestionTool definition (batched schema)", () => {
 
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    // `questions` is the only top-level input now.
-    expect(schema.required).toEqual(["questions"]);
-    expect(Object.keys(schema.properties)).toEqual(["questions"]);
+    expect(schema.properties.desktopHelp?.type).toBe("object");
 
     // The legacy flat fields are gone.
     expect(schema.properties.question).toBeUndefined();
@@ -824,4 +835,155 @@ describe("answered-question record", () => {
       }),
     ).toBeUndefined();
   });
+});
+
+describe("virtual desktop help", () => {
+  test("reserves the desktop before waiting and resumes control after Done", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
+    const result = await askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    );
+    expect(prepareDesktopHelp).toHaveBeenCalledTimes(1);
+    expect(finishDesktopHelp).toHaveBeenCalledWith(true);
+    expect(calls[0]?.questions[0]?.presentation).toBe("virtual_desktop");
+    expect(result.content).toContain("fresh browser snapshot");
+    expect(result.answeredQuestion?.responses[0]).toEqual({
+      questionId: "q1",
+      decision: "option",
+      optionId: "done",
+    });
+  });
+
+  test.each([
+    { decision: "skipped" as const },
+    { decision: "option" as const, optionId: "skip" },
+  ])("does not claim the obstacle was solved after Skip: %j", async (entry) => {
+    setNextResult(singleCompleted(entry));
+    const result = await askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    );
+    expect(finishDesktopHelp).toHaveBeenCalledWith(false);
+    expect(result.content).toContain("obstacle may still be present");
+    expect(result.isError).toBe(false);
+  });
+
+  test("does not wait for a user in a background turn", async () => {
+    await askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext({ isInteractive: false }),
+    );
+    expect(prepareDesktopHelp).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects mixing desktop help with a question batch", async () => {
+    const result = await askQuestionTool.execute(
+      {
+        ...validInput,
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+test("desktop help preserves model-localized fallback labels in history", async () => {
+  setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
+  const result = await askQuestionTool.execute(
+    {
+      desktopHelp: {
+        message: "Completa la verificación.",
+        doneLabel: "Listo",
+        skipLabel: "Omitir",
+      },
+    },
+    makeContext(),
+  );
+  expect(calls[0]?.questions[0]?.options).toEqual([
+    { id: "done", label: "Listo" },
+    { id: "skip", label: "Omitir" },
+  ]);
+  expect(result.answeredQuestion?.questions[0]?.options).toEqual(
+    calls[0]?.questions[0]?.options,
+  );
+});
+
+test("desktop help does not park on a guardian channel without desktop controls", async () => {
+  const result = await askQuestionTool.execute(
+    {
+      desktopHelp: {
+        message: "Please sign in.",
+        doneLabel: "Done",
+        skipLabel: "Skip",
+      },
+    },
+    makeContext({
+      supportsDynamicUi: false,
+      supportsGuardianQuestionCards: true,
+    }),
+  );
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain("continue in the Vellum app");
+  expect(prepareDesktopHelp).not.toHaveBeenCalled();
+  expect(calls).toHaveLength(0);
+});
+
+for (const overall of ["closed", "timed_out", "aborted"] as const) {
+  test(`desktop reservation ends when the question is ${overall}`, async () => {
+    setNextResult({ overall, entries: [] });
+    await askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Complete verification.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    );
+    expect(finishDesktopHelp).toHaveBeenCalledWith(false);
+  });
+}
+
+test("desktop reservation ends when presenting the question throws", async () => {
+  promptError = new Error("delivery failed");
+  await expect(
+    askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Complete verification.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    ),
+  ).rejects.toThrow("delivery failed");
+  expect(finishDesktopHelp).toHaveBeenCalledWith(false);
 });

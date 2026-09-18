@@ -76,7 +76,7 @@ export interface DetailShellHeaderProps {
   title?: string;
   /**
    * Pre-composed title cluster rendered in place of the default truncating
-   * `title` Typography — for headers whose title mixes several inline pieces
+   * `title` Typography, for headers whose title mixes several inline pieces
    * (e.g. the activity-steps panel's "Thinking · 6 steps"). Takes precedence
    * over `title`.
    */
@@ -187,7 +187,7 @@ export function DetailShell({
   ...headerProps
 }: DetailShellProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+    <div data-slot="detail-shell" className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {headerAbove}
       <DetailShellHeader {...headerProps} />
 

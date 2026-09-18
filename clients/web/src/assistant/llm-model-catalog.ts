@@ -35,6 +35,13 @@ export interface LlmCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   thinkingFloor?: "minimal" | "low";
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that stay
+   * out of conversation pickers. They can still back a saved profile and a
+   * call-site pin.
+   */
+  supportsText?: boolean;
   longContextPricingThresholdTokens?: number;
   /** When set, the model is hidden unless that assistant flag is on. */
   featureFlag?: string;
@@ -1147,6 +1154,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
+  typesafe: [
+    {
+      id: "jev-latest",
+      displayName: "Jev",
+      contextWindowTokens: 32_000,
+      defaultContextWindowTokens: 32_000,
+      maxOutputTokens: 4_096,
+      supportsText: false,
+    },
+  ],
   vellum: [
     {
       id: "qwen/qwen3-8b",
@@ -1178,6 +1195,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
+  typesafe: "jev-latest",
   vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
@@ -1207,6 +1225,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
+  typesafe: "TypeSafe",
 };
 
 /**
@@ -1262,6 +1281,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
+  typesafe: false,
   vellum: true,
 };
 
@@ -1385,6 +1405,44 @@ export function getVisibleModelsForProvider(
   return getModelsForProvider(provider).filter((model) =>
     isCatalogModelVisible(model, enabledFlags),
   );
+}
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (!provider || !modelId) {
+    return true;
+  }
+  const model = getModelsForProvider(provider).find((m) => m.id === modelId);
+  return model?.supportsText !== false;
+}
+
+/** Visible catalog models that can back a conversation pin. */
+export function getTextGenerationModelsForProvider(
+  provider: string,
+  enabledFlags: Readonly<Record<string, boolean>>,
+): readonly LlmCatalogModel[] {
+  return getVisibleModelsForProvider(provider, enabledFlags).filter(
+    (model) => model.supportsText !== false,
+  );
+}
+
+/**
+ * Whether a provider has at least one chat-text model. Empty catalogs
+ * (custom endpoints) default to true because their models are user-defined.
+ */
+export function providerOffersTextGeneration(provider: string): boolean {
+  const models = getModelsForProvider(provider);
+  if (models.length === 0) {
+    return true;
+  }
+  return models.some((model) => model.supportsText !== false);
 }
 
 export function getModelsForProvider(

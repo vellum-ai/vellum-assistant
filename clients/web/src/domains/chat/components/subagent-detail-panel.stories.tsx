@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import {
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/chat/subagent-store";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
 
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
 
@@ -36,6 +40,7 @@ const runningEntry: SubagentEntry = {
   inputTokens: 1200,
   outputTokens: 340,
   spawnedAt: now,
+  history: null,
   events: [
     {
       id: "te-call",
@@ -92,6 +97,78 @@ export const Empty: Story = {
       status: "completed",
       events: [],
     },
+    onClose: () => {},
+  },
+};
+
+const commandCallEntry: SubagentEntry = {
+  ...runningEntry,
+  subagentId: "sub-disk-usage",
+  label: "Disk agent",
+  objective: "Find what is using the most space in the project folder.",
+  status: "completed",
+  events: [
+    {
+      id: "te-du-call",
+      type: "tool_call",
+      content: "du -sh * | sort -h",
+      toolName: "bash",
+      toolUseId: "tool-du",
+      input: {
+        command: "du -sh * | sort -h",
+        activity: "Measuring folder sizes",
+      },
+      timestamp: now,
+    },
+    {
+      id: "te-du-result",
+      type: "tool_result",
+      content: "4.0K\tREADME.md\n212M\tnode_modules",
+      result: "4.0K\tREADME.md\n212M\tnode_modules",
+      toolName: "bash",
+      toolUseId: "tool-du",
+      timestamp: now + 1400,
+    },
+  ],
+  history: {
+    ...emptyHistory(),
+    messages: [
+      {
+        id: "msg-du",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tool-du",
+            name: "bash",
+            input: {
+              command: "du -sh * | sort -h",
+              activity: "Measuring folder sizes",
+            },
+            result: "4.0K\tREADME.md\n212M\tnode_modules",
+            riskLevel: "medium",
+            startedAt: now,
+            completedAt: now + 1400,
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/**
+ * A finished subagent whose tool call opens from its timeline. The nested
+ * detail reads the call from the subagent's history in the store, the same
+ * `ChatMessageToolCall` a main-chat call carries, so it shows the risk level.
+ * Click the command pill to open it.
+ */
+export const ToolCallDetail: Story = {
+  beforeEach: () => {
+    useSubagentStore.setState((state) => ({
+      byId: { ...state.byId, [commandCallEntry.subagentId]: commandCallEntry },
+    }));
+  },
+  args: {
+    entry: commandCallEntry,
     onClose: () => {},
   },
 };

@@ -84,6 +84,7 @@ export interface ChatBodyProps {
   documentSlot?: ReactNode;
   /** Selects the visible region while keeping both content trees mounted. */
   documentPresentation?: "document" | "conversation";
+  onViewConversation?: () => void;
   /** Optional navigation beside the composer, such as reopening a document. */
   sessionNavigationSlot?: ReactNode;
 
@@ -219,6 +220,7 @@ export function ChatBody({
   composerSlot,
   documentSlot,
   documentPresentation = "document",
+  onViewConversation,
   sessionNavigationSlot,
   bottomInset,
   dragHandlers,
@@ -398,7 +400,9 @@ export function ChatBody({
         )}
         {queuedDrawerSlot}
         <AcpConnectSlot />
-        <QuestionPromptSlot />
+        <QuestionPromptSlot
+          onViewConversation={showingDocument ? onViewConversation : undefined}
+        />
         {channelFooterSlot}
         <ChannelReferenceChip />
         <StagedQuotesStrip />
@@ -431,6 +435,8 @@ export function ChatBody({
 
   return (
     <div
+      data-slot="chat-body"
+      tabIndex={-1}
       className={outerClass}
       style={bottomInset ? { paddingBottom: bottomInset } : undefined}
       onDragEnter={dragHandlers.onDragEnter}

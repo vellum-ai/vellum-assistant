@@ -673,11 +673,11 @@ export async function runDaemon(): Promise<void> {
   // blocked.
   startConsentRefresh();
 
-  // Bring up the daemon's CES connection (process + handshake + reconnect
-  // wiring). Blocks up to a 20s timeout so credential reads route through CES
-  // before provider init; non-fatal — falls back to the direct credential store
-  // on failure. The sidecar accepts exactly one bootstrap connection, so this
-  // happens at the process level.
+  // Open the assistant's CES RPC client (handshake + reconnect wiring).
+  // Blocks up to a 20s timeout so credential reads route through CES before
+  // provider init; non-fatal, falls back to the direct credential store on
+  // failure. CES serves a multi-connection bootstrap socket, so child
+  // processes can open the same `openCesRpcSession` path independently.
   await startCes(config);
 
   // Bring up the plugin layer: install the runtime bridge, register the

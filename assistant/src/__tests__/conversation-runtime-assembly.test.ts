@@ -673,6 +673,35 @@ describe("injectChannelCapabilityContext", () => {
     const text = (result.content[0] as { type: "text"; text: string }).text;
     expect(text).not.toContain("Do NOT use markdown tables");
   });
+
+  test("injects email send CLI constraint for email channel", () => {
+    const caps: ChannelCapabilities = {
+      channel: "email",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("Conversation text is not emailed");
+    expect(text).toContain("assistant email send");
+    expect(text).toContain("--reply-to");
+  });
+
+  test("does NOT inject email send CLI constraint for non-email channels", () => {
+    const caps: ChannelCapabilities = {
+      channel: "telegram",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    const result = injectChannelCapabilityContext(baseUserMessage, caps);
+    const text = (result.content[0] as { type: "text"; text: string }).text;
+    expect(text).not.toContain("Conversation text is not emailed");
+    expect(text).not.toContain("assistant email send");
+  });
 });
 
 // ---------------------------------------------------------------------------

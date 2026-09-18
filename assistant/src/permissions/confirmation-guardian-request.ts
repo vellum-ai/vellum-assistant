@@ -73,10 +73,9 @@ export async function createGuardianRequestForConfirmation(
     const sourceChannel = trustContext?.sourceChannel ?? "vellum";
     const inputRecord = msg.input as Record<string, unknown>;
     const activityRaw =
-      (typeof inputRecord.activity === "string"
+      typeof inputRecord.activity === "string"
         ? inputRecord.activity
-        : undefined) ??
-      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
+        : undefined;
     // Tool approvals are decisionable: without a bound principal nobody could
     // ever decide them (mirrors the gateway create's integrity guard).
     const guardianPrincipalId = trustContext?.guardianPrincipalId;

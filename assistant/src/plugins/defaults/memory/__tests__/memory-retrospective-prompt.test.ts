@@ -125,6 +125,11 @@ For everything else in your review window, use the \`remember\` tool on facts, p
     expect(out).toContain(
       "restate `current.activation_hints` (revised only if the procedure's triggers changed",
     );
+    // The store keeps omitted frontmatter on an overwrite, so the pass is told
+    // to leave unchanged fields out rather than restate them from memory.
+    expect(out).toContain(
+      "an omitted field keeps its current value and an empty one clears it",
+    );
     // An UPDATE is announced by a notice whose only account of the change is
     // what the pass passes here, so the instruction has to ask for it.
     expect(out).toContain(

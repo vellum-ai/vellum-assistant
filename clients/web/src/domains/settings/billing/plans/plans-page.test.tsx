@@ -930,8 +930,14 @@ describe("PlansPage — Pro package switch (change-package)", () => {
   });
 
   test("Pro → Free downgrade confirms first, then cancels via the cancel endpoint", async () => {
-    const { findByRole, findByText, findByTestId, getByTestId, queryByText } =
-      renderInteractive(proSuperSubscription());
+    const {
+      findByRole,
+      findByText,
+      findByTestId,
+      getByRole,
+      getByTestId,
+      queryByText,
+    } = renderInteractive(proSuperSubscription());
 
     // Below Super, Base reads "Downgrade to Base". Clicking it opens the confirm
     // dialog, not an immediate cancellation.
@@ -939,32 +945,96 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("Downgrade to Base?");
     expect(cancelSubscriptionCall).toBeNull();
 
+    // The confirm asks why first: until a reason is picked the button is
+    // disabled, so a click can't post a survey-less cancellation.
+    const confirm = (await findByTestId(
+      "confirm-free-downgrade-button",
+    )) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(getByRole("radio", { name: "I don't use it enough" }));
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+
     // Confirming posts the subscription-cancel endpoint (the same action as the
-    // adjust-plan modal's Downgrade to Base) and closes the confirm.
-    // Cancellation can't go through the package-only change-package endpoint.
-    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    // adjust-plan modal's Downgrade to Base) with the survey as its body, and
+    // closes the confirm. Cancellation can't go through the package-only
+    // change-package endpoint.
+    fireEvent.click(confirm);
     await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "unused",
+      comment: null,
+    });
     await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
     // The confirmation toast names the scheduled end date.
     expect(
       toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
     ).toBe(true);
-    // Stays on the plans page with no Stripe redirect, and never touches the
+    // Lands on the billing settings tab (where the pending cancellation is
+    // shown) with no Stripe redirect, and never touches the
     // portal/package/checkout endpoints.
-    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(routes.settings.usageBilling),
+    );
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
     expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 
+  test("picking Other reveals a comment box whose trimmed text rides along", async () => {
+    const { findByRole, findByTestId, getByRole, queryByTestId } =
+      renderInteractive(proSuperSubscription());
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    // The free-text box only exists for "Other".
+    expect(queryByTestId("cancel-reason-comment")).toBeNull();
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    const comment = (await findByTestId(
+      "cancel-reason-comment",
+    )) as HTMLTextAreaElement;
+    fireEvent.change(comment, {
+      target: { value: "  Moving the team to a shared workspace.  " },
+    });
+
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "other",
+      comment: "Moving the team to a shared workspace.",
+    });
+  });
+
+  test("a comment typed under Other is dropped when another reason is picked", async () => {
+    const { findByRole, findByTestId, getByRole } = renderInteractive(
+      proSuperSubscription(),
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    fireEvent.change(await findByTestId("cancel-reason-comment"), {
+      target: { value: "half-typed" },
+    });
+    // Switching away hides the box; the text it held was never chosen.
+    fireEvent.click(getByRole("radio", { name: "It's too expensive" }));
+
+    fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
+    await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
+    expect(cancelSubscriptionCall!.body).toEqual({
+      feedback: "too_expensive",
+      comment: null,
+    });
+  });
+
   test("a non-entitlement Pro status falls back to the Stripe billing portal", async () => {
     // The cancel endpoint 403s a sub `is_pro_active` rejects, so an unpaid
     // Pro sub keeps the old portal handoff, where Stripe can still cancel it.
-    const { findByRole, findByText, findByTestId } = renderInteractive({
-      ...proSuperSubscription(),
-      status: "unpaid",
-    });
+    const { findByRole, findByText, findByTestId, queryByTestId } =
+      renderInteractive({
+        ...proSuperSubscription(),
+        status: "unpaid",
+      });
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
     // The confirm's body copy states the handoff instead of promising an
@@ -972,6 +1042,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await findByText("You'll be taken to Stripe to cancel your subscription.", {
       exact: false,
     });
+    // Stripe's cancel page runs its own survey, so this confirm asks nothing
+    // and needs no reason before it can be confirmed.
+    expect(queryByTestId("cancel-reason-survey")).toBeNull();
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
 
     await waitFor(() => expect(openedUrl).toBe(PORTAL_URL));
@@ -995,11 +1068,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
   test("a failed cancellation keeps the confirm open for a retry", async () => {
     cancelSubscriptionError = { detail: "Cancellation failed." };
-    const { findByRole, findByText, findByTestId } = renderInteractive(
-      proSuperSubscription(),
-    );
+    const { findByRole, findByText, findByTestId, getByRole } =
+      renderInteractive(proSuperSubscription());
 
     fireEvent.click(await findByRole("button", { name: "Downgrade to Base" }));
+    await findByTestId("confirm-free-downgrade-button");
+    fireEvent.click(getByRole("radio", { name: "It's too complicated" }));
     fireEvent.click(await findByTestId("confirm-free-downgrade-button"));
     await waitFor(() => expect(cancelSubscriptionCall).not.toBeNull());
 
@@ -1029,7 +1103,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     // Hold the cancel request in flight so the cancel mutation's pending state
     // stays true after the Free downgrade is confirmed.
     cancelSubscriptionResolves = false;
-    const { findByRole, findByTestId } = renderInteractive(
+    const { findByRole, findByTestId, getByRole } = renderInteractive(
       proMightySubscription(),
     );
 
@@ -1037,6 +1111,7 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     const confirm = (await findByTestId(
       "confirm-free-downgrade-button",
     )) as HTMLButtonElement;
+    fireEvent.click(getByRole("radio", { name: "I don't use it enough" }));
     fireEvent.click(confirm);
 
     // The cancel request is in flight and never settles: the confirm dialog

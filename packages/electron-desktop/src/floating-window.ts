@@ -20,6 +20,11 @@ export interface CreateFloatingWindowOptions {
   width: number;
   height: number;
   focusOnShow?: boolean;
+  /**
+   * Hold a new window off the screen until its page has painted once
+   * (`ready-to-show`) rather than showing it straight away.
+   */
+  showWhenReady?: boolean;
   alwaysOnTopLevel?: AlwaysOnTopLevel;
   visibleOnAllWorkspaces?: boolean;
   ignoreMouseEvents?: boolean | IgnoreMouseEventsOptions;
@@ -140,6 +145,7 @@ export const createFloatingWindow = ({
   width,
   height,
   focusOnShow = false,
+  showWhenReady = false,
   alwaysOnTopLevel = "floating",
   visibleOnAllWorkspaces = true,
   ignoreMouseEvents = false,
@@ -195,6 +201,14 @@ export const createFloatingWindow = ({
   floatingWindows.set(kind, win);
   applyPosition(win, position);
   void win.loadURL(resolveRoute(route));
-  showFloatingWindow(win, focusOnShow);
+  if (showWhenReady) {
+    win.once("ready-to-show", () => {
+      if (isAlive(win)) {
+        showFloatingWindow(win, focusOnShow);
+      }
+    });
+  } else {
+    showFloatingWindow(win, focusOnShow);
+  }
   return win;
 };

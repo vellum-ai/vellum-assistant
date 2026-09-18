@@ -64,6 +64,7 @@ import {
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,
+  type InstallPluginDeps,
   isFullCommitSha,
   materializePluginTree,
   type PluginFetchSource,
@@ -94,6 +95,7 @@ import {
   type PluginUpgradeStrategy,
 } from "./plugin-constants.js";
 import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
+import type { PluginCatalog } from "./search-plugins.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
 /**
@@ -167,6 +169,8 @@ export interface UpgradePluginDeps {
    * upgrades alike; dry runs and no-ops never stage, so it is not invoked.
    */
   readonly confirmStaged?: ConfirmStagedInstall;
+  readonly materializeLocalPackage?: InstallPluginDeps["materializeLocalPackage"];
+  readonly localCatalog?: PluginCatalog;
 }
 
 /** Result of an upgrade attempt. */
@@ -317,7 +321,11 @@ export async function upgradePlugin(
   try {
     inspection = await inspectPlugin(
       { name },
-      { fetch: deps.fetch, workspacePluginsDir: deps.workspacePluginsDir },
+      {
+        fetch: deps.fetch,
+        workspacePluginsDir: deps.workspacePluginsDir,
+        localCatalog: deps.localCatalog,
+      },
     );
   } catch (err) {
     if (err instanceof PluginInspectNotFoundError) {
@@ -373,6 +381,19 @@ export async function upgradePlugin(
   const toTimestamp = remote.committedAt;
   const provenanceWasUnknown = inspection.status === "unknown-provenance";
 
+  const localSource = local.source;
+  const sourceChanged =
+    remote.kind === "local"
+      ? localSource?.kind !== "local" || localSource.path !== remote.path
+      : localSource?.kind === "local";
+  if (sourceChanged) {
+    throw new PluginNotUpgradableError(
+      name,
+      "its marketplace source changed; reinstall explicitly with 'plugins install " +
+        `${name} --force' to accept the new source`,
+    );
+  }
+
   if (inspection.status === "up-to-date") {
     return {
       name,
@@ -389,6 +410,24 @@ export async function upgradePlugin(
       binaryConflicts: [],
       provenanceWasUnknown: false,
     };
+  }
+
+  const usesMergeStrategy =
+    strategy === "ours" || strategy === "theirs" || strategy === "assistant";
+  const canOverwriteCleanBundledInstall =
+    remote.kind === "local" &&
+    strategy === "theirs" &&
+    local.localChanges?.clean === true;
+
+  if (
+    remote.kind === "local" &&
+    usesMergeStrategy &&
+    !canOverwriteCleanBundledInstall
+  ) {
+    throw new PluginMergeBaselineError(
+      name,
+      "bundled packages do not retain the previous package version needed for a three-way merge",
+    );
   }
 
   if (dryRun) {
@@ -412,11 +451,7 @@ export async function upgradePlugin(
   // `ours`/`theirs`/`assistant` carry local edits forward via a three-way
   // merge; the default `overwrite` discards them and re-installs the pin
   // wholesale.
-  if (
-    strategy === "ours" ||
-    strategy === "theirs" ||
-    strategy === "assistant"
-  ) {
+  if (usesMergeStrategy && remote.kind !== "local") {
     const [remoteOwner, remoteRepo] = remote.repo.split("/");
     return mergeUpgrade(
       {
@@ -445,7 +480,19 @@ export async function upgradePlugin(
   }
 
   const result = await installPlugin(
-    { name, force: true },
+    {
+      name,
+      force: true,
+      ...(remote.kind === "local"
+        ? {
+            trustedSource: {
+              kind: "local" as const,
+              path: remote.path,
+              version: remote.version ?? remote.commit,
+            },
+          }
+        : {}),
+    },
     {
       fetch: deps.fetch,
       workspacePluginsDir: deps.workspacePluginsDir,
@@ -454,6 +501,7 @@ export async function upgradePlugin(
       runInstallDeps: deps.runInstallDeps,
       beforeSwap: deps.beforeSwap,
       confirmStaged: deps.confirmStaged,
+      materializeLocalPackage: deps.materializeLocalPackage,
     },
   );
 
@@ -716,7 +764,12 @@ async function mergeUpgrade(
   };
 
   const meta = readInstallMeta(local.target);
-  if (!meta || !meta.commit || !meta.fingerprint) {
+  if (
+    !meta ||
+    meta.source.kind !== "github" ||
+    !meta.commit ||
+    !meta.fingerprint
+  ) {
     throw new PluginMergeBaselineError(
       name,
       "no install commit or fingerprint was recorded (an older or manually-copied install)",

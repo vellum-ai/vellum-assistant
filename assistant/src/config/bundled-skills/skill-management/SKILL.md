@@ -28,7 +28,7 @@ Do NOT use this skill when the user just wants to run an existing skill. That is
 ## Capabilities
 
 - **Scaffold** a new managed skill with YAML frontmatter and markdown body
-- **Edit** an existing skill by scaffolding over it (rewrites the SKILL.md in place)
+- **Edit** an existing skill by scaffolding over it (replaces the body and needs `activation_hints` restated; every other frontmatter field you leave out keeps its current value, and an empty value clears one)
 - **Delete** an existing managed skill directory
 
 Skills created via `scaffold_managed_skill` become available for `skill_load` when a valid top-level `SKILL.md` is written under the skill directory.

@@ -181,7 +181,9 @@ export function ProfileEditorProviderSection({
   // `connections === []` is distinct: zero connections confirmed, so the
   // filter runs and yields empty — the empty-state hint fires.
   const providerOptionsSource =
-    connections === undefined ? CATALOG_PROVIDERS : visibleProviders;
+    connections === undefined
+      ? CATALOG_PROVIDERS
+      : visibleProviders;
 
   // A confirmed-empty connection list. Read-only profiles cannot act on it,
   // so they are not told to.
@@ -213,7 +215,10 @@ export function ProfileEditorProviderSection({
       if (!provider) {
         return [];
       }
-      const catalogModels = getVisibleModelsForProvider(provider, catalogFlags);
+      const catalogModels = getVisibleModelsForProvider(
+        provider,
+        catalogFlags,
+      );
       if (catalogModels.length > 0) {
         if (
           restrictsToSubscriptionModels(
@@ -288,7 +293,9 @@ export function ProfileEditorProviderSection({
     switch (modelEmptyState) {
       case "no-provider":
         return {
-          placeholder: t("profileEditorProviderSection.modelEmptyNoProviderPlaceholder"),
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyNoProviderPlaceholder",
+          ),
           hint: null,
         };
       case "configure-connection":
@@ -302,7 +309,9 @@ export function ProfileEditorProviderSection({
         };
       case "unknown-to-catalog":
         return {
-          placeholder: t("profileEditorProviderSection.modelEmptyUnknownPlaceholder"),
+          placeholder: t(
+            "profileEditorProviderSection.modelEmptyUnknownPlaceholder",
+          ),
           hint: t("profileEditorProviderSection.modelEmptyUnknownHint"),
         };
       default:
@@ -340,6 +349,10 @@ export function ProfileEditorProviderSection({
       availableModels.length > 0 &&
       !availableModels.some((m) => m.id === model)
     ) {
+      const bound = getModelsForProvider(provider).find((m) => m.id === model);
+      if (bound && bound.supportsText === false) {
+        return;
+      }
       onModelChange("");
     }
   }, [
@@ -479,7 +492,9 @@ export function ProfileEditorProviderSection({
             }
           }}
           disabled={isReadOnly}
-          placeholder={t("profileEditorProviderSection.selectProviderPlaceholder")}
+          placeholder={t(
+            "profileEditorProviderSection.selectProviderPlaceholder",
+          )}
           options={providerOptions}
         />
       )}
@@ -512,8 +527,12 @@ export function ProfileEditorProviderSection({
               value={model}
               onChange={(e) => onModelChange(e.target.value)}
               disabled={isReadOnly}
-              placeholder={t("profileEditorProviderSection.customModelPlaceholder")}
-              aria-label={t("profileEditorProviderSection.customModelAriaLabel")}
+              placeholder={t(
+                "profileEditorProviderSection.customModelPlaceholder",
+              )}
+              aria-label={t(
+                "profileEditorProviderSection.customModelAriaLabel",
+              )}
               fullWidth
               autoFocus
             />

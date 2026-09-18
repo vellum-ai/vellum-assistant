@@ -13,9 +13,13 @@ import {
   localFileKindFromFilename,
 } from "@/components/local-file/local-file-icon";
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
-import { toggleLocalFile } from "@/components/local-file/open-local-file";
+import {
+  localFileDestination,
+  toggleLocalFile,
+  useIsWorkspaceFileOpen,
+} from "@/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/utils/workspace-path-links";
-import { t } from "@/i18n";
+import { type ParseKeys, useTranslation } from "@/i18n";
 
 export interface LocalFileLinkProps {
   href: string;
@@ -28,8 +32,10 @@ export interface LocalFileLinkProps {
   assistantId?: string;
   /** The markdown label. */
   children: ReactNode;
-  /** When provided, a click delegates here instead of opening the file. */
-  onActivate?: () => void;
+  /** User-authored markdown keeps its original caption. */
+  labelMode?: "action" | "markdown";
+  /** Opens the file action chooser when the preview cannot reach the file. */
+  onOpenFileOptions?: () => void;
 }
 
 export function LocalFileLink({
@@ -37,21 +43,57 @@ export function LocalFileLink({
   workspacePath,
   assistantId,
   children,
-  onActivate,
+  labelMode = "action",
+  onOpenFileOptions,
 }: LocalFileLinkProps): ReactNode {
+  const { t } = useTranslation("chat");
   const filename =
     workspacePath !== null
       ? workspaceBasenameOf(workspacePath)
       : filenameFromHref(href);
+  const destination = localFileDestination(filename, assistantId);
+  const mode = onOpenFileOptions
+    ? "options"
+    : workspacePath === null
+      ? "unavailable"
+      : destination.mode;
+  const isOpen = useIsWorkspaceFileOpen(
+    mode === "preview" ? workspacePath : null,
+  );
+
+  let labelKey: ParseKeys<"chat">;
+  switch (mode) {
+    case "options":
+      labelKey = "localFileLink.fileOptions";
+      break;
+    case "unavailable":
+      labelKey = "localFileLink.unavailableLabel";
+      break;
+    case "workspace":
+      labelKey = "localFileLink.openInWorkspace";
+      break;
+    case "preview":
+      if (isOpen) {
+        labelKey = "localFileLink.closePreview";
+      } else if (
+        destination.mode === "preview" &&
+        destination.previewKind === "image"
+      ) {
+        labelKey = "localFileLink.viewImage";
+      } else {
+        labelKey = "localFileLink.openPreview";
+      }
+      break;
+  }
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    if (onActivate) {
-      onActivate();
+    if (mode === "options") {
+      onOpenFileOptions?.();
       return;
     }
     if (workspacePath === null) {
-      toast.error(t("chat:localFileLink.unavailable"));
+      toast.error(t("localFileLink.unavailable"));
       return;
     }
     toggleLocalFile(workspacePath, filename, assistantId);
@@ -61,14 +103,18 @@ export function LocalFileLink({
     <a
       href={href}
       onClick={handleClick}
-      className="inline-flex items-baseline gap-1 cursor-pointer text-[var(--system-positive-strong)] underline hover:opacity-80"
+      aria-expanded={mode === "preview" ? isOpen : undefined}
+      aria-haspopup={mode === "options" ? "dialog" : undefined}
+      className="inline-flex max-w-full items-baseline gap-1 cursor-pointer text-[var(--system-positive-strong)] underline hover:opacity-80"
     >
       <LocalFileIcon
         kind={localFileKindFromFilename(filename)}
         filename={filename}
-        className="h-3.5 w-3.5 shrink-0 self-center"
+        className="h-3.5 w-3.5 shrink-0"
       />
-      {children}
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        {labelMode === "markdown" ? children : t(labelKey, { filename })}
+      </span>
     </a>
   );
 }

@@ -12,9 +12,21 @@ import type { ReactElement } from "react";
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolResultImage } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
+type MetadataResult = {
+  data: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+    kind: string;
+    data: null;
+  } | null;
+  error: { message: string } | null;
+};
 
 const respondsWithBytes = async (): Promise<ContentResult> => ({
   data: new Blob(["image-bytes"]),
@@ -23,6 +35,17 @@ const respondsWithBytes = async (): Promise<ContentResult> => ({
 
 /** What the content endpoint answers, swapped per test. */
 let contentResponse: () => Promise<ContentResult> = respondsWithBytes;
+let metadataResponse: () => Promise<MetadataResult> = async () => ({
+  data: {
+    id: "att-dl",
+    filename: "file-read.png",
+    mimeType: "image/png",
+    sizeBytes: 11,
+    kind: "image",
+    data: null,
+  },
+  error: null,
+});
 
 // Mock only the daemon content endpoint; keep the rest of the generated SDK
 // real so any other consumer in the module graph is unaffected.
@@ -33,10 +56,17 @@ const attachmentsByIdContentGet = mock(
     throwOnError?: boolean;
   }): Promise<ContentResult> => contentResponse(),
 );
+const attachmentsByIdGet = mock(
+  async (_opts: {
+    path: { assistant_id: string; id: string };
+    throwOnError?: boolean;
+  }): Promise<MetadataResult> => metadataResponse(),
+);
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   attachmentsByIdContentGet,
+  attachmentsByIdGet,
 }));
 
 // happy-dom doesn't implement object URLs.
@@ -65,9 +95,11 @@ const restorePreviewModal = mockAttachmentPreviewModal();
 const imagesModule =
   await import("@/domains/chat/components/chat-attachments/tool-result-images");
 const { ToolResultImages } = imagesModule;
+const { projectToolResultImages, resolveToolResultImages } = imagesModule;
 
 interface StripOptions {
   messageAttachments?: DisplayAttachment[];
+  resolvedImages?: ToolResultImage[];
   assistantId?: string | null;
   /** Share one client across re-renders so a survivor keeps its cached blob. */
   client?: QueryClient;
@@ -86,6 +118,7 @@ function stripUi(
       <ToolResultImages
         toolCalls={toolCalls}
         messageAttachments={opts.messageAttachments}
+        resolvedImages={opts.resolvedImages}
         assistantId={assistantId}
       />
     </QueryClientProvider>
@@ -102,7 +135,19 @@ function renderStrip(
 afterEach(() => {
   cleanup();
   contentResponse = respondsWithBytes;
+  metadataResponse = async () => ({
+    data: {
+      id: "att-dl",
+      filename: "file-read.png",
+      mimeType: "image/png",
+      sizeBytes: 11,
+      kind: "image",
+      data: null,
+    },
+    error: null,
+  });
   attachmentsByIdContentGet.mockClear();
+  attachmentsByIdGet.mockClear();
   saveFileMock.mockClear();
   createObjectUrl.mockClear();
   revokeObjectUrl.mockClear();
@@ -118,6 +163,48 @@ afterAll(() => {
 });
 
 describe("ToolResultImages referenced media", () => {
+  test("uses a supplied message-wide image selection", () => {
+    const calls: ChatMessageToolCall[] = [
+      {
+        id: "tc-first",
+        name: "computer_use_screenshot",
+        input: {},
+        imageDataList: ["first"],
+      },
+      {
+        id: "tc-selected",
+        name: "computer_use_screenshot",
+        input: {},
+        imageDataList: ["selected"],
+      },
+    ];
+    const selected = projectToolResultImages([calls[1]!]);
+
+    renderStrip(calls, { resolvedImages: selected });
+
+    const images = screen.getAllByTestId("tool-result-image");
+    expect(images).toHaveLength(1);
+    expect(images[0]!.getAttribute("src")).toBe(
+      "data:image/png;base64,selected",
+    );
+  });
+
+  test("keeps an explicit empty message-wide selection empty", () => {
+    renderStrip(
+      [
+        {
+          id: "tc-image",
+          name: "computer_use_screenshot",
+          input: {},
+          imageDataList: ["image"],
+        },
+      ],
+      { resolvedImages: [] },
+    );
+
+    expect(screen.queryByTestId("tool-result-image")).toBeNull();
+  });
+
   test("renders inline base64 images without hitting the daemon", () => {
     const toolCall: ChatMessageToolCall = {
       id: "tc-b64",
@@ -173,7 +260,22 @@ describe("ToolResultImages referenced media", () => {
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
-  test("downloading a referenced image fetches its bytes by id", async () => {
+  test("downloading a referenced image uses its canonical metadata", async () => {
+    contentResponse = async () => ({
+      data: new Blob(["jpeg-bytes"], { type: "image/jpeg" }),
+      error: null,
+    });
+    metadataResponse = async () => ({
+      data: {
+        id: "att-dl",
+        filename: "capture.jpeg",
+        mimeType: "image/jpeg",
+        sizeBytes: 10,
+        kind: "image",
+        data: null,
+      },
+      error: null,
+    });
     const toolCall: ChatMessageToolCall = {
       id: "tc-ref-dl",
       name: "file_read",
@@ -190,9 +292,14 @@ describe("ToolResultImages referenced media", () => {
     await waitFor(() => {
       expect(saveFileMock).toHaveBeenCalledTimes(1);
     });
-    // Saved from the fetched blob (referenced media has no inline data URL).
-    expect(saveFileMock.mock.calls[0]![0]).toBeInstanceOf(Blob);
-    expect(saveFileMock.mock.calls[0]![1]).toBe("file-read.png");
+    // Saved from the fetched blob and named by the canonical metadata rather
+    // than the projection's PNG fallback.
+    const saved = saveFileMock.mock.calls[0]![0] as Blob;
+    expect(saved).toBeInstanceOf(Blob);
+    expect(saved.type).toBe("image/jpeg");
+    expect(await saved.text()).toBe("jpeg-bytes");
+    expect(saveFileMock.mock.calls[0]![1]).toBe("capture.jpeg");
+    expect(attachmentsByIdGet).toHaveBeenCalledTimes(1);
   });
 
   test("opens the gallery at the clicked image's position when two calls name one id", () => {
@@ -339,6 +446,92 @@ describe("ToolResultImages referenced media", () => {
       screen.queryByTestId("tool-result-image") ??
         screen.queryByTestId("tool-result-image-placeholder"),
     ).not.toBeNull();
+  });
+});
+
+describe("projectToolResultImages", () => {
+  test("names wrapped computer-use images from the resolved inner tool", () => {
+    const wrapped: ChatMessageToolCall = {
+      id: "tc-wrapped",
+      name: "skill_execute",
+      input: { tool: "computer_use_click" },
+      imageDataList: ["AAAA"],
+    };
+    const malformed: ChatMessageToolCall = {
+      ...wrapped,
+      id: "tc-malformed",
+      input: { _raw: '{"tool":"computer_use_click"}' },
+    };
+
+    expect(projectToolResultImages([wrapped])[0]?.filename).toBe(
+      "computer-use-click.png",
+    );
+    expect(projectToolResultImages([malformed])[0]?.filename).toBe(
+      "skill-execute.png",
+    );
+  });
+
+  test("keeps tool-call occurrence identity on inline and referenced images", () => {
+    const inline: ChatMessageToolCall = {
+      id: "tc-inline",
+      name: "computer_use_screenshot",
+      input: {},
+      imageDataList: ["AAAA"],
+    };
+    const referenced: ChatMessageToolCall = {
+      ...inline,
+      imageDataList: undefined,
+      imageAttachmentIds: ["att-1"],
+    };
+
+    const inlineImage = projectToolResultImages([inline])[0];
+    const referencedImage = projectToolResultImages([referenced])[0];
+
+    expect(inlineImage?.toolCallId).toBe("tc-inline");
+    expect(referencedImage?.toolCallId).toBe("tc-inline");
+    expect(inlineImage?.occurrenceKey).toBe("tc-inline:1");
+    expect(referencedImage?.occurrenceKey).toBe(inlineImage?.occurrenceKey);
+  });
+
+  test("retains raw images before markdown and reply-attachment suppression", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-raw",
+      name: "computer_use_screenshot",
+      input: {},
+      result: "Saved /workspace/frame.png",
+      imageAttachmentIds: ["att-shared"],
+    };
+    const attachment: DisplayAttachment = {
+      id: "att-shared",
+      filename: "frame.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      previewUrl: null,
+    };
+
+    expect(projectToolResultImages([toolCall])).toHaveLength(1);
+    expect(
+      resolveToolResultImages([toolCall], [attachment], new Set(["frame.png"])),
+    ).toHaveLength(0);
+  });
+
+  test("keeps two calls sharing one attachment as distinct occurrences", () => {
+    const calls: ChatMessageToolCall[] = ["tc-a", "tc-b"].map((id) => ({
+      id,
+      name: "computer_use_screenshot",
+      input: {},
+      imageAttachmentIds: ["att-shared"],
+    }));
+
+    expect(
+      projectToolResultImages(calls).map((image) => [
+        image.id,
+        image.toolCallId,
+      ]),
+    ).toEqual([
+      ["att-shared", "tc-a"],
+      ["att-shared", "tc-b"],
+    ]);
   });
 });
 

@@ -148,6 +148,23 @@ export async function streamLiveVoiceTtsAudio(
   // a trailing odd byte is carried into the next chunk to keep frames aligned.
   const pcmAligner = createPcmChunkAligner(2);
 
+  // Send the first available samples immediately, then frame PCM in 100ms
+  // blocks. Provider read sizes must not determine websocket queue pressure.
+  const frameBytes = Math.max(2, Math.floor(sampleRate / 10) * 2);
+  let pendingPcm: Buffer = Buffer.alloc(0);
+  const emitPcm = (audio: Buffer, flush = false): void => {
+    pendingPcm =
+      pendingPcm.length > 0 ? Buffer.concat([pendingPcm, audio]) : audio;
+    while (
+      pendingPcm.length >= frameBytes ||
+      (pendingPcm.length > 0 && (chunks === 0 || flush))
+    ) {
+      const length = Math.min(frameBytes, pendingPcm.length);
+      emitAudioFrame(chunkContentType, pendingPcm.subarray(0, length));
+      pendingPcm = pendingPcm.subarray(length);
+    }
+  };
+
   try {
     const result = await synthesizeAndEmit({
       provider,
@@ -160,15 +177,16 @@ export async function streamLiveVoiceTtsAudio(
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {
-          emitAudioFrame(
-            chunk.contentType || chunkContentType,
-            pcmAligner.align(chunk.audio),
-          );
+          emitPcm(pcmAligner.align(chunk.audio));
         } else {
           bufferedAudio.push(chunk.audio);
         }
       },
     });
+
+    if (canStreamChunks && !result.stopped && !options.signal?.aborted) {
+      emitPcm(Buffer.alloc(0), true);
+    }
 
     // A dangling final byte is malformed provider output — drop it rather
     // than emit a torn sample.

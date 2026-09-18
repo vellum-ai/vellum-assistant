@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { emptyHistory } from "@/domains/chat/transcript/rolling-snapshot";
 import { useConversationStore } from "@/stores/conversation-store";
 
 import { useIsLiveVoiceSessionOwnedBy } from "./live-voice-store";
@@ -41,13 +42,8 @@ export function useSeedLiveVoiceSnapshot(): void {
     if (useChatSessionStore.getState().snapshot !== null) {
       return;
     }
-    useChatSessionStore.getState().seedSnapshot(activeConversationId, {
-      messages: [],
-      seq: null,
-      hasMore: false,
-      oldestTimestamp: null,
-      oldestMessageId: null,
-      processing: undefined,
-    });
+    useChatSessionStore
+      .getState()
+      .seedSnapshot(activeConversationId, emptyHistory());
   }, [ownsActiveConversation, activeConversationId]);
 }

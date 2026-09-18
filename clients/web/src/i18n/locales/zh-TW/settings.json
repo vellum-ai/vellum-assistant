@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "啟用後，Vellum 員工將能存取您的助理及其資料以進行偵錯。建議您保持此功能關閉，僅在需要 Vellum 支援團隊協助調查問題時暫時開啟。",
+    "expiresAt": "員工存取將於{when}結束。",
+    "extend": "延長 24 小時",
     "loadError": "無法載入同意設定。",
     "loginNotice": "登入 Vellum 平台以管理管理員資料存取權。",
     "title": "允許員工存取",
     "toastDisabled": "管理員資料存取已停用。",
     "toastEnabled": "管理員資料存取已啟用。",
+    "toastExtended": "管理員資料存取已延長。",
     "toastUpdateFailed": "無法更新記錄存取同意。"
   },
   "adjustPlanModal": {
@@ -409,6 +412,19 @@
     "pickModelError": "選擇一個模型",
     "providerLabel": "提供者",
     "unavailableOption": "{name} (不可用)"
+  },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "客服體驗不佳",
+    "optionLowQuality": "品質沒有達到我的預期",
+    "optionMissingFeatures": "缺少我需要的功能",
+    "optionOther": "其他",
+    "optionSwitchedService": "我改用了其他服務",
+    "optionTooComplex": "太複雜了",
+    "optionTooExpensive": "太貴了",
+    "optionUnused": "我用得不多",
+    "otherLabel": "告訴我們更多",
+    "otherPlaceholder": "我們可以在哪些方面做得更好？",
+    "title": "您為什麼要取消？"
   },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "您或您的團隊管理員可能需要在 <settingsLink>ChatGPT 設定</settingsLink> 中啟用裝置代碼授權。",
@@ -869,27 +885,9 @@
     "title": "圖片生成",
     "vellumNote": "圖片生成透過您的 Vellum 帳號執行。"
   },
-  "integrationDetailModal": {
-    "accountFallback": "{name} 帳號",
-    "close": "關閉",
-    "confirm": "確認",
-    "disconnect": "中斷連線",
-    "disconnectFailedToast": "中斷 {name} 帳號連線失敗。",
-    "disconnectMessage": "中斷 {account} 的連線？您可以稍後重新連線。",
-    "disconnectTitle": "中斷 {name} 的連線？",
-    "disconnectedToast": "{name} 帳號已中斷連線。",
-    "loginNotice": "登入 Vellum 平台以管理 OAuth 連線。",
-    "managedTab": "已管理",
-    "oauthModeAriaLabel": "OAuth 模式",
-    "subtitle": "設定 {name} OAuth",
-    "subtitleWithDescription": "為 {description} 設定 {name} OAuth",
-    "title": "{name} OAuth",
-    "yourOwnTab": "您的"
-  },
   "integrationRow": {
-    "configure": "設定",
+    "configureLabel": "設定 {name}",
     "connect": "連線",
-    "connected": "已連線",
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
     "needsAttention": "需要處理"
   },
@@ -909,6 +907,7 @@
     "oauthErrorStateExpired": "授權已過期。請再試一次。",
     "oauthErrorStateInvalid": "授權狀態無效。請再試一次。",
     "oauthUnavailable": "部分 OAuth 整合無法載入。MCP 連線仍然可用。",
+    "pluginCatalogUnavailable": "無法載入外掛程式整合。現有整合仍然可用。",
     "searchAriaLabel": "搜尋整合",
     "searchPlaceholder": "搜尋整合",
     "sectionAvailable": "可用",
@@ -980,18 +979,6 @@
     "summaryTwoClauses": "「{display}」 {clause1} 和 {clause2}。請在下方選擇一個替換項目，這些參考將移至該替換項目，然後「{display}」將被刪除。",
     "title": "選擇一個替換設定檔"
   },
-  "managedOauthTab": {
-    "accountFallback": "{name} 帳號",
-    "cancel": "取消",
-    "connectAccount": "連接帳號",
-    "connectAccountLower": "連接帳號",
-    "connectToContinue": "連接帳號以繼續",
-    "disconnectAriaLabel": "中斷 {account} 連線",
-    "statusConnected": "已連線",
-    "statusNeedsAttention": "需要處理",
-    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
-    "waitingForAuthorization": "正在等待授權..."
-  },
   "mcpAddServerModal": {
     "addServer": "新增伺服器",
     "adding": "正在新增...",
@@ -1047,13 +1034,13 @@
   "mcpServerCard": {
     "actionsSheetClose": "關閉",
     "configure": "設定",
+    "configureLabel": "設定 {serverId}",
     "connecting": "正在連線...",
     "finishConnecting": "完成連線",
     "managePlugin": "管理外掛",
     "moreActions": "{serverId} 的更多操作",
     "reconnect": "重新連線",
     "removeServer": "移除",
-    "statusConnected": "已連線",
     "statusNeedsAttention": "需要處理",
     "viewDetails": "查看詳細資料"
   },
@@ -1264,11 +1251,14 @@
     "nextPlan": "下一個方案",
     "powerUp": "升級",
     "powerUpFor": "升級至 +{amount}/月",
-    "renewsOn": "按月付款 • 您的訂閱將於 {date} 自動續訂。",
     "usageBalanceAddCredits": "新增",
+    "usageBalanceBarRenews": "目前使用量，{date} 續訂",
+    "usageBalanceBarResets": "目前使用量，{date} 重設",
     "usageBalanceExhausted": "新增點數以繼續使用您的助理",
     "usageBalancePctUsed": "已使用 {pct}%",
-    "usageBalanceTitle": "使用餘額",
+    "usageBalanceRenews": "{date} 續訂",
+    "usageBalanceResets": "{date} 重設",
+    "usageBalanceTitle": "目前使用量",
     "usageChip": "{name} 使用量，每月重設",
     "viewAllPlans": "檢視所有方案"
   },

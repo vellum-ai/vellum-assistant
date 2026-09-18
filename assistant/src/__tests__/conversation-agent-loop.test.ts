@@ -14,10 +14,12 @@ import {
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
+import type { AttachmentResolutionResult } from "../daemon/conversation-attachments.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -40,6 +42,11 @@ const conversationCrudRealSnapshot = {
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
     "../persistence/conversation-disk-view.js",
+  ) as Record<string, unknown>),
+};
+const channelReplyDeliveryRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../runtime/channel-reply-delivery.js",
   ) as Record<string, unknown>),
 };
 // Disable the catalog default so resolution lands on llm.default.
@@ -418,6 +425,10 @@ afterAll(() => {
     "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
+  mock.module(
+    "../runtime/channel-reply-delivery.js",
+    () => channelReplyDeliveryRealSnapshot,
+  );
 });
 
 const syncMessageToDiskMock = mock(() => {});
@@ -426,6 +437,19 @@ mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
+}));
+
+let mockTurnReplyMessageId: string | undefined;
+const resolveTurnReplyMessageIdMock = mock(
+  (
+    _conversationId: string,
+    _userMessageId: string | undefined,
+    fallbackMessageId: string,
+  ) => mockTurnReplyMessageId ?? fallbackMessageId,
+);
+mock.module("../runtime/channel-reply-delivery.js", () => ({
+  ...channelReplyDeliveryRealSnapshot,
+  resolveTurnReplyMessageId: resolveTurnReplyMessageIdMock,
 }));
 
 mock.module("../apps/app-store.js", () => ({
@@ -580,12 +604,16 @@ mock.module("../daemon/conversation-usage.js", () => ({
   recordUsage: recordUsageMock,
 }));
 
-const resolveAssistantAttachmentsMock = mock(async () => ({
-  assistantAttachments: [],
-  emittedAttachments: [],
-  directiveWarnings: [],
-  persistedFiles: [],
-}));
+const resolveAssistantAttachmentsMock = mock(
+  async (): Promise<AttachmentResolutionResult> => ({
+    assistantAttachments: [],
+    emittedAttachments: [],
+    directiveWarnings: [],
+    persistedFiles: [],
+    linkedAttachmentIds: [],
+    computerUseScreenshotAttachmentIds: [],
+  }),
+);
 mock.module("../daemon/conversation-attachments.js", () => ({
   resolveAssistantAttachments: resolveAssistantAttachmentsMock,
   approveHostAttachmentRead: async () => true,
@@ -894,6 +922,26 @@ function makeCtx(
   return ctx;
 }
 
+function makeSendUserMessageCtx(): Conversation {
+  return makeCtx({
+    currentCallSite: "mainAgent",
+    providerResponses: [
+      toolUseResponse("tu_1", "send_user_message", {
+        message: "Here is the result.",
+      }),
+      textResponse("Finished delivery."),
+    ],
+    loopTools: [
+      {
+        name: "send_user_message",
+        description: "deliver",
+        input_schema: { type: "object" },
+      },
+    ],
+    toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+  });
+}
+
 /**
  * What `classifyConversationError` returns for a daily-credit-limit 402 (see
  * `dailyLimitClassification` in conversation-error.ts). Its `userMessage` is
@@ -987,6 +1035,8 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  mockTurnReplyMessageId = undefined;
+  resolveTurnReplyMessageIdMock.mockClear();
   emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
@@ -1038,6 +1088,8 @@ beforeEach(() => {
     emittedAttachments: [],
     directiveWarnings: [],
     persistedFiles: [],
+    linkedAttachmentIds: [],
+    computerUseScreenshotAttachmentIds: [],
   }));
   mockMessageById = null;
   resetConversationNoticesForTests();
@@ -1663,6 +1715,30 @@ describe("session-agent-loop", () => {
     });
   });
 
+  test("releases desktop control before a completed turn accepts another message", async () => {
+    const events: AssistantEvent[] = [];
+    const ctx = makeCtx();
+    const release = spyOn(desktopAutomationLease, "releaseForConversation");
+    const setProcessing = ctx.setProcessing.bind(ctx);
+    ctx.setProcessing = (processing) => {
+      if (!processing) {
+        expect(release).toHaveBeenCalledWith(ctx.conversationId);
+      }
+      setProcessing(processing);
+    };
+    try {
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      release.mockRestore();
+    }
+  });
+
   describe("tool execution errors via agent loop", () => {
     test("error events from agent loop are classified and emitted", async () => {
       const events: AssistantEvent[] = [];
@@ -1697,6 +1773,139 @@ describe("session-agent-loop", () => {
       expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
+    });
+
+    test("carries automatic screenshot provenance on message completion", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [
+          {
+            id: "screenshot-1",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            data: "c2NyZWVuc2hvdA==",
+            sourceType: "tool_block" as const,
+            computerUseScreenshot: true,
+          },
+        ],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["screenshot-1"],
+        computerUseScreenshotAttachmentIds: ["screenshot-1"],
+      }));
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("Done")] });
+
+      await runAgentLoopImpl(ctx, "click it", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      const complete = events.find(
+        (event) => event.type === "message_complete",
+      );
+      expect(complete?.attachments?.[0]?.computerUseScreenshot).toBe(true);
+      const syncCalls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      const finalRowSyncs = syncCalls.filter(
+        (call) => call[1] === "msg-reserve",
+      );
+      expect(finalRowSyncs).toHaveLength(1);
+    });
+
+    test("defers an earlier delivered attachment reply to ordered turn settlement", async () => {
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-delivered-reply" }))
+        .mockImplementationOnce(async () => ({ id: "msg-tool-result" }))
+        .mockImplementationOnce(async () => ({ id: "msg-final-private" }));
+      mockTurnReplyMessageId = "msg-delivered-reply";
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["attachment-1"],
+        computerUseScreenshotAttachmentIds: [],
+      }));
+      const assistantSyncsAtTerminal: string[][] = [];
+      const ctx = makeSendUserMessageCtx();
+
+      try {
+        await runAgentLoopImpl(ctx, "click it", "msg-1", (event) => {
+          if (event.type !== "message_complete") {
+            return;
+          }
+          const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+            [string, string, number]
+          >;
+          assistantSyncsAtTerminal.push(
+            calls
+              .map((call) => call[1])
+              .filter((id) =>
+                ["msg-delivered-reply", "msg-final-private"].includes(id),
+              ),
+          );
+        });
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      expect(resolveTurnReplyMessageIdMock).toHaveBeenCalledWith(
+        "test-conv",
+        "msg-1",
+        "msg-final-private",
+      );
+      expect(assistantSyncsAtTerminal.at(-1)).toEqual([]);
+      const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      expect(
+        calls
+          .map((call) => call[1])
+          .filter((id) =>
+            ["msg-delivered-reply", "msg-final-private"].includes(id),
+          ),
+      ).toEqual(["msg-delivered-reply", "msg-final-private"]);
+    });
+
+    test("does not queue an earlier delivered reply without a linked attachment", async () => {
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-delivered-empty" }))
+        .mockImplementationOnce(async () => ({ id: "msg-tool-result-empty" }))
+        .mockImplementationOnce(async () => ({ id: "msg-final-empty" }));
+      mockTurnReplyMessageId = "msg-delivered-empty";
+
+      try {
+        await runAgentLoopImpl(
+          makeSendUserMessageCtx(),
+          "click it",
+          "msg-1",
+          () => {},
+        );
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      const calls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      expect(
+        calls
+          .map((call) => call[1])
+          .filter((id) =>
+            ["msg-delivered-empty", "msg-final-empty"].includes(id),
+          ),
+      ).toEqual(["msg-final-empty"]);
     });
   });
 
@@ -2170,6 +2379,48 @@ describe("session-agent-loop", () => {
         "test-conv",
         "checkpoint_handoff",
       );
+    });
+
+    test("carries automatic screenshot provenance on generation handoff", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+        assistantAttachments: [],
+        emittedAttachments: [
+          {
+            id: "screenshot-1",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            data: "c2NyZWVuc2hvdA==",
+            sourceType: "tool_block" as const,
+            computerUseScreenshot: true,
+          },
+        ],
+        directiveWarnings: [],
+        persistedFiles: [],
+        linkedAttachmentIds: ["screenshot-1"],
+        computerUseScreenshotAttachmentIds: ["screenshot-1"],
+      }));
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
+        loopTools: [
+          {
+            name: "file_read",
+            description: "Read a file",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        toolExecutor: async () => ({ content: "content", isError: false }),
+        canHandoffAtCheckpoint: () => true,
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+
+      const handoff = events.find(
+        (event) => event.type === "generation_handoff",
+      );
+      expect(handoff?.attachments?.[0]?.computerUseScreenshot).toBe(true);
     });
 
     test("continues when canHandoffAtCheckpoint returns false", async () => {

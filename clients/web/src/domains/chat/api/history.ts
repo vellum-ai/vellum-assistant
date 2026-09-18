@@ -36,7 +36,9 @@ const DEFAULT_OLDER_LIMIT = 50;
 
 type HistoryQuery = NonNullable<MessagesGetData["query"]>;
 
-function parsePaginatedResponse(
+/** Project a `/messages` response into the paginated history shape the
+ *  transcript fold advances. */
+export function parsePaginatedResponse(
   body: MessagesGetResponse | undefined,
 ): PaginatedHistoryResult {
   const rows = body?.messages ?? [];

@@ -57,6 +57,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -200,7 +201,10 @@ function frontDoorRuleWithDigest(
 function routingLegRuleFor(
   opts: Pick<
     VoiceTurnOptions,
-    "routingLeg" | "unifiedVerdict" | "spokenEscalationBridge"
+    | "routingLeg"
+    | "unifiedVerdict"
+    | "spokenEscalationBridge"
+    | "directEscalated"
   >,
   callerUtterance: string,
 ): string | null {
@@ -211,7 +215,9 @@ function routingLegRuleFor(
         callerUtterance,
       );
     case "escalated":
-      return escalatedContinuationRule(opts.spokenEscalationBridge);
+      return opts.directEscalated === true
+        ? null
+        : escalatedContinuationRule(opts.spokenEscalationBridge);
     default:
       return null;
   }
@@ -358,6 +364,7 @@ export interface VoiceRunEventSink {
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
+    allowedToolNames?: ReadonlySet<string>,
   ): void;
   onToolResult(event: VoiceToolResultEvent): void;
 }
@@ -372,13 +379,19 @@ export interface VoiceTurnCallbacks {
   /** Fired when the agent run starts a definitive tool use this turn. */
   tool_use_start?: (
     toolName: string,
-    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+    detail?: {
+      toolUseId?: string;
+      input?: Record<string, unknown>;
+      allowedToolNames?: ReadonlySet<string>;
+    },
   ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
 export interface VoiceTurnOptions {
+  /** Internal task update delivered through the call, with its original attribution. */
+  subagentNotification?: SubagentParentNotification;
   /** The conversation ID for this voice call's session. */
   conversationId: string;
   /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
@@ -533,6 +546,8 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /** Run the strong leg directly, without claiming a holding phrase was spoken. */
+  directEscalated?: boolean;
   /**
    * Marks this turn's `content` as an internal instruction rather than user
    * speech: it persists `hidden` so `/messages` filters it after a reload,
@@ -921,9 +936,13 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input, toolUseId) => {
+    onToolUse: (toolName, input, toolUseId, allowedToolNames) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
+      opts.callbacks?.tool_use_start?.(toolName, {
+        toolUseId,
+        input,
+        ...(allowedToolNames !== undefined ? { allowedToolNames } : {}),
+      });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -1203,6 +1222,7 @@ export async function startVoiceTurn(
       ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
+        ...opts.subagentNotification?.metadata,
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
@@ -2040,6 +2060,9 @@ export async function startVoiceTurn(
         );
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        ...(opts.subagentNotification?.cronRunId
+          ? { cronRunId: opts.subagentNotification.cronRunId }
+          : {}),
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
@@ -2081,7 +2104,12 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+            eventSink.onToolUse(
+              msg.toolName,
+              msg.input,
+              msg.toolUseId,
+              conversation.allowedToolNames,
+            );
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,

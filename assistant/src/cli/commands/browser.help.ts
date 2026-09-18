@@ -17,6 +17,7 @@ import type {
   BrowserOperationMeta,
   OperationField,
 } from "../../browser/types.js";
+import { DESKTOP_HELP_GUIDANCE } from "../../util/browser-human-verification.js";
 import type {
   CliCommandHelp,
   CliOptionHelp,
@@ -158,7 +159,10 @@ or --use-active-tab. Download waiting is unavailable on this target.
 Users can interact directly with the expanded desktop. If they ask you to pause,
 stop and wait. Take a fresh snapshot before resuming. Closing the viewer does not
 end automation. Run assistant browser --virtual-desktop detach when finished or
-blocked, including before asking a question. Chrome stays running.
+blocked. Chrome stays running.
+For logins, use saved credentials first. Securely collect missing credentials
+with assistant credentials prompt, then fill the login form yourself.
+${DESKTOP_HELP_GUIDANCE}
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 

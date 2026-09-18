@@ -81,6 +81,24 @@ describe("fetchMarketplaceEntries", () => {
     expect(entries[1]!.source.path).toBe("packages/nested");
   });
 
+  test("skips an entry with an unknown future source kind", async () => {
+    const fetch = manifestFetch({
+      ...VALID_MANIFEST,
+      plugins: [
+        VALID_MANIFEST.plugins[0],
+        {
+          name: "future-plugin",
+          source: { source: "registry", package: "future-plugin" },
+        },
+        VALID_MANIFEST.plugins[1],
+      ],
+    });
+
+    const entries = await fetchMarketplaceEntries({ fetch }, { ref: "main" });
+
+    expect(entries.map((entry) => entry.name)).toEqual(["caveman", "nested"]);
+  });
+
   test("forwards the ref to the GitHub Contents API", async () => {
     // GIVEN a fixture that records the ref query parameter
     let seenRef: string | undefined;
@@ -334,6 +352,7 @@ describe("resolveMarketplaceSource", () => {
 
     // THEN the owner/repo split out and path defaults to repo root
     expect(resolved).toEqual({
+      kind: "github",
       owner: "JuliusBrussee",
       repo: "caveman",
       path: "",
@@ -348,6 +367,7 @@ describe("resolveMarketplaceSource", () => {
 
     // THEN the sub-path is preserved
     expect(resolved).toEqual({
+      kind: "github",
       owner: "acme",
       repo: "monorepo",
       path: "packages/nested",

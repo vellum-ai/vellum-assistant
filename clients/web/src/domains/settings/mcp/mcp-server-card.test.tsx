@@ -36,8 +36,11 @@ describe("McpServerCard", () => {
   test("a legacy workspace payload offers Configure without technical metadata", () => {
     render(<McpServerCard {...handlers} server={server({ hasOAuth: true })} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Configure example-meeting-notes" }),
+    );
     expect(handlers.onConfigure).toHaveBeenCalledWith("example-meeting-notes");
+    expect(screen.queryByText("Connected")).toBeNull();
     expect(screen.queryByText("Authenticated")).toBeNull();
     expect(screen.queryByText("streamable-http")).toBeNull();
     expect(
@@ -83,7 +86,9 @@ describe("McpServerCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Configure example-meeting-notes" }),
+    );
     expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
     expect(handlers.onAuthenticate).not.toHaveBeenCalled();
   });
