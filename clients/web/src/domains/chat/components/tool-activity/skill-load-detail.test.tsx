@@ -36,7 +36,7 @@ const { SkillLoadDetail } =
   await import("@/domains/chat/components/tool-activity/skill-load-detail");
 const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-import { stubOverflow } from "@/hooks/overflow.test-helper";
+import { stubOverflow, stubResizeObserver } from "@/hooks/overflow.test-helper";
 
 const LONG_PARAGRAPH = "Detailed guidance about the skill. ".repeat(40);
 
@@ -162,6 +162,37 @@ describe("SkillLoadDetail", () => {
 
     expect(getByText("Show less")).toBeDefined();
     expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("drops Show less when the view switched to fits the fold", () => {
+    // Only the Raw body, which carries the tool manifest, is taller than the
+    // fold; the clean instructions fit.
+    const restore = stubOverflow((el) =>
+      (el.textContent ?? "").includes("## Available Tools"),
+    );
+    const observer = stubResizeObserver();
+    try {
+      const { getByText, queryByText } = renderDetail();
+      act(() => {
+        fireEvent.click(getByText("Raw"));
+      });
+      act(observer.resize);
+      act(() => {
+        fireEvent.click(getByText("Show more"));
+      });
+      expect(getByText("Show less")).toBeDefined();
+
+      act(() => {
+        fireEvent.click(getByText("Clean"));
+      });
+      act(observer.resize);
+
+      expect(queryByText("Show less")).toBeNull();
+      expect(queryByText("Show more")).toBeNull();
+    } finally {
+      observer.restore();
+      restore();
+    }
   });
 
   test("reports a failed load once, with no Output section", () => {

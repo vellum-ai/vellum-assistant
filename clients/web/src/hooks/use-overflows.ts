@@ -2,6 +2,8 @@
  * Whether an element's content is taller than the element: `scrollHeight`
  * against `clientHeight`, measured on the element a caller caps (with a
  * `max-height` or a `line-clamp`) to decide whether to offer Show more.
+ * With `limit`, the content is measured against that height instead, which
+ * holds whether or not the cap is on.
  *
  * The element arrives through a callback ref, stored in state the way
  * `useElementSize` stores it, so the hook measures once it mounts. A
@@ -11,8 +13,11 @@
  * re-measures for a change that moves neither.
  *
  * `paused` holds the last measurement. A caller that removes its cap to show
- * everything pauses while expanded, since an uncapped element never overflows
- * and the control that collapses it again would disappear.
+ * everything and has no `limit` (a `line-clamp` is counted in lines) pauses
+ * while expanded, since an uncapped element never overflows and the control
+ * that collapses it again would disappear. A paused measure misses content
+ * that changes meanwhile, so a caller whose content can be replaced while
+ * expanded caps by height and passes `limit` instead.
  */
 
 import { useLayoutEffect, useState } from "react";
@@ -22,11 +27,14 @@ interface UseOverflowsOptions {
   contentKey?: unknown;
   /** Keep the last measurement instead of measuring. */
   paused?: boolean;
+  /** Compare the content with this height, in pixels, not the element's. */
+  limit?: number;
 }
 
 export function useOverflows<T extends HTMLElement>({
   contentKey,
   paused = false,
+  limit,
 }: UseOverflowsOptions = {}): {
   ref: (el: T | null) => void;
   overflows: boolean;
@@ -42,7 +50,8 @@ export function useOverflows<T extends HTMLElement>({
       setOverflows(false);
       return;
     }
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight);
+    const measure = () =>
+      setOverflows(el.scrollHeight > (limit ?? el.clientHeight));
     measure();
     if (typeof ResizeObserver === "undefined") {
       return;
@@ -53,7 +62,7 @@ export function useOverflows<T extends HTMLElement>({
       observer.observe(el.firstElementChild);
     }
     return () => observer.disconnect();
-  }, [el, contentKey, paused]);
+  }, [el, contentKey, paused, limit]);
 
   return { ref: setEl, overflows };
 }

@@ -40,3 +40,41 @@ export function stubOverflow(isTall: (el: HTMLElement) => boolean): () => void {
     }
   };
 }
+
+/**
+ * happy-dom's `ResizeObserver` never reports, so content replaced under an
+ * observed element is never re-measured. Installs one that tracks every
+ * observer until it disconnects, for `resize` to report to at once, standing
+ * in for the browser noticing that the content changed size. `restore` puts
+ * the real one back.
+ */
+export function stubResizeObserver(): {
+  resize: () => void;
+  restore: () => void;
+} {
+  const original = globalThis.ResizeObserver;
+  const observing = new Set<ResizeObserver>();
+  const callbacks = new Map<ResizeObserver, ResizeObserverCallback>();
+  globalThis.ResizeObserver = class implements ResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      callbacks.set(this, callback);
+    }
+    observe() {
+      observing.add(this);
+    }
+    unobserve() {}
+    disconnect() {
+      observing.delete(this);
+    }
+  };
+  return {
+    resize: () => {
+      for (const observer of [...observing]) {
+        callbacks.get(observer)?.([], observer);
+      }
+    },
+    restore: () => {
+      globalThis.ResizeObserver = original;
+    },
+  };
+}
