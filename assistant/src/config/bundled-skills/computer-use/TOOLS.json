@@ -365,7 +365,7 @@
     },
     {
       "name": "computer_use_sequence",
-      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only while the referenced elements remain available. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
