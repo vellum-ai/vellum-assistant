@@ -459,12 +459,10 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
 
 /**
  * Map a signal's source event to a feed category, or nothing when the event
- * has no entry. An unmapped event used to land in `system`, a bucket named
- * for our architecture rather than the user's world, and every deliberate
- * assistant notification (`user.send_notification`) ended up there. The
- * category is optional on the wire, so an event without a home simply
- * carries none: readers that filter by category skip it, and nothing has
- * to guess.
+ * has no entry. An unmapped event, such as a deliberate assistant
+ * notification (`assistant.share`), carries no category rather than a
+ * catch-all bucket named for our architecture: readers that filter by
+ * category skip it, and nothing has to guess.
  */
 function deriveCategory(
   signal: NotificationSignal,

@@ -99,7 +99,7 @@ function makeAssistantToolSignal(
     createdAt: Date.now(),
     sourceChannel: "assistant_tool",
     sourceContextId: "tool-call-1",
-    sourceEventName: "user.send_notification",
+    sourceEventName: "assistant.share",
     contextPayload: {
       requestedMessage: "exact verbatim text here",
       requestedTitle: "Custom Title",
@@ -905,7 +905,9 @@ describe("scheduler requested-message pass-through in notification decision engi
       expect(decision.reasoningSummary).not.toBe(
         "scheduler requested-message pass-through",
       );
-      expect(decision.reasoningSummary).not.toBe("schedule_result pass-through");
+      expect(decision.reasoningSummary).not.toBe(
+        "schedule_result pass-through",
+      );
     } finally {
       providerSendMessage = previousSendMessage;
     }

@@ -107,10 +107,10 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
   });
 
   test("fails when body is the raw source event name", async () => {
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       renderedCopy: {
-        vellum: { title: "Reminder", body: "user.send_notification" },
+        vellum: { title: "Reminder", body: "assistant.share" },
       },
     });
     const result = await runDeterministicChecks(signal, decision, context);
@@ -119,10 +119,10 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
   });
 
   test("fails when body matches the normalized source event name", async () => {
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       renderedCopy: {
-        vellum: { title: "Reminder", body: "user send notification" },
+        vellum: { title: "Reminder", body: "assistant share" },
       },
     });
     const result = await runDeterministicChecks(signal, decision, context);
@@ -174,11 +174,11 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
   test("still validates body quality for channels with rendered copy", async () => {
     // Even when some channels lack copy (broadcaster fallback territory),
     // channels that DO have copy must still pass the empty/event-name checks.
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       selectedChannels: ["vellum", "telegram"],
       renderedCopy: {
-        telegram: { title: "Reminder", body: "user.send_notification" },
+        telegram: { title: "Reminder", body: "assistant.share" },
       },
     });
     const result = await runDeterministicChecks(signal, decision, {
@@ -194,7 +194,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     // a usable body (no template for sourceEventName → buildGenericCopy
     // returns body=""), the gate must fail-closed rather than letting
     // dispatchDecision report 0/N sent.
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       selectedChannels: ["vellum"],
       renderedCopy: {},
@@ -218,7 +218,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
   });
 
   test("passes when shouldNotify is false regardless of copy contents", async () => {
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       shouldNotify: false,
       // Empty body + event-name body would both fail the copy check if
@@ -286,11 +286,11 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
   test("still fails non-pass-through decision when body matches event name", async () => {
     // Regression guard: the pass-through short-circuit must not weaken
     // the check for LLM/fallback paths.
-    const signal = makeSignal({ sourceEventName: "user.send_notification" });
+    const signal = makeSignal({ sourceEventName: "assistant.share" });
     const decision = makeDecision({
       reasoningSummary: "llm classification",
       renderedCopy: {
-        vellum: { title: "Reminder", body: "user.send_notification" },
+        vellum: { title: "Reminder", body: "assistant.share" },
       },
     });
     const result = await runDeterministicChecks(signal, decision, context);
