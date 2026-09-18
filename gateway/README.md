@@ -99,7 +99,7 @@ These fields are forwarded to the runtime in the `/channels/inbound` payload alo
 
 ## Approval Buttons and Inline Keyboard
 
-The gateway does not send approval prompts. The daemon's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) sends them to the Bot API directly, and when the reply payload carries an `approval` field it renders Telegram inline keyboard buttons below the message text. The gateway's part is the return trip: it normalizes the button press (`callback_query`) and forwards it as described above.
+The gateway does not send approval prompts. The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) sends them to the Bot API directly, and when the reply payload carries an `approval` field it renders Telegram inline keyboard buttons below the message text. The gateway's part is the return trip: it normalizes the button press (`callback_query`) and forwards it as described above.
 
 **Approval reply payload shape:**
 
