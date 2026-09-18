@@ -153,7 +153,11 @@ export function DataTable({
         density="compact"
         containerProps={{
           "data-owns-horizontal-scroll": "",
-          "aria-label": label ?? caption ?? t("tableSurface.table"),
+          // The first name with something in it: a surface title or caption
+          // can arrive blank, which would name the region nothing.
+          "aria-label":
+            [label, caption].find((name) => name?.trim()) ??
+            t("tableSurface.table"),
         }}
       >
         {caption && <TableCaption>{caption}</TableCaption>}

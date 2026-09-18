@@ -61,4 +61,7 @@ test("names its scroll area after the surface's title, then its caption", () => 
   );
   expect(scrollLabel(undefined, "Last four weeks")).toBe("Last four weeks");
   expect(scrollLabel(undefined)).toBe("Table");
+  // A blank title or caption names nothing, so the next one is used.
+  expect(scrollLabel("  ", "Last four weeks")).toBe("Last four weeks");
+  expect(scrollLabel("", " ")).toBe("Table");
 });
