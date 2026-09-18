@@ -42,6 +42,7 @@ import {
   PhaseGroupedStepList,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { ActivityScreenshotTile } from "@/domains/chat/components/activity-screenshot-tile";
 import {
   projectToolResultImages,
@@ -422,6 +423,7 @@ function TimelineStep({
   groupIndex?: number;
 }) {
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   // Thinking steps drill into the full reasoning markdown. Genuine reasoning
   // segments carry a `thinkingItemIndex` and a threaded message identity so
   // the detail level streams live; web-synthesized thinking steps
@@ -472,7 +474,11 @@ function TimelineStep({
   return (
     <ToolStepPill
       iconName={step.iconName}
-      label={step.activity || step.info || step.title}
+      label={resolveActionDisplayLabel({
+        activity: step.activity,
+        actionDisplayKey: step.actionDisplayKey,
+        fallback: step.activity || step.info || step.title,
+      })}
       active={activeDetail?.toolCallId === step.toolCallId}
       onClick={() => {
         if (!tc) {

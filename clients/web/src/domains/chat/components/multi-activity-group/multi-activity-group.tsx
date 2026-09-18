@@ -31,6 +31,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { truncate } from "@/domains/chat/utils/truncate";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { Trans, useTranslation } from "@/i18n";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 
 /**
@@ -352,6 +353,7 @@ function UnifiedMultiActivityGroup(
     active,
   } = props;
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   const toggleActivitySteps = useViewerStore.use.toggleActivitySteps();
   const mainView = useViewerStore.use.mainView();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
@@ -414,8 +416,16 @@ function UnifiedMultiActivityGroup(
         </span>
       );
     }
-    return cardData.currentStepInfo;
-  }, [cardData.currentStepKind, cardData.currentStepInfo]);
+    return resolveActionDisplayLabel({
+      actionDisplayKey: cardData.currentStepActionDisplayKey,
+      fallback: cardData.currentStepInfo,
+    });
+  }, [
+    cardData.currentStepActionDisplayKey,
+    cardData.currentStepInfo,
+    cardData.currentStepKind,
+    resolveActionDisplayLabel,
+  ]);
 
   // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which isn't
   // carried on the step descriptor.

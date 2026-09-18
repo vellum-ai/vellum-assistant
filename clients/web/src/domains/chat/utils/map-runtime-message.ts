@@ -157,6 +157,12 @@ export function mapRuntimeToDisplayMessage(
   if (m.mergedMessageIds?.length) {
     msg.mergedMessageIds = m.mergedMessageIds;
   }
+  if (m.modeSession) {
+    msg.modeSession = m.modeSession;
+  }
+  if (m.modeSessionActivity) {
+    msg.modeSessionActivity = m.modeSessionActivity;
+  }
   if (m.clientMessageId) {
     msg.clientMessageId = m.clientMessageId;
   }

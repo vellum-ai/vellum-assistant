@@ -99,6 +99,7 @@ import {
   getCurrentSeq,
   stampAndBuffer,
 } from "../runtime/assistant-stream-state.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,7 @@ function createMockDeps(
       },
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (msg: AssistantEvent) => {
       emittedEvents.push(msg);

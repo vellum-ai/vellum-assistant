@@ -5,8 +5,11 @@
  * point between the agent loop and the HostCuProxy.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { isSessionGroupsEnabled } from "../config/session-groups-gate.js";
+import { ComputerUseModeSessionProducer } from "../daemon/computer-use-mode-session.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 const sentMessages: unknown[] = [];
@@ -76,6 +79,10 @@ function buildMockContext(
   // attach one (the gate denies, or the context predates the hook).
   ensureHostProxiesForTurn?: () => void,
 ): Conversation {
+  const computerUseModeSessions = {
+    recordAction: () => false,
+    endTask: () => false,
+  } as unknown as Conversation["computerUseModeSessions"];
   const ctx: Conversation = asConversation({
     conversationId: "test-session",
     trustContext:
@@ -105,6 +112,7 @@ function buildMockContext(
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set(),
     currentTurnSurfaces: [],
+    computerUseModeSessions,
     hostCuProxy,
     transportInterface: "web",
     ensureHostProxiesForTurn,
@@ -139,6 +147,7 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   }
 
   afterEach(() => {
+    setOverridesForTesting({});
     proxy?.dispose();
   });
 
@@ -337,6 +346,78 @@ describe("surfaceProxyResolver — CU tool routing", () => {
   // -------------------------------------------------------------------------
 
   describe("action tools proxy to client", () => {
+    test("dispatches without mode-session side effects while session groups are disabled", async () => {
+      setOverridesForTesting({ "session-groups": false });
+      const ctx = setupProxy();
+      ctx.currentRequestId = "turn-123";
+      const activateSource = mock(() => {
+        throw new Error("disabled tracking must not activate a source");
+      });
+      (
+        ctx as unknown as {
+          computerUseModeSessions: Conversation["computerUseModeSessions"];
+        }
+      ).computerUseModeSessions = new ComputerUseModeSessionProducer(
+        {
+          activateSource,
+          beginDraining: mock(() => false),
+          claimTurn: mock(() => undefined),
+          getTurnOwner: mock(() => undefined),
+          recordActivity: mock(() => false),
+          retireSource: mock(() => false),
+        },
+        isSessionGroupsEnabled,
+      );
+
+      const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+        element_id: 42,
+      });
+      const sent = sentMessages[0] as { requestId: string; type: string };
+      expect(sent.type).toBe("host_cu_request");
+      expect(activateSource).not.toHaveBeenCalled();
+
+      proxy.processObservation(sent.requestId, { executionResult: "clicked" });
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+    });
+
+    test("dispatches once after tracking admission throws and still cleans up the task", async () => {
+      const ctx = setupProxy();
+      ctx.currentRequestId = "turn-123";
+      const recordAction = spyOn(
+        ctx.computerUseModeSessions,
+        "recordAction",
+      ).mockImplementation(() => {
+        throw new Error("tracking unavailable");
+      });
+      const endTask = spyOn(
+        ctx.computerUseModeSessions,
+        "endTask",
+      ).mockImplementation(() => {
+        throw new Error("tracking unavailable");
+      });
+      try {
+        const resultPromise = surfaceProxyResolver(ctx, "computer_use_click", {
+          element_id: 42,
+        });
+        expect(sentMessages).toHaveLength(1);
+        const sent = sentMessages[0] as { requestId: string };
+        proxy.processObservation(sent.requestId, {
+          executionResult: "clicked",
+        });
+        expect((await resultPromise).isError).toBe(false);
+        expect(recordAction).toHaveBeenCalledTimes(1);
+        expect(
+          (await surfaceProxyResolver(ctx, "computer_use_done", {})).isError,
+        ).toBe(false);
+        expect(endTask).toHaveBeenCalledTimes(1);
+        expect(proxy.stepCount).toBe(0);
+      } finally {
+        recordAction.mockRestore();
+        endTask.mockRestore();
+      }
+    });
+
     test("computer_use_click routes through proxy and returns observation", async () => {
       const ctx = setupProxy();
 

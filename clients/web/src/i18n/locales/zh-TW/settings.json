@@ -1,14 +1,19 @@
 {
   "accessConsentSetting": {
     "description": "啟用後，Vellum 員工將能存取您的助理及其資料以進行偵錯。建議您保持此功能關閉，僅在需要 Vellum 支援團隊協助調查問題時暫時開啟。",
+    "expireAgain": "24 小時後到期",
     "expiresAt": "員工存取將於{when}結束。",
     "extend": "延長 24 小時",
+    "keepOn": "保持開啟，直到我關閉",
     "loadError": "無法載入同意設定。",
     "loginNotice": "登入 Vellum 平台以管理管理員資料存取權。",
+    "staysOn": "員工存取將保持開啟，直到您關閉為止。",
     "title": "允許員工存取",
     "toastDisabled": "管理員資料存取已停用。",
     "toastEnabled": "管理員資料存取已啟用。",
+    "toastExpiring": "管理員資料存取將在 24 小時後結束。",
     "toastExtended": "管理員資料存取已延長。",
+    "toastKeptOn": "管理員資料存取將保持開啟，直到您關閉為止。",
     "toastUpdateFailed": "無法更新記錄存取同意。"
   },
   "adjustPlanModal": {

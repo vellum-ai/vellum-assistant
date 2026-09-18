@@ -29,6 +29,7 @@ function harness(opts?: {
   commit?: () => boolean;
   withProgress?: boolean;
   withHold?: boolean;
+  withOverrule?: boolean;
 }) {
   const recorded: Recorded = {
     events: [],
@@ -72,6 +73,9 @@ function harness(opts?: {
       recorded.events.push(`answer:${text}`);
     },
     abortLeg: () => recorded.events.push("abort"),
+    ...(opts?.withOverrule === false
+      ? {}
+      : { overruleLeg: () => recorded.events.push("overrule") }),
     speakBridge: (bridge) => {
       recorded.bridges.push(bridge);
       recorded.events.push(`speak:${bridge.spokenBridge}`);
@@ -225,5 +229,169 @@ describe("createFrontDoorLegCoordinator", () => {
       "speak:One moment.",
       "start-escalated",
     ]);
+  });
+});
+
+/** A judge verdict the test settles by hand. */
+function deferredVerdict() {
+  let settle!: (escalate: boolean) => void;
+  const verdict = new Promise<boolean>((resolve) => {
+    settle = resolve;
+  });
+  return { verdict, settle };
+}
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("createFrontDoorLegCoordinator with an escalation judge", () => {
+  test("an answer is held until the judge clears it, then streams", async () => {
+    const { coordinator, recorded } = harness();
+    const judge = deferredVerdict();
+    coordinator.attachEscalationJudge(judge.verdict);
+
+    coordinator.push("Yeah, ");
+    coordinator.push("sure.");
+    expect(recorded.answers).toEqual([]);
+    expect(coordinator.awaitingJudge).toBe(true);
+
+    judge.settle(false);
+    await flush();
+
+    expect(recorded.answers).toEqual(["Yeah, sure."]);
+    expect(coordinator.awaitingJudge).toBe(false);
+    coordinator.push(" More.");
+    expect(recorded.answers).toEqual(["Yeah, sure.", " More."]);
+    expect(coordinator.handedOff).toBe(false);
+  });
+
+  test("a judge escalation overrules a held answer and hands off with the canned bridge", async () => {
+    const { coordinator, recorded } = harness();
+    const judge = deferredVerdict();
+    coordinator.attachEscalationJudge(judge.verdict);
+
+    coordinator.push("I'm adding it to the draft now.");
+    judge.settle(true);
+    await flush();
+
+    expect(recorded.answers).toEqual([]);
+    expect(coordinator.handedOff).toBe(true);
+    expect(recorded.events).toEqual([
+      "progress.clear",
+      "overrule",
+      `speak:${FALLBACK_ESCALATION_BRIDGE}`,
+      "progress.floor",
+      "start-escalated",
+      "progress.arm",
+    ]);
+    expect(recorded.bridges[0]?.usesFallback).toBe(true);
+    expect(recorded.escalated).toEqual([
+      escalatedLegFor(FALLBACK_ESCALATION_BRIDGE),
+    ]);
+  });
+
+  test("a verdict in before the first answer word hands off on that word", async () => {
+    const { coordinator, recorded } = harness();
+    coordinator.attachEscalationJudge(Promise.resolve(true));
+    await flush();
+    expect(coordinator.handedOff).toBe(false);
+
+    coordinator.push("Sure, sending it.");
+
+    expect(recorded.answers).toEqual([]);
+    expect(coordinator.handedOff).toBe(true);
+    expect(recorded.events).toContain("overrule");
+  });
+
+  test("without an overrule hook the overruled leg is aborted", async () => {
+    const { coordinator, recorded } = harness({ withOverrule: false });
+    coordinator.attachEscalationJudge(Promise.resolve(true));
+    await flush();
+
+    coordinator.push("Sure.");
+
+    expect(recorded.events).toContain("abort");
+  });
+
+  test("the leg's own escalate verdict does not wait on the judge", () => {
+    const { coordinator, recorded } = harness();
+    coordinator.attachEscalationJudge(deferredVerdict().verdict);
+
+    coordinator.push("[1] Let me check that.");
+
+    expect(coordinator.handedOff).toBe(true);
+    expect(recorded.bridges[0]?.spokenBridge).toBe("Let me check that.");
+    expect(recorded.events).toContain("abort");
+    expect(recorded.events).not.toContain("overrule");
+  });
+
+  test("a hold verdict does not wait on the judge", () => {
+    const { coordinator, recorded } = harness({
+      holdEnabled: true,
+      withHold: true,
+    });
+    coordinator.attachEscalationJudge(deferredVerdict().verdict);
+
+    coordinator.push("[0]");
+
+    expect(recorded.holds).toBe(1);
+    expect(coordinator.awaitingJudge).toBe(false);
+  });
+
+  test("a judge attached after the answer started speaking is ignored", async () => {
+    const { coordinator, recorded } = harness();
+    coordinator.push("Canberra.");
+    coordinator.attachEscalationJudge(Promise.resolve(true));
+    await flush();
+
+    coordinator.push(" It's the capital.");
+
+    expect(recorded.answers).toEqual(["Canberra.", " It's the capital."]);
+    expect(coordinator.handedOff).toBe(false);
+  });
+
+  test("settled() resolves once a held answer is released", async () => {
+    const { coordinator, recorded } = harness();
+    const judge = deferredVerdict();
+    coordinator.attachEscalationJudge(judge.verdict);
+    coordinator.push("Done.");
+
+    let settled = false;
+    void coordinator.settled().then(() => {
+      settled = true;
+    });
+    await flush();
+    expect(settled).toBe(false);
+
+    judge.settle(false);
+    await flush();
+
+    expect(settled).toBe(true);
+    expect(recorded.answers).toEqual(["Done."]);
+    expect(coordinator.complete()).toBe(false);
+  });
+
+  test("a judge that rejects clears the held answer", async () => {
+    const { coordinator, recorded } = harness();
+    coordinator.attachEscalationJudge(Promise.reject(new Error("boom")));
+    coordinator.push("Hi there.");
+    await flush();
+
+    expect(recorded.answers).toEqual(["Hi there."]);
+  });
+
+  test("a dead turn never hands off on a judge escalation", async () => {
+    let live = true;
+    const { coordinator, recorded } = harness({ live: () => live });
+    const judge = deferredVerdict();
+    coordinator.attachEscalationJudge(judge.verdict);
+    coordinator.push("Sure.");
+
+    live = false;
+    judge.settle(true);
+    await flush();
+
+    expect(coordinator.handedOff).toBe(false);
+    expect(recorded.escalated).toEqual([]);
+    expect(recorded.answers).toEqual([]);
   });
 });

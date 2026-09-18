@@ -112,6 +112,15 @@ describe("fetchLatestHistoryPage URL construction", () => {
     const url = new URL(captured[0]!.url, "http://localhost");
     expect(url.searchParams.get("limit")).toBe("25");
   });
+
+  test("requests loaded active session descriptors in the same latest-page fetch", async () => {
+    nextResponse = makeJsonResponse({ messages: [], hasMore: false });
+
+    await fetchLatestHistoryPage("asst-1", "K", 50, ["session-a", "session-b"]);
+
+    const url = new URL(captured[0]!.url, "http://localhost");
+    expect(url.searchParams.get("modeSessionIds")).toBe("session-a,session-b");
+  });
 });
 
 describe("fetchOlderHistoryPage URL construction", () => {

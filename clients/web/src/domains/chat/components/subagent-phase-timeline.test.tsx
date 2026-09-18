@@ -13,14 +13,42 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { useState } from "react";
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 
 import * as phaseGroupedStepList from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sessionGroups: false });
+});
+
+test("activity-only default steps cannot expand to an empty body with session groups disabled", async () => {
+  const steps = [bash("", "completed", "1s", "tc-a", "Checking the release")];
+  const { getByTestId, getByText, queryByTestId } = render(
+    <SubagentPhaseTimeline steps={steps} />,
+  );
+  const header = getByTestId("subagent-phase-header");
+  expect(header.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(header);
+  expect(queryByTestId("phase-step-pill")).toBeNull();
+
+  act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: true }));
+  expect(header.hasAttribute("disabled")).toBe(false);
+  fireEvent.click(header);
+  expect(getByText("Checking the release")).toBeTruthy();
+
+  act(() => useAssistantFeatureFlagStore.setState({ sessionGroups: false }));
+  expect(header.hasAttribute("disabled")).toBe(true);
+  await waitFor(() => expect(queryByTestId("phase-step-pill")).toBeNull());
 });
 
 function bash(

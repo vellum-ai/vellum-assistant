@@ -31,8 +31,13 @@
  * agree on cluster boundaries without duplicating the merge code.
  */
 
+import type { ModeSessionActivity } from "../api/mode-session.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isStandaloneAssistantMessage } from "../persistence/conversation-crud.js";
+import {
+  readMessageSentAt,
+  readModeSessionMetadata,
+} from "../persistence/message-metadata.js";
 import { assistantTextVisibilityOf } from "../persistence/user-facing-content.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -67,6 +72,15 @@ function sameAssistantTextVisibility(a: MessageRow, b: MessageRow): boolean {
     assistantTextVisibilityOf(a.metadata) ===
     assistantTextVisibilityOf(b.metadata)
   );
+}
+
+function sameModeSessionOwnership(a: MessageRow, b: MessageRow): boolean {
+  const aOwner = readModeSessionMetadata(a.metadata);
+  const bOwner = readModeSessionMetadata(b.metadata);
+  if (!aOwner || !bOwner) {
+    return aOwner === undefined && bOwner === undefined;
+  }
+  return aOwner.id === bOwner.id && aOwner.mode === bOwner.mode;
 }
 
 // ── Block predicates ────────────────────────────────────────────────
@@ -161,12 +175,17 @@ export function findDisplayTurnEndIndex(
     if (
       next.role === "assistant" &&
       !isStandaloneAssistantRow(next) &&
-      sameAssistantTextVisibility(messages[startIdx]!, next)
+      sameAssistantTextVisibility(messages[startIdx]!, next) &&
+      sameModeSessionOwnership(messages[startIdx]!, next)
     ) {
       endIdx += 1;
       continue;
     }
-    if (next.role === "user" && isToolResultOnlyUserMessage(next)) {
+    if (
+      next.role === "user" &&
+      isToolResultOnlyUserMessage(next) &&
+      sameModeSessionOwnership(messages[startIdx]!, next)
+    ) {
       endIdx += 1;
       continue;
     }
@@ -188,6 +207,7 @@ export function findDisplayTurnEndIndex(
  */
 export function mergeToolResultsIntoAssistantMessages(
   messages: MessageRow[],
+  mergedIdsByAssistant?: Map<string, string[]>,
 ): MessageRow[] {
   // Index of the most recent assistant message in the output array.
   let lastAssistantIdx = -1;
@@ -232,14 +252,20 @@ export function mergeToolResultsIntoAssistantMessages(
     // Append tool_result blocks to the preceding assistant message's content.
     // No-op at pagination boundaries (lastAssistantIdx < 0); orphan tool_results
     // are silently dropped by renderHistoryContent downstream either way.
-    if (lastAssistantIdx >= 0) {
-      const assistant = result[lastAssistantIdx];
+    const assistant =
+      lastAssistantIdx >= 0 ? result[lastAssistantIdx] : undefined;
+    const canMerge =
+      assistant !== undefined && sameModeSessionOwnership(assistant, msg);
+    if (canMerge) {
       let assistantContent = parsedAssistantContent.get(lastAssistantIdx);
       if (!assistantContent) {
         assistantContent = [...assistant.content];
         parsedAssistantContent.set(lastAssistantIdx, assistantContent);
       }
       assistantContent.push(...toolResultBlocks);
+      const mergedIds = mergedIdsByAssistant?.get(assistant.id) ?? [];
+      mergedIds.push(msg.id);
+      mergedIdsByAssistant?.set(assistant.id, mergedIds);
     }
 
     // If the user message had only tool_result (+ system_notice) blocks,
@@ -249,6 +275,9 @@ export function mergeToolResultsIntoAssistantMessages(
     const realUserContent = otherBlocks.filter((b) => !isSystemNoticeText(b));
     if (realUserContent.length > 0) {
       result.push({ ...msg, content: otherBlocks });
+    }
+    if (!canMerge) {
+      lastAssistantIdx = -1;
     }
     // else: tool-result-only → suppressed
   }
@@ -337,7 +366,8 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
       lastIdx >= 0 &&
       result[lastIdx].role === "assistant" &&
       !isStandaloneAssistantRow(result[lastIdx]) &&
-      sameAssistantTextVisibility(result[lastIdx], msg);
+      sameAssistantTextVisibility(result[lastIdx], msg) &&
+      sameModeSessionOwnership(result[lastIdx], msg);
 
     if (!isConsecutiveAssistant) {
       result.push(msg);
@@ -375,4 +405,71 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
   }
 
   return { messages: result, mergedIdMap };
+}
+
+export function consolidateMessageRows(messages: MessageRow[]): {
+  messages: MessageRow[];
+  mergedIdMap: Map<string, string[]>;
+  modeSessionActivityMap: Map<string, ModeSessionActivity>;
+} {
+  const rowsById = new Map(messages.map((message) => [message.id, message]));
+  const toolMergedIds = new Map<string, string[]>();
+  const toolMerged = mergeToolResultsIntoAssistantMessages(
+    messages,
+    toolMergedIds,
+  );
+  const consolidated = mergeConsecutiveAssistantMessages(toolMerged);
+  const mergedIdMap = new Map<string, string[]>();
+  const modeSessionActivityMap = new Map<string, ModeSessionActivity>();
+
+  for (const message of consolidated.messages) {
+    const assistantDonors = consolidated.mergedIdMap.get(message.id) ?? [];
+    const aliases = [
+      ...(toolMergedIds.get(message.id) ?? []),
+      ...assistantDonors.flatMap((id) => [
+        id,
+        ...(toolMergedIds.get(id) ?? []),
+      ]),
+    ];
+    if (aliases.length > 0) {
+      mergedIdMap.set(message.id, aliases);
+    }
+
+    const owner = readModeSessionMetadata(message.metadata);
+    if (!owner) {
+      continue;
+    }
+    const representedRows = [message.id, ...aliases]
+      .map((id) => rowsById.get(id))
+      .filter((row): row is MessageRow => row !== undefined);
+    if (
+      representedRows.some((row) => {
+        const rowOwner = readModeSessionMetadata(row.metadata);
+        return rowOwner?.id !== owner.id || rowOwner.mode !== owner.mode;
+      })
+    ) {
+      continue;
+    }
+    const activityTimes = representedRows
+      .map((row) => readMessageSentAt(row.metadata) ?? row.createdAt)
+      .filter(
+        (at) =>
+          Number.isInteger(at) &&
+          at >= 0 &&
+          Number.isFinite(new Date(at).getTime()),
+      );
+    if (activityTimes.length !== representedRows.length) {
+      continue;
+    }
+    modeSessionActivityMap.set(message.id, {
+      firstAt: Math.min(...activityTimes),
+      lastAt: Math.max(...activityTimes),
+    });
+  }
+
+  return {
+    messages: consolidated.messages,
+    mergedIdMap,
+    modeSessionActivityMap,
+  };
 }

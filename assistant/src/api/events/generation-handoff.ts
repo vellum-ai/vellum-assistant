@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
 import { AssistantOutboundAttachmentSchema } from "./assistant-outbound-attachment.js";
 
 export const GenerationHandoffEventSchema = z.object({
@@ -30,6 +31,7 @@ export const GenerationHandoffEventSchema = z.object({
   queuedCount: z.number(),
   /** Database row id of the just-finished assistant turn. */
   messageId: z.string().optional(),
+  modeSession: ModeSessionSchema.optional(),
   attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
   attachmentWarnings: z.array(z.string()).optional(),
 });

@@ -16,6 +16,10 @@ import {
   test,
 } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { isSessionGroupsEnabled } from "../../config/session-groups-gate.js";
+import type { BrowserOperationToken } from "../../daemon/browser-mode-session.js";
+import { BrowserModeSessionProducer } from "../../daemon/browser-mode-session.js";
 import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
 import * as desktopFeature from "../../desktop/virtual-desktop-feature.js";
 import { browserManager } from "../../tools/browser/browser-manager.js";
@@ -46,11 +50,69 @@ let mockConversation: {
   clientOs?: string;
   getTurnActorPrincipalId?: () => string | undefined;
   abortController?: AbortController;
+  currentRequestId?: string;
+  browserModeSessions?: {
+    beginOperation: (input: {
+      turnId: string;
+      lifecycle: "action" | "terminal" | "status";
+      at: number;
+    }) => BrowserOperationToken | undefined;
+    finishOperation: (
+      token: BrowserOperationToken | undefined,
+      outcome: {
+        at: number;
+        isError: boolean;
+        cancelled: boolean;
+        terminalReason?: "browser_closed" | "browser_detached";
+      },
+    ) => boolean;
+  };
 } | null = null;
+
+const lifecycleBegins: Array<{
+  turnId: string;
+  lifecycle: "action" | "terminal" | "status";
+  at: number;
+}> = [];
+const lifecycleFinishes: Array<{
+  token: BrowserOperationToken | undefined;
+  outcome: {
+    at: number;
+    isError: boolean;
+    cancelled: boolean;
+    terminalReason?: "browser_closed" | "browser_detached";
+  };
+}> = [];
+
+function browserLifecycle() {
+  return {
+    beginOperation(input: (typeof lifecycleBegins)[number]) {
+      lifecycleBegins.push(input);
+      return {
+        turnId: input.turnId,
+        lifecycle: input.lifecycle === "status" ? "action" : input.lifecycle,
+        owner: { id: "browser-session", mode: "browser" as const },
+      } as BrowserOperationToken;
+    },
+    finishOperation(
+      token: BrowserOperationToken | undefined,
+      outcome: (typeof lifecycleFinishes)[number]["outcome"],
+    ) {
+      lifecycleFinishes.push({ token, outcome });
+      return true;
+    },
+  };
+}
 
 let mockFindConversationCalls: string[] = [];
 
 mock.module("../../browser/operations.js", () => ({
+  browserOperationLifecycle: (operation: string) =>
+    operation === "status"
+      ? "status"
+      : operation === "close" || operation === "detach"
+        ? "terminal"
+        : "action",
   executeBrowserOperation: async (
     operation: string,
     input: Record<string, unknown>,
@@ -78,6 +140,7 @@ mock.module("../../daemon/conversation-registry.js", () => ({
     mockFindConversationCalls.push(conversationId);
     return mockConversation ?? undefined;
   },
+  findConversationOrSubagent: () => mockConversation ?? undefined,
 }));
 
 let desktopEnabled = false;
@@ -147,6 +210,7 @@ function callHandler(
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  setOverridesForTesting({});
   desktopEnabled = false;
   desktopReady = false;
   desktopFailure = false;
@@ -156,6 +220,8 @@ afterEach(() => {
   mockOperationCalls = [];
   mockConversation = null;
   mockFindConversationCalls = [];
+  lifecycleBegins.length = 0;
+  lifecycleFinishes.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -469,6 +535,150 @@ describe("browser_execute route", () => {
       content: "Error: page not found",
       isError: true,
     });
+  });
+
+  test("brackets a typed live-turn action with browser lifecycle", async () => {
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: browserLifecycle(),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    await callHandler({
+      operation: "navigate",
+      input: { url: "https://example.com" },
+      conversationId: "conv-live",
+    });
+
+    expect(lifecycleBegins).toEqual([
+      expect.objectContaining({ turnId: "turn-123", lifecycle: "action" }),
+    ]);
+    expect(lifecycleFinishes).toEqual([
+      expect.objectContaining({
+        token: expect.objectContaining({ turnId: "turn-123" }),
+        outcome: expect.objectContaining({
+          isError: false,
+          cancelled: false,
+        }),
+      }),
+    ]);
+  });
+
+  test("executes a live-turn action without tracking while session groups are disabled", async () => {
+    setOverridesForTesting({ "session-groups": false });
+    const activateSource = mock(() => {
+      throw new Error("disabled tracking must not activate a source");
+    });
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: new BrowserModeSessionProducer(
+        {
+          activateSource,
+          claimTurn: mock(() => undefined),
+          getTurnOwner: mock(() => undefined),
+          recordActivity: mock(() => false),
+          retireSource: mock(() => false),
+        },
+        1,
+        isSessionGroupsEnabled,
+      ),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    const result = await callHandler({
+      operation: "navigate",
+      input: { url: "https://example.com" },
+      conversationId: "conv-live",
+    });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(activateSource).not.toHaveBeenCalled();
+  });
+
+  test.each(["navigate", "close"] as const)(
+    "executes %s once after tracking admission throws",
+    async (operation) => {
+      mockConversation = {
+        currentRequestId: "turn-123",
+        browserModeSessions: {
+          ...browserLifecycle(),
+          beginOperation() {
+            throw new Error("tracking unavailable");
+          },
+        },
+        getTurnActorPrincipalId: () => undefined,
+      };
+      const result = await callHandler({
+        operation,
+        conversationId: "conv-live",
+      });
+      expect(result).toEqual({ content: "ok", isError: false });
+      expect(mockOperationCalls).toHaveLength(1);
+    },
+  );
+
+  test("passes typed terminal success and failure outcomes", async () => {
+    mockConversation = {
+      currentRequestId: "turn-123",
+      browserModeSessions: browserLifecycle(),
+      getTurnActorPrincipalId: () => undefined,
+    };
+
+    await callHandler({ operation: "detach", conversationId: "conv-live" });
+    expect(lifecycleBegins[0]).toMatchObject({ lifecycle: "terminal" });
+    expect(lifecycleFinishes[0]?.outcome).toMatchObject({
+      isError: false,
+      terminalReason: "browser_detached",
+    });
+
+    mockOperationResult = { content: "close failed", isError: true };
+    await callHandler({ operation: "close", conversationId: "conv-live" });
+    expect(lifecycleFinishes[1]?.outcome).toMatchObject({
+      isError: true,
+      terminalReason: "browser_closed",
+    });
+  });
+
+  test.each(["navigate", "close"] as const)(
+    "preserves a successful %s result when session tracking fails",
+    async (operation) => {
+      mockOperationResult = {
+        content: `${operation} completed`,
+        isError: false,
+      };
+      const lifecycle = browserLifecycle();
+      mockConversation = {
+        currentRequestId: "turn-123",
+        browserModeSessions: {
+          ...lifecycle,
+          finishOperation(token, outcome) {
+            lifecycle.finishOperation(token, outcome);
+            throw new Error("session tracking unavailable");
+          },
+        },
+        getTurnActorPrincipalId: () => undefined,
+      };
+
+      const result = await callHandler({
+        operation,
+        input: operation === "navigate" ? { url: "https://example.com" } : {},
+        conversationId: "conv-live",
+      });
+
+      expect(result).toEqual({
+        content: `${operation} completed`,
+        isError: false,
+      });
+      expect(mockOperationCalls).toHaveLength(1);
+      expect(lifecycleFinishes).toHaveLength(1);
+    },
+  );
+
+  test("does not observe lifecycle for a standalone CLI operation", async () => {
+    await callHandler({ operation: "navigate", sessionId: "standalone" });
+    expect(lifecycleBegins).toEqual([]);
+    expect(lifecycleFinishes).toEqual([]);
   });
 
   // ── Input defaults ─────────────────────────────────────────────────

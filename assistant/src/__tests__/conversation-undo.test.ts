@@ -87,3 +87,64 @@ describe("findLastUndoableUserMessageIndex", () => {
     expect(findLastUndoableUserMessageIndex([spoofMessage])).toBe(0);
   });
 });
+
+describe("undo mode-session cleanup", () => {
+  test.each([false, true])(
+    "undo completes when tracking failure is %s",
+    async (trackingFails) => {
+      const { initializeDb } = await import("../persistence/db-init.js");
+      const { createConversation, addMessage, getMessages } =
+        await import("../persistence/conversation-crud.js");
+      const { ConversationModeSessionCoordinator } =
+        await import("../daemon/conversation-mode-session.js");
+      const { undo } = await import("../daemon/conversation-history.js");
+      await initializeDb();
+      const conversation = createConversation();
+      const messages = [
+        textMessage("user", "Choose an option"),
+        textMessage("assistant", "Please choose"),
+      ];
+      for (const message of messages) {
+        await addMessage(
+          conversation.id,
+          message.role,
+          JSON.stringify(message.content),
+          { skipIndexing: true },
+        );
+      }
+      const coordinator = new ConversationModeSessionCoordinator(
+        conversation.id,
+      );
+      const source = coordinator.activateSource({
+        sourceId: "browser-source",
+        generation: 1,
+        mode: "browser",
+        sourceStartedAt: 100,
+      })!;
+      coordinator.claimTurn("turn-origin", source, 110);
+      coordinator.recordStructuralWait("turn-origin", {
+        kind: "surface",
+        responseId: "surface-123",
+      });
+      coordinator.releaseTurn("turn-origin");
+      const context = {
+        conversationId: conversation.id,
+        messages,
+        isProcessing: () => false,
+        modeSessions: {
+          invalidateAllStructuralWaits: () => {
+            const count = coordinator.invalidateAllStructuralWaits();
+            if (trackingFails) {
+              throw new Error("session tracking unavailable");
+            }
+            return count;
+          },
+        },
+      };
+      expect(undo(context)).toBe(2);
+      expect(context.messages).toEqual([]);
+      expect(getMessages(conversation.id)).toEqual([]);
+      expect(coordinator.hasResidentWork()).toBe(false);
+    },
+  );
+});

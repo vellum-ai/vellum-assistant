@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   BROWSER_OPERATION_META,
+  browserOperationLifecycle,
   executeBrowserOperation,
 } from "../operations.js";
 import { BROWSER_OPERATIONS, type BrowserOperation } from "../types.js";
@@ -17,6 +18,34 @@ describe("browser operations contract", () => {
 
   test("metadata count matches operation count", () => {
     expect(BROWSER_OPERATION_META).toHaveLength(BROWSER_OPERATIONS.length);
+  });
+
+  test("classifies every typed operation for session lifecycle", () => {
+    const classifications = Object.fromEntries(
+      BROWSER_OPERATIONS.map((operation) => [
+        operation,
+        browserOperationLifecycle(operation),
+      ]),
+    );
+    expect(classifications).toEqual({
+      navigate: "action",
+      snapshot: "action",
+      screenshot: "action",
+      close: "terminal",
+      attach: "action",
+      detach: "terminal",
+      click: "action",
+      type: "action",
+      press_key: "action",
+      scroll: "action",
+      select_option: "action",
+      hover: "action",
+      wait_for: "action",
+      extract: "action",
+      wait_for_download: "action",
+      fill_credential: "action",
+      status: "status",
+    });
   });
 
   // ── Every operation has a dispatch handler ─────────────────────────

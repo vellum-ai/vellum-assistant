@@ -4,18 +4,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Stub it so eviction tests run without a real manager: no protected children
 // by default, and abortAllForParent records the conversations it was called for.
 const abortedParents: string[] = [];
-let protectedChildren: Array<{ status: string }> = [];
 mock.module("../subagent/index.js", () => ({
   getSubagentManager: () => ({
     abortAllForParent: (id: string) => abortedParents.push(id),
-    getChildrenOf: () => protectedChildren,
-    hasActiveChildren: () =>
-      protectedChildren.some(
-        (c) =>
-          c.status === "running" ||
-          c.status === "pending" ||
-          c.status === "awaiting_input",
-      ),
   }),
 }));
 
@@ -30,11 +21,8 @@ function createMockSession(
 ): EvictableConversation & { disposed: boolean } {
   return {
     disposed: false,
-    isProcessing() {
-      return processing;
-    },
-    hasQueuedMessages() {
-      return queued;
+    hasInFlightWork() {
+      return processing || queued;
     },
     dispose() {
       this.disposed = true;
@@ -48,7 +36,6 @@ describe("ConversationEvictor", () => {
 
   beforeEach(() => {
     abortedParents.length = 0;
-    protectedChildren = [];
     sessions = new Map();
     evictor = new ConversationEvictor(
       sessions as Map<string, EvictableConversation>,
@@ -123,6 +110,19 @@ describe("ConversationEvictor", () => {
       expect(result.skipped).toBe(1);
       expect(sessions.has("a")).toBe(true);
       expect(s1.disposed).toBe(false);
+    });
+
+    test("skips conversations with resident mode-session work", () => {
+      const session = createMockSession();
+      session.hasInFlightWork = () => true;
+      sessions.set("mode-active", session);
+
+      const result = evictor.sweep();
+
+      expect(result.ttlEvicted).toBe(0);
+      expect(result.skipped).toBe(1);
+      expect(sessions.has("mode-active")).toBe(true);
+      expect(session.disposed).toBe(false);
     });
   });
 
@@ -217,43 +217,68 @@ describe("ConversationEvictor", () => {
       expect(s0.disposed).toBe(false);
       expect(s1.disposed).toBe(true);
     });
+
+    test("skips resident mode-session work during LRU eviction", () => {
+      const protectedSession = createMockSession();
+      protectedSession.hasInFlightWork = () => true;
+      const evictable = createMockSession();
+      const fresh1 = createMockSession();
+      const fresh2 = createMockSession();
+      sessions.set("mode-active", protectedSession);
+      sessions.set("evictable", evictable);
+      sessions.set("fresh-1", fresh1);
+      sessions.set("fresh-2", fresh2);
+
+      const lastAccess = (
+        evictor as unknown as { lastAccess: Map<string, number> }
+      ).lastAccess;
+      const now = Date.now();
+      lastAccess.set("mode-active", now - 50);
+      lastAccess.set("evictable", now - 40);
+      lastAccess.set("fresh-1", now);
+      lastAccess.set("fresh-2", now);
+
+      const result = evictor.sweep();
+
+      expect(result.lruEvicted).toBe(1);
+      expect(sessions.has("mode-active")).toBe(true);
+      expect(sessions.has("evictable")).toBe(false);
+      expect(protectedSession.disposed).toBe(false);
+    });
+  });
+
+  describe("memory-pressure eviction", () => {
+    test("keeps resident mode-session work while evicting idle conversations", () => {
+      const resident = createMockSession();
+      resident.hasInFlightWork = () => true;
+      const idle = createMockSession();
+      sessions.set("mode-active", resident);
+      sessions.set("idle", idle);
+      evictor = new ConversationEvictor(sessions, {
+        ttlMs: Number.MAX_SAFE_INTEGER,
+        maxConversations: Number.MAX_SAFE_INTEGER,
+        memoryThresholdBytes: 0,
+      });
+
+      const result = evictor.sweep();
+
+      expect(result.memoryEvicted).toBe(1);
+      expect(sessions.has("mode-active")).toBe(true);
+      expect(sessions.has("idle")).toBe(false);
+      expect(resident.disposed).toBe(false);
+      expect(idle.disposed).toBe(true);
+    });
   });
 
   describe("onEvict", () => {
     test("aborts subagents for each evicted session", () => {
       const s1 = createMockSession();
       sessions.set("a", s1);
-      // Never touched — will be TTL evicted
+      // Never touched, so it will be TTL evicted.
 
       evictor.sweep();
 
       expect(abortedParents).toEqual(["a"]);
-    });
-  });
-
-  describe("shouldProtect", () => {
-    test("skips conversations with running or pending subagents", () => {
-      protectedChildren = [{ status: "running" }];
-      const s1 = createMockSession();
-      sessions.set("a", s1);
-
-      const result = evictor.sweep();
-
-      expect(result.skipped).toBe(1);
-      expect(sessions.has("a")).toBe(true);
-      expect(s1.disposed).toBe(false);
-    });
-
-    test("skips conversations with awaiting_input subagents", () => {
-      protectedChildren = [{ status: "awaiting_input" }];
-      const s1 = createMockSession();
-      sessions.set("a", s1);
-
-      const result = evictor.sweep();
-
-      expect(result.skipped).toBe(1);
-      expect(sessions.has("a")).toBe(true);
-      expect(s1.disposed).toBe(false);
     });
   });
 

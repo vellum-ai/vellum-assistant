@@ -13,6 +13,7 @@ import {
   fileReadMissingDetail,
   fileWriteDetail,
   largeOutputDetail,
+  longTextParameterDetail,
   managedWorkspaceDetail,
   mcpDetail,
   mcpSqlDetail,
@@ -92,6 +93,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
+ * | Long and multi-line text | LongTextParameter | A value on one line reads inline however long it is, and folds behind Show more once it runs long; text with line breaks keeps its lines in a code block. |
  * | List of records | RecordListParameter | A list of same-shaped objects reads as a table, one column per key; a record missing a key leaves an empty cell. |
  * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
@@ -262,6 +264,15 @@ export const UnknownThirdPartyTool: Story = {
  * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
+
+/**
+ * Long and multi-line text. The note is one long line, so it reads inline and
+ * folds behind Show more once it runs past the clamp; the checklist is short
+ * but has line breaks, so it keeps them in a code block.
+ */
+export const LongTextParameter: Story = {
+  args: { detail: longTextParameterDetail },
+};
 
 /**
  * A parameter that is a list of same-shaped records. It reads as a table with

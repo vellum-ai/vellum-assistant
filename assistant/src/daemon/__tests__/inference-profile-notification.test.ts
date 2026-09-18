@@ -47,6 +47,7 @@ mock.module("../../plugins/defaults/memory/v2/activation-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
+import { mockUnownedModeSessions } from "../../__tests__/helpers/mock-conversation.js";
 import type { AgentEvent } from "../../agent/loop.js";
 import type { Message } from "../../providers/types.js";
 import type {
@@ -68,6 +69,7 @@ function makeDeps(): EventHandlerDeps {
       provider: { name: "mock-provider" },
       currentTurnSurfaces: [],
       trustContext: undefined,
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: () => {},
     reqId: "req-profile-notify",

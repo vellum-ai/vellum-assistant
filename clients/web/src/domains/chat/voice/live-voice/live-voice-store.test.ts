@@ -19,6 +19,7 @@ import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fa
 import {
   attachLiveVoiceImage,
   dismissLiveVoiceFailure,
+  endLiveVoiceSightSession,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoicePlaybackProgress,
@@ -33,6 +34,7 @@ import {
   PER_JOB_CEILING_MS,
   restoreVoiceRoom,
   sendLiveVoiceSightFrame,
+  startLiveVoiceSightSession,
   setLiveVoiceMuted,
   setLiveVoiceScreenShare,
   stopLiveVoiceResponse,
@@ -669,6 +671,28 @@ describe("sendLiveVoiceSightFrame", () => {
         useLiveVoiceStore.getState().sessionGeneration,
       ),
     ).toBe(false);
+  });
+});
+
+describe("live voice sight session lifecycle", () => {
+  test("routes start and end through the active session controls", () => {
+    const controls = makeControlsSpies();
+    const startSightSession = mock(
+      (_cameraEpoch: number, _source: "live" | "ambient") => true,
+    );
+    const endSightSession = mock((_cameraEpoch: number) => true);
+    Object.assign(controls, { startSightSession, endSightSession });
+    useLiveVoiceStore.getState().setControls(controls);
+
+    expect(startLiveVoiceSightSession(7, "ambient")).toBe(true);
+    expect(endLiveVoiceSightSession(7)).toBe(true);
+    expect(startSightSession).toHaveBeenCalledWith(7, "ambient");
+    expect(endSightSession).toHaveBeenCalledWith(7);
+  });
+
+  test("reports unsupported when no session lifecycle controls are present", () => {
+    expect(startLiveVoiceSightSession(1, "live")).toBe(false);
+    expect(endLiveVoiceSightSession(1)).toBe(false);
   });
 });
 
