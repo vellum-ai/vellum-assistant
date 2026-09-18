@@ -34,18 +34,43 @@ const WHATSAPP_BUTTON_TITLE_MAX_LEN = 20;
 // WhatsApp supports a maximum of 3 reply buttons
 const WHATSAPP_MAX_BUTTONS = 3;
 
-const WHATSAPP_IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/webp"];
-const WHATSAPP_VIDEO_MIME_PREFIXES = ["video/mp4", "video/3gpp"];
-const WHATSAPP_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+// Meta's supported media types and their size limits for uploaded media
+// (https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#supported-media-types).
+// WebP is not an image type there: Meta accepts it only as a sticker.
+const WHATSAPP_TYPED_MEDIA: ReadonlyArray<{
+  mediaType: WhatsAppMediaType;
+  mimePrefixes: readonly string[];
+  maxBytes: number;
+}> = [
+  {
+    mediaType: "image",
+    mimePrefixes: ["image/jpeg", "image/png"],
+    maxBytes: 5 * 1024 * 1024,
+  },
+  {
+    mediaType: "video",
+    mimePrefixes: ["video/mp4", "video/3gpp"],
+    maxBytes: 16 * 1024 * 1024,
+  },
+];
 
-function resolveMediaType(mimeType: string): WhatsAppMediaType {
-  if (WHATSAPP_IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) {
-    return "image";
-  }
-  if (WHATSAPP_VIDEO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) {
-    return "video";
-  }
-  return "document";
+// Any file can go out as a document, up to Cloud API's 100 MB media limit.
+// Meta guarantees display only for the document types it lists; others are
+// delivered as a file to download.
+const WHATSAPP_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+/**
+ * The message type a file goes out as: the typed media Meta supports for its
+ * MIME type when it is within that type's limit, otherwise a document.
+ */
+function resolveMediaType(
+  mimeType: string,
+  sizeBytes: number,
+): WhatsAppMediaType {
+  const typed = WHATSAPP_TYPED_MEDIA.find((media) =>
+    media.mimePrefixes.some((p) => mimeType.startsWith(p)),
+  );
+  return typed && sizeBytes <= typed.maxBytes ? typed.mediaType : "document";
 }
 
 /**
@@ -213,7 +238,7 @@ export async function sendWhatsAppAttachments(
       }
 
       const blob = new Blob([new Uint8Array(content)], { type: mimeType });
-      const mediaType = resolveMediaType(mimeType);
+      const mediaType = resolveMediaType(mimeType, content.length);
 
       const uploaded = await uploadWhatsAppMedia(blob, filename, mimeType);
       await sendWhatsAppMediaMessage(to, mediaType, uploaded.id, filename);

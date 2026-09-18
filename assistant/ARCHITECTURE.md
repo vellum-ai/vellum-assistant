@@ -304,7 +304,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 2. `api.ts` reads `phone_number_id` and `access_token` from the secure store and sends through the Cloud API `/{phoneNumberId}/messages` endpoint.
 3. `send.ts` splits text into 4096-character chunks, preferring newline and then whitespace boundaries.
 4. An approval prompt renders as an interactive message with up to three reply buttons whose ids follow the shared `apr:<requestId>:<action>` convention. When the cap forces a cut, the reject and block actions are kept. The gateway normalizes the guardian's `button_reply` back into callback data on ingress.
-5. Attachments up to 25 MB are uploaded to the Cloud API media endpoint and sent as image, video, or document messages. Any that fail are listed in a follow-up text notice.
+5. Attachments are uploaded to the Cloud API media endpoint and sent as the message type Meta supports for them: JPEG and PNG up to 5 MB as images, MP4 and 3GPP up to 16 MB as video, and anything else, including WebP and larger images or video, as a document up to Cloud API's 100 MB media limit. Any that fail are listed in a follow-up text notice.
 
 The gateway sends only its own notices to WhatsApp (the `/new` confirmation and routing-rejection notices), through `gateway/src/whatsapp/send.ts`.
 
