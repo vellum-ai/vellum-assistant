@@ -91,7 +91,17 @@ interface HandleEditorProps<T> {
    * don't share ARIA ids or input names.
    */
   fieldId: string;
+  /**
+   * How the editor is set. `"inline"` is the card's: a labelled field, a
+   * compact Save that appears once there is something to save. `"modal"` is
+   * for a dialog whose title already names the field: no second label, the
+   * helper line always present, and a regular Save at the trailing edge that
+   * is always there and only disables, so the dialog never changes height under the pointer.
+   */
+  layout?: HandleEditorLayout;
 }
+
+export type HandleEditorLayout = "inline" | "modal";
 
 /**
  * Single-input handle editor.
@@ -114,7 +124,9 @@ function HandleEditor<T>({
   onSaved,
   saveSuccessToast,
   fieldId,
+  layout = "inline",
 }: HandleEditorProps<T>) {
+  const inModal = layout === "modal";
   const { t } = useTranslation();
   const [value, setValue] = useState(initialHandle);
   const [availability, setAvailability] = useState<HandleAvailability | null>(
@@ -186,7 +198,9 @@ function HandleEditor<T>({
       const code = availability.code as HandleErrorCode | null;
       return (
         availability.message ??
-        (code ? HANDLE_ERROR_COPY[code] : t("profileCard.chooseDifferentHandle"))
+        (code
+          ? HANDLE_ERROR_COPY[code]
+          : t("profileCard.chooseDifferentHandle"))
       );
     }
     return null;
@@ -337,7 +351,8 @@ function HandleEditor<T>({
   return (
     <div className="flex flex-col gap-4">
       <Input
-        label={inputLabel}
+        label={inModal ? undefined : inputLabel}
+        aria-label={inModal ? inputLabel : undefined}
         value={value}
         onChange={(e) => {
           setValue(e.target.value.replace(/\s+/g, ""));
@@ -358,12 +373,25 @@ function HandleEditor<T>({
         }
         rightIcon={rightIcon}
         errorText={errorText ?? undefined}
-        helperText={helperOrIdle ?? undefined}
+        helperText={helperOrIdle ?? (inModal ? helperText : undefined)}
         aria-invalid={Boolean(errorText)}
         fullWidth
         data-testid={`${fieldId}-input`}
       />
-      {(!isUnchanged || saveStatus !== "idle") && (
+      {inModal ? (
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            disabled={!isSaveable}
+            aria-live="polite"
+            data-testid={`${fieldId}-save`}
+          >
+            {saveLabel}
+          </Button>
+        </div>
+      ) : null}
+      {!inModal && (!isUnchanged || saveStatus !== "idle") && (
         <div className="flex justify-end">
           <Button
             variant="primary"
@@ -455,11 +483,18 @@ function UserHandleSection({ initial, onSaved }: UserHandleSectionProps) {
 interface AssistantHandleSectionProps {
   assistant: Assistant;
   onSaved: (next: Assistant) => void;
+  layout?: HandleEditorLayout;
 }
 
-function AssistantHandleSection({
+/**
+ * The assistant-handle editor on its own, for surfaces that offer it outside
+ * this card (the handle modal). Read-only, with the way to release it, once a
+ * registered subdomain holds the handle.
+ */
+export function AssistantHandleSection({
   assistant,
   onSaved,
+  layout = "inline",
 }: AssistantHandleSectionProps) {
   const { t } = useTranslation();
   const currentHandle = assistant.handle ?? "";
@@ -500,7 +535,16 @@ function AssistantHandleSection({
     return (
       <div className="flex flex-col gap-2">
         <Input
-          label={t("profileCard.assistantHandleLabel")}
+          label={
+            layout === "modal"
+              ? undefined
+              : t("profileCard.assistantHandleLabel")
+          }
+          aria-label={
+            layout === "modal"
+              ? t("profileCard.assistantHandleLabel")
+              : undefined
+          }
           value={currentHandle}
           readOnly
           disabled
@@ -536,13 +580,20 @@ function AssistantHandleSection({
     <HandleEditor<Assistant>
       initialHandle={currentHandle}
       inputLabel={t("profileCard.assistantHandleLabel")}
-      helperText={t("profileCard.handleHelper")}
+      // One line in the modal, where the hint is always showing: a second
+      // line would come and go with the probe's shorter answers.
+      helperText={
+        layout === "modal"
+          ? t("assistantHandleModal.helper")
+          : t("profileCard.handleHelper")
+      }
       idleHelperText={idleHelperText}
       checkAvailable={checkAvailable}
       save={save}
       onSaved={onSaved}
       saveSuccessToast={t("profileCard.assistantHandleUpdated")}
       fieldId="assistant-handle"
+      layout={layout}
     />
   );
 }

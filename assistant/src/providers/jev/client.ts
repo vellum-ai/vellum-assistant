@@ -426,7 +426,7 @@ export class JevProvider implements Provider {
           extractErrorMessage(bodyText, response.status),
           JEV_PROVIDER_ID,
           response.status,
-          { reason, rawBody: bodyText },
+          { reason, rawBody: bodyText, rawRequest: request },
         );
       }
       let parsed: unknown;
@@ -437,7 +437,7 @@ export class JevProvider implements Provider {
           "TypeSafe returned a non-JSON response.",
           JEV_PROVIDER_ID,
           response.status,
-          { reason: "bad_request", rawBody: bodyText },
+          { reason: "bad_request", rawBody: bodyText, rawRequest: request },
         );
       }
       if (!isRecord(parsed) || !isRecord(parsed.answers)) {
@@ -445,7 +445,7 @@ export class JevProvider implements Provider {
           "TypeSafe returned a response without answers.",
           JEV_PROVIDER_ID,
           response.status,
-          { reason: "bad_request", rawBody: bodyText },
+          { reason: "bad_request", rawBody: bodyText, rawRequest: request },
         );
       }
       const usage = isRecord(parsed.usage) ? parsed.usage : undefined;
@@ -486,6 +486,7 @@ export class JevProvider implements Provider {
           cause: error,
           abortReason,
           reason: abortReason ? undefined : "network_error",
+          rawRequest: request,
         },
       );
     } finally {

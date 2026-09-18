@@ -788,6 +788,24 @@ const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 
+/**
+ * Persistable view of the chat.completions create params. A `logit_bias`
+ * preset (e.g. `suppress-cjk`) is ~5.3k deterministic entries (~68KB);
+ * summarize it so inspector rows don't balloon. The full map still went
+ * out on the wire.
+ */
+function inspectableChatCompletionsRequest(
+  params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+): unknown {
+  if (!params.logit_bias) {
+    return params;
+  }
+  return {
+    ...params,
+    logit_bias: `<${Object.keys(params.logit_bias).length} token biases omitted>`,
+  };
+}
+
 // Think-tag scanning primitives are shared with the TTS reasoning filter
 // (util/think-tag-stream.ts) so the two stream parsers cannot drift. This
 // provider keeps its exact historical behavior: case-sensitive, <think> only.
@@ -883,6 +901,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     // wire, to be decoded back on the response. Empty unless
     // `coerceObjectArgsToJsonString` is enabled.
     const coercedObjectKeys = new Map<string, string[]>();
+    let inspectableRequest: unknown | undefined;
 
     try {
       const thoughtSignaturesByCallId =
@@ -1125,13 +1144,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (extraBody) {
           Object.assign(params, extraBody);
         }
-        const createStream = () =>
-          this.client.chat.completions.create(params, {
+        const createStream = () => {
+          // Snapshot after extra-body merge and any in-place compat retries
+          // so inspector rows match the params that actually went on the wire.
+          inspectableRequest = inspectableChatCompletionsRequest(params);
+          return this.client.chat.completions.create(params, {
             signal: timeoutSignal,
             ...(Object.keys(requestHeaders).length > 0
               ? { headers: requestHeaders }
               : {}),
           });
+        };
         const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
         let stream: Awaited<ReturnType<typeof createStream>>;
         for (;;) {
@@ -1447,15 +1470,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         },
         stopReason: finishReason,
         // `rawRequest` is persisted to the request-log DB and inspector on every
-        // call. A `logit_bias` preset (e.g. `suppress-cjk`) is ~5.3k deterministic
-        // entries (~68KB); summarize it here so logs don't balloon. The full map
-        // still went out on the wire above.
-        rawRequest: params.logit_bias
-          ? {
-              ...params,
-              logit_bias: `<${Object.keys(params.logit_bias).length} token biases omitted>`,
-            }
-          : params,
+        // call, including 4xx throws below. A `logit_bias` preset is summarized
+        // so logs don't balloon. The full map still went out on the wire above.
+        rawRequest: inspectableRequest,
         rawResponse,
       };
     } catch (error) {
@@ -1482,6 +1499,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
             maxTokens: overflow.maxTokens,
             statusCode: error.status,
             cause: error,
+            ...(inspectableRequest !== undefined
+              ? { rawRequest: inspectableRequest }
+              : {}),
           });
         }
         if (detectVisionNotSupported(error, normalized.message)) {
@@ -1492,9 +1512,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
             error.status,
             // Stamp the reason so classification is status-independent (a vision
             // rejection returned as 401/403 must not read as an invalid key).
-            abortReason
-              ? { abortReason, reason: "vision_unsupported" }
-              : { reason: "vision_unsupported" },
+            {
+              reason: "vision_unsupported" as const,
+              ...(abortReason ? { abortReason } : {}),
+              ...(inspectableRequest !== undefined
+                ? { rawRequest: inspectableRequest }
+                : {}),
+            },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
@@ -1509,6 +1533,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           apiErrorParam?: string;
           requestId?: string;
           rawBody?: string;
+          rawRequest?: unknown;
           reason?: ProviderErrorReason;
         } = { cause: error };
         if (retryAfterMs !== undefined) {
@@ -1535,6 +1560,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (normalized.reason) {
           errorOptions.reason = normalized.reason;
         }
+        if (inspectableRequest !== undefined) {
+          errorOptions.rawRequest = inspectableRequest;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -1548,7 +1576,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
         }`,
         this.name,
         undefined,
-        abortReason ? { cause: error, abortReason } : { cause: error },
+        {
+          cause: error,
+          ...(abortReason ? { abortReason } : {}),
+          ...(inspectableRequest !== undefined
+            ? { rawRequest: inspectableRequest }
+            : {}),
+        },
       );
     }
   }

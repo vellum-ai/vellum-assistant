@@ -54,6 +54,13 @@ Tracked in LUM-3144.
 Of these, only `figma`, `github`, `linear-light-logo`, `notion`, `outlook` and
 `slack` are referenced by `BUNDLED_LOGO_URLS`; the others are unused.
 
+`notion` is the monochrome mark on the white rounded square it carries as an
+app icon, so the black glyph keeps its contrast on a dark theme. The path data
+and fill are byte-identical to the asset's earlier form; only the outer
+`viewBox`, a wrapping group transform, and the white plate behind the mark were
+added. `plugins/mcp-catalog/notion/icon.png` gives the same asset the same
+treatment.
+
 ## MIT notice for glincker/thesvg
 
 ```

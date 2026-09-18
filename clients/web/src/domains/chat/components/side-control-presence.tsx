@@ -41,7 +41,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { AssistantEyesMark } from "@/domains/chat/components/assistant-eyes-mark";
+import { AssistantEyesMark } from "@/components/avatar/assistant-eyes-mark";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";

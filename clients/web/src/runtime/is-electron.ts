@@ -29,6 +29,7 @@ import type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
   ScreenCaptureFrame,
@@ -98,6 +99,7 @@ export type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -402,6 +404,15 @@ declare global {
         /** Optional: shells that predate the staged introduction have none. */
         getIntroStage?(): Promise<boolean>;
         onIntroStage?(callback: (staged: boolean) => void): () => void;
+        /**
+         * Optional for the same reason: a shell that predates the run reports
+         * nothing about it. Pushed to the app's own window only, since it is
+         * the window that can report one.
+         */
+        onIntroReport?(
+          callback: (report: CompanionIntroReport) => void,
+        ): () => void;
+        takeIntroReports?(): Promise<CompanionIntroReport[]>;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
         release?(): void;

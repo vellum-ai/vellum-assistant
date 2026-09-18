@@ -63,6 +63,8 @@ const CONNECT_TIMEOUT_MS = 10_000;
  */
 export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
   1012, 1013,
+  // Older relays use a private code for tunnel backpressure.
+  4013,
 ]);
 
 /** Reason a live-voice session failed, surfaced via the `error` event. */

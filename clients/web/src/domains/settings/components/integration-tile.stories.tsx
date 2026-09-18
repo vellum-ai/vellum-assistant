@@ -119,6 +119,34 @@ export const IdleSelfHosted: Story = {
 };
 
 /**
+ * A catalog entry that exists only as a plugin, with no OAuth provider behind
+ * it. Its logo comes from the plugin definition rather than from the bundled
+ * provider map, so this is where a mis-resolved asset shows up: a broken
+ * source leaves the tile on its initials.
+ */
+export const PluginCatalogEntry: Story = {
+  args: {
+    plan: planFor({
+      definitions: [
+        pluginDefinition({
+          pluginName: "ashby-mcp",
+          displayName: "Ashby",
+          description: "Candidates, interviews, and offers from Ashby.",
+          oauthProvider: undefined,
+          logo: "ashby-mcp.png",
+        }),
+      ],
+    }),
+  },
+  play: async () => {
+    const logo = await screen.findByRole("img", { hidden: true });
+    await expect(logo.getAttribute("src")).toContain(
+      "images/integrations/ashby-mcp.png",
+    );
+  },
+};
+
+/**
  * Without a platform session the tile is the one above, glyph for glyph: the
  * page carries the explanation once, and the click goes to the login flow
  * instead of to the provider.

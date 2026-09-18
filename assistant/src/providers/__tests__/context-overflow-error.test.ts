@@ -47,6 +47,16 @@ describe("ContextOverflowError", () => {
     expect((err as Error & { cause?: unknown }).cause).toBe(cause);
   });
 
+  test("forwards rawRequest onto the ProviderError", () => {
+    const rawRequest = { model: "claude-opus-4.6", messages: [] };
+    const err = new ContextOverflowError("m", "anthropic", {
+      actualTokens: 10,
+      maxTokens: 5,
+      rawRequest,
+    });
+    expect(err.rawRequest).toEqual(rawRequest);
+  });
+
   test("omits optional fields when unset", () => {
     const err = new ContextOverflowError("m", "gemini");
     expect(err.actualTokens).toBeUndefined();

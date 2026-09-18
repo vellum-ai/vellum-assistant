@@ -16217,7 +16217,7 @@ paths:
     post:
       operationId: imagegeneration_generate_post
       summary: Generate or edit images using AI
-      description: Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.
+      description: Calls the configured image-generation provider (Gemini, OpenAI, or OpenRouter) to produce one or more images.
       tags:
         - image-generation
       requestBody:
@@ -21120,6 +21120,7 @@ paths:
                                           - keenable
                                           - firecrawl
                                           - fastcrw
+                                          - searxng
                                       resultCount:
                                         type: number
                                       durationMs:
@@ -21637,6 +21638,7 @@ paths:
                                                   - keenable
                                                   - firecrawl
                                                   - fastcrw
+                                                  - searxng
                                               resultCount:
                                                 type: number
                                               durationMs:
@@ -24508,6 +24510,22 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          category:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - productivity
+                                  - communication
+                                  - meetings
+                                  - sales
+                                  - marketing
+                                  - finance
+                                  - commerce
+                                  - engineering
+                                  - knowledge
+                                  - recruiting
+                              - type: "null"
+                            description: Where the integrations catalog files the provider; null for a provider without a seed entry.
                           tenant_host:
                             anyOf:
                               - type: object
@@ -24540,6 +24558,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - category
                           - tenant_host
                           - acts_as
                         additionalProperties: false
@@ -25059,6 +25078,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        category:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - productivity
+                                - communication
+                                - meetings
+                                - sales
+                                - marketing
+                                - finance
+                                - commerce
+                                - engineering
+                                - knowledge
+                                - recruiting
+                            - type: "null"
+                          description: Where the integrations catalog files the provider; null for a provider without a seed entry.
                         tenant_host:
                           anyOf:
                             - type: object
@@ -25091,6 +25126,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - category
                         - tenant_host
                         - acts_as
                       additionalProperties: false
@@ -27655,6 +27691,11 @@ paths:
                             logo:
                               type: string
                             oauthProvider:
+                              type: string
+                            category:
+                              description:
+                                "Where the integrations catalog files the entry: a slug from the shared integration-category vocabulary,
+                                passed through as the catalog declares it."
                               type: string
                           required:
                             - kind

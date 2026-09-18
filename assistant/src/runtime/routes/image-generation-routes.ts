@@ -5,10 +5,7 @@ import {
   resolveImageGenCredentials,
   resolveImageGenRouting,
 } from "../../media/image-credentials.js";
-import {
-  describeImageModels,
-  resolveImageModel,
-} from "../../media/image-models.js";
+import { resolveRequestedImageModel } from "../../media/image-models.js";
 import { generateImage, mapImageGenError } from "../../media/image-service.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -80,18 +77,15 @@ async function handleImageGenerationGenerate(
   const config = getConfig();
   const svc = config.services["image-generation"];
 
-  // Resolve tier aliases (fast, quality, openai) to concrete model IDs via
-  // the registry; reject unknown values with the current catalog so the
-  // error is self-describing rather than a stale enum.
+  // Resolve aliases and OpenRouter slugs against the configured provider.
+  // Built-in providers still list the current catalog on unknown values.
   let resolvedModel = model as string | undefined;
   if (typeof resolvedModel === "string" && resolvedModel) {
-    const entry = resolveImageModel(resolvedModel);
-    if (!entry) {
-      throw new BadRequestError(
-        `Unknown model "${resolvedModel}". Available models and aliases:\n${describeImageModels()}`,
-      );
+    const resolved = resolveRequestedImageModel(resolvedModel, svc.provider);
+    if (resolved.error) {
+      throw new BadRequestError(resolved.error);
     }
-    resolvedModel = entry.id;
+    resolvedModel = resolved.model;
   }
 
   // Backend and managed-ness resolve together; an explicit model override
@@ -154,7 +148,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Generate or edit images using AI",
     description:
-      "Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.",
+      "Calls the configured image-generation provider (Gemini, OpenAI, or OpenRouter) to produce one or more images.",
     tags: ["image-generation"],
     requestBody: ImageGenerationRequestSchema,
     responseBody: ImageGenerationResponseSchema,

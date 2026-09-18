@@ -250,16 +250,26 @@ export const IMAGE_GEN_MODEL_DISPLAY_NAMES: Record<string, string> = {
 
 /**
  * Image-generation providers offered by the settings card. `vellum` is the
- * managed option (no API key; billed to the Vellum account); `gemini` and
- * `openai` use the user's key and list only the models that key can serve.
+ * managed option (no API key; billed to the Vellum account); `gemini`,
+ * `openai`, and `openrouter` use the user's key. OpenRouter has no static
+ * model list: its catalog is live.
  */
-export const IMAGE_GEN_PROVIDERS = ["vellum", "gemini", "openai"] as const;
+export const IMAGE_GEN_PROVIDERS = [
+  "vellum",
+  "gemini",
+  "openai",
+  "openrouter",
+] as const;
 
 export const IMAGE_GEN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   vellum: "Vellum",
   gemini: "Gemini",
   openai: "OpenAI",
+  openrouter: "OpenRouter",
 };
+
+export const DEFAULT_OPENROUTER_IMAGE_MODEL =
+  "google/gemini-3.1-flash-image-preview";
 
 /**
  * Models selectable under a provider. Vellum spans both backends (the daemon
@@ -267,6 +277,9 @@ export const IMAGE_GEN_PROVIDER_DISPLAY_NAMES: Record<string, string> = {
  * the models their key can serve.
  */
 export function imageGenModelsForProvider(provider: string): string[] {
+  if (provider === "openrouter") {
+    return [];
+  }
   if (provider === "vellum") {
     return [...AVAILABLE_IMAGE_GEN_MODELS];
   }

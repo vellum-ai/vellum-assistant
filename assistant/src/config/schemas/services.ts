@@ -22,7 +22,12 @@ export const VALID_INFERENCE_PROVIDERS = [
 
 // `vellum` generates through the platform runtime proxy; the backend
 // (gemini/openai) derives from the selected model's prefix at request time.
-const VALID_IMAGE_GEN_PROVIDERS = ["vellum", "gemini", "openai"] as const;
+const VALID_IMAGE_GEN_PROVIDERS = [
+  "vellum",
+  "gemini",
+  "openai",
+  "openrouter",
+] as const;
 
 /**
  * Derived from `SEARCH_PROVIDER_CATALOG`. Adding a new web-search provider
@@ -56,8 +61,9 @@ const InferenceServiceSchema = z.object({});
 /**
  * Image generation carries no `mode`: `provider` is the only axis. `"vellum"`
  * generates through the platform runtime proxy for the model-appropriate
- * backend, billed to Vellum credits; `"gemini"`/`"openai"` use the user's
- * key. A `mode` key sent by an older client is stripped at parse.
+ * backend, billed to Vellum credits; `"gemini"`/`"openai"`/`"openrouter"`
+ * use the user's key. A `mode` key sent by an older client is stripped at
+ * parse.
  */
 const ImageGenerationServiceSchema = z.object({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
@@ -76,8 +82,9 @@ const WebSearchServiceSchema = z.object({
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),
-  // Origin for providers that support a custom API base (e.g. fastCRW).
-  // Empty / omitted uses the provider's cloud default.
+  // Origin for providers that support a custom API base (e.g. fastCRW,
+  // SearXNG). Empty / omitted uses the provider's cloud default when one
+  // exists. SearXNG has no cloud default and requires a user-supplied URL.
   apiBase: z.string().optional(),
 });
 

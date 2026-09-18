@@ -9,6 +9,8 @@
  * them here, never per-component.
  */
 
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
+
 /** Horizontal row padding before the leading chip. */
 export const SIDEBAR_ROW_PADDING_X = 12;
 
@@ -86,6 +88,47 @@ export const SIDEBAR_PILL_GAP_CLASSES =
  * (e.g. Recents') instead of nesting under the header.
  */
 export const SIDEBAR_SECTION_INDENT = 0;
+
+/**
+ * The space between a section's title and the first row under it, measured
+ * from the *title's text* rather than from the header row's box: the box is
+ * invisible, so the text is what a reader lines the gap up against.
+ *
+ * One number for every section, because the two surfaces build the gap out
+ * of different parts. A card's header row is exactly the title's line box,
+ * so the whole gap is the content's own top inset. On the rail the header is
+ * a tile ({@link SIDE_MENU_TILE_SIZE}) around a line of
+ * `text-body-medium-lighter`, and `items-center` splits that surplus evenly
+ * above and below the text - so the header already spends half of it on the
+ * gap, and the content adds only the remainder (see
+ * {@link SIDEBAR_SECTION_CONTENT_PADDING_TOP}). Adding a full inset there on
+ * top of the header's own half stood the rail's first row 17px under its
+ * title against a card that insets everything else by
+ * {@link SIDEBAR_ROW_PADDING_X}, which read as a different gap per section
+ * depending on whether that first row happened to be drawing its
+ * hover/current surface (visible 6px higher than its text).
+ */
+export const SIDEBAR_SECTION_TITLE_GAP = 12;
+
+/**
+ * Line box of a section title on the rail, mirroring the
+ * `--text-body-medium-lighter-line-height` token the title is set in. Kept
+ * as a number rather than read back off the token in a `calc()`, because
+ * the remainder below is what a section renders as an inline style and a
+ * `calc()` carrying a custom property is a value the render cannot be
+ * asserted against.
+ */
+export const SIDEBAR_SECTION_TITLE_LINE_HEIGHT = 18;
+
+/**
+ * {@link SIDEBAR_SECTION_TITLE_GAP} less the half a rail header row already
+ * spends below the title's text, which is the inset the content adds. Left
+ * as the subtraction rather than the 3px it comes to, so the two halves of
+ * the gap stay visibly one sum.
+ */
+export const SIDEBAR_SECTION_CONTENT_PADDING_TOP =
+  SIDEBAR_SECTION_TITLE_GAP -
+  (SIDE_MENU_TILE_SIZE - SIDEBAR_SECTION_TITLE_LINE_HEIGHT) / 2;
 
 /**
  * Tallest a non-last section's row list grows before it scrolls within

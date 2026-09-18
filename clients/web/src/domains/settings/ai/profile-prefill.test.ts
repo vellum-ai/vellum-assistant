@@ -6,11 +6,10 @@ import {
   uniqueProfileName,
 } from "@/domains/settings/ai/profile-prefill";
 
-// `slugify` and `dedupeKey` are module-private — they have no non-test
-// consumers, so they're exercised here through the public `derive*` helpers
-// that compose them (the `key` field is the slugified + deduped result).
+// Key derivation is exercised here through the public `derive*` helpers
+// (the `key` field is the kebab-cased + deduped result).
 
-describe("deriveProfileDefaults — slug derivation (slugify)", () => {
+describe("deriveProfileDefaults - slug derivation", () => {
   test("collapses dots and spaces into single hyphens", () => {
     expect(deriveProfileDefaults("Claude Opus 4.7", []).key).toBe(
       "claude-opus-4-7",

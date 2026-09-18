@@ -11,23 +11,18 @@ import {
 } from "react";
 
 import { cn } from "../utils/cn";
+import { useOverlayDismiss } from "../utils/overlay-dismiss";
 import { usePortalContainer } from "../utils/portal-container";
 
 /**
  * Internal context that threads `onOpenChange` from `Root` to `Content` so
- * the overlay can explicitly dismiss the sheet on click.
- *
- * iOS Safari/WKWebView only fires `click` events from elements it considers
- * "clickable" (has a click handler, cursor: pointer, or is natively
- * interactive). Radix's DismissableLayer defers touch-dismiss to a `click`
- * listener on the document, which never fires from the plain overlay div on
- * iOS. An explicit `onClick` on the overlay makes it "clickable" per iOS's
- * rules and ensures the sheet dismisses on tap-outside.
- *
- * @see https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html
+ * the overlay can explicitly dismiss the sheet on a backdrop press. See
+ * {@link useOverlayDismiss} for why the overlay carries handlers of its own.
  */
 const BottomSheetContext = createContext<{
   open?: boolean;
+  /** Radix's own default, and what decides whether a backdrop exists at all. */
+  modal?: boolean;
   onOpenChange?: (open: boolean) => void;
 }>({});
 
@@ -61,6 +56,7 @@ const BottomSheetContext = createContext<{
 function Root({
   open: controlledOpen,
   defaultOpen = false,
+  modal = true,
   onOpenChange,
   ...props
 }: ComponentProps<typeof Dialog.Root>) {
@@ -76,8 +72,8 @@ function Root({
     onOpenChange?.(next);
   };
   return (
-    <BottomSheetContext value={{ open, onOpenChange: setOpen }}>
-      <Dialog.Root open={open} onOpenChange={setOpen} {...props} />
+    <BottomSheetContext value={{ open, modal, onOpenChange: setOpen }}>
+      <Dialog.Root open={open} modal={modal} onOpenChange={setOpen} {...props} />
     </BottomSheetContext>
   );
 }
@@ -113,24 +109,43 @@ function Content({
   className,
   padded = true,
   children,
+  onInteractOutside,
   ref,
   style,
   ...props
 }: BottomSheetContentProps) {
   const container = usePortalContainer();
-  const { open, onOpenChange } = useContext(BottomSheetContext);
+  const { open, modal, onOpenChange } = useContext(BottomSheetContext);
+  const dismiss = useOverlayDismiss({
+    onDismiss: () => onOpenChange?.(false),
+  });
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
         data-slot="bottom-sheet-overlay"
         data-variant={variant}
         className={cn("fixed inset-0 z-50 bg-black/50", overlayClassName)}
-        onClick={() => onOpenChange?.(false)}
+        {...dismiss}
       />
       <Dialog.Content
         ref={ref}
         data-slot="bottom-sheet-content"
         data-variant={variant}
+        // A modal sheet's backdrop covers the viewport, so a press outside the
+        // sheet is a press on the backdrop, and the overlay already reports
+        // that one. Leaving Radix's outside-dismissal on as well closes the
+        // sheet twice for one tap, and gives it a second way out that cannot
+        // see the gesture behind: the check runs on the click, after React has
+        // flushed, so a menu or dialog that closed on the same press is gone
+        // by then and its press reads as a press outside the sheet. A
+        // non-modal sheet has no backdrop, so there Radix stays the only
+        // owner.
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (modal) {
+            event.preventDefault();
+          }
+        }}
         inert={variant === "detail" && !open ? true : undefined}
         style={
           variant === "detail" ? { pointerEvents: "none", ...style } : style

@@ -64,6 +64,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -392,6 +393,8 @@ export interface VoiceTurnCallbacks {
 export type { VoiceEscalationTarget } from "./voice-escalation-target.js";
 
 export interface VoiceTurnOptions {
+  /** Internal task update delivered through the call, with its original attribution. */
+  subagentNotification?: SubagentParentNotification;
   /** The conversation ID for this voice call's session. */
   conversationId: string;
   /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
@@ -1224,6 +1227,7 @@ export async function startVoiceTurn(
       ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
+        ...opts.subagentNotification?.metadata,
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
@@ -2066,6 +2070,9 @@ export async function startVoiceTurn(
         );
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        ...(opts.subagentNotification?.cronRunId
+          ? { cronRunId: opts.subagentNotification.cronRunId }
+          : {}),
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;

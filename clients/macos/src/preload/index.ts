@@ -23,6 +23,7 @@ import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
   CompanionIntroAction,
+  CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
   DeepLink,
@@ -545,6 +546,25 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:companion:introStage", handler);
       };
     },
+    onIntroReport: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        report: CompanionIntroReport,
+      ) => {
+        callback(report);
+      };
+      ipcRenderer.on("vellum:companion:introReport", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:introReport", handler);
+      };
+    },
+    // Reports main held because there was no window listening for them, which
+    // is how the run's own ending survives an app the user had closed. Taken,
+    // not read: a second reader would report the same rows again.
+    takeIntroReports: (): Promise<CompanionIntroReport[]> =>
+      ipcRenderer.invoke("vellum:companion:takeIntroReports") as Promise<
+        CompanionIntroReport[]
+      >,
     setInteractive: (interactive: boolean): void => {
       ipcRenderer.send("vellum:companion:setInteractive", interactive);
     },

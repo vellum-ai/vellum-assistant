@@ -347,6 +347,17 @@ export interface CompanionIntroProps {
    * on the card or the press reads as having done nothing.
    */
   greeted?: boolean;
+  /**
+   * How many times the real voice key has been tapped, counted for the life of
+   * the window that owns the binding.
+   *
+   * The key's edges reach only that window, so the beats that draw the key
+   * cannot see it being pressed and are told instead. A running total rather
+   * than a flag, which is what lets a second tap be told from the first and
+   * both from a re-render (see `CompanionSurfaceState.voiceKeyTaps`); what this
+   * card cares about is how much of it arrived while the beat was up.
+   */
+  voiceKeyTaps?: number;
 }
 
 export function CompanionIntro({
@@ -361,6 +372,7 @@ export function CompanionIntro({
   onAdvance,
   micGranted,
   greeted = false,
+  voiceKeyTaps = 0,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
@@ -399,6 +411,50 @@ export function CompanionIntro({
       clearTimeout(timer);
     };
   }, [scolded]);
+  /**
+   * The real key takes the scold down.
+   *
+   * The scold is an answer to a hand in the wrong place, and a user whose hand
+   * has just found the right one has stopped needing it: the cap would
+   * otherwise be leaning away from a press while lighting up for it, which is
+   * the card arguing with itself. The words go back to the instruction at the
+   * same moment, which is where the reader's eye already is.
+   */
+  useEffect(() => {
+    setScolded(false);
+  }, [voiceKeyTaps]);
+  /**
+   * How much of that count landed while this beat has been up, capped at the
+   * two presses the cap has a look for.
+   *
+   * Counted from the beat rather than taken raw, because the total is a
+   * window's whole life: a user who tapped the key an hour ago has not answered
+   * this card, and a beat that opened already lit would be answering a press
+   * nobody has made on it.
+   *
+   * The baseline is taken during the render that notices the beat change rather
+   * than in an effect after it, so the new beat's first paint is the dark cap
+   * instead of the old beat's reading corrected a frame later.
+   */
+  const [tapsBeforeBeat, setTapsBeforeBeat] = useState(voiceKeyTaps);
+  const [beatOfTaps, setBeatOfTaps] = useState<CompanionIntroBeat>(beat);
+  if (beatOfTaps !== beat) {
+    setBeatOfTaps(beat);
+    setTapsBeforeBeat(voiceKeyTaps);
+  } else if (voiceKeyTaps < tapsBeforeBeat) {
+    // **The count went backwards, so it is a different count.** It belongs to
+    // another window's store, which starts again at zero when that window
+    // reloads, and this card can outlive one: the beat is main's and the
+    // surface holds it across the app window coming and going. A baseline left
+    // where it was would be measuring the new count against the old one's
+    // total, and every press until it caught up would land on a cap that never
+    // lit. Following it down costs nothing, since a count that fell has no
+    // presses of this beat's left in it either way.
+    setTapsBeforeBeat(voiceKeyTaps);
+  }
+  // Floored as well as capped, for the render that notices either of the two
+  // resets above and still holds the baseline they are replacing.
+  const taps = Math.min(Math.max(voiceKeyTaps - tapsBeforeBeat, 0), 2);
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
@@ -551,9 +607,8 @@ export function CompanionIntro({
             button beside a picture of the key made two controls for one
             gesture, and the one the user should learn is the key. So the cap
             takes the press, and it is also what answers the real key: it lights
-            on the first tap, fills on the second, and goes green once the
-            microphone is granted, which is the only feedback in this run that
-            comes from something the user did off the card. */}
+            on the first tap and fills on the second, which is the only feedback
+            in this run that comes from something the user did off the card. */}
         {beat === "key" && (
           <>
             {/* **The pointer's own press is answered, not ignored.** The cap is
@@ -575,7 +630,7 @@ export function CompanionIntro({
             <div className="flex flex-1 items-center justify-center">
               <Keycap
                 label="fn"
-                granted={micGranted === true}
+                taps={taps}
                 scolded={scolded}
                 take={() => {
                   setScolded(true);
@@ -605,7 +660,7 @@ export function CompanionIntro({
               <span data-avatar-stage className="block size-11" aria-hidden />
               <Keycap
                 label="fn"
-                granted={micGranted === true}
+                taps={taps}
                 scolded={scolded}
                 take={() => {
                   setScolded(true);
@@ -724,24 +779,32 @@ export function CompanionIntro({
  * head while they go and look. The glyph is hidden from a reader and the cap
  * carries a name instead: a screen reader saying "globe f n" names nothing.
  *
- * `granted` holds it green once the microphone is the assistant's, which is the
- * one thing this cap knows about the world beyond the card.
+ * **It answers the real key, and lights for nothing else.** `taps` is how many
+ * times the key on the keyboard has been pressed since this beat came up, and
+ * it is the whole of what colours the cap: dark until the user presses, lit on
+ * the first press, filled on the second, which is the gesture the card is
+ * asking for. Green here means "that landed", and it means nothing else: a cap
+ * lit by a permission the user granted at some other time would be green from
+ * the moment the beat paints, on every install where the microphone has ever
+ * been allowed, which reads as an answer to a press nobody has made.
  *
- * It does not yet answer the real key. The gesture is classified in the window
- * that owns the voice key rather than in this one, and a single tap is
- * deliberately nothing anywhere in that stack, so lighting the cap on the first
- * tap needs a signal published for it. Worth having: a first tap that lit
- * nothing reads as a key that does not work.
+ * Two steps rather than one, because the gesture is two presses and a cap that
+ * looked the same after both would leave the user guessing whether the second
+ * arrived. Two is as far as it goes: past the pair there is nothing left to
+ * count towards.
  */
 function Keycap({
   label,
-  granted = false,
+  taps = 0,
   scolded = false,
   take,
 }: {
   label: string;
-  /** Whether the microphone a conversation needs is already granted. */
-  granted?: boolean;
+  /**
+   * How many presses of the real key this cap is answering, capped by the
+   * caller at the two it draws.
+   */
+  taps?: number;
   /**
    * Whether this cap has just been clicked by the pointer, which the card has
    * answered in words. The cap leans away from the press rather than lighting
@@ -751,9 +814,12 @@ function Keycap({
   /** Take the press. Absent draws the cap as a picture and nothing more. */
   take?: () => void;
 }) {
-  const look = granted
-    ? "border-emerald-400/60 bg-emerald-400/20 text-emerald-100"
-    : "border-white/20 bg-white/10 text-white/85";
+  const look =
+    taps >= 2
+      ? "border-emerald-300/90 bg-emerald-400/55 text-emerald-50"
+      : taps === 1
+        ? "border-emerald-400/70 bg-emerald-400/20 text-emerald-100"
+        : "border-white/20 bg-white/10 text-white/85";
   const body = (
     <>
       <Globe className="size-4" aria-hidden />
@@ -775,6 +841,11 @@ function Keycap({
     // declining rather than a cap that did nothing. The card says the words.
     scolded ? "scale-90 opacity-70" : ""
   }`;
+  // The pointer's own wash, held back once the key has answered: hover styles
+  // are written later in the sheet than the cap's own, so a hand resting over a
+  // lit cap would wipe the one piece of feedback the user just earned. A cap
+  // that has been pressed properly is also no longer inviting the click.
+  const hover = taps === 0 ? "hover:border-white/40 hover:bg-white/20" : "";
   return take === undefined ? (
     <span className={shape} aria-label={label}>
       {body}
@@ -782,7 +853,7 @@ function Keycap({
   ) : (
     <button
       type="button"
-      className={`${shape} hover:border-white/40 hover:bg-white/20`}
+      className={`${shape}${hover}`}
       aria-label={label}
       onClick={take}
     >

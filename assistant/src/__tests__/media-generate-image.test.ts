@@ -21,6 +21,7 @@ import { setConfig } from "./helpers/set-config.js";
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
 let mockOpenAIKey: string | undefined = "test-openai-key";
+let mockOpenRouterKey: string | undefined = "test-openrouter-key";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
@@ -40,7 +41,7 @@ let mockGenerateDelayMs = 0;
  */
 function seedImageGenService(
   overrides: {
-    provider?: "vellum" | "gemini" | "openai";
+    provider?: "vellum" | "gemini" | "openai" | "openrouter";
     model?: string;
   } = {},
 ): void {
@@ -63,6 +64,9 @@ mock.module("../security/secure-keys.js", () => ({
     }
     if (provider === "openai") {
       return mockOpenAIKey;
+    }
+    if (provider === "openrouter") {
+      return mockOpenRouterKey;
     }
     return undefined;
   },
@@ -143,6 +147,7 @@ const CONFIG_DIR = join(
 beforeEach(() => {
   mockGeminiKey = "test-gemini-key";
   mockOpenAIKey = "test-openai-key";
+  mockOpenRouterKey = "test-openrouter-key";
   seedImageGenService();
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
@@ -306,6 +311,49 @@ describe("image-studio skill script wrapper", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("OpenAI");
     expect(result.content).not.toContain("No Gemini API key");
+  });
+
+  test("OpenRouter accepts an arbitrary slug and keeps OpenRouter ownership", async () => {
+    seedImageGenService({
+      provider: "openrouter",
+      model: "google/gemini-3.1-flash-image-preview",
+    });
+
+    const result = await run(
+      { prompt: "a nebula", model: "black-forest-labs/flux" },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openrouter");
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "test-openrouter-key",
+    });
+    expect(lastGenerateRequest?.model).toBe("black-forest-labs/flux");
+  });
+
+  test("OpenRouter qualifies a built-in alias and keeps OpenRouter ownership", async () => {
+    seedImageGenService({ provider: "openrouter" });
+
+    const result = await run({ prompt: "a robot", model: "openai" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openrouter");
+    expect(lastGenerateRequest?.model).toBe("openai/gpt-image-2");
+  });
+
+  test("OpenRouter returns a missing-key hint without falling back to Gemini", async () => {
+    seedImageGenService({ provider: "openrouter" });
+    mockOpenRouterKey = undefined;
+    mockGeminiKey = "gemini-key-should-not-be-used";
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("OpenRouter API key");
+    expect(result.content).not.toContain("No Gemini API key");
+    expect(lastGenerateProvider).toBeNull();
   });
 
   test("explicit model override routes to owning provider (gemini config → openai call)", async () => {

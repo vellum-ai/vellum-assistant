@@ -118,6 +118,7 @@ function createHarness(options: {
   providerId?: SttProviderId;
   fluxConfig?: Partial<LiveVoiceFluxConfig>;
   silenceThresholdMs?: number;
+  continuationAnnounceSilenceMs?: number;
   startVoiceTurn?: (options: VoiceTurnOptions) => Promise<{
     turnId: string;
     abort: () => void;
@@ -168,6 +169,7 @@ function createHarness(options: {
     streamTtsAudio: options.streamTtsAudio ?? null,
     emitMetrics: options.emitMetrics ?? false,
     archiveAudio: options.archiveAudio,
+    continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
     spawnBackgroundContinuation: mock(async () => ""),
     turnDetectorConfig: {
       silenceThresholdMs: options.silenceThresholdMs ?? 40,
@@ -290,6 +292,89 @@ const FLUX_OFF = {
 } as const satisfies Partial<LiveVoiceFluxConfig>;
 
 describe("LiveVoiceSession Flux end-of-turn", () => {
+  test("holds a task outcome through a Flux pause and reply, then announces over idle input", async () => {
+    const completeTurn = autoCompletingTurn(
+      "The investigation found the cause.",
+    );
+    const { session, transcribers, turnCalls, frames } = createHarness({
+      fluxConfig: { ...FLUX_ON, eotTimeoutMs: 2_000 },
+      silenceThresholdMs: 30,
+      continuationAnnounceSilenceMs: 10,
+      startVoiceTurn: async (options) => {
+        if (options.subagentNotification) {
+          return completeTurn(options);
+        }
+        return { turnId: "question-turn", abort: mock() };
+      },
+      streamTtsAudio: async (options) => {
+        const audio = pcm(100);
+        options.onAudioChunk({
+          type: "tts_audio",
+          contentType: "audio/pcm",
+          sampleRate: SAMPLE_RATE,
+          dataBase64: Buffer.from(audio).toString("base64"),
+        });
+        return {
+          provider: "fish-audio",
+          contentType: "audio/pcm",
+          sampleRate: SAMPLE_RATE,
+          chunks: 1,
+          bytes: audio.byteLength,
+        };
+      },
+    });
+    const feedQuietAudio = async () => {
+      for (let index = 0; index < 12; index += 1) {
+        await session.handleBinaryAudio(pcm(100));
+        await sleep(10);
+      }
+    };
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const transcriber = transcribers[0]!;
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.startOfTurn(0);
+      transcriber.emit({ type: "partial", text: "Could you explain" });
+      session.receiveSubagentNotification({
+        taskId: "task-1",
+        message: "The investigation found the cause.",
+        metadata: {
+          subagentNotification: {
+            subagentId: "task-1",
+            label: "Investigation",
+            status: "completed",
+          },
+        },
+      });
+
+      const submittedBeforePause = transcriber.received.length;
+      await feedQuietAudio();
+      expect(transcriber.received.length - submittedBeforePause).toBe(12);
+      expect(turnCalls).toHaveLength(0);
+
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.endOfTurn("Could you explain how this works?", 0);
+      await waitFor(() => turnCalls.length === 1);
+      expect(turnCalls[0]?.content).toBe("Could you explain how this works?");
+      await feedQuietAudio();
+      expect(turnCalls).toHaveLength(1);
+
+      turnCalls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Here is how it works."),
+      );
+      turnCalls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await feedQuietAudio();
+      await waitFor(() => countFrames(frames, "tts_done") === 2);
+      expect(turnCalls).toHaveLength(2);
+      expect(turnCalls[1]?.hiddenSyntheticPrompt).toBe(true);
+      expect(turnCalls[1]?.subagentNotification?.taskId).toBe("task-1");
+      expect(transcribers).toHaveLength(1);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
   test("keeps continuous idle audio out of the request recording", async () => {
     const recordings: Buffer[] = [];
     const { session, transcribers } = createHarness({
@@ -396,6 +481,93 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     }
   });
 
+  test("gates idle room audio after one second while keeping Flux supplied with silence", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: FLUX_ON,
+    });
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      for (let index = 0; index < 200; index += 1) {
+        await session.handleBinaryAudio(pcm(100));
+      }
+      const submitted = Buffer.concat(transcribers[0]!.received);
+      expect(submitted).toEqual(
+        Buffer.concat([
+          Buffer.from(pcm(100, SAMPLE_RATE)),
+          Buffer.alloc((SAMPLE_RATE * 2 * 800) / 1_000),
+        ]),
+      );
+      expect(transcribers[0]!.stopped).toBe(false);
+      expect(turnCalls).toHaveLength(0);
+      expect(countFrames(frames, "speech_started")).toBe(0);
+      expect(countFrames(frames, "utterance_end")).toBe(0);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test("a long pause gates noise without releasing the question or clipping resumed speech", async () => {
+    const { frames, session, transcribers, turnCalls } = createHarness({
+      fluxConfig: { ...FLUX_ON, eotTimeoutMs: 5_000 },
+      startVoiceTurn: autoCompletingTurn(),
+    });
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const transcriber = transcribers[0]!;
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      transcriber.startOfTurn(0);
+      transcriber.emit({ type: "partial", text: "Could you explain" });
+      for (let index = 0; index < 200; index += 1) {
+        await session.handleBinaryAudio(pcm(100));
+      }
+      await sleep(PAST_SILENCE_BOUNDARY_MS);
+      expect(turnCalls).toHaveLength(0);
+      expect(countFrames(frames, "utterance_end")).toBe(0);
+
+      const onset = pcm(300, SAMPLE_RATE / 5);
+      await session.handleBinaryAudio(onset);
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      expect(transcriber.received.at(-1)).toEqual(
+        Buffer.concat([Buffer.from(onset), Buffer.from(LOUD_CHUNK)]),
+      );
+      const submitted = Buffer.concat(transcriber.received);
+      expect(submitted.byteLength).toBe(
+        LOUD_CHUNK.byteLength * 2 + SAMPLE_RATE * 2 * 2 + onset.byteLength,
+      );
+      transcriber.endOfTurn("Could you explain how penguins stay warm?", 0);
+      await waitFor(() => turnCalls.length === 1);
+      expect(turnCalls[0]?.content).toBe(
+        "Could you explain how penguins stay warm?",
+      );
+      expect(transcribers).toHaveLength(1);
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
+  test("a replacement Flux stream does not receive the closed stream's buffered room audio", async () => {
+    const { session, transcribers } = createHarness({ fluxConfig: FLUX_ON });
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      for (let index = 0; index < 200; index += 1) {
+        await session.handleBinaryAudio(pcm(100));
+      }
+      transcribers[0]!.emit({ type: "closed" });
+      await flushAsyncCallbacks();
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await waitFor(() => transcribers.length === 2);
+      await waitFor(() => transcribers[1]!.received.length > 0);
+      expect(Buffer.concat(transcribers[1]!.received)).toEqual(
+        Buffer.from(LOUD_CHUNK),
+      );
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
   test("a provider can finish from trailing audio after the local silence boundary", async () => {
     const { session, transcribers, turnCalls } = createHarness({
       fluxConfig: FLUX_ON,
@@ -459,7 +631,7 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
     }
   });
 
-  test("continues quiet audio through an active answer without interrupting it", async () => {
+  test("gates room noise during an active answer while preserving real barge-in", async () => {
     const { frames, session, transcribers, turnCalls } = createHarness({
       fluxConfig: FLUX_ON,
     });
@@ -471,13 +643,27 @@ describe("LiveVoiceSession Flux end-of-turn", () => {
       transcriber.endOfTurn("a complete question", 0);
       await waitFor(() => turnCalls.length === 1);
       const before = transcriber.received.length;
-      for (let index = 0; index < 10; index++) {
-        await session.handleBinaryAudio(pcm(0));
+      for (let index = 0; index < 200; index++) {
+        await session.handleBinaryAudio(pcm(100));
       }
-      expect(transcriber.received.length - before).toBe(10);
+      expect(Buffer.concat(transcriber.received.slice(before))).toEqual(
+        Buffer.concat([
+          Buffer.from(pcm(100, SAMPLE_RATE)),
+          Buffer.alloc((SAMPLE_RATE * 2 * 800) / 1_000),
+        ]),
+      );
       expect(transcribers).toHaveLength(1);
       expect(countFrames(frames, "turn_cancelled")).toBe(0);
       expect(turnCalls).toHaveLength(1);
+      await sleep(PAST_SILENCE_BOUNDARY_MS);
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => countFrames(frames, "turn_cancelled") === 1);
+      expect(transcriber.received.at(-1)).toEqual(
+        Buffer.concat([
+          Buffer.from(pcm(100, SAMPLE_RATE / 5)),
+          Buffer.from(SUSTAINED_LOUD_CHUNK),
+        ]),
+      );
     } finally {
       await session.close("client_end");
     }

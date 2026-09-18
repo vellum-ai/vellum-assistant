@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
+
 const RUNTIME_ASSISTANT_ID = "qa-loopback-auth";
 const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
@@ -260,6 +262,32 @@ afterEach(() => {
 });
 
 describe("resolveLocalAssistantPlatformIdentity", () => {
+  test("an injection failure after registration surfaces the registered id", async () => {
+    // GIVEN an unregistered local assistant whose gateway cannot store secrets
+    statusBody = {
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
+    };
+    secretsUnavailable = true;
+
+    // WHEN resolving its platform identity
+    const failure = await resolveLocalAssistantPlatformIdentity(
+      RUNTIME_ASSISTANT_ID,
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    // THEN the registration happened and the error still carries its id, so
+    // a caller that only needs the platform to know the assistant can go on
+    expect(requestNames()).toContain("ensure-registration");
+    expect(failure).toBeInstanceOf(PlatformIdentityInjectionError);
+    expect(
+      (failure as PlatformIdentityInjectionError).platformAssistantId,
+    ).toBe(PLATFORM_ASSISTANT_ID);
+  });
+
   test("returns the stored platform id without registration when the API key is present", async () => {
     const platformAssistantId =
       await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);

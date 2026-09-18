@@ -1,4 +1,4 @@
-export type ImageGenProvider = "gemini" | "openai";
+export type ImageGenProvider = "gemini" | "openai" | "openrouter";
 
 export interface DirectCredentials {
   type: "direct";

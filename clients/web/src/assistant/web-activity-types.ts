@@ -7,7 +7,8 @@ export type WebSearchProviderId =
   | "tavily"
   | "keenable"
   | "firecrawl"
-  | "fastcrw";
+  | "fastcrw"
+  | "searxng";
 
 export type WebFetchProviderId = "default" | "firecrawl" | "fastcrw";
 
