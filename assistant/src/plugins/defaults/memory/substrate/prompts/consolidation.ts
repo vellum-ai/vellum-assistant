@@ -312,7 +312,7 @@ Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. The entries for this p
 - Updated \`memory/threads.md\` (≤10000 chars)
 - Updated \`edges:\` frontmatter in any pages whose outgoing links changed
 
-How retrieval works: high-activation pages are loaded at the start of each turn. Activations spread along **directed** edges from source to target — activating A pulls in the pages A points at, but not the reverse.
+How retrieval works: high-activation pages are loaded at the start of each turn. Activations spread along **directed** edges from source to target: activating A pulls in the pages A points at, but not the reverse.
 
 ---
 
