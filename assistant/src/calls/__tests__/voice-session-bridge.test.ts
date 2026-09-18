@@ -3004,6 +3004,25 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     });
   });
 
+  test("does not warm a route whose finalized policy disables caching", async () => {
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+
+    onFirstModelCallPrepared({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      disableCache: true,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
   test("does not warm when requests are rate limited", async () => {
     setConfig("rateLimit", { maxRequestsPerMinute: 1 });
     const runOptions = await runOptionsFor({});

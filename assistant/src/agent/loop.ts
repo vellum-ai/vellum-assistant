@@ -1,4 +1,6 @@
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
@@ -668,6 +670,8 @@ export interface PreparedModelCall {
   callSite?: LLMCallSite;
   overrideProfile?: string;
   forceOverrideProfile: boolean;
+  /** Present when the finalized route opts out of prompt caching. */
+  disableCache?: true;
   signal?: AbortSignal;
   systemPrompt: string | null;
   tools: ToolDefinition[];
@@ -2258,6 +2262,21 @@ export class AgentLoop {
               ? providerConfig.overrideProfile
               : undefined;
           try {
+            const preparedForceOverrideProfile =
+              providerConfig.forceOverrideProfile === true;
+            const disableCache =
+              providerCallSite !== undefined &&
+              resolveCallSiteConfig(providerCallSite, getConfig().llm, {
+                ...(preparedOverrideProfile !== undefined
+                  ? { overrideProfile: preparedOverrideProfile }
+                  : {}),
+                ...(preparedForceOverrideProfile
+                  ? { forceOverrideProfile: true }
+                  : {}),
+                ...(this.conversationId !== undefined
+                  ? { selectionSeed: this.conversationId }
+                  : {}),
+              }).disableCache === true;
             onModelCallPrepared({
               ...(providerCallSite !== undefined
                 ? { callSite: providerCallSite }
@@ -2265,8 +2284,8 @@ export class AgentLoop {
               ...(preparedOverrideProfile !== undefined
                 ? { overrideProfile: preparedOverrideProfile }
                 : {}),
-              forceOverrideProfile:
-                providerConfig.forceOverrideProfile === true,
+              forceOverrideProfile: preparedForceOverrideProfile,
+              ...(disableCache ? { disableCache: true as const } : {}),
               ...(signal !== undefined ? { signal } : {}),
               systemPrompt: providerOptions.systemPrompt ?? null,
               tools: currentTools,

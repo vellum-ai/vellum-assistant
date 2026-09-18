@@ -25,6 +25,7 @@ import {
   textResponse,
   toolUseResponse,
 } from "./helpers/mock-provider.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const userMessage: Message = {
   role: "user",
@@ -92,6 +93,7 @@ function registerOutputHookPlugin(hooks: {
 describe("agent loop output hooks", () => {
   beforeEach(() => {
     resetPluginRegistryAndRegisterDefaults();
+    setConfig("llm", {});
   });
 
   test("post-model-call transforms the persisted message content", async () => {
@@ -451,6 +453,32 @@ describe("agent loop output hooks", () => {
       "web_search",
     ]);
     expect(calls[0].tools).toEqual(prepared?.tools);
+  });
+
+  test("prepared model call carries the finalized cache policy", async () => {
+    setConfig("llm", {
+      callSites: { mainAgent: { disableCache: true } },
+    });
+    const { provider } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared?.disableCache).toBe(true);
   });
 
   test("prepared model call preserves explicit system-prompt removal", async () => {

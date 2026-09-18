@@ -2169,6 +2169,9 @@ export async function startVoiceTurn(
         ...(shouldWarmEscalation
           ? {
               onFirstModelCallPrepared: (prepared) => {
+                if (prepared.disableCache) {
+                  return;
+                }
                 void conversation.warmPromptCache({
                   callSite: prepared.callSite ?? "mainAgent",
                   ...(prepared.overrideProfile !== undefined
