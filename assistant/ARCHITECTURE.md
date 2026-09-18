@@ -1930,12 +1930,14 @@ Keep-alive heartbeats (every 30 s by default):
 
 ### Key Source Files
 
-| File                                            | Role                                                                           |
-| ----------------------------------------------- | ------------------------------------------------------------------------------ |
-| `assistant/src/runtime/assistant-event.ts`      | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers    |
-| `assistant/src/runtime/assistant-event-hub.ts`  | `AssistantEventHub` class and process-level singleton                          |
-| `assistant/src/runtime/routes/events-routes.ts` | `handleSubscribeAssistantEvents()` — SSE route handler                         |
-| `assistant/src/daemon/server.ts`                | Session event paths that publish to the hub (`send` → `publishAssistantEvent`) |
+| File                                                 | Role                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `assistant/src/runtime/assistant-event.ts`           | `AssistantEvent` type, `buildAssistantEvent()` factory, SSE framing helpers           |
+| `assistant/src/runtime/assistant-event-hub.ts`       | `AssistantEventHub` class and process-level singleton                                 |
+| `assistant/src/runtime/assistant-event-targeting.ts` | `matchesTargeting()`, the targeting check live fanout and replay share                |
+| `assistant/src/runtime/assistant-stream-state.ts`    | Per-assistant `seq` counter and ring buffer behind reconnect and `events/tail` replay |
+| `assistant/src/runtime/routes/events-routes.ts`      | `handleSubscribeAssistantEvents()`, the SSE route handler                             |
+| `assistant/src/daemon/server.ts`                     | Session event paths that publish to the hub (`send` → `publishAssistantEvent`)        |
 
 ---
 

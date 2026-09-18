@@ -276,6 +276,11 @@ export function createOutboundSessionGuarded(
     }
     source.status = "revoked";
     source.updatedAt = Date.now();
+    // Like the gateway, the replacement keeps the claimed session's purpose.
+    return createOutboundSession({
+      ...createParams,
+      verificationPurpose: source.verificationPurpose,
+    });
   }
 
   return createOutboundSession(createParams);
