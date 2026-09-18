@@ -3033,23 +3033,29 @@ const syncFrontmost = (): void => {
  * nowhere: the press would read as broken. There is no way to act without a
  * renderer to act in, so that case builds one, which necessarily shows it.
  *
- * **Answers when the command has actually been handed over**, which is now for
- * a window that exists and later for one that has to be built. Almost every
- * press is done at the hand-off and ignores this; the introduction's last beat
- * is the exception, because what it does next is only true once the renderer
- * has the command (see the `advanceIntro` handler).
+ * **Answers whether the command reached a renderer**: true once it has been
+ * sent, false when the build finished with no window to send to. A window
+ * closed while it loads releases the wait on purpose, and the send is a no-op
+ * there, which is the user closing the window and nothing happening. Almost
+ * every press is done at the hand-off and ignores the answer; the
+ * introduction's last beat reads it, because what it does next is only true of
+ * a press a renderer actually has (see the `advanceIntro` handler).
  */
 export const dispatchWithoutRaising = (
   command: VellumCommand,
-): Promise<void> => {
+): Promise<boolean> => {
   if (currentMainWindow() !== null) {
     dispatchToMain(command);
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
   // Resolves once the renderer has loaded and the window has shown, so the
   // command arrives at a page that can receive it.
   return ensureMainWindowVisible().then(() => {
+    if (currentMainWindow() === null) {
+      return false;
+    }
     dispatchToMain(command);
+    return true;
   });
 };
 
@@ -3809,27 +3815,28 @@ export const installCompanionWindow = (): void => {
       if (dialOnTalk(call)) {
         setDialing(true);
       }
-      // **The run ends only once the command it ends on has reached a
-      // renderer**, because on the last beat a `try` IS what ends it, and
-      // ending it clears the staging the app reads (`getIntroStage`). The
-      // app's first-run voice card stands down while a run is on, so that the
-      // offer this beat makes reaches a session rather than a third card (see
-      // `voice-entry-guards.ts`). Told the run was over first, it would put
-      // itself in front of the one press the whole run was building to.
+      // **The run ends only on a press a renderer actually has**, because on
+      // the last beat a `try` IS what ends it, and ending it clears the
+      // staging the app reads (`getIntroStage`). The app's first-run voice
+      // card stands down while a run is on, so that the offer this beat makes
+      // reaches a session rather than a third card (see
+      // `voice-entry-guards.ts`). Told the run is over first, it puts itself
+      // in front of the one press the whole run is building to.
       //
-      // Not merely a matter of ordering two statements: with the app's window
-      // closed the hand-off has to build a renderer first, and that renderer
-      // pulls the staging as it mounts. A run ended while it was loading is
-      // one it pulls as already over.
+      // With the app's window closed the hand-off builds a renderer first, and
+      // that renderer pulls the staging as it mounts, so the wait is what
+      // keeps it reading a run that is still on.
       //
-      // Ended whether the hand-off succeeded or not. A window that could not
-      // be built is a press nothing can serve, and a run left staged on it
-      // would leave the app dimmed for a run that is over with nothing on
-      // screen over it, which is the one state the staging must never reach.
-      void dispatchWithoutRaising({ kind: "startVoice" }).then(
-        advance,
-        advance,
-      );
+      // A hand-off that reaches nothing leaves the run exactly where it is.
+      // The offer has not been taken, the card is still on the surface with
+      // its own way on and way out, and the staging is still the truth: a run
+      // IS on. Ending it here would record an introduction the user never got
+      // and fly the surface home on a press that did nothing.
+      void dispatchWithoutRaising({ kind: "startVoice" }).then((served) => {
+        if (served) {
+          advance();
+        }
+      });
     },
   );
 

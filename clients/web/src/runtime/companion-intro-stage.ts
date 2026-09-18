@@ -13,12 +13,12 @@ import { isElectron } from "@/runtime/is-electron";
  * it reaches the window being staged over: the app dims itself for the length
  * of a run so the only lit thing on screen is the surface.
  *
- * **The fact is held here, not in the component that draws it.** Two things
- * read it now and they read it differently: the scrim watches it and re-renders,
- * and the voice entry guards ask for it in the middle of a press that cannot
- * afford to wait (see `voice-entry-guards.ts`). So the module follows main's
- * pushes from the moment it is imported and keeps the answer, and both readers
- * take it from the same place.
+ * **The fact is held here, not in the component that draws it.** Its two
+ * readers want it differently: the scrim watches it and re-renders, and the
+ * voice entry guards ask for it in the middle of a press that cannot afford to
+ * wait (see `voice-entry-guards.ts`). So the module follows main's pushes from
+ * the moment it is imported and keeps the answer, and both readers take it
+ * from the same place.
  *
  * `false` everywhere there is no companion: the browser, iOS, and the Windows
  * shell, which has no surface to introduce.
