@@ -1264,10 +1264,10 @@ describe("web_search tool", () => {
     seedWebSearch("your-own", "tinyfish");
     mockTinyfishSecureKey = "tf_test";
     let capturedUrl = "";
-    let capturedHeaders: Headers | null = null;
+    let capturedApiKey = "";
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       capturedUrl = url;
-      capturedHeaders = new Headers(init?.headers);
+      capturedApiKey = new Headers(init?.headers).get("x-api-key") ?? "";
       return new Response(
         JSON.stringify({
           query: "fresh tools",
@@ -1297,7 +1297,7 @@ describe("web_search tool", () => {
     );
     expect(url.searchParams.get("query")).toBe("fresh tools");
     expect(url.searchParams.get("recency_minutes")).toBe("10080");
-    expect(capturedHeaders?.get("x-api-key")).toBe("tf_test");
+    expect(capturedApiKey).toBe("tf_test");
     expect(result.content).toContain("TinyFish Result");
     expect(result.content).toContain("Fresh from TinyFish");
     expect(result.activityMetadata?.webSearch?.provider).toBe("tinyfish");

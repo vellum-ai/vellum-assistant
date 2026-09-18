@@ -59,11 +59,11 @@ describe("executeTinyfishFetch", () => {
   test("posts the URL and returns markdown with metadata", async () => {
     let capturedUrl = "";
     let capturedBody: Record<string, unknown> = {};
-    let capturedHeaders: Headers | null = null;
+    let capturedApiKey = "";
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       capturedUrl = url;
       capturedBody = JSON.parse(String(init?.body));
-      capturedHeaders = new Headers(init?.headers);
+      capturedApiKey = new Headers(init?.headers).get("x-api-key") ?? "";
       return fetchResponse({
         results: [
           {
@@ -92,7 +92,7 @@ describe("executeTinyfishFetch", () => {
       format: "markdown",
       per_url_timeout_ms: 45_000,
     });
-    expect(capturedHeaders?.get("x-api-key")).toBe("tf_test");
+    expect(capturedApiKey).toBe("tf_test");
     expect(result.content).toContain("Hello from TinyFish.");
     expect(result.content).toContain("Title: Example");
     expect(result.activityMetadata?.webFetch?.provider).toBe("tinyfish");
@@ -141,7 +141,7 @@ describe("executeTinyfishFetch", () => {
             status: 403,
           },
         ],
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
 
     const result = await executeTinyfishFetch(
       { url: "https://example.com" },
@@ -160,7 +160,7 @@ describe("executeTinyfishFetch", () => {
     globalThis.fetch = (async () => {
       fetchCalls += 1;
       return fetchResponse({ results: [], errors: [] });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await executeTinyfishFetch(
       { url: "https://user:pass@example.com/private" },
