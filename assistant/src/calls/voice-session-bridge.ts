@@ -2142,11 +2142,11 @@ export async function startVoiceTurn(
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         ...(opts.routingLeg === "escalated"
           ? {
-              // An image fallback must keep the image-capable profile's own
-              // model. The main-agent site's direct model tuning is exactly
-              // the incompatible target this fallback is routing around.
+              // An image fallback is still a full call-agent turn. Keep it
+              // away from both main-agent tuning that selected an incompatible
+              // model and caption-specific vision tuning.
               inferenceCallSite: needsImagePin
-                ? ("vision" as const)
+                ? ("callAgent" as const)
                 : ("mainAgent" as const),
             }
           : {}),
