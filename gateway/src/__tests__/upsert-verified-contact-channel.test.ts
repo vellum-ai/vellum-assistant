@@ -159,6 +159,7 @@ mock.module("../ipc/contacts-info-client.js", () => ({
   listContactUserFileSlugs: async () => {
     throw new Error("listContactUserFileSlugs not stubbed for this suite");
   },
+  fetchContactIdsByType: async () => [],
 }));
 
 mock.module("../ipc/assistant-client.js", () => ({
