@@ -172,7 +172,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
             <div
               className="flex items-center gap-2 rounded-md p-3"
               style={{
-                backgroundColor: "var(--surface-negative-subtle)",
+                backgroundColor: "var(--system-negative-weak)",
                 color: "var(--system-negative-strong)",
               }}
             >

@@ -79,7 +79,7 @@ const BASE_CLASSES =
 
 /** Cursor / transition / focus-ring affordances when the pill is a button. */
 const INTERACTIVE_BASE =
-  "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
+  "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]";
 
 /** Resting / hover fill for a non-active pill. */
 const IDLE_COLOR_CLASSES =

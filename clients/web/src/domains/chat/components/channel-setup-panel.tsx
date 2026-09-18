@@ -144,7 +144,7 @@ export function ChannelSetupPanel({
     >
       {isConnected ? (
         <div className="flex flex-col items-center gap-3 py-8 text-center">
-          <CheckCircle className="h-8 w-8 text-[var(--content-positive)]" />
+          <CheckCircle className="h-8 w-8 text-[var(--system-positive-strong)]" />
           <Typography
             variant="title-small"
             className="text-[color:var(--content-strong)]"
@@ -153,7 +153,7 @@ export function ChannelSetupPanel({
           </Typography>
           <Typography
             variant="body-small-default"
-            className="text-[color:var(--content-subtle)]"
+            className="text-[color:var(--content-tertiary)]"
           >
             {connectedMessage}
           </Typography>
@@ -275,7 +275,7 @@ function TwilioCredentialForm({
       {status === "success" ? (
         <Typography
           variant="body-small-default"
-          className="text-[color:var(--content-positive)]"
+          className="text-[color:var(--system-positive-strong)]"
         >
           {t("channelSetupPanel.credentialsSaved")}
         </Typography>

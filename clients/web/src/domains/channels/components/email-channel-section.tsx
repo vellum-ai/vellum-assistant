@@ -207,7 +207,7 @@ export function EmailChannelSection() {
 
       {byoConfigured ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-weak)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-default)]">
             <CircleCheck className="h-4 w-4 shrink-0 text-[var(--system-positive-strong)]" />
             <span>
               <Trans

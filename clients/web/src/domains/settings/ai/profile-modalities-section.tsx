@@ -91,7 +91,7 @@ export function ProfileModalitiesSection({
             return (
               <tr key={modality}>
                 <th
-                  className="py-2 pr-3 font-medium text-[var(--content-primary)]"
+                  className="py-2 pr-3 font-medium text-[var(--content-default)]"
                   scope="row"
                 >
                   <div>{label}</div>

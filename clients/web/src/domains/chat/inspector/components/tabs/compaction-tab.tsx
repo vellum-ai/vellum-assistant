@@ -347,9 +347,9 @@ function StatusBadge({ tone }: { tone: OutcomeTone }): ReactNode {
         : MinusCircle;
   const color =
     tone === "warning"
-      ? "var(--content-warning)"
+      ? "var(--system-mid-strong)"
       : tone === "success"
-        ? "var(--content-success)"
+        ? "var(--system-positive-strong)"
         : "var(--content-tertiary)";
   return (
     <span className="inline-flex items-center" style={{ color }}>

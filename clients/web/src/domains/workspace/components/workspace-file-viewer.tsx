@@ -440,7 +440,7 @@ function BinaryFileCard({
           {error && (
             <p
               className="mt-2 text-body-small-default"
-              style={{ color: "var(--system-error)" }}
+              style={{ color: "var(--system-negative-strong)" }}
             >
               {t("workspaceFileViewer.downloadFailed")}
             </p>

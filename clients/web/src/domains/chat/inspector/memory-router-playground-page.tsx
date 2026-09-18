@@ -611,7 +611,7 @@ function PaneConfigForm({
                 ? "var(--system-positive-strong)"
                 : "var(--surface-overlay)",
               color: canRun
-                ? "var(--content-on-positive)"
+                ? "var(--aux-white)"
                 : "var(--content-disabled)",
               border: "none",
               cursor: canRun ? "pointer" : "not-allowed",
@@ -835,7 +835,7 @@ function RunBothButton({
         background: disabled ? "var(--surface-overlay)" : "var(--primary-base)",
         color: disabled
           ? "var(--content-disabled)"
-          : "var(--content-on-primary)",
+          : "var(--content-inset)",
         border: "none",
         cursor: disabled ? "not-allowed" : "pointer",
       }}

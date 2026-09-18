@@ -412,7 +412,7 @@ export function InvoicesTable() {
                     <Typography
                       as="span"
                       variant="body-small-default"
-                      className="text-[color:var(--content-negative)]"
+                      className="text-[color:var(--system-negative-strong)]"
                     >
                       {t("invoicesTable.loadMoreError")}
                     </Typography>

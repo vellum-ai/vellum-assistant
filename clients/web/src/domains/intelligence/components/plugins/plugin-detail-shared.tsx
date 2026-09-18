@@ -407,7 +407,7 @@ export function PluginDetailActionError({
     <div
       className="mb-3 flex items-center gap-2 rounded px-3 py-2 text-body-small-default"
       style={{
-        backgroundColor: "var(--surface-secondary)",
+        backgroundColor: "var(--surface-active)",
         color: "var(--content-warning, var(--content-tertiary))",
       }}
       role="alert"

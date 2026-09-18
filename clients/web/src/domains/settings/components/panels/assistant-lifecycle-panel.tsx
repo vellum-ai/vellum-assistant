@@ -263,8 +263,8 @@ function AssistantListCard({
               key={a.id}
               className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${
                 isActive
-                  ? "border-[var(--border-focus)] bg-[var(--surface-lift)]"
-                  : "border-[var(--border-base)] bg-[var(--surface-default)]"
+                  ? "border-[var(--border-active)] bg-[var(--surface-lift)]"
+                  : "border-[var(--border-base)] bg-[var(--surface-base)]"
               }`}
             >
               <div className="min-w-0">

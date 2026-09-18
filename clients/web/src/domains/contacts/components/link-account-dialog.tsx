@@ -120,7 +120,7 @@ export function LinkAccountDialog({
             fullWidth
           />
           {errorMessage ? (
-            <p className="text-body-small-default text-[color:var(--content-negative)]">
+            <p className="text-body-small-default text-[color:var(--system-negative-strong)]">
               {errorMessage}
             </p>
           ) : null}

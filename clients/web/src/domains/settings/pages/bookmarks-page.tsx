@@ -154,8 +154,8 @@ export function BookmarksPage() {
       <div className="w-full">
         <Card>
           <div className="flex min-h-[400px] flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-error-lighter)]">
-              <AlertTriangle className="h-6 w-6 text-[var(--system-error-default)]" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--system-negative-weak)]">
+              <AlertTriangle className="h-6 w-6 text-[var(--system-negative-strong)]" />
             </div>
             <h2 className="mt-4 text-title-small text-[var(--content-default)]">
               {t("bookmarksPage.errorTitle")}

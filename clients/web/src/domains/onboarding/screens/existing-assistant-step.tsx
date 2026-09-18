@@ -47,7 +47,7 @@ export function ExistingAssistantStep({
       className="relative h-full overflow-hidden"
       style={{
         backgroundColor: "var(--surface-base)",
-        color: "var(--content-primary)",
+        color: "var(--content-default)",
       }}
     >
       <OnboardingTopBar onBack={onBack} tone="light" />

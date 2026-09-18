@@ -291,7 +291,7 @@ export function CredentialEntryPage() {
           </h1>
         </div>
 
-        <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--background-muted)] p-4">
+        <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4">
           <p className="text-body-medium-default text-[var(--content-default)]">
             {request.label || name}
           </p>
@@ -344,7 +344,7 @@ export function CredentialEntryPage() {
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-[var(--background-default)] px-6 py-10 text-[var(--content-primary)]">
+    <main className="flex min-h-svh items-center justify-center bg-[var(--background)] px-6 py-10 text-[var(--content-default)]">
       <div className="w-full max-w-md">
         <Card.Root bordered elevated padding="lg">
           <div className="flex flex-col gap-4">{content}</div>

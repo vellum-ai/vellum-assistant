@@ -72,7 +72,7 @@ function CurrentVersionValue({
         {version ?? "—"}
       </button>
       {message && (
-        <p className="mt-1 text-body-small-default text-[var(--content-accent)]">
+        <p className="mt-1 text-body-small-default text-[var(--system-positive-strong)]">
           {message}
         </p>
       )}

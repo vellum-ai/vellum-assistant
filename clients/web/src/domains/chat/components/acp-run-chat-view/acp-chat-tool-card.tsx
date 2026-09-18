@@ -278,7 +278,7 @@ export function AcpChatToolCard({
                 data-testid="acp-chat-tool-file-chip"
                 onClick={() => onOpenDiff(block.toolCallId, fileChange)}
                 title={fileChange.path}
-                className={`${chipClass} cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]`}
+                className={`${chipClass} cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]`}
               >
                 <FileText aria-hidden className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate font-mono">{fileChange.path}</span>
@@ -293,7 +293,7 @@ export function AcpChatToolCard({
           type="button"
           data-testid="acp-chat-tool-output-open"
           onClick={() => onOpenOutput?.(block.toolCallId)}
-          className="mt-2 flex w-full items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
+          className="mt-2 flex w-full items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
         >
           <Terminal
             aria-hidden

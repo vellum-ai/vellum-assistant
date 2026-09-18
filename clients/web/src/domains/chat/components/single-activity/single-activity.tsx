@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 /**
@@ -154,7 +153,7 @@ export function SingleActivity(props: SingleActivityProps) {
           onClick={() => onExpandChange(!expanded)}
           className={cn(
             "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
-            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
             "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
             isError && "text-[var(--system-negative-strong)]",
           )}
@@ -300,7 +299,7 @@ export function SingleActivity(props: SingleActivityProps) {
       onClick={(event) => openDetailSheetFromTrigger(event, view.onClick)}
       className={cn(
         "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]",
         view.active
           ? "bg-[var(--surface-active)] text-[var(--content-default)]"
           : "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
