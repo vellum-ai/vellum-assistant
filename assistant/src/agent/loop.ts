@@ -449,20 +449,20 @@ export type AgentEvent =
        * rows so failed calls are queryable in the LLM inspector instead
        * of only surfacing in pino logs.
        *
-       * `rawRequest` prefers `ProviderError.rawRequest` (the provider's
-       * inspectable SDK/wire payload, including extra body fields such as
-       * `directions`) and falls back to the loop-level abstract shape when
-       * the throw happens before that payload exists. `actualProvider` and
-       * the fallback snapshot's `provider` field echo `ProviderError.provider`
-       * so a routed invocation (e.g. Vellum via a Fireworks default wrapper)
-       * is attributed to the transport that actually ran.
+       * `rawRequest` is `ProviderError.rawRequest` when the throw carried
+       * an inspectable SDK/wire payload (including extra body fields such
+       * as `directions`). The loop does not invent a substitute snapshot
+       * of messages/tools/systemPrompt; a missing payload stays missing.
+       * `actualProvider` echoes `ProviderError.provider` so a routed
+       * invocation (e.g. Vellum via a Fireworks default wrapper) is
+       * attributed to the transport that actually ran.
        *
        * Re-thrown by the inner LLM-call try/catch after emission so the
        * outer agent-loop catch still handles abort, the existing `error`
        * event, and the loop break.
        */
       type: "provider_error";
-      rawRequest: unknown;
+      rawRequest?: unknown;
       error: Error;
       actualProvider?: string;
     }
@@ -2251,10 +2251,10 @@ export class AgentLoop {
         // turn body (tool execution, plugin pipelines, checkpoints), so
         // recording there would risk mis-attributing tool/plugin throws as
         // provider rejections. On provider failure we emit `provider_error`
-        // with the loop-level raw request so consumers can persist it as an
-        // `llm_request_logs` row, then re-throw so the existing outer catch
-        // continues to handle abort sync, the `error` event, and the loop
-        // break unchanged.
+        // with the inspectable wire request from the throw (when present)
+        // so consumers can persist it as an `llm_request_logs` row, then
+        // re-throw so the existing outer catch continues to handle abort
+        // sync, the `error` event, and the loop break unchanged.
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
@@ -2277,30 +2277,16 @@ export class AgentLoop {
               llmCallError instanceof Error
                 ? llmCallError
                 : new Error(String(llmCallError));
-            // Strip non-serializable / runtime-only fields from `options`
-            // before snapshotting. `onEvent` is a closure with side effects
-            // and `signal` is an AbortSignal — neither is meaningful in a
-            // persisted log row, and `JSON.stringify` would silently drop or
-            // misrepresent both. Prefer the provider's inspectable wire
-            // payload when the throw carried one.
             const invocationProvider =
               errInstance instanceof ProviderError
                 ? errInstance.provider
                 : this.provider.name;
-            const rawRequest =
-              errInstance instanceof ProviderError &&
-              errInstance.rawRequest !== undefined
-                ? errInstance.rawRequest
-                : {
-                    provider: invocationProvider,
-                    messages: sanitizedHistory,
-                    tools: providerOptions.tools,
-                    systemPrompt: providerOptions.systemPrompt,
-                    config: providerOptions.config,
-                  };
             onEvent({
               type: "provider_error",
-              rawRequest,
+              ...(errInstance instanceof ProviderError &&
+              errInstance.rawRequest !== undefined
+                ? { rawRequest: errInstance.rawRequest }
+                : {}),
               error: errInstance,
               actualProvider: invocationProvider,
             });

@@ -806,16 +806,6 @@ function inspectableChatCompletionsRequest(
   };
 }
 
-function withInspectableRequest<T extends { rawRequest?: unknown }>(
-  options: T,
-  rawRequest: unknown | undefined,
-): T {
-  if (rawRequest !== undefined) {
-    options.rawRequest = rawRequest;
-  }
-  return options;
-}
-
 // Think-tag scanning primitives are shared with the TTS reasoning filter
 // (util/think-tag-stream.ts) so the two stream parsers cannot drift. This
 // provider keeps its exact historical behavior: case-sensitive, <think> only.
@@ -1154,14 +1144,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (extraBody) {
           Object.assign(params, extraBody);
         }
-        inspectableRequest = inspectableChatCompletionsRequest(params);
-        const createStream = () =>
-          this.client.chat.completions.create(params, {
+        const createStream = () => {
+          // Snapshot after extra-body merge and any in-place compat retries
+          // so inspector rows match the params that actually went on the wire.
+          inspectableRequest = inspectableChatCompletionsRequest(params);
+          return this.client.chat.completions.create(params, {
             signal: timeoutSignal,
             ...(Object.keys(requestHeaders).length > 0
               ? { headers: requestHeaders }
               : {}),
           });
+        };
         const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
         let stream: Awaited<ReturnType<typeof createStream>>;
         for (;;) {
@@ -1506,6 +1499,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
             maxTokens: overflow.maxTokens,
             statusCode: error.status,
             cause: error,
+            ...(inspectableRequest !== undefined
+              ? { rawRequest: inspectableRequest }
+              : {}),
           });
         }
         if (detectVisionNotSupported(error, normalized.message)) {
@@ -1516,12 +1512,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
             error.status,
             // Stamp the reason so classification is status-independent (a vision
             // rejection returned as 401/403 must not read as an invalid key).
-            withInspectableRequest(
-              abortReason
-                ? { abortReason, reason: "vision_unsupported" as const }
-                : { reason: "vision_unsupported" as const },
-              inspectableRequest,
-            ),
+            {
+              reason: "vision_unsupported" as const,
+              ...(abortReason ? { abortReason } : {}),
+              ...(inspectableRequest !== undefined
+                ? { rawRequest: inspectableRequest }
+                : {}),
+            },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
@@ -1563,11 +1560,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (normalized.reason) {
           errorOptions.reason = normalized.reason;
         }
+        if (inspectableRequest !== undefined) {
+          errorOptions.rawRequest = inspectableRequest;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
           error.status,
-          withInspectableRequest(errorOptions, inspectableRequest),
+          errorOptions,
         );
       }
       throw new ProviderError(
@@ -1576,10 +1576,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
         }`,
         this.name,
         undefined,
-        withInspectableRequest(
-          abortReason ? { cause: error, abortReason } : { cause: error },
-          inspectableRequest,
-        ),
+        {
+          cause: error,
+          ...(abortReason ? { abortReason } : {}),
+          ...(inspectableRequest !== undefined
+            ? { rawRequest: inspectableRequest }
+            : {}),
+        },
       );
     }
   }

@@ -3,19 +3,19 @@
  *
  * When the provider call throws (provider rejected the request before
  * returning a usable response), the loop must emit a `provider_error` event
- * carrying the inspectable wire request and the thrown error so downstream
- * consumers can persist an `llm_request_logs` row. Without this, rejected
- * calls leave nothing in the LLM inspector — only a pino log line.
+ * carrying the inspectable wire request (when the throw attached one) and
+ * the thrown error so downstream consumers can persist an `llm_request_logs`
+ * row. Without this, rejected calls leave nothing in the LLM inspector —
+ * only a pino log line.
  *
  * Coverage:
- *  - Emits `provider_error` with `rawRequest`, `error`, and `actualProvider`
- *    when the provider throws a `ProviderError`.
- *  - `rawRequest` prefers `ProviderError.rawRequest` (the inspectable wire
- *    payload) and otherwise carries the loop-level snapshot (messages, tools,
- *    system prompt, invocation provider).
- *  - `actualProvider` and the fallback snapshot's `provider` field echo
- *    `ProviderError.provider` when available, even if the wrapping
- *    `provider.name` is a different default transport.
+ *  - Emits `provider_error` with `error` and `actualProvider` when the
+ *    provider throws a `ProviderError`.
+ *  - `rawRequest` is `ProviderError.rawRequest` when present, and stays
+ *    unset when the throw did not attach a wire payload. The loop does
+ *    not invent a messages/tools/systemPrompt snapshot.
+ *  - `actualProvider` echoes `ProviderError.provider` when available, even
+ *    if the wrapping `provider.name` is a different default transport.
  *  - The error is still re-thrown internally (the existing `error` event
  *    still fires after the new `provider_error` event), preserving the
  *    outer-catch behavior (abort/Sentry/break).
@@ -75,7 +75,7 @@ function makeThrowingProvider(
 }
 
 describe("AgentLoop provider_error event emission", () => {
-  test("emits provider_error with loop-level rawRequest when provider throws ProviderError", async () => {
+  test("emits provider_error without inventing a rawRequest snapshot", async () => {
     const thrown = new ProviderError(
       "Anthropic API error (429): rate limited",
       "anthropic",
@@ -109,18 +109,10 @@ describe("AgentLoop provider_error event emission", () => {
     }
     expect(providerErrorEvent.error).toBe(thrown);
     expect(providerErrorEvent.actualProvider).toBe("anthropic");
-
-    // The throw did not carry a wire payload, so rawRequest is the
-    // loop-level snapshot: messages, tools, systemPrompt, and the
-    // invocation provider from ProviderError.provider.
-    const raw = providerErrorEvent.rawRequest as Record<string, unknown>;
-    expect(raw.provider).toBe("anthropic");
-    expect(raw.systemPrompt).toBe("you are a helpful assistant");
-    expect(Array.isArray(raw.messages)).toBe(true);
-    expect((raw.messages as Message[])[0].role).toBe("user");
+    expect(providerErrorEvent.rawRequest).toBeUndefined();
   });
 
-  test("prefers ProviderError.rawRequest over the loop-level snapshot", async () => {
+  test("forwards ProviderError.rawRequest on the provider_error event", async () => {
     const wirePayload = {
       model: "qwen/qwen3-8b",
       directions: { serious: 0.8 },
@@ -161,7 +153,7 @@ describe("AgentLoop provider_error event emission", () => {
     expect(providerErrorEvent.rawRequest).toEqual(wirePayload);
   });
 
-  test("fallback snapshot uses ProviderError.provider, not the wrapper name", async () => {
+  test("actualProvider uses ProviderError.provider, not the wrapper name", async () => {
     const thrown = new ProviderError(
       "Vellum API error (400): directions are not loaded",
       "vellum",
@@ -191,9 +183,7 @@ describe("AgentLoop provider_error event emission", () => {
       throw new Error("type narrowing");
     }
     expect(providerErrorEvent.actualProvider).toBe("vellum");
-    const raw = providerErrorEvent.rawRequest as Record<string, unknown>;
-    expect(raw.provider).toBe("vellum");
-    expect(raw.systemPrompt).toBe("system");
+    expect(providerErrorEvent.rawRequest).toBeUndefined();
   });
 
   test("error event still fires after provider_error (outer catch behavior unchanged)", async () => {
@@ -262,6 +252,7 @@ describe("AgentLoop provider_error event emission", () => {
     // `provider` column populated even for surprise errors.
     expect(providerErrorEvent.actualProvider).toBe("openai");
     expect(providerErrorEvent.error).toBe(thrown);
+    expect(providerErrorEvent.rawRequest).toBeUndefined();
   });
 
   test("does NOT emit provider_error on user-aborted runs", async () => {

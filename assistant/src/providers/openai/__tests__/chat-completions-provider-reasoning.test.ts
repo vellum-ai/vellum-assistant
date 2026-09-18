@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import OpenAI from "openai";
 
+import { ProviderError } from "../../../util/errors.js";
 import { isPlaceholderSentinelText } from "../../placeholder-sentinels.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
@@ -928,10 +929,54 @@ describe("thinking-mode tool_choice rejection fallback", () => {
     expect(first.reasoning_effort).toBe("high");
     expect(second.tool_choice).toBeUndefined();
     expect(second.reasoning_effort).toBe("high");
+    expect(
+      (response.rawRequest as { tool_choice?: unknown }).tool_choice,
+    ).toBeUndefined();
     const text = response.content.find((b) => b.type === "text") as
       | { type: "text"; text: string }
       | undefined;
     expect(text?.text).toBe("ok");
+  });
+
+  test("ProviderError.rawRequest is the post-retry params when the retried call fails", async () => {
+    const { provider } = stubProviderWithErrors(
+      [
+        rejection("Thinking mode does not support this tool_choice"),
+        Object.assign(
+          new Error("Thinking mode does not support this tool_choice"),
+          { status: 400 },
+        ),
+      ],
+      OK_CHUNKS,
+    );
+
+    try {
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        {
+          tools: [
+            {
+              name: "bash",
+              description: "Run a shell command",
+              input_schema: { type: "object", properties: {} },
+            },
+          ],
+          config: { tool_choice: { type: "none" }, effort: "high" },
+        },
+      );
+      throw new Error("expected ProviderError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      const rejected = error as ProviderError;
+      expect(
+        (rejected.rawRequest as { tool_choice?: unknown } | undefined)
+          ?.tool_choice,
+      ).toBeUndefined();
+      expect(
+        (rejected.rawRequest as { reasoning_effort?: string } | undefined)
+          ?.reasoning_effort,
+      ).toBe("high");
+    }
   });
 
   test("retries once when Kimi rejects a specified tool_choice in thinking mode", async () => {

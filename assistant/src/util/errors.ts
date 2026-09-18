@@ -151,15 +151,17 @@ export class ProviderError extends AssistantError {
   public readonly apiErrorParam?: string;
   public readonly requestId?: string;
   /**
-   * Verbatim upstream non-2xx body (possibly truncated). Persisted so the
-   * inspector's Raw tab can show the actual provider error payload, not just
-   * the extracted fields.
+   * Verbatim upstream non-2xx response body (possibly truncated). This is
+   * what the provider returned after rejecting the call, not the request
+   * we sent. The inspector's Raw tab uses it when a 4xx/5xx body carries
+   * detail the extracted `apiError*` fields drop.
    */
   public readonly rawBody?: string;
   /**
-   * Wire payload the provider actually sent (or was about to send). The agent
-   * loop prefers this over its own abstract snapshot so 4xx inspector rows
-   * show the same request shape as a successful `usage` row.
+   * Inspectable SDK/wire request payload for the call that failed. This is
+   * the outbound request, not the error response (`rawBody`). Provider
+   * `sendMessage` throws attach it so inspector rows show the same request
+   * shape as a successful `usage` row.
    */
   public readonly rawRequest?: unknown;
   /**

@@ -738,6 +738,9 @@ export class OpenAIResponsesProvider implements Provider {
             maxTokens: overflow.maxTokens,
             statusCode: error.status,
             cause: error,
+            ...(inspectableRequest !== undefined
+              ? { rawRequest: inspectableRequest }
+              : {}),
           });
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
