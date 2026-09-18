@@ -462,9 +462,10 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "ipc-unix-ndjson",
     auth: "none (local socket)",
     description:
-      "Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.",
+      "Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override), and writes a conversation's threshold when an inbound message requests one (set_conversation_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.",
     callerGlobs: [
       "assistant/src/permissions/gateway-threshold-reader.ts",
+      "assistant/src/runtime/routes/conversation-routes.ts",
     ],
     calleeGlobs: [
       "gateway/src/ipc/threshold-handlers.ts",
@@ -715,7 +716,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "ipc-unix-framed",
     auth: "none (local socket)",
     description:
-      "Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs (contacts-info-client.ts), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).",
+      "Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs through contacts-info-client.ts (contacts_info_batch, contact_channel_identity_lookup, contact_mirror_probe, contact_user_file_slugs), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).",
     callerGlobs: [
       "gateway/src/ipc/contacts-info-client.ts",
       "gateway/src/http/routes/contact-prompt.ts",
