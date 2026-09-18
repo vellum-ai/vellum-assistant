@@ -246,21 +246,21 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    // Plugins directory escalation. The external plugin loader auto-imports
-    // register.{ts,js} on daemon startup, so a routine file_write here could
-    // plant persistent code execution.
-    test("plugins directory itself is high", async () => {
+    // Plugins and routes are app authoring sinks: a sandbox file write there is
+    // Medium, which auto-approves at the default threshold while building apps
+    // and still prompts at a stricter one.
+    test("plugins directory itself is medium", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: MOCK_PLUGINS_DIR,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("register.ts inside plugins directory is high", async () => {
+    test("register.ts inside plugins directory is medium", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -268,11 +268,11 @@ describe("FileRiskClassifier", () => {
         filePath: registerFile,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
-    test("package.json inside plugins directory is high", async () => {
+    test("package.json inside plugins directory is medium", async () => {
       testSkillSourceDirs = [];
       const pkgFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "package.json");
       const result = await classifyInput({
@@ -280,7 +280,7 @@ describe("FileRiskClassifier", () => {
         filePath: pkgFile,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
@@ -343,20 +343,18 @@ describe("FileRiskClassifier", () => {
       expect(result.riskLevel).toBe("low");
     });
 
-    // Routes directory escalation. The user-route dispatcher dynamic-imports
-    // handler modules here and executes their exported HTTP-method functions.
-    test("routes directory itself is high", async () => {
+    test("routes directory itself is medium", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: MOCK_ROUTES_DIR,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to routes directory");
     });
 
-    test("handler inside routes directory is high", async () => {
+    test("handler inside routes directory is medium", async () => {
       testSkillSourceDirs = [];
       const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
       const result = await classifyInput({
@@ -364,7 +362,7 @@ describe("FileRiskClassifier", () => {
         filePath: routeFile,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to routes directory");
     });
 
@@ -437,14 +435,14 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to tools directory");
     });
 
-    test("/workspace-prefixed routes path is remapped and high", async () => {
+    test("/workspace-prefixed routes path is remapped and medium", async () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "/workspace/routes/evil.ts",
         workingDir: MOCK_WORKSPACE_DIR,
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to routes directory");
     });
 
@@ -546,7 +544,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to hooks directory");
     });
 
-    test("plugins directory path is high", async () => {
+    test("plugins directory path is medium", async () => {
       testSkillSourceDirs = [];
       const registerFile = join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts");
       const result = await classifyInput({
@@ -554,7 +552,7 @@ describe("FileRiskClassifier", () => {
         filePath: registerFile,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to plugins directory");
     });
 
@@ -570,7 +568,7 @@ describe("FileRiskClassifier", () => {
       expect(result.reason).toBe("Writes to tools directory");
     });
 
-    test("routes directory path is high", async () => {
+    test("routes directory path is medium", async () => {
       testSkillSourceDirs = [];
       const routeFile = join(MOCK_ROUTES_DIR, "evil.ts");
       const result = await classifyInput({
@@ -578,8 +576,19 @@ describe("FileRiskClassifier", () => {
         filePath: routeFile,
         workingDir: "/",
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to routes directory");
+    });
+
+    test("/workspace-prefixed plugin app source is remapped and medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: "/workspace/plugins/my-plugin/apps/tracker/src/App.tsx",
+        workingDir: MOCK_WORKSPACE_DIR,
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("Writes to plugins directory");
     });
   });
 
@@ -964,8 +973,34 @@ describe("FileRiskClassifier", () => {
         workingDir: WORKING_DIR,
         resolvedPath: join(MOCK_PLUGINS_DIR, "evil-plugin", "register.ts"),
       });
-      expect(result.riskLevel).toBe("high");
+      expect(result.riskLevel).toBe("medium");
       expect(result.reason).toBe("Writes to plugins directory");
+    });
+
+    // An app authoring sink on one side must not mask a High sink on the
+    // other: the higher-risk match wins.
+    test("file_write through a plugins-dir symlink into hooks is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: join(MOCK_PLUGINS_DIR, "my-plugin", "link.ts"),
+        workingDir: "/",
+        resolvedPath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to hooks directory");
+    });
+
+    test("file_edit through a hooks-dir symlink into plugins is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+        workingDir: "/",
+        resolvedPath: join(MOCK_PLUGINS_DIR, "my-plugin", "register.ts"),
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to hooks directory");
     });
 
     test("file_edit escalates when resolvedPath lands in skill source", async () => {
@@ -1133,12 +1168,12 @@ describe("FileRiskClassifier", () => {
       testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
-        filePath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
-        resolvedPath: join(MOCK_PLUGINS_DIR, "evil", "register.ts"),
+        filePath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
+        resolvedPath: join(MOCK_HOOKS_DIR, "pre-tool-use.sh"),
         resolvedWorkingDir: WORKING_DIR,
       });
       expect(result.riskLevel).toBe("high");
-      expect(result.reason).toBe("Writes to plugins directory");
+      expect(result.reason).toBe("Writes to hooks directory");
     });
 
     test("in-workspace symlink whose real target escapes is medium", async () => {
