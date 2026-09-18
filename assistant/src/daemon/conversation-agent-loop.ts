@@ -414,8 +414,6 @@ export async function runAgentLoopImpl(
      * sites. Used when a caller explicitly pins a background run to a profile.
      */
     forceOverrideProfile?: boolean;
-    /** Start best-effort work after turn admission and before context assembly. */
-    onTurnReady?: () => void;
     /** Observe the first finalized model request without delaying it. */
     onFirstModelCallPrepared?: (prepared: PreparedModelCall) => void;
     /**
@@ -1033,12 +1031,6 @@ export async function runAgentLoopImpl(
         errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
       });
       return;
-    }
-
-    try {
-      options?.onTurnReady?.();
-    } catch (err) {
-      rlog.warn({ err }, "Turn-ready observer failed; continuing turn");
     }
 
     // Workspace Git readiness is required only when tools can run. Tool-less

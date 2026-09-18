@@ -2224,19 +2224,6 @@ describe("session-agent-loop", () => {
       expect(call[5]).toBe("callAgent");
     });
 
-    test("starts admitted turn work once before the model call", async () => {
-      const onTurnReady = mock(() => {});
-      const ctx = makeCtx({
-        providerResponses: [textResponse("done")],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
-        onTurnReady,
-      });
-
-      expect(onTurnReady).toHaveBeenCalledTimes(1);
-    });
-
     test("reports only the first finalized model call", async () => {
       const tool: ToolDefinition = {
         name: "echo",
@@ -2252,6 +2239,7 @@ describe("session-agent-loop", () => {
         loopTools: [tool],
         toolExecutor: async () => ({ content: "ok", isError: false }),
       });
+      const turnSignal = ctx.abortController?.signal;
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
         callSite: "callAgent",
@@ -2265,6 +2253,7 @@ describe("session-agent-loop", () => {
         callSite: "callAgent",
         overrideProfile: "quality-optimized",
         forceOverrideProfile: true,
+        signal: turnSignal,
         systemPrompt: "system prompt",
         tools: [tool],
       });

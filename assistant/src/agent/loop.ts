@@ -668,6 +668,7 @@ export interface PreparedModelCall {
   callSite?: LLMCallSite;
   overrideProfile?: string;
   forceOverrideProfile: boolean;
+  signal?: AbortSignal;
   systemPrompt?: string;
   tools: ToolDefinition[];
 }
@@ -2259,6 +2260,7 @@ export class AgentLoop {
                 : {}),
               forceOverrideProfile:
                 providerConfig.forceOverrideProfile === true,
+              ...(signal !== undefined ? { signal } : {}),
               ...(providerOptions.systemPrompt !== undefined
                 ? { systemPrompt: providerOptions.systemPrompt }
                 : {}),

@@ -2934,12 +2934,14 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
         input_schema: { type: "object" as const },
       },
     ];
+    const turnAbort = new AbortController();
 
     expect(
       onFirstModelCallPrepared({
         callSite: "callAgent",
         overrideProfile: "hook-selected-profile",
         forceOverrideProfile: true,
+        signal: turnAbort.signal,
         systemPrompt: "hook-edited prompt",
         tools,
       }),
@@ -2949,7 +2951,7 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
       callSite: "callAgent",
       overrideProfile: "hook-selected-profile",
       forceOverrideProfile: true,
-      signal: undefined,
+      signal: turnAbort.signal,
       systemPrompt: "hook-edited prompt",
       tools,
     });

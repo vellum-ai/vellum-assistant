@@ -2172,7 +2172,7 @@ export async function startVoiceTurn(
                     ? { overrideProfile: prepared.overrideProfile }
                     : {}),
                   forceOverrideProfile: prepared.forceOverrideProfile,
-                  signal: opts.signal,
+                  signal: prepared.signal ?? opts.signal,
                   ...(prepared.systemPrompt !== undefined
                     ? { systemPrompt: prepared.systemPrompt }
                     : {}),

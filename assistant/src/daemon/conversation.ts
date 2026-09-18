@@ -3467,8 +3467,6 @@ export class Conversation {
       overrideProfile?: string;
       /** Float `overrideProfile` above call-site layers for this run. */
       forceOverrideProfile?: boolean;
-      /** Start best-effort work after turn admission and before context assembly. */
-      onTurnReady?: () => void;
       /** Observe the first finalized model request without delaying it. */
       onFirstModelCallPrepared?: (prepared: PreparedModelCall) => void;
       /**
