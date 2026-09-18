@@ -252,10 +252,10 @@ describe("author contact id on a persisted user message", () => {
     ["hidden", { metadata: { hidden: true } }],
   ] as const)(
     "a %s row speaks in their voice without naming them",
-    async (_kind, extra) => {
+    async (kind, extra) => {
       await persistQueuedMessageBody(createContext(), {
         content: "sent on the sender's behalf",
-        requestId: `req-author-${_kind}`,
+        requestId: `req-author-${kind}`,
         trustContext: sender,
         ...extra,
       });
