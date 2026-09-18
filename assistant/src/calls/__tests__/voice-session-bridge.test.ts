@@ -32,43 +32,6 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
-// Vision capability of the image pin's target profile. Install-dependent in
-// production (a BYO provider resolves the profile key through its own column
-// of the intent matrix), so it is scripted rather than read from a catalog.
-let pinProfileSupportsVision = true;
-// Vision capability of the conversation's own profile, which an escalated
-// leg is pinned to. Scripted for the same reason.
-let conversationProfileSupportsVision = true;
-// Per-profile answers that outrank the two switches above, for a mix whose
-// arms differ.
-const visionByProfile = new Map<string, boolean>();
-mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: (
-    target:
-      | string
-      | {
-          model: string;
-          inputModalities?: {
-            image?: { enabled?: boolean; supported?: boolean };
-          } | null;
-        },
-  ) => {
-    if (typeof target !== "string") {
-      const image = target.inputModalities?.image;
-      if (image !== undefined) {
-        return (image.enabled ?? true) && (image.supported ?? false);
-      }
-    }
-    const modelOrProfile = typeof target === "string" ? target : target.model;
-    return (
-      visionByProfile.get(modelOrProfile) ??
-      (modelOrProfile === "latency-optimized"
-        ? pinProfileSupportsVision
-        : conversationProfileSupportsVision)
-    );
-  },
-}));
-
 const unresolvableProviderNames = new Set<string>();
 mock.module("../../providers/provider-resolvability.js", () => ({
   dispatchProviderResolvable: (provider: string) =>
@@ -163,10 +126,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type { PreparedModelCall } from "../../agent/loop.js";
-import {
-  resolveCallSiteConfig,
-  selectWinningProfile,
-} from "../../config/llm-resolver.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
@@ -2825,11 +2785,7 @@ const PHOTO_HISTORY = [
   },
 ];
 
-describe("startVoiceTurn image-bearing profile pin", () => {
-  beforeEach(() => {
-    pinProfileSupportsVision = true;
-  });
-
+describe("startVoiceTurn with images in history", () => {
   async function runOptionsFor(opts: {
     messages?: Array<{ role: string; content: unknown[] }>;
     turn?: Record<string, unknown>;
@@ -2847,40 +2803,14 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     return runOptions;
   }
 
-  test("a text-only call keeps the call-site profile", async () => {
-    const runOptions = await runOptionsFor({});
-
-    expect(runOptions.overrideProfile).toBeUndefined();
-    expect(runOptions.forceOverrideProfile).toBeUndefined();
-  });
-
-  test("an image in history pins the image-capable profile", async () => {
-    // `callAgent`'s balanced profile carries no guarantee that its model takes
-    // an image, and a model that rejects one fails the whole leg.
+  test("an image in history leaves the call-site profile in place", async () => {
+    // A text-only model gets the image captioned by the image-fallback
+    // plugin, the same as a typed turn, so no profile is pinned for it.
     const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
 
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
-    // callAgent is not `mainAgent`, so an unforced override would sit below
-    // the call-site profile and never apply.
-    expect(runOptions.forceOverrideProfile).toBe(true);
-  });
-
-  test("an image nested in a tool result counts too", async () => {
-    const runOptions = await runOptionsFor({
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              contentBlocks: [{ type: "image", source: { data: "abc" } }],
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
   });
 
   test("a front-door leg is left alone — its own call site pins it", async () => {
@@ -2893,19 +2823,7 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     expect(runOptions.callSite).toBe("voiceFrontDoor");
   });
 
-  test("no pin when the pin target can't take an image either", async () => {
-    // Fireworks: `latency-optimized` resolves to a text-only model while
-    // `balanced` is vision-capable, so pinning would break the very turn the
-    // pin exists to save.
-    pinProfileSupportsVision = false;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBeUndefined();
-    expect(runOptions.forceOverrideProfile).toBeUndefined();
-  });
-
-  test("an explicit routing pin wins over the image pin", async () => {
+  test("an explicit routing pin still applies", async () => {
     const runOptions = await runOptionsFor({
       messages: PHOTO_HISTORY,
       turn: { overrideProfile: "quality-optimized" },
@@ -2917,8 +2835,6 @@ describe("startVoiceTurn image-bearing profile pin", () => {
 
 describe("startVoiceTurn escalated-leg profile pin", () => {
   beforeEach(() => {
-    pinProfileSupportsVision = true;
-    conversationProfileSupportsVision = true;
     unresolvableProviderNames.clear();
   });
 
@@ -3193,115 +3109,17 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(unrouted.overrideProfile).toBeUndefined();
   });
 
-  test("an image stays on a conversation profile whose model takes it", async () => {
+  test("an image keeps a text-only conversation profile", async () => {
+    // The escalated leg is the tool-capable brain of the call. Images reach a
+    // text-only model as image-fallback captions, never by swapping the leg
+    // onto the latency-class profile.
     setConfig("llm", { activeProfile: "quality-optimized" });
 
     const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
 
     expect(runOptions.overrideProfile).toBe("quality-optimized");
-  });
-
-  test("image capability follows direct main-agent model tuning", async () => {
-    setConfig("llm", {
-      activeProfile: "quality-optimized",
-      callSites: { mainAgent: { model: "direct-vision-model" } },
-    });
-    conversationProfileSupportsVision = false;
-    visionByProfile.set("direct-vision-model", true);
-    try {
-      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-      expect(runOptions.overrideProfile).toBe("quality-optimized");
-      expect(runOptions.inferenceCallSite).toBe("mainAgent");
-    } finally {
-      visionByProfile.clear();
-    }
-  });
-
-  test("image capability honors an enabled profile modality override", async () => {
-    setConfig("llm", {
-      activeProfile: "custom-text-profile",
-      profiles: {
-        "custom-text-profile": {
-          provider: "anthropic",
-          model: "custom-text-model",
-          inputModalities: {
-            image: { enabled: true, supported: true },
-          },
-        },
-      },
-    });
-    conversationProfileSupportsVision = false;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBe("custom-text-profile");
-  });
-
-  test("image capability honors a disabled profile modality override", async () => {
-    setConfig("llm", {
-      activeProfile: "custom-vision-profile",
-      profiles: {
-        "custom-vision-profile": {
-          provider: "anthropic",
-          model: "custom-vision-model",
-          inputModalities: {
-            image: { enabled: false, supported: true },
-          },
-        },
-      },
-    });
-    conversationProfileSupportsVision = true;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
-  });
-
-  test("an image hands a text-only conversation profile to the image pin", async () => {
-    // A model that rejects the image fails the whole leg, so the image pin
-    // outranks the conversation's choice for this one turn.
-    setConfig("llm", { activeProfile: "quality-optimized" });
-    conversationProfileSupportsVision = false;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBe("latency-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
-    expect(runOptions.inferenceCallSite).toBe("callAgent");
-  });
-
-  test("the image pin bypasses incompatible agent and caption tuning", async () => {
-    setConfig("llm", {
-      activeProfile: "quality-optimized",
-      callSites: {
-        mainAgent: { model: "direct-text-model" },
-        vision: {
-          model: "caption-vision-model",
-          maxTokens: 16,
-          effort: "low",
-        },
-      },
-    });
-    visionByProfile.set("direct-text-model", false);
-    try {
-      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-      expect(runOptions.overrideProfile).toBe("latency-optimized");
-      expect(runOptions.inferenceCallSite).toBe("callAgent");
-    } finally {
-      visionByProfile.clear();
-    }
-  });
-
-  test("an image with no image-capable profile anywhere keeps the conversation profile", async () => {
-    setConfig("llm", { activeProfile: "quality-optimized" });
-    conversationProfileSupportsVision = false;
-    pinProfileSupportsVision = false;
-
-    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
-
-    expect(runOptions.overrideProfile).toBe("quality-optimized");
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
   });
 
   test("an explicit routing pin wins over the conversation profile", async () => {
@@ -3314,52 +3132,7 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(runOptions.overrideProfile).toBe("balanced");
   });
 
-  test("a mix is judged by the arm serving this conversation, not by any arm", async () => {
-    // A mix reads as vision-capable when any arm is, but dispatch expands it
-    // to one arm from the conversation seed. Only that arm's model sees the
-    // image, so only that arm's capability decides whether the image pin
-    // takes over. The pin itself stays the mix's own name, so dispatch lands
-    // on the same arm.
-    const llm = {
-      activeProfile: "voice-mix",
-      profiles: {
-        "voice-mix": {
-          mix: [
-            { profile: "quality-optimized", weight: 1 },
-            { profile: "cost-optimized", weight: 1 },
-          ],
-        },
-      },
-    };
-    setConfig("llm", llm);
-    let chosenArm: string | undefined;
-    selectWinningProfile("mainAgent", getConfig().llm, {
-      selectionSeed: "conv-voice-bridge-test",
-      onMixSelected: ({ chosenProfile }) => {
-        chosenArm = chosenProfile;
-      },
-    });
-    expect(chosenArm).toBeDefined();
-    const chosenModel = resolveCallSiteConfig("mainAgent", getConfig().llm, {
-      selectionSeed: "conv-voice-bridge-test",
-    }).model;
-    try {
-      // Only the unchosen arm takes images: judged as "any arm", the mix
-      // would keep the pin off and the image would reach a text-only model.
-      visionByProfile.set(chosenModel, false);
-      const textOnlyArm = await runOptionsFor({ messages: PHOTO_HISTORY });
-      expect(textOnlyArm.overrideProfile).toBe("latency-optimized");
-
-      // Only the chosen arm takes images: no pin needed, the mix stands.
-      visionByProfile.set(chosenModel, true);
-      const visionArm = await runOptionsFor({ messages: PHOTO_HISTORY });
-      expect(visionArm.overrideProfile).toBe("voice-mix");
-    } finally {
-      visionByProfile.clear();
-    }
-  });
-
-  test("a rejected mix arm does not leak into the fallback profile capability check", async () => {
+  test("a mix with no resolvable arm falls back to the main-agent profile", async () => {
     setConfig("llm", {
       activeProfile: "stale-mix",
       profiles: {
@@ -3382,17 +3155,10 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
         mainAgent: { profile: "quality-optimized" },
       },
     });
-    visionByProfile.set("stale-a", false);
-    visionByProfile.set("stale-b", false);
-    visionByProfile.set("quality-optimized", true);
     unresolvableProviderNames.add("deleted-connection-a");
     unresolvableProviderNames.add("deleted-connection-b");
-    try {
-      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
 
-      expect(runOptions.overrideProfile).toBe("quality-optimized");
-    } finally {
-      visionByProfile.clear();
-    }
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
   });
 });
