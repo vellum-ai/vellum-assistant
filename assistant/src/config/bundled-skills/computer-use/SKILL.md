@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Control a connected or virtual desktop
+description: Control a connected desktop
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🖥️"
@@ -16,12 +16,17 @@ metadata:
 ---
 
 This skill provides the computer_use_* action tools for controlling a
-connected or virtual desktop.
+connected desktop. CU tools run through the main agent loop via HostCuProxy.
+
+The skill is internally preactivated for conversations with a connected desktop client.
+
+Tools in this skill are proxy tools. Execution is forwarded to a connected
+desktop client or handled by the assistant's virtual desktop.
 
 ## Observations
 
-Every computer-use step returns available accessibility information. Every
-action also returns a screenshot taken after it ran (one at the end of a
+Every computer-use step returns the accessibility tree. Every action also
+returns a screenshot taken after it ran (one at the end of a
 `computer_use_sequence`), so check it to see what your action did. An
 observation comes with a screenshot on a desktop's first look, when it is
 window-scoped, or when you pass `include_screenshot: true`. Ask for one whenever
@@ -29,9 +34,8 @@ the tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
 unlabeled controls, or a layout question.
 
 The tree is walked to a limited depth to keep steps fast, and says when it was
-cut off. Where supported, call `computer_use_observe` with
-`full_tree: true` if the element you need is not in it. Use screenshot coordinates
-when an element is not available in the tree.
+cut off. If the element you need is not in it, call `computer_use_observe` with
+`full_tree: true`.
 
 ## Scripting apps (macOS)
 
@@ -70,7 +74,7 @@ cannot be taken back. Send only when the user asked you to send, post or
 submit. When they asked you to type, write or draft something, type it and stop
 before pressing enter; tell them it is ready to send.
 
-## Batching known steps
+## Batching known steps (macOS)
 
 When you already know the next few actions and none depends on seeing the
 result of the one before, send them as one `computer_use_sequence` call, for
