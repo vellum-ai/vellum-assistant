@@ -31,9 +31,9 @@ export function SkillsReferenceComputerUseContent() {
             Explicit connected-computer targets override the web default.
             Each virtual desktop action uses the observation ID from its latest screenshot;
             browser actions or user handoff require a fresh observation.
-            Virtual desktop control shares browser
-            automation setup and user handoff; it does not provide accessibility element
-            IDs, AppleScript, or window-only capture.
+            Virtual desktop control shares browser automation setup and user handoff.
+            Use element IDs from the latest observation, or screenshot coordinates for
+            controls not listed. AppleScript and window-only capture are unavailable.
           </p>
         </section>
 
