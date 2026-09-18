@@ -537,9 +537,9 @@ export interface PostLocalNotificationArgs {
    * When set alongside `deliveryId`, `postLocalNotification` sends a
    * `notification_intent_result` ack to the daemon after scheduling the
    * banner (or on failure) so delivery audit trails stay consistent with
-   * the macOS client. Callers for skip paths (focused-conversation, etc.)
-   * should invoke {@link sendNotificationIntentAck} directly with
-   * `success=true`.
+   * the macOS client. Callers for skip paths (guardian-scoped,
+   * focused-conversation, etc.) should invoke {@link sendNotificationIntentAck}
+   * directly with `success=true`.
    */
   assistantId?: string;
   /**

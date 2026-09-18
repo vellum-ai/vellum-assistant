@@ -2,11 +2,11 @@
  * Bus consumer for `notification_intent` SSE events.
  *
  * Turns daemon-pushed notification intents into local browser or
- * Capacitor notifications. Guardian-scoped intents need no check here:
- * the daemon delivers them only to connections authenticated as that
- * guardian. Skips notifications for the conversation the user is watching
- * right now, which takes three facts: the store's active conversation, a
- * route that mounts the chat surface, and a client that is on screen.
+ * Capacitor notifications. Skips guardian-scoped notifications
+ * (the web client does not participate in guardian binding) and
+ * notifications for the conversation the user is watching right now,
+ * which takes three facts: the store's active conversation, a route
+ * that mounts the chat surface, and a client that is on screen.
  * `isVisibleToUser()` answers the last one on every platform: the main
  * process's window report in the Electron renderer, `document.visibilityState`
  * in a browser tab and in the Capacitor shell. A hidden tab that reads
@@ -115,6 +115,20 @@ export function useNotificationIntentSync(assistantId: string | null): void {
             name: scopedIdentityData.name,
           }
         : null;
+
+    // Guardian-scoped notifications are for devices bound to that
+    // guardian identity. The web/Capacitor client does not participate
+    // in guardian binding — skip to avoid leaking to unintended devices.
+    if (event.targetGuardianPrincipalId) {
+      if (originatingAssistantId && event.deliveryId) {
+        void sendNotificationIntentAck(
+          originatingAssistantId,
+          event.deliveryId,
+          true,
+        );
+      }
+      return;
+    }
 
     // Suppress only when the message is already in front of the user.
     // `activeConversationId` survives navigation, so the route has to agree;

@@ -175,7 +175,6 @@ function publishNotificationIntent(overrides: {
   remotePushDispatched?: boolean;
   remotePushPlatforms?: ("ios" | "android")[];
   deepLinkMetadata?: Record<string, unknown>;
-  targetGuardianPrincipalId?: string;
 }) {
   act(() => {
     publish("sse.event", {
@@ -375,24 +374,6 @@ describe("useNotificationIntentSync", () => {
     expect(postedArgs[0]?.remotePushDispatched).toBeUndefined();
     expect(postedArgs[0]?.remotePushPlatforms).toBeUndefined();
     expect(postedArgs[0]?.assistantName).toBeUndefined();
-  });
-
-  test("shows a guardian-scoped intent, since the daemon sends it only to the guardian", () => {
-    mountAt(routes.assistant);
-
-    publishNotificationIntent({
-      sourceEventName: "guardian.question",
-      title: "Approval needed",
-      targetGuardianPrincipalId: "principal-guardian",
-    });
-
-    expect(postedArgs).toEqual([
-      expect.objectContaining({
-        title: "Approval needed",
-        sourceEventName: "guardian.question",
-        deliveryId: "delivery-1",
-      }),
-    ]);
   });
 
   test("threads the optional event name and exact scoped identity query name", () => {
