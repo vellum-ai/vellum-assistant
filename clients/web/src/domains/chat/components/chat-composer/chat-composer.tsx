@@ -829,11 +829,13 @@ export function ChatComposer({
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
-  // Under `interrupt-on-send` a turn in flight changes nothing about the
-  // composer: the message the user types stops that turn and is answered at
-  // once, so Send stays where it is and Stop has nothing left to offer that
-  // Send does not. The row keeps its resting shape (attach, dictation, voice,
-  // Send) for the whole turn.
+  // Under `interrupt-on-send` a turn in flight keeps the row in its resting
+  // shape (attach, dictation, voice, Send): the message the user types stops
+  // that turn and is answered at once, so Send stays where it is and pressing
+  // it interrupts and sends in one move. The send slot is the exception, since
+  // a composer with nothing to send has no such gesture: it holds Stop there
+  // (`showStopInSendSlot`), which is the only way to end a turn without
+  // sending something.
   const interruptOnSend = useInterruptOnSend();
   const busyRowActive = isAssistantBusy && !interruptOnSend;
   // Words already spoken are content the composer does not hold yet, so the
@@ -846,6 +848,21 @@ export function ChatComposer({
   // stop/send swap below is about a draft that is ready to queue right now,
   // and a session still being spoken is not that.
   const canSendOrFinishDictation = canSendMessageContent || ownsDictation;
+  // Stop takes the send slot under `interrupt-on-send` while the turn runs and
+  // the composer holds nothing to send: there is no draft whose send would
+  // interrupt, so without Stop the turn has no end the user can reach. A draft
+  // that is ready keeps the send arrow at every width, including the desktop
+  // one, because pressing it stops the turn as surely as Stop would and answers
+  // the draft too.
+  //
+  // A live-voice session this composer owns keeps the slot as it rests: the bar
+  // above the card owns that session and the turn it is speaking, and speaking
+  // over the assistant is the barge-in the session already offers.
+  const showStopInSendSlot =
+    interruptOnSend &&
+    isAssistantBusy &&
+    !canSendOrFinishDictation &&
+    !isLiveVoiceActive;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -1193,6 +1210,22 @@ export function ChatComposer({
   const sendBlocked =
     sendDisabled || attachmentsUploadingCount > 0 || !canSendOrFinishDictation;
 
+  // The row's one Stop, in the chrome the slot it stands in wears: the busy
+  // row's default control with the flag off, and the send slot's occupant
+  // while `interrupt-on-send` leaves the composer nothing to send.
+  const stopControl = (
+    <Button
+      variant="primary"
+      iconOnly={<Square className="h-3 w-3" />}
+      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
+      expandOnMobile={!isMobile}
+      onMouseDown={rowPressGuard}
+      onClick={onStopGenerating}
+      aria-label={t("chatComposer.stopGenerating")}
+      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
+    />
+  );
+
   // The send arrow stays through a dictation session, where pressing it means
   // "finish, then send": `useComposerSubmit` ends the session and waits for
   // the transcript before it reads the draft (LUM-3432). It used to be hidden
@@ -1202,8 +1235,12 @@ export function ChatComposer({
   // draft was in the box. The two controls now divide the job: the mic stops
   // and leaves the words in the composer, the arrow stops and sends them.
   // Otherwise the slot holds voice mode until there is something to send, at
-  // which point the send arrow takes over.
-  const sendSlot = showVoiceModeInSendSlot ? (
+  // which point the send arrow takes over. Stop outranks both while it claims
+  // the slot: an empty composer over a running turn has nothing to send, and
+  // ending that turn is the move the user is reaching for.
+  const sendSlot = showStopInSendSlot ? (
+    stopControl
+  ) : showVoiceModeInSendSlot ? (
     // Session entry point: once a session starts here the slot gives way to
     // the send arrow and the bar above the card owns stopping. Disabled while
     // dictation is active or a live-voice session already runs elsewhere, so a
@@ -1253,16 +1290,7 @@ export function ChatComposer({
       className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
     />
   ) : (
-    <Button
-      variant="primary"
-      iconOnly={<Square className="h-3 w-3" />}
-      iconOnlyGlyphClassName={isMobile ? MOBILE_GLYPH_CLASS : undefined}
-      expandOnMobile={!isMobile}
-      onMouseDown={rowPressGuard}
-      onClick={onStopGenerating}
-      aria-label={t("chatComposer.stopGenerating")}
-      className={isMobile ? MOBILE_CONTROL_CLASS : undefined}
-    />
+    stopControl
   );
 
   const inlineVoicePreview = showInlineVoicePreview ? (
