@@ -1,3 +1,4 @@
+import type { VoiceEscalationProfileSource } from "../calls/voice-escalation-target.js";
 import { type ClientOs, parseClientOs } from "../channels/types.js";
 
 const LIVE_VOICE_CLIENT_FRAME_TYPES = [
@@ -575,8 +576,9 @@ export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
  * the room) can otherwise only say "Thinking...". The label is composed here
  * rather than by each surface for the same reason phase wording is composed
  * once: the Live Activity has two independent drivers (this socket and an APNs
- * push the daemon dispatches), they must carry identical content, and the only
- * way to guarantee that is for both to be handed the same string.
+ * push the daemon dispatches), they must carry compatible content. Structured
+ * kinds let in-conversation surfaces use localized copy while system-level
+ * surfaces can suppress internal detail.
  *
  * An empty `label` means "no current activity", which is what a turn's end
  * sends. Emitted only on change, never per tool result.
@@ -585,6 +587,12 @@ export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "activity";
   readonly turnId: string;
   readonly label: string;
+  /** Structured reason for the activity, when a client needs custom display. */
+  readonly kind?: "escalation";
+  /** Selected inference profile for diagnostics, never default UI copy. */
+  readonly profile?: string;
+  /** Why the selected profile won for this leg. */
+  readonly profileSource?: VoiceEscalationProfileSource;
   /**
    * The confirmation this turn is blocked on, when the label describes a wait
    * rather than work in flight. Absent otherwise.

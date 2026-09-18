@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import { PortalContainerProvider } from "@vellumai/design-library/utils/portal-container";
 
+import { pressBackdrop } from "@/lib/overlay-test-helpers";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import { openDetailSheetFromTrigger } from "@/domains/chat/utils/open-detail-sheet-from-trigger";
 import { MobileDetailSheet } from "./mobile-detail-sheet";
@@ -75,7 +76,7 @@ describe("MobileDetailSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open details" }));
     const dialog = await screen.findByRole("dialog");
     expect(host.contains(dialog)).toBe(true);
-    fireEvent.click(host.querySelector('[data-slot="bottom-sheet-overlay"]')!);
+    pressBackdrop(host.querySelector('[data-slot="bottom-sheet-overlay"]')!);
     expect(onClose).toHaveBeenCalledTimes(1);
     cleanup();
     host.remove();

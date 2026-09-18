@@ -53,6 +53,7 @@ export {
   type ScrollShadowOrientation,
   type ScrollShadowFadeEdges,
 } from "./components/scroll-shadow";
+export { FilterChip, type FilterChipProps } from "./components/filter-chip";
 export {
   Tag,
   tagVariants,

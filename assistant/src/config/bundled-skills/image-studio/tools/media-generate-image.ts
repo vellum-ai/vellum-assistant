@@ -5,10 +5,7 @@ import {
   resolveImageGenCredentials,
   resolveImageGenRouting,
 } from "../../../../media/image-credentials.js";
-import {
-  describeImageModels,
-  resolveImageModel,
-} from "../../../../media/image-models.js";
+import { resolveRequestedImageModel } from "../../../../media/image-models.js";
 import {
   generateImage,
   mapImageGenError,
@@ -115,18 +112,17 @@ export async function run(
   const config = getConfig();
   const svc = config.services["image-generation"];
   let modelOverride = input.model;
-  // Resolve tier aliases (fast, quality, openai) to concrete model IDs via
-  // the registry. Unknown values get an error listing the current catalog so
-  // callers can self-correct without a stale schema enum.
+  // Resolve aliases and OpenRouter slugs against the configured provider.
+  // Built-in providers still list the current catalog on unknown values.
   if (typeof modelOverride === "string" && modelOverride) {
-    const entry = resolveImageModel(modelOverride);
-    if (!entry) {
+    const resolved = resolveRequestedImageModel(modelOverride, svc.provider);
+    if (resolved.error) {
       return {
-        content: `Unknown model "${modelOverride}". Available models and aliases:\n${describeImageModels()}\n\nRetry with one of the aliases above, or omit the model parameter to use the configured default.`,
+        content: `${resolved.error}\n\nRetry with one of the aliases above, or omit the model parameter to use the configured default.`,
         isError: true,
       };
     }
-    modelOverride = entry.id;
+    modelOverride = resolved.model;
   }
   // Backend and managed-ness resolve together: an explicit model re-routes
   // to the model's backend (e.g. `gpt-image-2` under a gemini config routes

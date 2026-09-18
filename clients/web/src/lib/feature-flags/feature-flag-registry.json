@@ -543,6 +543,14 @@
       "label": "Virtual desktop",
       "description": "Streams an interactive virtual desktop from a platform-hosted, containerized assistant over /v1/desktop/stream. Requires platform hosting; self-hosted assistants are excluded. Off: the virtual desktop is hidden. On: the chat header offers its viewer and controls.",
       "defaultEnabled": false
+    },
+    {
+      "id": "assistant-inbox",
+      "scope": "client",
+      "key": "assistant-inbox",
+      "label": "Assistant Inbox",
+      "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. Off hides the entry and redirects the route to chat.",
+      "defaultEnabled": false
     }
   ]
 }

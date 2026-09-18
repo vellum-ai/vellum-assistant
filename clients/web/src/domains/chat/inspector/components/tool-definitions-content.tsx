@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { ParsedToolDefinition } from "@/domains/chat/inspector/tool-definitions";
 import { useTranslation } from "@/i18n";
 import { Collapsible, Tag } from "@vellumai/design-library";
+import { isRecord } from "@/utils/is-record";
 
 interface ToolDefinitionsContentProps {
   tools: ParsedToolDefinition[];
@@ -31,7 +32,9 @@ export function ToolDefinitionsContent({
       </p>
       <Collapsible.Root
         type="multiple"
-        defaultValue={tools.length === 1 ? tools.map((tool) => tool.name) : undefined}
+        defaultValue={
+          tools.length === 1 ? tools.map((tool) => tool.name) : undefined
+        }
         className="mt-3"
       >
         {tools.map((tool, i) => (
@@ -317,8 +320,4 @@ function formatScalar(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

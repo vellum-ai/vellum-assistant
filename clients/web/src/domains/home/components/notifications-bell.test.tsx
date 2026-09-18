@@ -457,14 +457,23 @@ const RECIPE_LABEL = /^Set up a morning briefing/;
 
 const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
 
+/**
+ * One timestamp for every fixture item, read once here rather than on each
+ * call. Relative, so the bell's recency treatment is exercised, but shared,
+ * because `sortFeedItems` orders items of equal priority by `createdAt`
+ * descending: two items built on either side of a millisecond tick sort by
+ * which one the clock stamped later, and an assertion naming items in list
+ * order then passes or fails on that. Equal timestamps leave the sort stable,
+ * so a test's items hold the order it declares them in.
+ */
+const FIXTURE_TIMESTAMP = new Date(Date.now() - THREE_HOURS_MS).toISOString();
+
 function bellItem(overrides: Partial<FeedItem>): FeedItem {
-  // Relative so the bell's recency treatment is exercised.
-  const timestamp = new Date(Date.now() - THREE_HOURS_MS).toISOString();
   return feedItem({
     id: "item-1",
     summary: "Something happened",
-    timestamp,
-    createdAt: timestamp,
+    timestamp: FIXTURE_TIMESTAMP,
+    createdAt: FIXTURE_TIMESTAMP,
     ...overrides,
   });
 }
@@ -759,32 +768,29 @@ describe("NotificationsBell panel", () => {
     );
   });
 
-  test("uses the active assistant accent with a white knob for the enabled unread switch", async () => {
+  test("uses the design-system small toggle for the unread filter", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
     const filter = screen.getByRole("switch", { name: "Unread" });
-    expect(filter.parentElement?.className).toContain("--avatar-accent");
-    expect(filter.parentElement?.className).toContain(
-      "--system-positive-strong",
-    );
-    expect(filter.parentElement?.className).not.toContain(
-      "--avatar-accent-glyph",
-    );
+    expect(filter.parentElement?.className).toContain("flex items-center");
+    expect(filter.parentElement?.className).not.toContain("--avatar-accent");
+    expect(filter.className).toContain("--system-positive-strong");
+    expect(filter.className).toContain("h-4 w-6");
     expect(filter.querySelector("span")?.className).toContain("--aux-white");
   });
 
-  test("uses the active assistant's readable accent surface for the count", async () => {
+  test("uses the standard theme surface for the count", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
     const count = screen.getByTestId("notifications-bell-count");
-    expect(count.parentElement?.className).toContain("--avatar-accent-fill");
-    expect(count.parentElement?.className).toContain("--system-positive-weak");
-    expect(count.className).toContain("--avatar-accent-ink");
-    expect(count.className).toContain("--system-positive-on-weak");
+    expect(count.parentElement?.className).toContain("--surface-active");
+    expect(count.className).toContain("--content-secondary");
+    expect(count.parentElement?.className).not.toContain("--avatar-accent");
+    expect(count.className).not.toContain("--avatar-accent");
   });
 
   test("preserves the filter through detail and back", async () => {

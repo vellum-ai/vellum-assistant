@@ -12,7 +12,8 @@ export type WebSearchProviderId =
   | "tavily"
   | "keenable"
   | "firecrawl"
-  | "fastcrw";
+  | "fastcrw"
+  | "searxng";
 
 /** Provider that backed a `web_fetch` call. `default` is the built-in fetcher. */
 export type WebFetchProviderId = "default" | "firecrawl" | "fastcrw";

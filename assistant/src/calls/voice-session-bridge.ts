@@ -22,7 +22,10 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { selectWinningProfile } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
   ABORT_WATCHDOG_MS,
@@ -48,7 +51,11 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
-import { doesSupportVision } from "../plugin-api/vision-support.js";
+import {
+  doesSupportVision,
+  type ResolvedVisionTarget,
+} from "../plugin-api/vision-support.js";
+import { dispatchProviderResolvable } from "../providers/connection-resolution.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -57,6 +64,7 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { sttCatalogKeyForRole } from "../stt/roles.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import { getAllTools } from "../tools/registry.js";
 import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -74,6 +82,7 @@ import {
   stripInternalSpeechMarkers,
   terminalControlMarkerLength,
 } from "./voice-control-protocol.js";
+import type { VoiceEscalationTarget } from "./voice-escalation-target.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -103,46 +112,39 @@ const log = getLogger("voice-session-bridge");
 const VOICE_IMAGE_PROFILE = "latency-optimized";
 
 /**
- * The profile the conversation's own text turns run on, resolved the way a
- * `mainAgent` turn resolves it: the conversation's pinned profile when it
- * carries one, else the workspace chat-model selection (`llm.activeProfile`),
- * else the main agent's call-site pin.
- *
- * The escalated voice leg runs through `callAgent`, whose chain never
- * consults `llm.activeProfile`, so without this the hand-off lands on that
- * site's shipped `balanced` default while the same conversation's typed
- * turns run on whatever the user picked. Pinning the text-turn winner keeps
- * the stronger model the front door escalates to the one the conversation is
- * already using.
- *
- * `profile` is the name to pin (a mix's own name, so dispatch re-expands it
- * to the same arm from the conversation seed); `modelProfile` is the concrete
- * profile whose model actually runs (the chosen arm of a mix), which is what
- * capability checks must judge: a mix reads as vision-capable when any arm
- * is, but only one arm serves this conversation.
- *
- * Null when nothing above named a profile (the winner is the code-owned
- * anchor): the leg then keeps its ordinary call-site resolution, which lands
- * on the same anchor intent and still honors a `callAgent` site pin.
+ * The conversation's effective `mainAgent` target. `profile` preserves the
+ * selected profile name for an explicit pin, while `model` includes the
+ * call-site's direct tuning and the concrete arm selected from a mix.
  */
-function conversationProfileForEscalation(
+function conversationTargetForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
-): { profile: string; modelProfile: string } | null {
+): { profile: string | null; visionTarget: ResolvedVisionTarget } {
   const overrideProfile = resolveOverrideProfile(conversation);
-  let chosenArm: string | undefined;
-  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
+  const resolveOptions = {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
-    onMixSelected: ({ chosenProfile }) => {
-      chosenArm = chosenProfile;
-    },
-  });
-  if (selection.source === "default" || selection.profileName == null) {
-    return null;
-  }
+    isResolvableProvider: dispatchProviderResolvable,
+  };
+  const selection = selectWinningProfile(
+    "mainAgent",
+    getConfig().llm,
+    resolveOptions,
+  );
+  const resolved = resolveCallSiteConfig(
+    "mainAgent",
+    getConfig().llm,
+    resolveOptions,
+  );
   return {
-    profile: selection.profileName,
-    modelProfile: chosenArm ?? selection.profileName,
+    profile:
+      selection.source === "default" ? null : (selection.profileName ?? null),
+    visionTarget: {
+      provider: resolved.provider,
+      model: resolved.model,
+      ...(selection.entry?.inputModalities !== undefined
+        ? { inputModalities: selection.entry.inputModalities }
+        : {}),
+    },
   };
 }
 
@@ -388,7 +390,11 @@ export interface VoiceTurnCallbacks {
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
+export type { VoiceEscalationTarget } from "./voice-escalation-target.js";
+
 export interface VoiceTurnOptions {
+  /** Internal task update delivered through the call, with its original attribution. */
+  subagentNotification?: SubagentParentNotification;
   /** The conversation ID for this voice call's session. */
   conversationId: string;
   /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
@@ -497,6 +503,8 @@ export interface VoiceTurnOptions {
   onError?: (message: string) => void;
   /** Event-name callbacks: tool activity, persisted row ids, raw stream. */
   callbacks?: VoiceTurnCallbacks;
+  /** Called once the escalated leg's actual target profile is resolved. */
+  onEscalationTargetResolved?: (target: VoiceEscalationTarget) => void;
   /**
    * Called when this turn leaves a confirmation for the user to answer instead
    * of deciding it, so the client can put the prompt where they can see it.
@@ -1219,6 +1227,7 @@ export async function startVoiceTurn(
       ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
       requestId,
       metadata: {
+        ...opts.subagentNotification?.metadata,
         // Durable "this turn came from an open voice session" marker; see
         // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
@@ -2000,18 +2009,18 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
-      // An escalated leg follows the conversation's own model: the front
-      // door hands off to the profile the caller's typed turns already run
-      // on, not to `callAgent`'s shipped default. Null keeps the ordinary
-      // call-site resolution.
-      const conversationProfile =
+      // An escalated leg follows the conversation's effective main-agent
+      // target, including direct call-site tuning and the concrete arm of a
+      // mix. The semantic call site remains `callAgent` below so voice tool
+      // and delivery behavior do not change.
+      const conversationTarget =
         opts.routingLeg === "escalated"
-          ? conversationProfileForEscalation(conversation)
+          ? conversationTargetForEscalation(conversation)
           : null;
       // Resolved once here rather than inside the options literal below, so
       // the history scan happens once per leg. A front-door leg is skipped:
       // its own call site already resolves to the same profile. A
-      // conversation profile whose model takes images needs no image pin
+      // conversation target whose model takes images needs no image pin
       // either; one that does not yields to the image pin, since a model
       // that rejects an image fails the whole leg. The judged profile is the
       // concrete arm that serves this conversation, not a mix's name. The
@@ -2020,8 +2029,8 @@ export async function startVoiceTurn(
       const needsImagePin =
         opts.routingLeg !== "front-door" &&
         !(
-          conversationProfile != null &&
-          doesSupportVision(conversationProfile.modelProfile)
+          conversationTarget != null &&
+          doesSupportVision(conversationTarget.visionTarget)
         ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
@@ -2030,9 +2039,9 @@ export async function startVoiceTurn(
           { turnId, routingLeg: opts.routingLeg ?? null },
           "Voice leg carries an image; pinning the image-capable profile",
         );
-      } else if (conversationProfile != null) {
+      } else if (conversationTarget?.profile != null) {
         log.info(
-          { turnId, profile: conversationProfile.profile },
+          { turnId, profile: conversationTarget.profile },
           "Escalated voice leg pinned to the conversation's own profile",
         );
       }
@@ -2040,7 +2049,12 @@ export async function startVoiceTurn(
         opts.overrideProfile ??
         (needsImagePin
           ? VOICE_IMAGE_PROFILE
-          : (conversationProfile?.profile ?? null));
+          : (conversationTarget?.profile ?? null));
+      // Optional cache traffic must not consume the last admitted request.
+      // A configured cap reserves its whole budget for user-visible calls.
+      const shouldWarmEscalation =
+        opts.routingLeg === "escalated" &&
+        config.rateLimit.maxRequestsPerMinute === 0;
       if (opts.macosDesktopSession === true && !frontDoorToolsSuppressed) {
         const sourceInterface = turnInterfaceContext.userMessageInterface;
         const sourceActorPrincipalId =
@@ -2056,6 +2070,9 @@ export async function startVoiceTurn(
         );
       }
       await conversation.runAgentLoop(persistedContent, messageId, {
+        ...(opts.subagentNotification?.cronRunId
+          ? { cronRunId: opts.subagentNotification.cronRunId }
+          : {}),
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
             reservedAssistantRowId = msg.messageId;
@@ -2123,6 +2140,16 @@ export async function startVoiceTurn(
         // ordinary call-agent resolution.
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
+        ...(opts.routingLeg === "escalated"
+          ? {
+              // An image fallback is still a full call-agent turn. Keep it
+              // away from both main-agent tuning that selected an incompatible
+              // model and caption-specific vision tuning.
+              inferenceCallSite: needsImagePin
+                ? ("callAgent" as const)
+                : ("mainAgent" as const),
+            }
+          : {}),
         // A caller is on the line, so the turn is interactive: approval prompts
         // must be raised rather than pre-denied, because the approval observer
         // above is what decides them (auto-resolve for a non-guardian caller,
@@ -2138,9 +2165,7 @@ export async function startVoiceTurn(
           : {}),
         // Triage-and-escalate routing pins this turn to the fast front-door
         // profile or to the conversation's own profile for the escalated
-        // leg. `forceOverrideProfile` floats it above the callAgent call-site
-        // layers (callAgent is not `mainAgent`, so the override would
-        // otherwise sit below the call-site profile).
+        // leg. `forceOverrideProfile` preserves an explicit routing pin.
         //
         // An explicit routing pin wins; failing that, a leg whose history
         // carries an image is pinned to a profile whose model takes one;
@@ -2149,6 +2174,77 @@ export async function startVoiceTurn(
         // already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
+          : {}),
+        ...(opts.routingLeg === "escalated"
+          ? {
+              // Warming and diagnostics use the final post-hook request. The
+              // observer stays synchronous so neither delays provider dispatch.
+              onFirstModelCallPrepared: (prepared) => {
+                if (shouldWarmEscalation && !prepared.disableCache) {
+                  void conversation.warmPromptCache({
+                    callSite: prepared.callSite ?? "mainAgent",
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    signal: prepared.signal ?? opts.signal,
+                    systemPrompt: prepared.systemPrompt,
+                    tools: prepared.tools,
+                  });
+                }
+                let selectedMixArm:
+                  | { mixProfile: string; chosenProfile: string }
+                  | undefined;
+                const escalationSelection = selectWinningProfile(
+                  prepared.callSite ?? "mainAgent",
+                  config.llm,
+                  {
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    selectionSeed: conversation.conversationId,
+                    isResolvableProvider: dispatchProviderResolvable,
+                    onMixSelected: (selection) => {
+                      selectedMixArm = selection;
+                    },
+                  },
+                );
+                let source: VoiceEscalationTarget["source"] = "call_site";
+                if (escalationSelection.source === "override") {
+                  if (prepared.overrideProfile !== profilePin) {
+                    source = "pre_model_hook";
+                  } else if (opts.overrideProfile != null) {
+                    source = "turn_override";
+                  } else if (needsImagePin) {
+                    source = "image_compatibility";
+                  } else {
+                    source = "conversation";
+                  }
+                }
+                const target: VoiceEscalationTarget = {
+                  profile:
+                    (selectedMixArm?.mixProfile ===
+                    escalationSelection.profileName
+                      ? selectedMixArm.chosenProfile
+                      : escalationSelection.profileName) ?? "balanced",
+                  source,
+                };
+                try {
+                  opts.onEscalationTargetResolved?.(target);
+                } catch (err) {
+                  log.warn(
+                    {
+                      err,
+                      turnId,
+                      profile: target.profile,
+                      source: target.source,
+                    },
+                    "Voice escalation target callback failed",
+                  );
+                }
+              },
+            }
           : {}),
       });
       if (lastError) {

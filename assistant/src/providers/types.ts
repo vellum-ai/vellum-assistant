@@ -551,6 +551,8 @@ export interface ContextOverflowErrorOptions {
   cause?: unknown;
   /** Semantic reason override; defaults to `context_overflow`. */
   reason?: ProviderErrorReason;
+  /** Inspectable SDK/wire request payload for the overflowing call. */
+  rawRequest?: unknown;
 }
 
 /**
@@ -581,6 +583,9 @@ export class ContextOverflowError extends ProviderError {
     super(message, provider, options.statusCode ?? 400, {
       reason: options.reason ?? "context_overflow",
       ...(options.cause !== undefined ? { cause: options.cause } : {}),
+      ...(options.rawRequest !== undefined
+        ? { rawRequest: options.rawRequest }
+        : {}),
     });
     this.name = "ContextOverflowError";
     this.actualTokens = options.actualTokens;

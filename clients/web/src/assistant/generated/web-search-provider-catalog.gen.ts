@@ -11,6 +11,7 @@ export const WEB_SEARCH_PROVIDER_IDS: readonly string[] = [
   "firecrawl",
   "keenable",
   "fastcrw",
+  "searxng",
 ];
 
 /** Short display name used in picker UI. */
@@ -25,6 +26,7 @@ export const WEB_SEARCH_PROVIDER_DISPLAY_NAMES: Readonly<
   firecrawl: "Firecrawl",
   keenable: "Keenable",
   fastcrw: "fastCRW",
+  searxng: "SearXNG",
 };
 
 /** Placeholder hint shown in the API-key input. BYOK providers only. */
@@ -37,6 +39,7 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
   firecrawl: "fc-...",
   keenable: "keen_... (optional)",
   fastcrw: "crw_live_...",
+  searxng: "token (optional)",
 };
 
 /** localStorage key used to persist each BYOK provider's user-supplied key. */
@@ -48,6 +51,7 @@ export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<Record<string, string>> =
     firecrawl: "vellum:ai:firecrawlKey",
     keenable: "vellum:ai:keenableKey",
     fastcrw: "vellum:ai:fastcrwKey",
+    searxng: "vellum:ai:searxngKey",
   };
 
 /** Provider ids that require a user-supplied API key. */
@@ -58,6 +62,7 @@ export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "firecrawl",
   "keenable",
   "fastcrw",
+  "searxng",
 ]);
 
 /**
@@ -65,11 +70,12 @@ export const WEB_SEARCH_BYOK_PROVIDER_IDS: ReadonlySet<string> = new Set([
  * Save is not gated on a credential for these.
  */
 export const WEB_SEARCH_KEYLESS_BYOK_PROVIDER_IDS: ReadonlySet<string> =
-  new Set(["keenable"]);
+  new Set(["keenable", "searxng"]);
 
 /** Provider ids that show an optional API Base field in settings. */
 export const WEB_SEARCH_API_BASE_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "fastcrw",
+  "searxng",
 ]);
 
 /** Cloud default API origin when API Base is left empty. */

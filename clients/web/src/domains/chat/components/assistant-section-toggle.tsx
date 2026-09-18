@@ -1,17 +1,56 @@
 import { MessageSquare } from "lucide-react";
 
+import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import {
+  CollapsedFlyout,
   getGroupIndicatorState,
   GroupIndicatorDot,
+  type GroupIndicatorState,
 } from "@/domains/chat/components/collapsed-group-icon";
+import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { SIDEBAR_ASSISTANT_DISC_SIZE } from "@/components/sidebar-nav-geometry";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { SidebarDiscButton } from "@/domains/chat/components/sidebar-disc-button";
 import { useTranslation } from "@/i18n";
-import { toneForBg } from "@/utils/avatar-tone";
-import { cn } from "@vellumai/design-library";
+import type { Conversation } from "@/types/conversation-types";
+import { SIDE_MENU_TILE_SIZE, Tooltip } from "@vellumai/design-library";
+
+/**
+ * The section's activity, read from the rows its card would show. While
+ * those rows are not on screen, the dot their header would carry (a thread
+ * waiting on the user, a reply the user has not seen) rides on the toggle
+ * instead; callers drop it while the rows are showing, as the header does.
+ */
+function useSectionIndicator(
+  conversations: Conversation[],
+  section: SidebarSection,
+): GroupIndicatorState {
+  const { processingConversationIds, attentionConversationIds } =
+    useConversationListContext();
+  return getGroupIndicatorState(
+    conversations,
+    processingConversationIds,
+    attentionConversationIds,
+    section.unread,
+  );
+}
+
+/**
+ * The section's activity dot on the toggle's corner, where the collapsed
+ * rail's tiles put theirs; ringed in the page ground so it reads as sitting
+ * on the disc's edge rather than as a bite out of it. The offsets count from
+ * inside the `Button`'s 1px border, so 2px puts the dot 1px past the disc.
+ */
+function IndicatorBadge({ state }: { state: GroupIndicatorState }) {
+  return (
+    <GroupIndicatorDot
+      state={state}
+      className="absolute -top-0.5 -right-0.5 ring-2 ring-[var(--surface-base)]"
+    />
+  );
+}
 
 export interface AssistantSectionToggleProps {
   assistantId: string | null;
@@ -25,17 +64,10 @@ export interface AssistantSectionToggleProps {
 
 /**
  * The round button beside the assistant pill that opens the assistant's own
- * section beneath it: a disc the size of the one the eyes sit on, in the
- * avatar's colour, carrying a chat glyph in both states: the glyph names
- * what the button reaches (her threads), and `aria-expanded` with the
- * accessible name say which way the next press goes. The glyph is drawn at
- * the size every other leading icon in the rail is.
- *
- * While the section is closed its header is not on screen, so the activity
- * dot that header would carry (a thread waiting on the user, a reply the
- * user has not seen) rides on this button instead, in the corner the
- * collapsed rail's tiles put theirs. Open, the rows show their own state
- * and the dot steps aside, as the header's does.
+ * section beneath it, drawn the size of the disc the eyes sit on. Its chat
+ * glyph names what it reaches (her threads) and is the same in both states;
+ * `aria-expanded` with the accessible name say which way the next press
+ * goes.
  */
 export function AssistantSectionToggle({
   assistantId,
@@ -45,61 +77,78 @@ export function AssistantSectionToggle({
   onToggle,
 }: AssistantSectionToggleProps) {
   const { t } = useTranslation("chat");
-  const { accentHex } = useAssistantAvatar(assistantId);
   /* The same query the section's card runs, so the dot reads the same rows
      the card shows and the card's rows are already loaded when it opens. */
   const { conversations } = useSectionConversations(assistantId, section);
-  const { processingConversationIds, attentionConversationIds } =
-    useConversationListContext();
-  const indicator = open
-    ? null
-    : getGroupIndicatorState(
-        conversations,
-        processingConversationIds,
-        attentionConversationIds,
-        section.unread,
-      );
+  const indicator = useSectionIndicator(conversations, section);
 
   return (
-    <button
-      type="button"
+    <SidebarDiscButton
+      icon={MessageSquare}
+      size={SIDEBAR_ASSISTANT_DISC_SIZE}
+      badge={<IndicatorBadge state={open ? null : indicator} />}
       onClick={onToggle}
       aria-expanded={open}
       aria-label={t(
         open ? "assistantSectionToggle.hide" : "assistantSectionToggle.show",
         { name: assistantName },
       )}
-      data-slot="assistant-section-toggle"
-      className={cn(
-        "relative flex shrink-0 cursor-pointer items-center justify-center rounded-full",
-        "transition-[filter,transform] duration-150 active:scale-[0.98]",
-        "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-        /* No avatar colour to wear (an uploaded image, or a still-loading
-           avatar): the plain raised surface every untinted row falls back
-           to. */
-        accentHex
-          ? "[@media(hover:hover)]:hover:brightness-105"
-          : "bg-[var(--surface-active)] text-[var(--content-default)] [@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
+    />
+  );
+}
+
+export interface AssistantSectionRailToggleProps {
+  assistantId: string | null;
+  /** The assistant's own section, whose threads the flyout lists. */
+  section: SidebarSection;
+}
+
+/**
+ * The same toggle on the collapsed rail: a tile in the rail's column,
+ * beneath the assistant's and above New Chat, where the row form stands
+ * beside the pill. The rail has no room to open the card beneath it, so a
+ * press opens the section's threads in a flyout beside the rail, the way
+ * every rail tile opens its section, and at zero the flyout says what the
+ * card would.
+ */
+export function AssistantSectionRailToggle({
+  assistantId,
+  section,
+}: AssistantSectionRailToggleProps) {
+  const { conversations, hasMore, loadMore } = useSectionConversations(
+    assistantId,
+    section,
+  );
+  const indicator = useSectionIndicator(conversations, section);
+
+  return (
+    <CollapsedFlyout
+      trigger={(open) => (
+        <Tooltip content={section.label} side="right">
+          <SidebarDiscButton
+            icon={MessageSquare}
+            size={SIDE_MENU_TILE_SIZE}
+            badge={<IndicatorBadge state={open ? null : indicator} />}
+            aria-label={section.label}
+            aria-haspopup="dialog"
+            className="self-center"
+          />
+        </Tooltip>
       )}
-      style={{
-        width: SIDEBAR_ASSISTANT_DISC_SIZE,
-        height: SIDEBAR_ASSISTANT_DISC_SIZE,
-        /* The glyph's ink by the avatar surfaces' own rule: black on the
-           light colour (yellow), white on every other. */
-        ...(accentHex
-          ? { backgroundColor: accentHex, color: toneForBg(accentHex).fg }
-          : undefined),
-      }}
     >
-      <MessageSquare aria-hidden className="size-3.5 max-md:size-4" />
-      {indicator ? (
-        <GroupIndicatorDot
-          state={indicator}
-          /* Ringed in the page ground so it reads as sitting on the disc's
-             edge rather than as a bite out of it. */
-          className="absolute -top-px -right-px ring-2 ring-[var(--surface-base)]"
-        />
-      ) : null}
-    </button>
+      {(close, scrollParent) =>
+        conversations.length === 0 ? (
+          <AssistantSectionEmptyState />
+        ) : (
+          <CollapsedGroupFlyout
+            title={section.label}
+            conversations={conversations}
+            onClosePopover={close}
+            scrollParent={scrollParent}
+            onEndReached={hasMore ? loadMore : undefined}
+          />
+        )
+      }
+    </CollapsedFlyout>
   );
 }

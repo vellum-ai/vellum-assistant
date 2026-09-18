@@ -94,6 +94,11 @@ import {
   type FrontDoorLegCoordinator,
   type SpokenEscalationBridge,
 } from "./voice-leg-coordinator.js";
+import {
+  getVoiceMetricsAggregateFields,
+  VoiceMetricsCollector,
+  type VoiceMetricsSnapshot,
+} from "./voice-metrics.js";
 import { createProgressCadence } from "./voice-progress-cadence.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
@@ -248,6 +253,23 @@ export class CallController {
   private readonly progressConfig: VoiceProgressConfig;
   /** Rotates the static narration fallback across turns. */
   private progressPhraseCounter = 0;
+  /** Per-turn latency marks for the call, shared with live voice. */
+  private readonly metrics: VoiceMetricsCollector;
+  /**
+   * The turn the collector currently has open, or null between turns. Every
+   * mark is guarded on this: the collector opens a turn for any mark that
+   * arrives without one, so an unguarded late callback would invent a phantom
+   * turn that never settles.
+   */
+  private metricsTurnId: string | null = null;
+  /**
+   * When the caller's utterance was transcribed, held until the turn it
+   * dispatches opens. The phone commits on the provider's utterance-boundary
+   * final, so this is the turn's speech-end anchor as well as its transcript
+   * mark; seeding it backdates the turn to the moment the caller stopped
+   * talking rather than the moment the controller got around to dispatching.
+   */
+  private pendingFinalTranscriptAtMs: number | null = null;
 
   constructor(
     callSessionId: string,
@@ -285,6 +307,11 @@ export class CallController {
     this.conversationId = session?.conversationId ?? callSessionId;
     this.skipDisclosure = session?.skipDisclosure ?? false;
 
+    this.metrics = new VoiceMetricsCollector({
+      sessionId: callSessionId,
+      conversationId: this.conversationId,
+    });
+
     this.startDurationTimer();
     this.resetSilenceTimer();
     registerCallController(callSessionId, this);
@@ -295,6 +322,14 @@ export class CallController {
    */
   getState(): ControllerState {
     return this.state;
+  }
+
+  /**
+   * The call's per-turn latency marks so far. Read-only: the collector is fed
+   * from this controller's own turn lifecycle.
+   */
+  getMetricsSnapshot(): VoiceMetricsSnapshot {
+    return this.metrics.getSnapshot();
   }
 
   /**
@@ -370,6 +405,10 @@ export class CallController {
    * consultation is pending — the consultation is tracked separately.
    */
   async handleCallerUtterance(transcript: string): Promise<void> {
+    // Stamped before the teardown waits below, which can run for hundreds of
+    // milliseconds: the caller stopped talking now, not once the prior turn
+    // finished dying.
+    this.pendingFinalTranscriptAtMs = Date.now();
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
@@ -518,6 +557,7 @@ export class CallController {
       { callSessionId: this.callSessionId, state: this.state },
       "Barge-in accepted: interrupting the assistant's turn",
     );
+    this.markTurnMetric((turnId) => this.metrics.markBargeIn(turnId));
     onAccepted?.();
     this.handleInterrupt();
     return true;
@@ -532,6 +572,9 @@ export class CallController {
    * the transport's sustained-speech guard to vouch for the interruption.
    */
   handleInterrupt(): void {
+    // One cancelled turn: the interruption ends the turn here, whether or not
+    // anything picks the work up afterwards.
+    this.cancelMetricsTurn("interrupted");
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
@@ -551,6 +594,7 @@ export class CallController {
    */
   destroy(): void {
     this.destroyed = true;
+    this.cancelMetricsTurn("call_ended");
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
     }
@@ -658,6 +702,7 @@ export class CallController {
     // Stamped before any pre-bridge work so the bridge's dispatch-timing log
     // attributes the whole turn, TTS provider resolution included.
     const launchedAtMs = Date.now();
+    this.openMetricsTurn(runVersion);
 
     // Clear silence timer while actively processing. The caller said
     // something (or a turn was triggered), so silence detection should
@@ -687,6 +732,10 @@ export class CallController {
       await this.handleTurnCompletion(outcome);
     } catch (err: unknown) {
       this.currentTurnHandle = null;
+      // Only this run's turn: a turn whose abort outlives the teardown wait
+      // rejects after its replacement has already opened, and settling by
+      // "whatever is open" would cancel the healthy turn's marks.
+      this.cancelMetricsTurnForRun(runVersion, "turn_error");
       // Aborted requests are expected (interruptions, rapid utterances)
       if (this.isExpectedAbortError(err) || runSignal.aborted) {
         log.debug(
@@ -1016,7 +1065,17 @@ export class CallController {
         transcriptSoFar: () => callerTranscript,
         language: () => this.resolveSynthesisLanguage(),
         deltaEpoch: () => deltaEpoch,
-        speak: speakFixedPhrase,
+        // Only the cadence's own phrases count as narration; the escalation
+        // bridge speaks through the same helper and is part of the answer.
+        speak: (text, language) => {
+          const spoken = speakFixedPhrase(text, language);
+          if (spoken) {
+            this.markTurnMetric((turnId) =>
+              this.metrics.markProgressSpoken(turnId),
+            );
+          }
+          return spoken;
+        },
       },
     });
     const settleTurn = (): void => {
@@ -1179,6 +1238,9 @@ export class CallController {
           if (!this.isCurrentRun(runVersion) || coordinator?.handedOff) {
             return;
           }
+          this.markTurnMetric((turnId) =>
+            this.metrics.markFirstAssistantDelta(turnId),
+          );
           ingest(reasoningFilter.push(text));
         };
 
@@ -1205,6 +1267,11 @@ export class CallController {
           reject(new Error(message));
         };
 
+        // First-wins across the turn's two legs, so this is the front-door
+        // dispatch: the moment the caller's wait actually starts.
+        this.markTurnMetric((turnId) =>
+          this.metrics.markAssistantDispatch(turnId),
+        );
         startVoiceTurn({
           conversationId: this.conversationId,
           callSessionId: this.callSessionId,
@@ -1494,6 +1561,7 @@ export class CallController {
    * and normal idle transition.
    */
   private async handleTurnCompletion(outcome: VoiceTurnOutcome): Promise<void> {
+    this.completeMetricsTurn();
     const responseText = outcome.text;
 
     // Record the assistant response event, keyed to the conversation rows it
@@ -1923,6 +1991,10 @@ export class CallController {
     if (this.state === "processing") {
       this.state = "speaking";
     }
+    // Real outbound audio, not merely buffered tokens: on media-stream this
+    // fires from the transport's audio-start signal, which is the closest the
+    // daemon gets to the moment the caller hears the answer.
+    this.markTurnMetric((turnId) => this.metrics.markFirstTtsAudio(turnId));
   }
 
   /**
@@ -1945,6 +2017,110 @@ export class CallController {
     } else {
       this.beginSpeaking(runVersion);
     }
+  }
+
+  /**
+   * Open the collector's turn for this run, seeded with the caller's
+   * transcript mark.
+   *
+   * A turn still open here was superseded by a rapid follow-up utterance
+   * (which aborts the old turn without going through the interrupt path), so
+   * it settles as cancelled and gets its line in the log before the new one
+   * starts.
+   */
+  private openMetricsTurn(runVersion: number): void {
+    this.cancelMetricsTurn("superseded");
+    const turnId = this.metricsTurnIdForRun(runVersion);
+    const finalTranscriptAtMs = this.pendingFinalTranscriptAtMs;
+    this.pendingFinalTranscriptAtMs = null;
+    this.metricsTurnId = turnId;
+    // The provider's utterance-boundary final is both the transcript and the
+    // moment the caller stopped speaking, so it anchors the round trip too;
+    // a phone turn has no separate VAD end or push-to-talk release to use.
+    this.metrics.startTurn(
+      turnId,
+      finalTranscriptAtMs !== null
+        ? { finalTranscriptAtMs, utteranceEndAtMs: finalTranscriptAtMs }
+        : {},
+    );
+  }
+
+  /**
+   * Run a mark against the call's open turn, if there is one.
+   *
+   * The collector opens a turn for any mark that arrives without one, so
+   * every phone mark is guarded: a delta from a superseded leg or a barge-in
+   * between turns must leave no trace rather than invent a turn that never
+   * settles.
+   */
+  private markTurnMetric(mark: (turnId: string) => void): void {
+    if (this.metricsTurnId === null) {
+      return;
+    }
+    mark(this.metricsTurnId);
+  }
+
+  private completeMetricsTurn(): void {
+    this.settleMetricsTurn("completed", (turnId) =>
+      this.metrics.completeTurn(turnId),
+    );
+  }
+
+  private cancelMetricsTurn(reason: string): void {
+    this.settleMetricsTurn(reason, (turnId) =>
+      this.metrics.cancelTurn(reason, turnId),
+    );
+  }
+
+  /** The turn id a given run's marks belong to. */
+  private metricsTurnIdForRun(runVersion: number): string {
+    return `${this.callSessionId}#${runVersion}`;
+  }
+
+  /**
+   * Cancel the open turn only if it is the one this run opened.
+   *
+   * Defensive: the abort listener resolves a superseded leg rather than
+   * rejecting it, and a genuine rejection is processed before the replacement
+   * turn opens, so no path today reaches the error handler holding a newer
+   * turn. Scoping the settle to its own run keeps that true by construction
+   * rather than by the ordering of two other code paths.
+   */
+  private cancelMetricsTurnForRun(runVersion: number, reason: string): void {
+    if (this.metricsTurnId !== this.metricsTurnIdForRun(runVersion)) {
+      return;
+    }
+    this.cancelMetricsTurn(reason);
+  }
+
+  /**
+   * Settle the open turn and log what it measured.
+   *
+   * Live voice streams a metrics frame to its client on every mark; a call
+   * has no client on the line, so the per-turn aggregate lands in the log
+   * instead. Cancelled turns are logged too: a turn the caller cut off still
+   * measured everything up to the interruption, and how long the assistant
+   * took before being cut off is the more interesting number of the two.
+   */
+  private settleMetricsTurn(
+    status: string,
+    settle: (turnId: string) => void,
+  ): void {
+    const turnId = this.metricsTurnId;
+    if (turnId === null) {
+      return;
+    }
+    this.metricsTurnId = null;
+    settle(turnId);
+    log.info(
+      {
+        callSessionId: this.callSessionId,
+        turnId,
+        status,
+        ...getVoiceMetricsAggregateFields(this.metrics.getSnapshot(), turnId),
+      },
+      "Phone call turn metrics",
+    );
   }
 
   private isCurrentRun(runVersion: number): boolean {

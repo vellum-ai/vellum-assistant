@@ -35,7 +35,10 @@ mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
 const { VoiceComposerBar } =
   await import("@/domains/chat/components/chat-composer/voice-composer-bar");
 import { COMPOSER_RADIUS_CLASS } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type {
+  LiveVoiceResponsePhase,
+  LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import type { VoiceSurfacePaint } from "@/domains/chat/voice/voice-room/voice-surface-paint";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { toneForBg } from "@/utils/avatar-tone";
@@ -61,6 +64,8 @@ const LIGHT_PAINT: VoiceSurfacePaint = {
 function renderBar(
   state: LiveVoiceSessionState,
   overrides?: {
+    assistantAudioActive?: boolean;
+    responsePhase?: LiveVoiceResponsePhase | null;
     muted?: boolean;
     onToggleMute?: () => void;
     onEnd?: () => void;
@@ -73,6 +78,10 @@ function renderBar(
   return render(
     <VoiceComposerBar
       state={state}
+      assistantAudioActive={
+        overrides?.assistantAudioActive ?? state === "speaking"
+      }
+      responsePhase={overrides?.responsePhase ?? null}
       getAmplitude={() => INPUT_LEVEL}
       getOutputAmplitude={() => OUTPUT_LEVEL}
       muted={overrides?.muted ?? false}
@@ -119,6 +128,15 @@ describe("VoiceComposerBar: state announcement", () => {
       .getAllByText(/…|Muted/)
       .filter((el) => !el.className.includes("sr-only"));
     expect(painted).toEqual([]);
+  });
+
+  test("announces working while an escalated handoff is silent", () => {
+    renderBar("speaking", {
+      assistantAudioActive: false,
+      responsePhase: "escalated",
+    });
+
+    expect(liveRegion()?.textContent).toBe("Working on that…");
   });
 
   test("announces state changes via an aria-live region", () => {

@@ -136,6 +136,34 @@ describe("resolveImageGenCredentials", () => {
       expect(result.errorHint).toBeDefined();
       expect(result.errorHint).toContain("OpenAI API key");
     });
+
+    test("returns direct credentials for openrouter when key is present", async () => {
+      mockProviderKey = "openrouter-api-key";
+
+      const result = await resolveImageGenCredentials({
+        provider: "openrouter",
+        managed: false,
+      });
+
+      expect(result.errorHint).toBeUndefined();
+      expect(result.credentials).toEqual({
+        type: "direct",
+        apiKey: "openrouter-api-key",
+      });
+    });
+
+    test("returns errorHint mentioning 'OpenRouter API key' when no key is set", async () => {
+      mockProviderKey = undefined;
+
+      const result = await resolveImageGenCredentials({
+        provider: "openrouter",
+        managed: false,
+      });
+
+      expect(result.credentials).toBeUndefined();
+      expect(result.errorHint).toBeDefined();
+      expect(result.errorHint).toContain("OpenRouter API key");
+    });
   });
 });
 
@@ -171,6 +199,27 @@ describe("resolveImageGenRouting", () => {
         "gpt-image-2",
       ),
     ).toEqual({ backendProvider: "openai", managed: false });
+  });
+
+  test("OpenRouter keeps ownership for google/ and openai/ slugs", () => {
+    expect(
+      resolveImageGenRouting({
+        provider: "openrouter",
+        model: "google/gemini-3.1-flash-image-preview",
+      }),
+    ).toEqual({ backendProvider: "openrouter", managed: false });
+    expect(
+      resolveImageGenRouting(
+        { provider: "openrouter", model: "google/gemini-3.1-flash-image-preview" },
+        "openai/gpt-image-2",
+      ),
+    ).toEqual({ backendProvider: "openrouter", managed: false });
+    expect(
+      resolveImageGenRouting(
+        { provider: "openrouter", model: "google/gemini-3.1-flash-image-preview" },
+        "gpt-image-2",
+      ),
+    ).toEqual({ backendProvider: "openrouter", managed: false });
   });
 
   test("vellum with an unavailable platform is a hard error, not a BYOK fallback", async () => {

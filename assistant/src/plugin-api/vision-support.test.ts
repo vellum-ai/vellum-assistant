@@ -397,3 +397,25 @@ describe("doesSupportVision with a bare string", () => {
     expect(doesSupportVision("qwen2.5-vl")).toBe(true);
   });
 });
+
+describe("doesSupportVision with a resolved target", () => {
+  test("profile policy can enable images for a catalog text model", () => {
+    expect(
+      doesSupportVision({
+        provider: "fireworks",
+        model: "accounts/fireworks/models/glm-5p2",
+        inputModalities: { image: { enabled: true, supported: true } },
+      }),
+    ).toBe(true);
+  });
+
+  test("profile policy can disable images for a catalog vision model", () => {
+    expect(
+      doesSupportVision({
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        inputModalities: { image: { enabled: false } },
+      }),
+    ).toBe(false);
+  });
+});

@@ -39,10 +39,14 @@ export function buildWhatsAppTransportMetadata(): {
 export const EMAIL_CHANNEL_TRANSPORT_HINTS = [
   "email-medium",
   "defer-dashboard-only-tasks",
+  "email-reply-via-cli",
 ] as const;
 
+export const EMAIL_REPLY_VIA_CLI_HINT =
+  "email-reply: Conversation text is not emailed. Reply with `assistant email send` to the sender (run `assistant email send --help`). Use `--reply-to` to keep the thread. Skip a reply only when none is needed.";
+
 export const EMAIL_CHANNEL_TRANSPORT_UX_BRIEF =
-  "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately. To reply, you should almost always use the `assistant email send` CLI command (run `assistant email send --help` for usage). Use your judgment — there may be rare cases where a different medium is more appropriate or no reply is needed.";
+  "Email is an asynchronous medium. Responses can be longer and more detailed than chat. Use proper formatting. The user may not see the response immediately. Conversation text is not emailed. To reply, use `assistant email send` (run `assistant email send --help`). Use `--reply-to` to keep the thread. Skip a reply only when none is needed.";
 
 /**
  * Context from the inbound email that the assistant needs to construct a
@@ -63,7 +67,10 @@ export function buildEmailTransportMetadata(replyContext?: EmailReplyContext): {
   hints: string[];
   uxBrief: string;
 } {
-  const hints: string[] = [...EMAIL_CHANNEL_TRANSPORT_HINTS];
+  const hints: string[] = [
+    ...EMAIL_CHANNEL_TRANSPORT_HINTS,
+    EMAIL_REPLY_VIA_CLI_HINT,
+  ];
 
   if (replyContext) {
     hints.push(
@@ -76,9 +83,6 @@ export function buildEmailTransportMetadata(replyContext?: EmailReplyContext): {
     if (replyContext.inReplyTo) {
       hints.push(`email-in-reply-to: ${replyContext.inReplyTo}`);
     }
-    hints.push(
-      "email-reply-help: Run `assistant email send --help` for send usage.",
-    );
   }
 
   return {

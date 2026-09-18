@@ -294,7 +294,12 @@ web, etc.). The user enters the secret through the UI — it never passes throug
 the conversation or CLI output. On success the credential is stored in the
 encrypted vault with the specified metadata.
 
-Requires the assistant to be running with at least one connected client.
+Requires the assistant to be running. The prompt renders in the conversation
+this command runs from (the bash tool sets __CONVERSATION_ID). With no
+conversation attached (a headless shell, Doctor's run_assistant_cli), no client
+can show the card, so the command returns at once with a one-time collection
+link (exit 75) to relay to the user, or an error when no link can be minted.
+Never fall back to asking the user for the value in chat.
 
 This command BLOCKS until the user answers the prompt, so it returns only once
 the prompt has already closed. Tell the user what to paste BEFORE running it.

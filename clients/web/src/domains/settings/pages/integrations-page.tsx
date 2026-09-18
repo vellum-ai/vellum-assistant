@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
+import { FilterChip } from "@vellumai/design-library/components/filter-chip";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
+import {
+  INTEGRATION_CATEGORIES,
+  type IntegrationCategory,
+} from "@vellumai/service-contracts/integration-categories";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Loader2, Plus, Search } from "lucide-react";
 import {
@@ -60,6 +65,20 @@ import { useMcpConnections } from "../mcp/use-mcp-connections";
 
 type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
+/** One literal key per category, so the catalog check can see each is read. */
+const CATEGORY_LABEL_KEYS = {
+  productivity: "integrationsPage.categories.productivity",
+  communication: "integrationsPage.categories.communication",
+  meetings: "integrationsPage.categories.meetings",
+  sales: "integrationsPage.categories.sales",
+  marketing: "integrationsPage.categories.marketing",
+  finance: "integrationsPage.categories.finance",
+  commerce: "integrationsPage.categories.commerce",
+  engineering: "integrationsPage.categories.engineering",
+  knowledge: "integrationsPage.categories.knowledge",
+  recruiting: "integrationsPage.categories.recruiting",
+} as const satisfies Record<IntegrationCategory, string>;
+
 /** Connected integrations, wide enough for a row's status and its actions. */
 export const CONFIGURED_GRID =
   "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,22rem),1fr))]";
@@ -117,6 +136,7 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [assistantLoading, setAssistantLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
+  const [category, setCategory] = useState<IntegrationCategory | null>(null);
   const providerParam = searchParams.get("provider");
   const handledProviderParam = useRef<string | null>(null);
   const mcp = useMcpConnections(mcpAssistantId);
@@ -259,9 +279,31 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
       plugins.installedPlugins,
     ],
   );
+  // One chip per category the catalog files something under, in the
+  // catalog's order and with the whole count, so the row is the same whatever
+  // the search box says and a chip reads as a place rather than a result.
+  const categories = useMemo(() => {
+    const counts = new Map<IntegrationCategory, number>();
+    for (const item of allItems) {
+      if (item.category) {
+        counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
+      }
+    }
+    return INTEGRATION_CATEGORIES.flatMap((entry) => {
+      const count = counts.get(entry);
+      return count ? [{ category: entry, count }] : [];
+    });
+  }, [allItems]);
+  // A chip the catalog no longer offers, after a reload, drops out of the
+  // filter rather than emptying the page.
+  const activeCategory = categories.some(
+    (entry) => entry.category === category,
+  )
+    ? category
+    : null;
   const items = useMemo(
-    () => filterIntegrationItems(allItems, searchText),
-    [allItems, searchText],
+    () => filterIntegrationItems(allItems, searchText, activeCategory),
+    [allItems, searchText, activeCategory],
   );
   // Every way each integration connects, connected or not: the same plan
   // drives the tile that offers a first connection and the dialog that
@@ -498,26 +540,50 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={searchText}
-          onChange={(event) => setSearchText(event.target.value)}
-          placeholder={t("integrationsPage.searchPlaceholder")}
-          aria-label={t("integrationsPage.searchAriaLabel")}
-          leftIcon={<Search aria-hidden className="size-4" />}
-          className="min-h-11"
-          wrapperClassName="min-w-0 basis-64 flex-1"
-          fullWidth
-        />
-        <Button
-          variant="outlined"
-          className="min-h-11 max-w-full whitespace-normal"
-          leftIcon={<Plus />}
-          onClick={addCustom}
-          disabled={!flagsHydrated || authBusy}
-        >
-          {t("integrationsPage.addCustom")}
-        </Button>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder={t("integrationsPage.searchPlaceholder")}
+            aria-label={t("integrationsPage.searchAriaLabel")}
+            leftIcon={<Search aria-hidden className="size-4" />}
+            className="min-h-11"
+            wrapperClassName="min-w-0 basis-64 flex-1"
+            fullWidth
+          />
+          <Button
+            variant="outlined"
+            className="min-h-11 max-w-full whitespace-normal"
+            leftIcon={<Plus />}
+            onClick={addCustom}
+            disabled={!flagsHydrated || authBusy}
+          >
+            {t("integrationsPage.addCustom")}
+          </Button>
+        </div>
+        {categories.length > 0 ? (
+          <div
+            role="group"
+            aria-label={t("integrationsPage.categoriesLabel")}
+            className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]"
+          >
+            {categories.map((entry) => (
+              <FilterChip
+                key={entry.category}
+                selected={activeCategory === entry.category}
+                count={entry.count}
+                onClick={() =>
+                  setCategory(
+                    activeCategory === entry.category ? null : entry.category,
+                  )
+                }
+              >
+                {t(CATEGORY_LABEL_KEYS[entry.category])}
+              </FilterChip>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {oauthUnavailable ? (
@@ -591,7 +657,11 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
             ? t("integrationsPage.emptySearchSubtitle", {
                 query: searchText.trim(),
               })
-            : t("integrationsPage.empty")}
+            : activeCategory
+              ? t("integrationsPage.emptyCategory", {
+                  category: t(CATEGORY_LABEL_KEYS[activeCategory]),
+                })
+              : t("integrationsPage.empty")}
         </p>
       ) : null}
 

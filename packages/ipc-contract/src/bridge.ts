@@ -33,6 +33,7 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroReport,
   CompanionPopoverAnswer,
   CompanionPopoverView,
   CompanionPicker,
@@ -638,6 +639,22 @@ export interface VellumBridge {
      * introduced. Fires on every change, and the run ending is one.
      */
     onIntroStage(callback: (staged: boolean) => void): () => void;
+    /**
+     * A moment of the run worth counting, as main saw it.
+     *
+     * Sent to the app's window for the reason the staging is, and one more:
+     * main sees every moment of a run and has no way to report one. That window
+     * is signed in, holds the user's answer about analytics, and shares its
+     * funnel session with the rest of onboarding, none of which is true of the
+     * surface's own route.
+     */
+    onIntroReport(callback: (report: CompanionIntroReport) => void): () => void;
+    /**
+     * The reports main held because no window was listening, handed over once
+     * one is. Taken rather than read, so the same moment is never reported
+     * twice.
+     */
+    takeIntroReports(): Promise<CompanionIntroReport[]>;
     setInteractive(interactive: boolean): void;
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;

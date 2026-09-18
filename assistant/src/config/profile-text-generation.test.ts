@@ -9,7 +9,7 @@ describe("profileSupportsTextGeneration", () => {
   test("false for a structured-decision catalog model", () => {
     expect(
       profileSupportsTextGeneration(
-        { provider: "jev", model: "jev-latest" },
+        { provider: "typesafe", model: "jev-latest" },
         {},
       ),
     ).toBe(false);
@@ -35,7 +35,7 @@ describe("profileSupportsTextGeneration", () => {
       profileSupportsTextGeneration(
         { mix: [{ profile: "jev" }, { profile: "balanced" }] },
         {
-          jev: { provider: "jev", model: "jev-latest" },
+          jev: { provider: "typesafe", model: "jev-latest" },
           balanced: { provider: "anthropic", model: "claude-opus-4-8" },
         },
       ),

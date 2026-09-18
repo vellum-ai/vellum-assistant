@@ -1,4 +1,10 @@
-import { ArrowLeft, MessageSquareText, Paperclip, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  MessageSquareText,
+  Paperclip,
+  Send,
+} from "lucide-react";
 
 import { Button, cn } from "@vellumai/design-library";
 
@@ -8,7 +14,7 @@ import {
   formatAttachmentSize,
   formatEmailDetailTime,
 } from "../format-email-time";
-import type { EmailParticipant, InboxEmail } from "../types";
+import type { EmailDetailData, EmailParticipant, InboxEmail } from "../types";
 import { SenderDisc } from "./sender-disc";
 
 function participantLabel(participant: EmailParticipant): string {
@@ -16,8 +22,18 @@ function participantLabel(participant: EmailParticipant): string {
   return name ? `${name} <${participant.address}>` : participant.address;
 }
 
+/**
+ * The body and attachments as the pane has them: carried on the row, still
+ * being fetched, fetched, or failed.
+ */
+export type EmailDetailState =
+  | { status: "loading" }
+  | { status: "error" }
+  | ({ status: "ready" } & EmailDetailData);
+
 export interface EmailDetailProps {
   email: InboxEmail;
+  detail: EmailDetailState;
   assistantName: string;
   /** Shown only where the list is hidden behind the reading pane. */
   onBack?: () => void;
@@ -34,6 +50,7 @@ export interface EmailDetailProps {
  */
 export function EmailDetail({
   email,
+  detail,
   assistantName,
   onBack,
   onAskToReply,
@@ -41,7 +58,6 @@ export function EmailDetail({
 }: EmailDetailProps) {
   const { t, i18n } = useTranslation("assistant-inbox");
   const inbound = email.direction === "inbound";
-  const paragraphs = email.body.split(/\n{2,}/);
 
   return (
     <article
@@ -68,7 +84,7 @@ export function EmailDetail({
           id={`email-subject-${email.id}`}
           className="text-title-medium text-[var(--content-emphasised)]"
         >
-          {email.subject}
+          {email.subject || t("emailListRow.noSubject")}
         </h2>
 
         <div className="flex items-start gap-3">
@@ -99,38 +115,57 @@ export function EmailDetail({
           </time>
         </div>
 
-        <div className="flex flex-col gap-4 text-body-medium-lighter text-[var(--content-default)]">
-          {paragraphs.map((paragraph, index) => (
-            <p key={index} className="whitespace-pre-line">
-              {paragraph}
-            </p>
-          ))}
-        </div>
-
-        {email.attachments.length > 0 ? (
-          <section className="flex flex-col gap-2">
-            <h3 className="text-label-small-default text-[var(--content-tertiary)]">
-              {t("emailDetail.attachments")}
-            </h3>
-            <ul className="flex flex-wrap gap-2">
-              {email.attachments.map((attachment) => (
-                <li
-                  key={attachment.id}
-                  className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2 text-body-small-lighter text-[var(--content-default)]"
-                >
-                  <Paperclip
-                    className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{attachment.filename}</span>
-                  <span className="shrink-0 text-[var(--content-tertiary)]">
-                    {formatAttachmentSize(attachment.sizeBytes, i18n.language)}
-                  </span>
-                </li>
+        {detail.status === "loading" ? (
+          <p
+            role="status"
+            className="flex items-center gap-2 text-body-small-lighter text-[var(--content-tertiary)]"
+          >
+            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            {t("emailDetail.loading")}
+          </p>
+        ) : detail.status === "error" ? (
+          <p className="text-body-small-lighter text-[var(--system-negative-strong)]">
+            {t("emailDetail.loadFailed")}
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-col gap-4 text-body-medium-lighter text-[var(--content-default)]">
+              {detail.body.split(/\n{2,}/).map((paragraph, index) => (
+                <p key={index} className="whitespace-pre-line">
+                  {paragraph}
+                </p>
               ))}
-            </ul>
-          </section>
-        ) : null}
+            </div>
+
+            {detail.attachments.length > 0 ? (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-label-small-default text-[var(--content-tertiary)]">
+                  {t("emailDetail.attachments")}
+                </h3>
+                <ul className="flex flex-wrap gap-2">
+                  {detail.attachments.map((attachment) => (
+                    <li
+                      key={attachment.id}
+                      className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2 text-body-small-lighter text-[var(--content-default)]"
+                    >
+                      <Paperclip
+                        className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{attachment.filename}</span>
+                      <span className="shrink-0 text-[var(--content-tertiary)]">
+                        {formatAttachmentSize(
+                          attachment.sizeBytes,
+                          i18n.language,
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </>
+        )}
 
         {/* The reply action exists only when something will act on it: a
             button that looks live and does nothing is worse than none. */}

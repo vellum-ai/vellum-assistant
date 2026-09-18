@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_IMAGE_MODEL,
+  DEFAULT_OPENROUTER_IMAGE_MODEL,
   describeImageModels,
   IMAGE_MODELS,
+  qualifyImageModelForOpenRouter,
   resolveImageModel,
+  resolveRequestedImageModel,
 } from "../image-models.js";
 import { providerForModel } from "../image-service.js";
 
@@ -53,5 +56,60 @@ describe("image model registry", () => {
       expect(text).toContain(entry.alias);
       expect(text).toContain(entry.id);
     }
+  });
+});
+
+describe("resolveRequestedImageModel", () => {
+  test("qualifies built-in aliases for OpenRouter", () => {
+    expect(resolveRequestedImageModel("fast", "openrouter")).toEqual({
+      model: "google/gemini-3.1-flash-image-preview",
+    });
+    expect(resolveRequestedImageModel("openai", "openrouter")).toEqual({
+      model: "openai/gpt-image-2",
+    });
+    expect(qualifyImageModelForOpenRouter("quality")).toBe(
+      "google/gemini-3-pro-image-preview",
+    );
+  });
+
+  test("qualifies bare built-in IDs for OpenRouter", () => {
+    expect(
+      resolveRequestedImageModel("gemini-3.1-flash-image-preview", "openrouter"),
+    ).toEqual({ model: DEFAULT_OPENROUTER_IMAGE_MODEL });
+    expect(resolveRequestedImageModel("gpt-image-2", "openrouter")).toEqual({
+      model: "openai/gpt-image-2",
+    });
+  });
+
+  test("accepts arbitrary trimmed OpenRouter slugs", () => {
+    expect(
+      resolveRequestedImageModel("  google/gemini-3.5-flash  ", "openrouter"),
+    ).toEqual({ model: "google/gemini-3.5-flash" });
+    expect(
+      resolveRequestedImageModel("openai/gpt-image-2", "openrouter"),
+    ).toEqual({ model: "openai/gpt-image-2" });
+  });
+
+  test("rejects unknown models for built-in providers", () => {
+    const gemini = resolveRequestedImageModel(
+      "google/gemini-3.5-flash",
+      "gemini",
+    );
+    expect(gemini.model).toBeUndefined();
+    expect(gemini.error).toContain("Unknown model");
+
+    const openai = resolveRequestedImageModel("black-forest-labs/flux", "openai");
+    expect(openai.model).toBeUndefined();
+    expect(openai.error).toContain("Unknown model");
+
+    expect(resolveRequestedImageModel("fast", "vellum")).toEqual({
+      model: "gemini-3.1-flash-image-preview",
+    });
+  });
+
+  test("ignores empty or non-string input", () => {
+    expect(resolveRequestedImageModel("", "openrouter")).toEqual({});
+    expect(resolveRequestedImageModel("   ", "openrouter")).toEqual({});
+    expect(resolveRequestedImageModel(undefined, "gemini")).toEqual({});
   });
 });

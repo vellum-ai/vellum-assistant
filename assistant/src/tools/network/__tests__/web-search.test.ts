@@ -10,6 +10,7 @@ let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
 let mockKeenableSecureKey: string | undefined;
 let mockFastcrwSecureKey: string | undefined;
+let mockSearxngSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -57,6 +58,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "fastcrw") {
       return mockFastcrwSecureKey;
     }
+    if (provider === "searxng") {
+      return mockSearxngSecureKey;
+    }
     return undefined;
   },
 }));
@@ -101,6 +105,7 @@ describe("web_search tool", () => {
     mockFirecrawlSecureKey = undefined;
     mockKeenableSecureKey = undefined;
     mockFastcrwSecureKey = undefined;
+    mockSearxngSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1140,6 +1145,112 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Local");
     expect(capturedHeaders?.get("authorization")).toBeNull();
+  });
+
+  // ---- SearXNG provider (keyless, instance URL required) ------------------
+
+  test("SearXNG errors when API Base is missing and does not fetch", async () => {
+    seedWebSearch("your-own", "searxng");
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("{}", { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "local search" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("SearXNG needs an instance URL");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("searxng");
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("executes SearXNG search against the instance URL without a key", async () => {
+    seedWebSearch("your-own", "searxng", "http://127.0.0.1:8888/");
+    let capturedUrl = "";
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "SearXNG Result",
+              url: "https://example.com/searx",
+              content: "From a local instance",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "open source search" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toBe(
+      "http://127.0.0.1:8888/search?q=open+source+search&format=json",
+    );
+    expect(capturedHeaders?.get("authorization")).toBeNull();
+    expect(result.content).toContain("SearXNG Result");
+    expect(result.content).toContain("https://example.com/searx");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("searxng");
+  });
+
+  test("SearXNG maps freshness and sends an optional bearer token", async () => {
+    seedWebSearch("your-own", "searxng", "http://searx.example.com");
+    mockSearxngSecureKey = "searx-token";
+    let capturedUrl = "";
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "fresh news", freshness: "pd" });
+    expect(capturedUrl).toContain("time_range=day");
+    expect(capturedHeaders?.get("authorization")).toBe("Bearer searx-token");
+
+    await execute({ query: "fresh news", freshness: "pw" });
+    expect(capturedUrl).not.toContain("time_range=");
+  });
+
+  test("SearXNG trims results to the requested count", async () => {
+    seedWebSearch("your-own", "searxng", "http://127.0.0.1:8888");
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", url: "https://a.example.com", content: "a" },
+            { title: "B", url: "https://b.example.com", content: "b" },
+            { title: "C", url: "https://c.example.com", content: "c" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.example.com");
+  });
+
+  test("SearXNG errors when the instance returns HTML instead of JSON", async () => {
+    seedWebSearch("your-own", "searxng", "http://127.0.0.1:8888");
+    globalThis.fetch = (async () => {
+      return new Response("<!DOCTYPE html><html><body>search</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("did not return JSON");
   });
 
   // ---- Provider fallback --------------------------------------------------

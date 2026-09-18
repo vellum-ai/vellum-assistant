@@ -577,6 +577,12 @@ export function isProviderErrorMetadata(
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
+ *
+ * The web folds adjacent assistant rows again after pagination and reads the
+ * same rule off the wire projection in its own `isStandaloneAssistantMessage`
+ * (clients/web/src/domains/chat/utils/is-standalone-assistant-message.ts). A
+ * kind added here without a matching flag and check there merges on the
+ * client anyway.
  */
 export function isStandaloneAssistantMessage(
   role: string,

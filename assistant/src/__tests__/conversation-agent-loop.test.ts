@@ -24,7 +24,12 @@ import { getConversationDirName } from "../persistence/conversation-directories.
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
-import type { Message, Provider, ToolDefinition } from "../providers/types.js";
+import type {
+  Message,
+  Provider,
+  SendMessageOptions,
+  ToolDefinition,
+} from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import {
   resolveUsageAttribution,
@@ -715,7 +720,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 // ── Imports (after mocks) ────────────────────────────────────────────
 
 import { AgentLoop } from "../agent/loop.js";
-import type { Conversation } from "../daemon/conversation.js";
+import { Conversation } from "../daemon/conversation.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -1098,6 +1103,82 @@ beforeEach(() => {
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
   // instead of hitting the bare terminal.
   resetPluginRegistryAndRegisterDefaults();
+});
+
+describe("prompt cache warming", () => {
+  test("attributes provider usage to the conversation", async () => {
+    const sendMessage = mock(
+      async (_messages: Message[], _options?: SendMessageOptions) =>
+        textResponse("unused"),
+    );
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: { getResolvedTools: () => [] },
+        buildCurrentSystemPrompt: () => "system prompt",
+      },
+    ) as unknown as Conversation;
+
+    await conversation.warmPromptCache();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]?.config).toMatchObject({
+      callSite: "mainAgent",
+      conversationId: "conv-cache-warm-test",
+      max_tokens: 16,
+      selectionSeed: "conv-cache-warm-test",
+    });
+    expect(
+      sendMessage.mock.calls[0]?.[1]?.config?.usageTracking,
+    ).toBeUndefined();
+  });
+
+  test("stays non-rejecting when request preparation fails", async () => {
+    const sendMessage = mock(async () => textResponse("unused"));
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: {
+          getResolvedTools: () => {
+            throw new Error("tool resolution failed");
+          },
+        },
+        buildCurrentSystemPrompt: () => "system prompt",
+      },
+    ) as unknown as Conversation;
+
+    await expect(conversation.warmPromptCache()).resolves.toBeUndefined();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("does not rebuild a system prompt explicitly removed by a hook", async () => {
+    const sendMessage = mock(
+      async (_messages: Message[], _options?: SendMessageOptions) =>
+        textResponse("unused"),
+    );
+    const buildCurrentSystemPrompt = mock(() => "rebuilt prompt");
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: { getResolvedTools: () => [] },
+        buildCurrentSystemPrompt,
+      },
+    ) as unknown as Conversation;
+
+    await conversation.warmPromptCache({ systemPrompt: null, tools: [] });
+
+    expect(buildCurrentSystemPrompt).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0]?.[1]?.systemPrompt).toBeUndefined();
+  });
 });
 
 describe("session-agent-loop", () => {
@@ -2164,6 +2245,43 @@ describe("session-agent-loop", () => {
       expect(recordRequestLogMock).toHaveBeenCalledTimes(1);
       const call = recordRequestLogMock.mock.calls[0] as unknown as unknown[];
       expect(call[5]).toBe("callAgent");
+    });
+
+    test("reports only the first finalized model call", async () => {
+      const tool: ToolDefinition = {
+        name: "echo",
+        description: "Echo",
+        input_schema: { type: "object" },
+      };
+      const onFirstModelCallPrepared = mock(() => {});
+      const ctx = makeCtx({
+        providerResponses: [
+          toolUseResponse("tool-1", "echo", {}),
+          textResponse("done"),
+        ],
+        loopTools: [tool],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+      const turnSignal = ctx.abortController?.signal;
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
+        callSite: "callAgent",
+        inferenceCallSite: "mainAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        onFirstModelCallPrepared,
+      });
+
+      expect(onFirstModelCallPrepared).toHaveBeenCalledTimes(1);
+      expect(onFirstModelCallPrepared).toHaveBeenCalledWith({
+        callSite: "mainAgent",
+        overrideProfile: "quality-optimized",
+        forceOverrideProfile: true,
+        signal: turnSignal,
+        systemPrompt: "system prompt",
+        tools: [tool],
+      });
+      expect(ctx.currentCallSite).toBe("callAgent");
     });
   });
 

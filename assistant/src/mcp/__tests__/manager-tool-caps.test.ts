@@ -10,7 +10,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ResolvedMcpConfig } from "../../config/schemas/mcp.js";
 
 const toolsByServer = new Map<string, Array<{ name: string }>>();
-const connectDelays = new Map<string, number>();
+const connectGates = new Map<string, Promise<void>>();
+const listedServers = new Set<string>();
 let mcpGlobalMaxTools: number | undefined;
 
 mock.module("../../config/loader.js", () => ({
@@ -29,12 +30,13 @@ mock.module("../client.js", () => ({
       return null;
     }
     async connect() {
-      const delay = connectDelays.get(this.serverId) ?? 0;
-      if (delay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
+      const gate = connectGates.get(this.serverId);
+      if (gate) {
+        await gate;
       }
     }
     async listTools() {
+      listedServers.add(this.serverId);
       return (toolsByServer.get(this.serverId) ?? []).map((tool) => ({
         name: tool.name,
         description: `${this.serverId} ${tool.name}`,
@@ -66,7 +68,8 @@ function configWith(ids: string[]): ResolvedMcpConfig {
 describe("McpServerManager tool selection", () => {
   beforeEach(() => {
     toolsByServer.clear();
-    connectDelays.clear();
+    connectGates.clear();
+    listedServers.clear();
     mcpGlobalMaxTools = undefined;
   });
 
@@ -98,23 +101,32 @@ describe("McpServerManager tool selection", () => {
   test("a slow earlier server does not prevent later servers from connecting", async () => {
     toolsByServer.set("slow", [{ name: "slow_tool" }]);
     toolsByServer.set("fast", [{ name: "fast_tool" }]);
-    connectDelays.set("slow", 40);
+    let releaseSlow!: () => void;
+    connectGates.set(
+      "slow",
+      new Promise<void>((resolve) => {
+        releaseSlow = resolve;
+      }),
+    );
 
     const manager = new McpServerManager();
-    const startedAt = Date.now();
-    const started = await manager.start(configWith(["slow", "fast"]));
-    const elapsed = Date.now() - startedAt;
+    const starting = manager.start(configWith(["slow", "fast"]));
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect([...listedServers]).toEqual(["fast"]);
 
-    expect(started.connectedServerCount).toBe(2);
-    expect(started.servers.map((server) => server.serverId).sort()).toEqual([
-      "fast",
-      "slow",
-    ]);
-    expect(
-      elapsed < 80,
-      "Servers connect in parallel, so one 40ms delay should not serialize both.",
-    ).toBe(true);
-    await manager.stop();
+      releaseSlow();
+      const started = await starting;
+      expect(started.connectedServerCount).toBe(2);
+      expect(started.servers.map((server) => server.serverId).sort()).toEqual([
+        "fast",
+        "slow",
+      ]);
+    } finally {
+      releaseSlow();
+      await starting;
+      await manager.stop();
+    }
   });
 
   test("a workspace global-max override raises how many tools are kept", async () => {

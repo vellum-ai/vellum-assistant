@@ -221,6 +221,7 @@
     "captureWindows": "視窗",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
+    "muteAssistantNamed": "將 {name} 靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
     "offerCopy": "複製",
@@ -239,6 +240,7 @@
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
+    "unmuteAssistantNamed": "解除 {name} 靜音",
     "unmuteMicrophone": "解除麥克風靜音",
     "dictating": "正在聆聽",
     "dictatingTranscribing": "正在思考",
@@ -978,5 +980,10 @@
     "everyHours": "每 {count} 小時",
     "everyMinutes": "每 {count} 分鐘",
     "retrospectiveSubtitle": "在對話活動後觸發"
+  },
+  "assistantHandleModal": {
+    "title": "助理使用者名稱",
+    "description": "你的助理的公開名稱，它的電子郵件地址也以這個名稱為基礎。",
+    "helper": "小寫字母、數字、連字號和底線。"
   }
 }

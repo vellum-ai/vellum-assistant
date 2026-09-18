@@ -95,20 +95,18 @@ export function IntegrationListRow({
    * action column.
    */
   return (
-    <Card.Root className="@container">
+    <Card.Root>
       {/*
-       * The action takes that corner once the card can spare the width for
-       * it. Below 28rem it drops under the text instead: the resting action
-       * is a 32px glyph and would fit, but the states that still carry a verb
-       * ("Finish connecting") plus an overflow menu would not, and a column
-       * that narrow leaves the title a word per line.
-       *
-       * The text column keeps a floor of its own at the wider size for the
-       * same reason.
+       * The action holds the top-right cell at every card width, level with
+       * the icon and the title, so a page of rows and tiles keeps one action
+       * column. The two content columns share what is left: the text keeps a
+       * floor wide enough to read, and the action column can be squeezed
+       * below its natural width, where a button carrying a verb wraps its
+       * label rather than leaning on the card's edge.
        */}
       <Card.Body
         padding="md"
-        className="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 @[28rem]:grid-cols-[2rem_minmax(8rem,1fr)_auto]"
+        className="grid grid-cols-[2rem_minmax(6rem,1fr)_minmax(0,auto)] items-start gap-x-3"
       >
         {icon}
         <div className="min-w-0 space-y-1">
@@ -125,9 +123,7 @@ export function IntegrationListRow({
           ) : null}
           {footer}
         </div>
-        <div
-          className={`${ACTION_SLOT} col-start-2 @[28rem]:col-start-3 @[28rem]:row-start-1 @[28rem]:justify-end`}
-        >
+        <div className={`${ACTION_SLOT} col-start-3 row-start-1 justify-end`}>
           {primaryAction}
           {actionMenu}
         </div>

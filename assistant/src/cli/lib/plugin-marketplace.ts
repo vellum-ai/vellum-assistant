@@ -127,6 +127,14 @@ export const mcpIntegrationSchema = z.object({
   }),
   /** Filename under the web client's bundled integration-image directory. */
   logo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  /**
+   * Where the integrations catalog files the entry. Any string at this
+   * boundary: a catalog newer than this build can name a category it does not
+   * know, and one unfamiliar slug must not reject the whole catalog. Clients
+   * normalize against the shared vocabulary; the bundled inventory test holds
+   * every entry in this repo to it.
+   */
+  category: z.string().optional(),
   /** Existing main OAuth provider used to group a related MCP connection. */
   oauthProvider: z.string().regex(PLUGIN_NAME_RE).optional(),
 });

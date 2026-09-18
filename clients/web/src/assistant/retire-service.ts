@@ -1,6 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { listAssistants, retireAssistantById } from "@/assistant/api";
+import {
+  listAssistants,
+  type RetireAssistantOptions,
+  retireAssistantById,
+} from "@/assistant/api";
 import { forgetAssistantAvatar } from "@/hooks/use-chooser-row-avatar";
 import {
   getLockfile,
@@ -65,6 +69,7 @@ function getPostRetireRoute(): string {
 export async function retireAssistant(
   queryClient: QueryClient,
   assistantId: string,
+  options: RetireAssistantOptions = {},
 ): Promise<RetireOutcome> {
   try {
     const target = getLockfile().assistants.find(
@@ -81,6 +86,9 @@ export async function retireAssistant(
     }
     const useLocal = isLocalClient() && !!target && isLocalAssistant(target);
 
+    // Only the platform delete can hand OAuth connections to a successor. The
+    // local path retires through the host CLI, and a local→platform import
+    // already clones connections on the platform side.
     if (useLocal) {
       const result = await retireLocalAssistant(assistantId);
       if (!result.ok) {
@@ -90,7 +98,7 @@ export async function retireAssistant(
         };
       }
     } else {
-      const result = await retireAssistantById(assistantId);
+      const result = await retireAssistantById(assistantId, options);
       // A 404 means the assistant is already gone — treat as success so the
       // local lockfile and onboarding flags still get reconciled.
       if (!(result.ok || result.status === 404)) {

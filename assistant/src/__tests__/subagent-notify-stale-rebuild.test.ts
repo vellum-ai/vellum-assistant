@@ -22,8 +22,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
         delivered.push(options.content);
         return { queued: true };
       },
-      persistUserMessage: async () => ({ id: "mock-msg" }),
-      runAgentLoop: async () => {},
+      kickDrainQueue: async () => {},
     };
   },
 }));
@@ -36,8 +35,7 @@ mock.module("../daemon/conversation-store.js", () => ({
         delivered.push(`rebuilt:${options.content}`);
         return { queued: true };
       },
-      persistUserMessage: async () => ({ id: "rebuilt-msg" }),
-      runAgentLoop: async () => {},
+      kickDrainQueue: async () => {},
     };
   },
 }));

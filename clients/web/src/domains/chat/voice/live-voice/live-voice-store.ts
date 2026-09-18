@@ -76,6 +76,7 @@ export type LiveVoiceStatusKey =
   | "liveVoiceStatus.reconnecting"
   | "liveVoiceStatus.listening"
   | "liveVoiceStatus.thinking"
+  | "liveVoiceStatus.working"
   | "liveVoiceStatus.speaking"
   | "liveVoiceStatus.ending"
   | "liveVoiceStatus.muted";
@@ -145,12 +146,19 @@ export function liveVoiceSurfaceLabelKey(
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
+  responsePhase: LiveVoiceResponsePhase | null = null,
 ): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
     return "liveVoiceStatus.muted";
   }
   if (state === "connecting" && reconnecting) {
     return "liveVoiceStatus.reconnecting";
+  }
+  if (
+    responsePhase === "escalated" &&
+    (state === "thinking" || (state === "speaking" && !assistantAudioActive))
+  ) {
+    return "liveVoiceStatus.working";
   }
   if (state === "speaking" && !assistantAudioActive) {
     return "liveVoiceStatus.thinking";
@@ -255,6 +263,9 @@ export interface LiveVoiceTurnLatency {
   readonly server: LiveVoiceMetricsServerFrame | null;
   readonly clientHeardLatencyMs: number | null;
 }
+
+/** Extra response phase exposed by structured activity frames. */
+export type LiveVoiceResponsePhase = "escalated";
 
 /** Viewport-space point (px) the color room's entrance grows from. */
 export interface LiveVoiceEntryOrigin {
@@ -479,6 +490,8 @@ export interface LiveVoiceState {
    * `reset()` clears it with everything else.
    */
   activityLabel: string;
+  /** Neutral handoff state while the conversation profile prepares a reply. */
+  responsePhase: LiveVoiceResponsePhase | null;
   /**
    * The confirmation the current turn is blocked on, or `null` when it is not
    * blocked on one.
@@ -677,6 +690,8 @@ export interface LiveVoiceActions {
     activityLabel: string,
     pendingApprovalRequestId?: string | null,
   ) => void;
+  /** Set or clear the current response's structured handoff phase. */
+  setResponsePhase: (responsePhase: LiveVoiceResponsePhase | null) => void;
   /** Set whether the controller is retrying a dropped connection. */
   setReconnecting: (reconnecting: boolean) => void;
   /**
@@ -985,6 +1000,7 @@ const INITIAL_SESSION_STATE: Omit<
   assistantAudioActive: false,
   microphoneActive: false,
   activityLabel: "",
+  responsePhase: null,
   pendingApprovalRequestId: null,
   reconnecting: false,
   assistantId: null,
@@ -1149,6 +1165,10 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setMicrophoneActive: (microphoneActive) => set({ microphoneActive }),
   setActivityLabel: (activityLabel, pendingApprovalRequestId = null) =>
     set({ activityLabel, pendingApprovalRequestId }),
+  setResponsePhase: (responsePhase) =>
+    set((state) =>
+      state.responsePhase === responsePhase ? state : { responsePhase },
+    ),
   setReconnecting: (reconnecting) => set({ reconnecting }),
   setSessionContext: (assistantId, conversationId) =>
     // A fresh session always opens with the mic live, even if the controller

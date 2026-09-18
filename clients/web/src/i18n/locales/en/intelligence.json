@@ -448,5 +448,9 @@
     "system": "System",
     "integrations": "Integrations",
     "other": "Other"
+  },
+  "assistantHandleLine": {
+    "edit": "Edit handle @{handle}",
+    "editTitle": "Edit handle"
   }
 }

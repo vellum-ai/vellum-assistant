@@ -23,10 +23,6 @@ import {
 } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-function isPrivilegedDocumentActor(context: ToolContext): boolean {
-  return canActOnPrivilegedDocuments(context);
-}
-
 export function documentNotFound(surfaceId: string): ToolExecutionResult {
   return {
     content: JSON.stringify({
@@ -43,7 +39,7 @@ export function canAccessDocument(
   context: ToolContext,
 ): boolean {
   return (
-    isPrivilegedDocumentActor(context) ||
+    canActOnPrivilegedDocuments(context) ||
     isDocumentAssociatedWithConversation(surfaceId, context.conversationId)
   );
 }
@@ -522,7 +518,7 @@ export function executeDocumentList(
   const docs = query
     ? searchDocumentsByTitle(
         query,
-        isPrivilegedDocumentActor(context)
+        canActOnPrivilegedDocuments(context)
           ? {}
           : { conversationId: context.conversationId },
       )

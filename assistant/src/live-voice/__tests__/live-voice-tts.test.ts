@@ -206,6 +206,50 @@ describe("streamLiveVoiceTtsAudio", () => {
     });
   });
 
+  test.each([2, 32000])(
+    "frames PCM from provider reads of %i bytes without losing samples",
+    async (readBytes) => {
+      config = makeConfig({ provider: "elevenlabs" });
+      const audio = Buffer.alloc(32000, 7);
+      const frames: LiveVoiceTtsAudioChunk[] = [];
+      _setTtsProviderForTests({
+        id: "elevenlabs",
+        capabilities: { supportsStreaming: true, supportedFormats: ["pcm"] },
+        async synthesize() {
+          throw new Error("streaming required");
+        },
+        async synthesizeStream(_request, onChunk) {
+          for (let offset = 0; offset < audio.length; offset += readBytes) {
+            onChunk(audio.subarray(offset, offset + readBytes));
+            if (offset === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 0));
+              expect(frames.length).toBeGreaterThan(0);
+            }
+          }
+          return { audio, contentType: "audio/pcm" };
+        },
+      });
+      const result = await streamLiveVoiceTtsAudio({
+        config,
+        text: "hello",
+        outputFormat: "pcm",
+        sampleRate: 16000,
+        onAudioChunk: (chunk) => frames.push(chunk),
+      });
+      const buffers = frames.map((frame) =>
+        Buffer.from(frame.dataBase64, "base64"),
+      );
+      expect(Buffer.concat(buffers)).toEqual(audio);
+      expect(
+        buffers.every(
+          (buffer) => buffer.length <= 3200 && buffer.length % 2 === 0,
+        ),
+      ).toBe(true);
+      expect(result.chunks).toBeLessThanOrEqual(11);
+      expect(result.bytes).toBe(audio.length);
+    },
+  );
+
   test("carries a trailing odd byte into the next PCM chunk to keep frames sample-aligned", async () => {
     config = makeConfig({ provider: "elevenlabs" });
     _setTtsProviderForTests({

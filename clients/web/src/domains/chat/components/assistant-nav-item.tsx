@@ -4,10 +4,11 @@ import { useTranslation } from "@/i18n";
  * as the assistant (Figma 8300:167392: a pill washed in the avatar's colour,
  * leading with a 32px disc painted solid in that colour with the avatar's
  * eyes in it, inset 2px from the pill's edge, and the name 6px after the
- * disc in the emphasised ink), and a "New Chat" row directly beneath it: a
- * plus glyph with a label beside it, on the same wash, the recipe the
- * identity page's feature cards wear. On the collapsed rail both rows
- * survive as icon-only tiles (Figma 7257:135811).
+ * disc in the emphasised ink), and a "New Chat" button on the same row: a
+ * disc the size of the eyes' one, standing after the section toggle and
+ * painted solid in the avatar's colour as the toggle is. On the collapsed
+ * rail the pill, the toggle, and the button each become an icon-only tile in
+ * the rail's column, in that order (Figma 7257:135811).
  *
  * The eyes hold their place in the leading slot and blink there periodically.
  * They do not travel: the pill is sized to the assistant's name, so there is
@@ -32,13 +33,7 @@ import { useTranslation } from "@/i18n";
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { Brain, Plus } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion, useAnimationControls, useReducedMotion } from "motion/react";
 
 import {
@@ -50,11 +45,11 @@ import {
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
+import { SidebarDiscButton } from "@/domains/chat/components/sidebar-disc-button";
 import {
   SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
-  SIDEBAR_PILL_GAP_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -134,26 +129,47 @@ const sleep = (ms: number): Promise<void> =>
 const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
 
-function NewChatTooltip({
-  children,
-  side,
+/**
+ * The New Chat button: the sidebar's disc button with the plus, at two
+ * sizes. The eyes' disc size on the assistant row, where it stands after
+ * the section toggle as a third disc of the row's family, and the rail's
+ * tile size on the collapsed rail, where it is a circle in the column of
+ * circles. Its tooltip carries the shortcut.
+ */
+function NewChatButton({
+  size,
+  tooltipSide,
+  onSelect,
+  drained,
 }: {
-  children: ReactElement;
-  side: "right" | "top";
+  size: number;
+  tooltipSide: "right" | "top";
+  onSelect: () => void;
+  /** The tour owns the nav: drop the assistant's colour with the pill's. */
+  drained: boolean;
 }) {
   const { t } = useTranslation("chat");
   const hint = useCommandShortcutHint("newConversation");
+  const label = t("assistantNavItem.newChat");
   return (
     <Tooltip
       content={
         <span className="inline-flex items-center gap-1.5">
-          {t("assistantNavItem.newChat")}
+          {label}
           <span className="opacity-80">{hint}</span>
         </span>
       }
-      side={side}
+      side={tooltipSide}
     >
-      {children}
+      <SidebarDiscButton
+        icon={Plus}
+        size={size}
+        variant={drained ? "ghost" : "accent"}
+        aria-label={label}
+        onClick={onSelect}
+        className="self-center"
+        data-tour-id="new-chat"
+      />
     </Tooltip>
   );
 }
@@ -170,7 +186,12 @@ interface AssistantNavItemProps {
   active: boolean;
   collapsed?: boolean;
   onSelect?: () => void;
-  /** Renders the "New Chat" row below the assistant row. */
+  /**
+   * Renders the New Chat button: on the assistant row after the `aside`, or
+   * as its own tile beneath the `aside`'s on the collapsed rail. It stays
+   * through the tour, which lands a beat on it; it leaves the row with the
+   * `aside` while an `expansion` holds it.
+   */
   onNewConversation?: () => void;
   /**
    * Trailing control inside the expanded pill (the switcher's chevron). The
@@ -179,22 +200,25 @@ interface AssistantNavItemProps {
    */
   trailingAction?: ReactNode;
   /**
-   * Replaces the assistant row entirely (the switcher's expanded card),
-   * leaving the New Chat row in place beneath. Ignored on the collapsed rail
+   * Replaces the assistant row entirely (the switcher's expanded card), the
+   * `aside` and the New Chat button with it. Ignored on the collapsed rail
    * and while the tour owns the nav.
    */
   expansion?: ReactNode;
   /**
    * Stands beside the pill on its own row, a step after the name (the
-   * toggle for the assistant's own section). Off the collapsed rail, whose
-   * tile has no row, and out of the tour's drained nav, like
-   * `trailingAction`; and gone while an `expansion` holds the row.
+   * toggle for the assistant's own section), with the New Chat button a
+   * step after it. On the collapsed rail, whose tile has no row, it stands
+   * in the column between the assistant's tile and New Chat's, so the
+   * caller hands in the rail's form of the control there. Out of the tour's
+   * drained nav, like `trailingAction`; and gone while an `expansion` holds
+   * the row.
    */
   aside?: ReactNode;
   /**
-   * Rendered directly beneath the assistant row, above New Chat (the
-   * assistant's own section, when the `aside` has opened it). Ignored on the
-   * collapsed rail and while the tour owns the nav.
+   * Rendered directly beneath the assistant row (the assistant's own
+   * section, when the `aside` has opened it). Ignored on the collapsed rail
+   * and while the tour owns the nav.
    */
   beneath?: ReactNode;
 }
@@ -211,7 +235,6 @@ export function AssistantNavItem({
   aside,
   beneath,
 }: AssistantNavItemProps) {
-  const { t } = useTranslation("chat");
   const {
     components,
     traits,
@@ -247,8 +270,6 @@ export function AssistantNavItem({
   /** Per-style hand-tuned width; height follows the shape's aspect ratio. */
   const eyesWidth = eye ? eyeStyleBaseWidth(eye.id) : 0;
   const eyesHeight = eye ? eyesWidth * (eye.bbox.h / eye.bbox.w) : 0;
-
-  const showNewConversation = Boolean(onNewConversation);
 
   useEffect(() => {
     if (navTourActive) {
@@ -322,80 +343,19 @@ export function AssistantNavItem({
     };
   }, [reduce, navTourActive, collapsed, eyesControls]);
 
-  /* A wash of the assistant's colour under the identity pill's solid fill, at
-     the same depth the pinned apps below it wear, so the column's tinted rows
-     agree. Without an avatar colour there is no hue to mix and nothing is
-     declared, leaving the plain surface both the pill and the tile fall back
-     to; while the tour owns the nav the wash drains with the identity pill's
-     fill.
-
-     Collapsed, the row becomes the same square glyph tile the identity above
-     it uses rather than a pill with its label dropped: a pill is sized by its
-     content, so one keeping its label overflows the collapsed rail
-     entirely. */
-  const newConversationTint: CustomPropertyStyle | undefined =
-    !navTourActive && hex
-      ? {
-          ...panelItemWashStyle(hex),
-          // The plus glyph reads as the assistant's own accent, not the
-          // row's usual tertiary-gray icon: the row's other icons are
-          // decorative wayfinding, but this one's action is "start a chat
-          // with this assistant", so it wears the assistant's colour.
-          "--panel-item-icon-fg": hex,
-        }
-      : undefined;
-  const newConversationRow = !showNewConversation ? null : collapsed ? (
-    <NewChatTooltip side="right">
-      <button
-        type="button"
-        onClick={onNewConversation}
-        aria-label={t("assistantNavItem.newChat")}
-        data-tour-id="new-chat"
-        className={cn(
-          "group relative flex shrink-0 self-center cursor-pointer items-center justify-center overflow-hidden select-none",
-          "rounded-full",
-          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
-          "transition-colors duration-150 active:scale-[0.98]",
-          "bg-[var(--panel-item-bg,var(--surface-lift))]",
-          "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
-        )}
-        style={{
-          ...newConversationTint,
-          width: SIDE_MENU_TILE_SIZE,
-          height: SIDE_MENU_TILE_SIZE,
-        }}
-      >
-        {/* 14px, not the section headers' 12px - the plus glyph carries less
-            ink than the pin/chat icons, so it needs the extra 2px to read at
-            the same weight beside them. Color matches the expanded pill's
-            plus: the assistant's own accent via `--panel-item-icon-fg`
-            (spread into this button's style from `newConversationTint`
-            above), falling back to the usual tertiary gray with no
-            character avatar to draw a hue from. */}
-        <Plus
-          aria-hidden="true"
-          className="h-3.5 w-3.5"
-          style={{
-            color: "var(--panel-item-icon-fg, var(--content-tertiary))",
-          }}
-        />
-      </button>
-    </NewChatTooltip>
-  ) : (
-    <NewChatTooltip side="top">
-      <PanelItem
-        shape="pill"
-        icon={Plus}
-        label={t("assistantNavItem.newChat")}
-        onSelect={onNewConversation}
-        style={newConversationTint}
-        /* Its label 28px in, on the line the pinned apps' and the section
-           headers' labels start on. */
-        className={SIDEBAR_PILL_GAP_CLASSES}
-        data-tour-id="new-chat"
-      />
-    </NewChatTooltip>
-  );
+  const newChatButton = onNewConversation ? (
+    <NewChatButton
+      size={collapsed ? SIDE_MENU_TILE_SIZE : DISC_SIZE}
+      tooltipSide={collapsed ? "right" : "top"}
+      onSelect={onNewConversation}
+      drained={navTourActive}
+    />
+  ) : null;
+  /* Where the button stands: on the collapsed rail as its own tile beneath
+     the aside's, since a tile has no row to share; expanded, on the
+     assistant's row after the aside. */
+  const railNewChat = collapsed ? newChatButton : null;
+  const rowNewChat = collapsed ? null : newChatButton;
 
   /* An uploaded image stands in for the character avatar this row otherwise
      dresses as. It fills the same CHIP_SIZE slot the eyes occupy, so the row
@@ -423,15 +383,17 @@ export function AssistantNavItem({
     !collapsed && !navTourActive ? (expansion ?? null) : null;
   const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
   const rowAside = !collapsed && !navTourActive ? aside : undefined;
+  const railAside = collapsed && !navTourActive ? aside : undefined;
   const rowBeneath = !collapsed && !navTourActive ? beneath : undefined;
-  /* The pill keeps hugging its label and the aside follows it at the stack's
-     own gap, so the two read as one cluster rather than a pill and a button
-     at opposite ends of the rail. */
-  const withAside = (row: ReactNode): ReactNode =>
-    rowAside ? (
+  /* The pill keeps hugging its label and the aside and the New Chat button
+     follow it at the stack's own gap, so the three read as one cluster
+     rather than a pill and buttons at opposite ends of the rail. */
+  const withCompanions = (row: ReactNode): ReactNode =>
+    rowAside || rowNewChat ? (
       <div className={cn("flex items-center", SIDEBAR_STACK_GAP)}>
         {row}
         {rowAside}
+        {rowNewChat}
       </div>
     ) : (
       row
@@ -475,7 +437,7 @@ export function AssistantNavItem({
   /* Saved traits outrank an uploaded image, as they do in ChatAvatar; an
      image displaces only the default creature. Decided from the traits, not
      from the accent: an image carries an accent of its own now, and that
-     colour washes the New Chat row above without making the row a character. */
+     colour washes the New Chat button without making the row a character. */
   const wearsImage = customImageUrl !== null && !traits;
 
   if (!hex || wearsImage) {
@@ -535,7 +497,7 @@ export function AssistantNavItem({
              geometry as the tinted one below: the colour is the only
              difference between them. */
           (activeExpansion ??
-          withAside(
+          withCompanions(
             <PanelItem
               shape="pill"
               leadingSlot={avatarImage ?? brainSlot}
@@ -543,14 +505,17 @@ export function AssistantNavItem({
               active={active}
               onSelect={onSelect}
               trailingAction={pillTrailingAction}
-              className={cn(DISC_PILL_CLASSES, pillGapClass)}
+              /* `min-w-0` for the same reason the tinted pill's wrapper
+                 carries it: here the pill is the row's flex item itself. */
+              className={cn("min-w-0", DISC_PILL_CLASSES, pillGapClass)}
               style={DISC_PILL_STYLE}
               data-tour-id="assistant-page"
             />,
           ))
         )}
         {rowBeneath}
-        {newConversationRow}
+        {railAside}
+        {railNewChat}
       </div>
     );
   }
@@ -584,8 +549,8 @@ export function AssistantNavItem({
   );
 
   /* The assistant's own colour as a wash under the pill, the same 15% mix
-     the New Chat row and the pinned apps wear, so the column's tinted rows
-     agree and the disc is the pill's one solid surface. Declared as the
+     the New Chat button and the pinned apps wear, so the column's tinted
+     surfaces agree and the disc is the pill's one solid surface. Declared as the
      pill's tint properties rather than written over `PanelItem`'s classes;
      hover and current-page raise the wash a step. While the tour owns the
      nav the colour drains away entirely: nothing is declared, so the pill
@@ -709,7 +674,12 @@ export function AssistantNavItem({
       )}
     </button>
   ) : (
-    <span style={tintStyle}>
+    /* `min-w-0`: as a flex item on the companions' row the wrapper would
+       otherwise hold its min-content width, which is the whole name (the
+       label is `nowrap`), and push the discs beside it past the rail's edge
+       where they clip. With it the wrapper shrinks, the pill's `max-w-full`
+       becomes definite against it, and the name truncates instead. */
+    <span className="min-w-0" style={tintStyle}>
       <PanelItem
         shape="pill"
         leadingSlot={eyesDisc}
@@ -729,9 +699,10 @@ export function AssistantNavItem({
 
   return (
     <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
-      {activeExpansion ?? withAside(assistantRow)}
+      {activeExpansion ?? withCompanions(assistantRow)}
       {rowBeneath}
-      {newConversationRow}
+      {railAside}
+      {railNewChat}
     </div>
   );
 }

@@ -139,6 +139,17 @@ export interface OnboardingFunnelStepCompletedOptions {
    * puts a selected option in `screen` and the action in `step_name`.
    */
   screen?: string;
+  /**
+   * When the step actually happened, as epoch milliseconds, for a caller
+   * reporting something it did not witness.
+   *
+   * Defaults to now, which is right for every step emitted from the screen it
+   * belongs to. The companion's introduction is not one of those: it runs in
+   * another window and a moment made with nothing listening is held in the
+   * Electron main process until a window comes back, which can be a launch
+   * later (`companion-intro-funnel.ts`).
+   */
+  occurredAt?: number;
 }
 
 export interface OnboardingFunnelEvent {
@@ -183,7 +194,11 @@ export function buildOnboardingFunnelEvent(
   screen: OnboardingFunnelStepDescriptor,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): OnboardingFunnelEvent {
-  const now = Date.now();
+  // The moment reported, which is now for everything emitted from the screen it
+  // belongs to and earlier for a caller reporting something it was not there
+  // for. Both timestamps come off the same number, so a row can never claim to
+  // have been recorded and completed at two different times.
+  const now = options.occurredAt ?? Date.now();
   return {
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),

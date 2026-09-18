@@ -231,6 +231,13 @@ export const routes = {
   connect: r("/assistant/connect"),
 
   channels: r("/assistant/channels"),
+  /**
+   * The Assistant Inbox: the mail the assistant has received and sent at
+   * its managed address, or the setup and upgrade cards that stand in for
+   * it. Behind the `assistant-inbox` flag; the route redirects to chat when
+   * the flag is off.
+   */
+  assistantInbox: r("/assistant/inbox"),
 
   contacts: {
     root: r("/assistant/contacts"),

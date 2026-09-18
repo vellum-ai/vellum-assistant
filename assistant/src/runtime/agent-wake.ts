@@ -1112,7 +1112,7 @@ export async function wakeAgentForOpportunity(
       try {
         recordRequestLog(
           conversationId,
-          JSON.stringify(record.rawRequest),
+          JSON.stringify(record.rawRequest ?? null),
           JSON.stringify(record.rawResponse),
           undefined,
           record.provider,

@@ -40,6 +40,7 @@ import {
 } from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import {
+  getPreferredInputDeviceId,
   getVoiceInputMediaStream,
   watchPreferredInputDevice,
 } from "@/utils/voice-input-device";
@@ -75,13 +76,15 @@ export type LiveVoiceCaptureError =
   | "unknown";
 
 export type LiveVoiceCaptureResult =
-  { ok: true } | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
+  | { ok: true }
+  | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
 
 export interface LiveVoiceAudioCaptureOptions {
   /** Receives each 16 kHz mono Int16 LE PCM chunk as a transferred buffer. */
   onChunk: (buf: ArrayBuffer) => void;
   /** Receives the smoothed RMS amplitude in [0, 1] for UI / barge-in. */
   onAmplitude?: (amplitude: number) => void;
+  onDiagnostic?: (event: string, details: Record<string, unknown>) => void;
 }
 
 /**
@@ -132,6 +135,8 @@ function classifyError(cause: unknown): LiveVoiceCaptureError {
 export class LiveVoiceAudioCapture {
   private readonly onChunk: (buf: ArrayBuffer) => void;
   private readonly onAmplitude?: (amplitude: number) => void;
+  private readonly onDiagnostic?: LiveVoiceAudioCaptureOptions["onDiagnostic"];
+  private unwatchDiagnostics: (() => void) | null = null;
 
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
@@ -155,6 +160,7 @@ export class LiveVoiceAudioCapture {
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
     this.onAmplitude = options.onAmplitude;
+    this.onDiagnostic = options.onDiagnostic;
   }
 
   /**
@@ -218,6 +224,7 @@ export class LiveVoiceAudioCapture {
 
       this.source = source;
       this.worklet = worklet;
+      this.watchDiagnostics("capture_started");
       // A microphone picked mid-session (the companion's popover, or
       // Settings) moves the running capture onto it.
       this.unwatchInput = watchPreferredInputDevice(() => {
@@ -247,7 +254,10 @@ export class LiveVoiceAudioCapture {
     let stream: MediaStream;
     try {
       stream = await getVoiceInputMediaStream();
-    } catch {
+    } catch (cause) {
+      this.reportDiagnostic("input_switch_failed", {
+        error: classifyError(cause),
+      });
       return;
     }
     const context = this.context;
@@ -268,6 +278,7 @@ export class LiveVoiceAudioCapture {
     source.connect(worklet);
     this.source = source;
     this.stream = stream;
+    this.watchDiagnostics("input_switched");
     previousSource?.disconnect();
     if (previousStream !== null) {
       stopTracks(previousStream);
@@ -344,6 +355,11 @@ export class LiveVoiceAudioCapture {
   }
 
   private async teardown(): Promise<void> {
+    if (this.stream) {
+      this.reportDiagnostic("capture_stopped");
+    }
+    this.unwatchDiagnostics?.();
+    this.unwatchDiagnostics = null;
     // Drop any sub-batch tail: a stopped graph has no forwarding consumer
     // left, and a stale tail must not leak into a later start().
     this.batchLength = 0;
@@ -368,6 +384,65 @@ export class LiveVoiceAudioCapture {
       await context.close().catch(() => {});
     }
     this.smoothedAmplitude = 0;
+  }
+
+  private watchDiagnostics(event: string): void {
+    this.unwatchDiagnostics?.();
+    this.unwatchDiagnostics = null;
+    if (!this.onDiagnostic) {
+      return;
+    }
+    const track = this.stream?.getAudioTracks()[0];
+    const context = this.context;
+    const report = (event: Event) =>
+      this.reportDiagnostic(`capture_${event.type}`);
+    for (const name of ["mute", "unmute", "ended"]) {
+      track?.addEventListener(name, report);
+    }
+    context?.addEventListener("statechange", report);
+    this.unwatchDiagnostics = () => {
+      for (const name of ["mute", "unmute", "ended"]) {
+        track?.removeEventListener(name, report);
+      }
+      context?.removeEventListener("statechange", report);
+    };
+    this.reportDiagnostic(event);
+  }
+
+  private reportDiagnostic(
+    event: string,
+    details: Record<string, unknown> = {},
+  ): void {
+    if (!this.onDiagnostic) {
+      return;
+    }
+    try {
+      const track = this.stream?.getAudioTracks()[0];
+      const settings = track?.getSettings();
+      const requestedDevice = getPreferredInputDeviceId();
+      this.onDiagnostic(event, {
+        ...details,
+        inputSelection: requestedDevice ? "explicit" : "system_default",
+        requestedDeviceMatched:
+          requestedDevice && settings?.deviceId
+            ? requestedDevice === settings.deviceId
+            : null,
+        trackState: track?.readyState ?? null,
+        trackMuted: track?.muted ?? null,
+        trackEnabled: track?.enabled ?? null,
+        trackSampleRate: settings?.sampleRate ?? null,
+        channelCount: settings?.channelCount ?? null,
+        echoCancellation: settings?.echoCancellation ?? null,
+        noiseSuppression: settings?.noiseSuppression ?? null,
+        autoGainControl: settings?.autoGainControl ?? null,
+        contextSampleRate: this.context?.sampleRate ?? null,
+        contextState: this.context?.state ?? null,
+        outputSampleRate: LIVE_VOICE_AUDIO_FORMAT.sampleRate,
+        batchSamples: BATCH_SAMPLES,
+      });
+    } catch {
+      // Inspecting a device must not interrupt its capture.
+    }
   }
 }
 

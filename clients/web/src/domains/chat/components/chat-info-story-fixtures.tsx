@@ -54,7 +54,11 @@ import {
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
-import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { conversationAttachmentListArgs } from "@/domains/chat/hooks/use-conversation-attachments";
+import {
+  attachmentsGetInfiniteQueryKey,
+  documentsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import type { ConversationAttachmentSummary } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -391,6 +395,30 @@ export function failChatInfoDocuments(
   });
   client.removeQueries({ queryKey });
   seedQueryFailure(client, queryKey);
+}
+
+export function failChatInfoFrames(
+  client: QueryClient,
+  { assistantId, conversationId }: ChatInfoStoryConversation,
+): void {
+  const queryKey = attachmentsGetInfiniteQueryKey(
+    conversationAttachmentListArgs(assistantId, conversationId, "only"),
+  );
+  client.removeQueries({ queryKey });
+  seedQueryFailure(client, queryKey);
+}
+
+export function failChatInfoDocumentRefresh(
+  client: QueryClient,
+  { assistantId, conversationId }: ChatInfoStoryConversation,
+): void {
+  seedQueryFailure(
+    client,
+    documentsGetQueryKey({
+      path: { assistant_id: assistantId },
+      query: { conversationId },
+    }),
+  );
 }
 
 /** A worked-in trip conversation, the set most stories are shown against. */

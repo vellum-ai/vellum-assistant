@@ -325,12 +325,10 @@ export const ToolsAndDetails: Story = {
     },
   },
   play: async () => {
-    const menuTrigger = await screen.findByRole("button", {
-      name: "More actions for Linear MCP server",
-    });
-    await userEvent.click(menuTrigger);
     await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Tools and details" }),
+      await screen.findByRole("button", {
+        name: "Tools and details for Linear MCP server",
+      }),
     );
     await waitFor(async () => {
       await expect(

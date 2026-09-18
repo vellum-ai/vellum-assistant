@@ -43,11 +43,36 @@ let conversationProfileSupportsVision = true;
 // arms differ.
 const visionByProfile = new Map<string, boolean>();
 mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: (profile: string) =>
-    visionByProfile.get(profile) ??
-    (profile === "latency-optimized"
-      ? pinProfileSupportsVision
-      : conversationProfileSupportsVision),
+  doesSupportVision: (
+    target:
+      | string
+      | {
+          model: string;
+          inputModalities?: {
+            image?: { enabled?: boolean; supported?: boolean };
+          } | null;
+        },
+  ) => {
+    if (typeof target !== "string") {
+      const image = target.inputModalities?.image;
+      if (image !== undefined) {
+        return (image.enabled ?? true) && (image.supported ?? false);
+      }
+    }
+    const modelOrProfile = typeof target === "string" ? target : target.model;
+    return (
+      visionByProfile.get(modelOrProfile) ??
+      (modelOrProfile === "latency-optimized"
+        ? pinProfileSupportsVision
+        : conversationProfileSupportsVision)
+    );
+  },
+}));
+
+const unresolvableProviderNames = new Set<string>();
+mock.module("../../providers/provider-resolvability.js", () => ({
+  dispatchProviderResolvable: (provider: string) =>
+    !unresolvableProviderNames.has(provider),
 }));
 
 // Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
@@ -137,7 +162,11 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
-import { selectWinningProfile } from "../../config/llm-resolver.js";
+import type { PreparedModelCall } from "../../agent/loop.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
@@ -205,6 +234,7 @@ interface FakeConversation {
     opts?: { decisionContext?: string },
   ) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
+  warmPromptCache: (options?: Record<string, unknown>) => Promise<void>;
   getMessages: () => Array<{ role: string; content: unknown[] }>;
   abort: (reason?: unknown) => void;
   loadFromDb: () => Promise<void>;
@@ -304,6 +334,7 @@ function makeFakeConversation(opts: {
       confirmationDecisions.push({ requestId, decision });
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
+    warmPromptCache: async () => {},
     getMessages: () => opts.messages ?? [],
     abort: () => {},
     loadFromDb: async () => {
@@ -724,6 +755,44 @@ describe("startVoiceTurn camera-frame attachments", () => {
 });
 
 describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  test("task announcements retain metadata and cron attribution without a user echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const loopOptions: unknown[] = [];
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      loopOptions.push(args[2]);
+    };
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        label: "Compare options",
+        status: "completed",
+      },
+    };
+    const echoes = await collectUserMessageEchoes(async () => {
+      await startVoiceTurn({
+        ...makeTurnOptions(),
+        content: "Comparison completed",
+        hiddenSyntheticPrompt: true,
+        subagentNotification: {
+          taskId: "task-1",
+          message: "Comparison completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      });
+    });
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      ...metadata,
+      hidden: true,
+      scripted: true,
+      voiceSessionTurn: true,
+    });
+    expect(loopOptions).toEqual([
+      expect.objectContaining({ cronRunId: "run-123" }),
+    ]);
+    expect(echoes).toEqual([]);
+  });
   // A caller whose internal instruction is composed per call carries no
   // sentinel for the content comparisons to recognize, so it declares itself.
   const SYNTHETIC_CONTENT =
@@ -2850,10 +2919,13 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
   beforeEach(() => {
     pinProfileSupportsVision = true;
     conversationProfileSupportsVision = true;
+    unresolvableProviderNames.clear();
   });
 
   afterEach(() => {
+    unresolvableProviderNames.clear();
     setConfig("llm", {});
+    setConfig("rateLimit", {});
   });
 
   async function runOptionsFor(opts: {
@@ -2885,10 +2957,31 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     return runOptions;
   }
 
+  function reportPreparedTarget(
+    runOptions: Record<string, unknown>,
+    overrideProfile: string,
+  ): void {
+    const onPrepared = runOptions.onFirstModelCallPrepared as (prepared: {
+      callSite: "mainAgent";
+      overrideProfile: string;
+      forceOverrideProfile: boolean;
+      systemPrompt: string;
+      tools: [];
+    }) => void;
+    onPrepared({
+      callSite: "mainAgent",
+      overrideProfile,
+      forceOverrideProfile: true,
+      systemPrompt: "prepared prompt",
+      tools: [],
+    });
+  }
+
   test("with no chat-model selection the leg keeps the call-site profile", async () => {
     const runOptions = await runOptionsFor({});
 
     expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
     expect(runOptions.overrideProfile).toBeUndefined();
     expect(runOptions.forceOverrideProfile).toBeUndefined();
   });
@@ -2902,8 +2995,166 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     const runOptions = await runOptionsFor({});
 
     expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.inferenceCallSite).toBe("mainAgent");
     expect(runOptions.overrideProfile).toBe("quality-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+  });
+
+  test("starts warming the finalized request without awaiting it", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(() => new Promise<void>(() => {}));
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    const tools = [
+      {
+        name: "dynamic_tool",
+        description: "Dynamic",
+        input_schema: { type: "object" as const },
+      },
+    ];
+    const turnAbort = new AbortController();
+
+    expect(
+      onFirstModelCallPrepared({
+        callSite: "mainAgent",
+        overrideProfile: "hook-selected-profile",
+        forceOverrideProfile: true,
+        signal: turnAbort.signal,
+        systemPrompt: "hook-edited prompt",
+        tools,
+      }),
+    ).toBeUndefined();
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "mainAgent",
+      overrideProfile: "hook-selected-profile",
+      forceOverrideProfile: true,
+      signal: turnAbort.signal,
+      systemPrompt: "hook-edited prompt",
+      tools,
+    });
+  });
+
+  test("reports the conversation profile selected for the handoff", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "quality-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "quality-optimized",
+      source: "conversation",
+    });
+  });
+
+  test("reports the concrete profile selected from a mix", async () => {
+    setConfig("llm", {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    });
+    let selectedProfile: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      overrideProfile: "voice-mix",
+      forceOverrideProfile: true,
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        selectedProfile = chosenProfile;
+      },
+    });
+    const onEscalationTargetResolved = mock();
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+
+    reportPreparedTarget(runOptions, "voice-mix");
+
+    expect(selectedProfile).toBeDefined();
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: selectedProfile,
+      source: "conversation",
+    });
+  });
+
+  test("warms the main-agent route when the conversation has no profile pin", async () => {
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+    onFirstModelCallPrepared({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+
+    expect(warmPromptCache).toHaveBeenCalledWith({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      signal: undefined,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+  });
+
+  test("does not warm a route whose finalized policy disables caching", async () => {
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+    const onFirstModelCallPrepared = runOptions.onFirstModelCallPrepared as (
+      prepared: PreparedModelCall,
+    ) => void;
+
+    onFirstModelCallPrepared({
+      callSite: "mainAgent",
+      forceOverrideProfile: false,
+      disableCache: true,
+      systemPrompt: "system prompt",
+      tools: [],
+    });
+
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
+  test("does not warm when requests are rate limited", async () => {
+    setConfig("rateLimit", { maxRequestsPerMinute: 1 });
+    const runOptions = await runOptionsFor({});
+    const warmPromptCache = mock(async () => {});
+    fakeConversation.warmPromptCache = warmPromptCache;
+
+    expect(runOptions.onFirstModelCallPrepared).toBeFunction();
+    reportPreparedTarget(runOptions, "quality-optimized");
+    expect(warmPromptCache).not.toHaveBeenCalled();
+  });
+
+  test("reports a profile selected by final pre-model routing", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    const onEscalationTargetResolved = mock();
+
+    const runOptions = await runOptionsFor({
+      turn: { onEscalationTargetResolved },
+    });
+    reportPreparedTarget(runOptions, "cost-optimized");
+
+    expect(onEscalationTargetResolved).toHaveBeenCalledWith({
+      profile: "cost-optimized",
+      source: "pre_model_hook",
+    });
   });
 
   test("the conversation's own pin wins over the workspace selection", async () => {
@@ -2950,6 +3201,63 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(runOptions.overrideProfile).toBe("quality-optimized");
   });
 
+  test("image capability follows direct main-agent model tuning", async () => {
+    setConfig("llm", {
+      activeProfile: "quality-optimized",
+      callSites: { mainAgent: { model: "direct-vision-model" } },
+    });
+    conversationProfileSupportsVision = false;
+    visionByProfile.set("direct-vision-model", true);
+    try {
+      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+      expect(runOptions.overrideProfile).toBe("quality-optimized");
+      expect(runOptions.inferenceCallSite).toBe("mainAgent");
+    } finally {
+      visionByProfile.clear();
+    }
+  });
+
+  test("image capability honors an enabled profile modality override", async () => {
+    setConfig("llm", {
+      activeProfile: "custom-text-profile",
+      profiles: {
+        "custom-text-profile": {
+          provider: "anthropic",
+          model: "custom-text-model",
+          inputModalities: {
+            image: { enabled: true, supported: true },
+          },
+        },
+      },
+    });
+    conversationProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("custom-text-profile");
+  });
+
+  test("image capability honors a disabled profile modality override", async () => {
+    setConfig("llm", {
+      activeProfile: "custom-vision-profile",
+      profiles: {
+        "custom-vision-profile": {
+          provider: "anthropic",
+          model: "custom-vision-model",
+          inputModalities: {
+            image: { enabled: false, supported: true },
+          },
+        },
+      },
+    });
+    conversationProfileSupportsVision = true;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
+  });
+
   test("an image hands a text-only conversation profile to the image pin", async () => {
     // A model that rejects the image fails the whole leg, so the image pin
     // outranks the conversation's choice for this one turn.
@@ -2960,6 +3268,30 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
 
     expect(runOptions.overrideProfile).toBe("latency-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.inferenceCallSite).toBe("callAgent");
+  });
+
+  test("the image pin bypasses incompatible agent and caption tuning", async () => {
+    setConfig("llm", {
+      activeProfile: "quality-optimized",
+      callSites: {
+        mainAgent: { model: "direct-text-model" },
+        vision: {
+          model: "caption-vision-model",
+          maxTokens: 16,
+          effort: "low",
+        },
+      },
+    });
+    visionByProfile.set("direct-text-model", false);
+    try {
+      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+      expect(runOptions.overrideProfile).toBe("latency-optimized");
+      expect(runOptions.inferenceCallSite).toBe("callAgent");
+    } finally {
+      visionByProfile.clear();
+    }
   });
 
   test("an image with no image-capable profile anywhere keeps the conversation profile", async () => {
@@ -3008,23 +3340,57 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
       },
     });
     expect(chosenArm).toBeDefined();
-    const otherArm =
-      chosenArm === "quality-optimized"
-        ? "cost-optimized"
-        : "quality-optimized";
+    const chosenModel = resolveCallSiteConfig("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+    }).model;
     try {
       // Only the unchosen arm takes images: judged as "any arm", the mix
       // would keep the pin off and the image would reach a text-only model.
-      visionByProfile.set(chosenArm!, false);
-      visionByProfile.set(otherArm, true);
+      visionByProfile.set(chosenModel, false);
       const textOnlyArm = await runOptionsFor({ messages: PHOTO_HISTORY });
       expect(textOnlyArm.overrideProfile).toBe("latency-optimized");
 
       // Only the chosen arm takes images: no pin needed, the mix stands.
-      visionByProfile.set(chosenArm!, true);
-      visionByProfile.set(otherArm, false);
+      visionByProfile.set(chosenModel, true);
       const visionArm = await runOptionsFor({ messages: PHOTO_HISTORY });
       expect(visionArm.overrideProfile).toBe("voice-mix");
+    } finally {
+      visionByProfile.clear();
+    }
+  });
+
+  test("a rejected mix arm does not leak into the fallback profile capability check", async () => {
+    setConfig("llm", {
+      activeProfile: "stale-mix",
+      profiles: {
+        "stale-a": {
+          provider: "deleted-connection-a",
+          model: "model-a",
+        },
+        "stale-b": {
+          provider: "deleted-connection-b",
+          model: "model-b",
+        },
+        "stale-mix": {
+          mix: [
+            { profile: "stale-a", weight: 1 },
+            { profile: "stale-b", weight: 1 },
+          ],
+        },
+      },
+      callSites: {
+        mainAgent: { profile: "quality-optimized" },
+      },
+    });
+    visionByProfile.set("stale-a", false);
+    visionByProfile.set("stale-b", false);
+    visionByProfile.set("quality-optimized", true);
+    unresolvableProviderNames.add("deleted-connection-a");
+    unresolvableProviderNames.add("deleted-connection-b");
+    try {
+      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+      expect(runOptions.overrideProfile).toBe("quality-optimized");
     } finally {
       visionByProfile.clear();
     }

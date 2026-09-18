@@ -11,6 +11,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
 | Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
 | Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
+| Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)               |
 | Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
@@ -765,6 +766,41 @@ graph TB
 - **Routes** (read/abort/resume surfaces): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`, `POST /v1/workflows/runs/:id/resume` (the resume route refuses a side-effecting run in normal posture and proceeds at full access).
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
+
+## Live Voice Task Outcomes
+
+Subagent updates for a conversation with an active live-voice call are claimed by
+the session manager before generic parent-turn injection. The voice session queues
+both explicit worker updates and completed interrupted-turn continuations per task.
+Hidden voice turns deliver them once user speech, the current response and queued
+playback have yielded the floor. Reading a result as user-turn context does not
+acknowledge it. Interrupted announcements stay pending across replacement updates;
+prompts use completed-playback receipts to distinguish heard replies from generated
+history. Hang-up returns undelivered outcomes to the conversation.
+See [live voice task outcomes](assistant/docs/live-voice-task-outcomes.md) for routing,
+attribution and playback semantics.
+
+```mermaid
+flowchart LR
+    Worker[Subagent update] --> Router[Parent notification router]
+    Router -->|Matching live call| Queue[Per-task voice queue]
+    Router -->|No matching call| Parent[Parent conversation queue]
+    Continuation[Interrupted-turn result] --> Queue
+    Queue -->|Floor available| Voice[Hidden voice turn]
+    Voice -->|Useful new outcome| Speech[Paced TTS]
+    Speech -->|Playback completes| Done[Update consumed]
+    Speech -->|Interrupted| Queue
+    Voice -->|Silent acknowledgement| Done
+    Queue -->|Hang-up after teardown| Parent
+```
+
+## Live Voice Input Diagnostics
+
+Hands-free voice records applied browser microphone settings and playback transitions through the client diagnostics ring and Electron renderer logs. The live-voice session records bounded signal summaries, barge-in decisions, and transcription outcomes in the assistant log, linked by session, speech generation, and input-turn identifiers. These observations do not alter speech classification or cancellation and add no raw audio or transcript content.
+
+See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
+
+With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses, and local VAD continues to own barge-in independently. Gate transitions, submission cadence, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
 ## Watch Sessions
 

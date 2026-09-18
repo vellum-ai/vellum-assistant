@@ -15,7 +15,7 @@ import type {
 
 const log = getLogger("jev-client");
 
-export const JEV_PROVIDER_ID = "jev";
+export const JEV_PROVIDER_ID = "typesafe";
 export const DEFAULT_JEV_BASE_URL = "https://api.typesafe.ai";
 export const DEFAULT_JEV_MODEL = "jev-latest";
 
@@ -113,6 +113,21 @@ function isJevQuestions(value: unknown): value is JevQuestions {
     return false;
   }
   return entries.every(([, question]) => isJevQuestion(question));
+}
+
+/** Calibrated P(yes) from a System One noul answer, or undefined when absent. */
+export function noulFromAnswer(answer: unknown): number | undefined {
+  if (typeof answer === "number" && Number.isFinite(answer)) {
+    return answer;
+  }
+  if (
+    isRecord(answer) &&
+    typeof answer.noul === "number" &&
+    Number.isFinite(answer.noul)
+  ) {
+    return answer.noul;
+  }
+  return undefined;
 }
 
 /**
@@ -411,7 +426,7 @@ export class JevProvider implements Provider {
           extractErrorMessage(bodyText, response.status),
           JEV_PROVIDER_ID,
           response.status,
-          { reason, rawBody: bodyText },
+          { reason, rawBody: bodyText, rawRequest: request },
         );
       }
       let parsed: unknown;
@@ -422,7 +437,7 @@ export class JevProvider implements Provider {
           "TypeSafe returned a non-JSON response.",
           JEV_PROVIDER_ID,
           response.status,
-          { reason: "bad_request", rawBody: bodyText },
+          { reason: "bad_request", rawBody: bodyText, rawRequest: request },
         );
       }
       if (!isRecord(parsed) || !isRecord(parsed.answers)) {
@@ -430,7 +445,7 @@ export class JevProvider implements Provider {
           "TypeSafe returned a response without answers.",
           JEV_PROVIDER_ID,
           response.status,
-          { reason: "bad_request", rawBody: bodyText },
+          { reason: "bad_request", rawBody: bodyText, rawRequest: request },
         );
       }
       const usage = isRecord(parsed.usage) ? parsed.usage : undefined;
@@ -471,6 +486,7 @@ export class JevProvider implements Provider {
           cause: error,
           abortReason,
           reason: abortReason ? undefined : "network_error",
+          rawRequest: request,
         },
       );
     } finally {

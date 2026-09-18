@@ -1,3 +1,5 @@
+import type { IntegrationCategory } from "@vellumai/service-contracts/integration-categories";
+
 import type { AvailableScopes } from "./connect-types.js";
 import { migrateProviderBaseUrl, seedProviders } from "./oauth-store.js";
 
@@ -78,6 +80,8 @@ export const PROVIDER_SEED_DATA: Record<
     managedServiceIsPaid?: boolean;
     displayLabel: string;
     description: string;
+    /** Where the integrations catalog files this provider. */
+    category: IntegrationCategory;
     dashboardUrl: string | null;
     clientIdPlaceholder: string | null;
     requiresClientSecret?: boolean;
@@ -132,6 +136,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://www.googleapis.com",
     displayLabel: "Google",
     description: "Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts",
+    category: "productivity",
     dashboardUrl: "https://console.cloud.google.com/apis/credentials",
     clientIdPlaceholder: "123456789.apps.googleusercontent.com",
     logoUrl: "https://cdn.simpleicons.org/google",
@@ -218,6 +223,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://slack.com/api",
     displayLabel: "Slack",
     description: "Workspace messaging",
+    category: "communication",
     dashboardUrl: "https://api.slack.com/apps",
     clientIdPlaceholder: null,
     logoUrl:
@@ -278,6 +284,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.notion.com",
     displayLabel: "Notion",
     description: "Pages and databases",
+    category: "productivity",
     dashboardUrl: "https://www.notion.so/my-integrations",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/notion",
@@ -312,6 +319,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.x.com",
     displayLabel: "Twitter",
     description: "Posts and direct messages",
+    category: "communication",
     dashboardUrl: "https://developer.twitter.com/en/portal/dashboard",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/x",
@@ -357,6 +365,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.github.com",
     displayLabel: "GitHub",
     description: "Repositories and issues",
+    category: "engineering",
     dashboardUrl: "https://github.com/settings/developers",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/github",
@@ -390,6 +399,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.linear.app",
     displayLabel: "Linear",
     description: "Issues and projects",
+    category: "engineering",
     dashboardUrl: "https://linear.app/settings/api",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/linear",
@@ -438,6 +448,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.spotify.com/v1",
     displayLabel: "Spotify",
     description: "Music and playlists",
+    category: "productivity",
     dashboardUrl: "https://developer.spotify.com/dashboard",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/spotify",
@@ -477,6 +488,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.todoist.com/rest/v2",
     displayLabel: "Todoist",
     description: "Tasks and projects",
+    category: "productivity",
     dashboardUrl: "https://developer.todoist.com/appconsole.html",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/todoist",
@@ -523,6 +535,7 @@ export const PROVIDER_SEED_DATA: Record<
     // documents `messages.read` as local RPC only, so requesting it would put
     // a permission on the consent screen that grants nothing here.
     description: "Your servers and profile",
+    category: "communication",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/discord",
@@ -553,6 +566,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.dropboxapi.com/2",
     displayLabel: "Dropbox",
     description: "Files and folders",
+    category: "productivity",
     dashboardUrl: "https://www.dropbox.com/developers/apps",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/dropbox",
@@ -593,6 +607,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://app.asana.com/api/1.0",
     displayLabel: "Asana",
     description: "Tasks and projects",
+    category: "productivity",
     dashboardUrl: "https://app.asana.com/0/my-apps",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/asana",
@@ -621,6 +636,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.airtable.com/v0",
     displayLabel: "Airtable",
     description: "Bases and records",
+    category: "productivity",
     dashboardUrl: "https://airtable.com/create/tokens",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/airtable",
@@ -653,6 +669,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.hubapi.com",
     displayLabel: "HubSpot",
     description: "CRM contacts and deals",
+    category: "sales",
     dashboardUrl: "https://developers.hubspot.com/",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/hubspot",
@@ -696,6 +713,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://login.salesforce.com",
     displayLabel: "Salesforce",
     description: "CRM contacts, leads, and opportunities",
+    category: "sales",
     dashboardUrl:
       "https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm&type=5",
     clientIdPlaceholder: null,
@@ -744,6 +762,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.monday.com",
     displayLabel: "monday.com",
     description: "Boards, items, docs, and updates",
+    category: "productivity",
     dashboardUrl: "https://auth.monday.com/apps",
     clientIdPlaceholder: null,
     // Simple Icons does not host a monday.com mark (both `monday` and
@@ -868,6 +887,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://www.eventbriteapi.com",
     displayLabel: "Eventbrite",
     description: "Events, attendees, and ticket orders",
+    category: "commerce",
     dashboardUrl: "https://www.eventbrite.com/platform/api-keys/",
     clientIdPlaceholder: null,
     // Simple Icons does not host an Eventbrite mark (cdn.simpleicons.org
@@ -904,6 +924,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.calendly.com",
     displayLabel: "Calendly",
     description: "Scheduling links and meetings",
+    category: "meetings",
     dashboardUrl: "https://calendly.com/integrations/api_webhooks",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/calendly",
@@ -1003,6 +1024,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.figma.com/v1",
     displayLabel: "Figma",
     description: "Design files and comments",
+    category: "engineering",
     dashboardUrl: "https://www.figma.com/developers/apps",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/figma",
@@ -1178,6 +1200,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://graph.microsoft.com",
     displayLabel: "Outlook / Microsoft",
     description: "Email and calendar",
+    category: "productivity",
     dashboardUrl:
       "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
     clientIdPlaceholder: "Application (client) ID from Azure portal",
@@ -1236,6 +1259,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://slack.com/api",
     displayLabel: "Slack Channel",
     description: "Channel bot token",
+    category: "communication",
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
@@ -1259,6 +1283,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://discord.com/api/v10",
     displayLabel: "Discord Server",
     description: "A bot in your server",
+    category: "communication",
     dashboardUrl: "https://discord.com/developers/applications",
     clientIdPlaceholder: null,
     requiresClientSecret: false,
@@ -1281,6 +1306,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.telegram.org",
     displayLabel: "Telegram",
     description: "Bot messaging",
+    category: "communication",
     dashboardUrl: null,
     clientIdPlaceholder: null,
     requiresClientSecret: false,
@@ -1295,6 +1321,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.sanity.io",
     displayLabel: "Sanity",
     description: "Content management platform",
+    category: "marketing",
     dashboardUrl: "https://www.sanity.io/manage",
     clientIdPlaceholder: null,
     requiresClientSecret: false,
@@ -1323,6 +1350,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://api.link.com",
     displayLabel: "Link by Stripe",
     description: "Wallet payment methods for agent purchases",
+    category: "commerce",
     dashboardUrl: "https://dashboard.stripe.com",
     // Link issues OAuth clients by request rather than through a self-serve
     // dashboard, so there is no placeholder shape to suggest.
@@ -1386,6 +1414,7 @@ export const PROVIDER_SEED_DATA: Record<
     baseUrl: "https://{tenant_host}",
     displayLabel: "Shopify",
     description: "Products, orders, customers, and inventory",
+    category: "commerce",
     dashboardUrl: "https://shopify.dev/dashboard",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/shopify",
@@ -1611,6 +1640,7 @@ export const PROVIDER_SEED_DATA: Record<
     // managed sandbox connection to the production host).
     displayLabel: "QuickBooks",
     description: "Invoices, customers, vendors, and accounting data",
+    category: "finance",
     dashboardUrl: "https://developer.intuit.com/app/developer/dashboard",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/quickbooks",

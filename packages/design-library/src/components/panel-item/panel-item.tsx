@@ -346,7 +346,7 @@ const LEFT_CLUSTER_CLASSES =
 
 /**
  * `--panel-item-icon-fg` lets a caller recolor just the leading icon (e.g. the
- * New Chat row's plus, tinted to the assistant's own accent) without touching
+ * sidebar's New Chat plus, tinted to the assistant's own accent) without touching
  * every other icon on the surface: it falls back to the usual tertiary gray,
  * so a row that never declares it looks exactly as before.
  */

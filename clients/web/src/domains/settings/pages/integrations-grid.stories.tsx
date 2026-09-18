@@ -1,4 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { FilterChip } from "@vellumai/design-library/components/filter-chip";
+import { Input } from "@vellumai/design-library/components/input";
+import { Search } from "lucide-react";
+import { useState } from "react";
 
 import { useTranslation } from "@/i18n";
 
@@ -110,6 +114,57 @@ const AVAILABLE_SELF_HOSTED = [
   }),
 ].map((plan) => ({ plan, state: idle }));
 
+/**
+ * The category row the page draws under its search: one chip per category the
+ * catalog files something under, with the whole count. Static labels and
+ * counts, since the story's fixtures are plans rather than catalog items.
+ */
+const CATEGORY_CHIPS = [
+  { key: "productivity", label: "Productivity", count: 14 },
+  { key: "communication", label: "Communication", count: 4 },
+  { key: "meetings", label: "Meetings", count: 6 },
+  { key: "sales", label: "Sales & CRM", count: 5 },
+  { key: "marketing", label: "Marketing", count: 7 },
+  { key: "finance", label: "Finance", count: 9 },
+  { key: "commerce", label: "Commerce", count: 3 },
+  { key: "engineering", label: "Engineering", count: 6 },
+  { key: "knowledge", label: "Knowledge", count: 3 },
+  { key: "recruiting", label: "Recruiting", count: 3 },
+];
+
+function IntegrationsToolbar() {
+  const { t } = useTranslation("settings");
+  const [category, setCategory] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <Input
+        placeholder={t("integrationsPage.searchPlaceholder")}
+        aria-label={t("integrationsPage.searchAriaLabel")}
+        leftIcon={<Search aria-hidden className="size-4" />}
+        className="min-h-11"
+        fullWidth
+      />
+      <div
+        role="group"
+        aria-label={t("integrationsPage.categoriesLabel")}
+        className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]"
+      >
+        {CATEGORY_CHIPS.map((chip) => (
+          <FilterChip
+            key={chip.key}
+            selected={category === chip.key}
+            count={chip.count}
+            onClick={() => setCategory(category === chip.key ? null : chip.key)}
+          >
+            {chip.label}
+          </FilterChip>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function IntegrationsGrid({
   available = AVAILABLE,
   showAlternatives = false,
@@ -122,6 +177,7 @@ function IntegrationsGrid({
   return (
     <div className="min-h-dvh bg-[var(--surface-overlay)] p-4 md:px-6 md:py-6">
       <div className="space-y-4">
+        <IntegrationsToolbar />
         <IntegrationSection
           title={t("integrationsPage.sectionConfigured")}
           count={CONNECTED.length}

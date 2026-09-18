@@ -110,6 +110,22 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["image-generation"].model).toBe("gpt-image-2");
   });
 
+  test("accepts openrouter as an image generation provider", () => {
+    const result = AssistantConfigSchema.parse({
+      services: {
+        "image-generation": {
+          provider: "openrouter",
+          model: "google/gemini-3.1-flash-image-preview",
+        },
+      },
+    });
+
+    expect(result.services["image-generation"].provider).toBe("openrouter");
+    expect(result.services["image-generation"].model).toBe(
+      "google/gemini-3.1-flash-image-preview",
+    );
+  });
+
   test("accepts Tavily as a web search provider", () => {
     const result = AssistantConfigSchema.parse({
       services: {

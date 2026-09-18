@@ -22,6 +22,7 @@ import { downloadAttachment } from "@/domains/chat/components/chat-attachments/d
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { useComputerUseScreenshotTransition } from "@/domains/chat/components/chat-attachments/computer-use-screenshot-preview";
 import {
+  createToolResultImageProjector,
   embeddedImageFileNames,
   ToolResultImages,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -78,6 +79,7 @@ import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -91,7 +93,6 @@ import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   computeCardBackedWorkflowRunIds,
   extractBgIdFromResult,
-  isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   acpRunIdForCall,
   resolveAcpRunIds,
@@ -238,14 +239,21 @@ export function TranscriptMessageBody({
     () => embeddedImageFileNames(message.contentBlocks),
     [message.contentBlocks],
   );
+  const projectImages = useMemo(() => createToolResultImageProjector(), []);
   const imagePresentation = useMemo(
     () =>
       deriveTranscriptImagePresentation(
         orderedMessageToolCalls,
         message.attachments,
         embeddedImageNames,
+        projectImages,
       ),
-    [orderedMessageToolCalls, message.attachments, embeddedImageNames],
+    [
+      orderedMessageToolCalls,
+      message.attachments,
+      embeddedImageNames,
+      projectImages,
+    ],
   );
   const visibleAssistantAttachments = imagePresentation.visibleAttachments;
   const screenshotTransition = useComputerUseScreenshotTransition({
@@ -365,7 +373,7 @@ export function TranscriptMessageBody({
         return;
       }
       const target = e.target as Element | null;
-      if (isInteractiveClickTarget(target)) {
+      if (isInteractiveTarget(target)) {
         return;
       }
 
