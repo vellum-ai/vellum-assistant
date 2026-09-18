@@ -2,8 +2,9 @@
  * Bus consumer for `notification_intent` SSE events.
  *
  * Turns daemon-pushed notification intents into local browser or
- * Capacitor notifications. Skips guardian-scoped notifications
- * (the web client does not participate in guardian binding) and
+ * Capacitor notifications. Skips guardian-scoped notifications from an
+ * assistant that broadcasts them to every connection (see
+ * `lib/backwards-compat/guardian-notification-targeting.ts`), and
  * notifications for the conversation the user is watching right now,
  * which takes three facts: the store's active conversation, a route
  * that mounts the chat surface, and a client that is on screen.
@@ -31,6 +32,7 @@ import {
   resolveAssistantNotificationPlatformId,
 } from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { supportsGuardianNotificationTargeting } from "@/lib/backwards-compat/guardian-notification-targeting";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { createNotificationIdentity } from "@/runtime/notification-avatar";
@@ -116,10 +118,13 @@ export function useNotificationIntentSync(assistantId: string | null): void {
           }
         : null;
 
-    // Guardian-scoped notifications are for devices bound to that
-    // guardian identity. The web/Capacitor client does not participate
-    // in guardian binding — skip to avoid leaking to unintended devices.
-    if (event.targetGuardianPrincipalId) {
+    // An assistant that predates guardian targeting broadcasts the guardian's
+    // approval text to every connection, and this one may not be the
+    // guardian's.
+    if (
+      event.targetGuardianPrincipalId &&
+      !supportsGuardianNotificationTargeting(originatingAssistantId)
+    ) {
       if (originatingAssistantId && event.deliveryId) {
         void sendNotificationIntentAck(
           originatingAssistantId,
