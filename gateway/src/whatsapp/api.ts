@@ -197,57 +197,6 @@ export async function sendWhatsAppTextMessage(
   );
 }
 
-/**
- * Send an interactive button message via the WhatsApp Business Cloud API.
- * Used for approval prompts where the user can tap a button to respond.
- * WhatsApp supports up to 3 reply buttons per interactive message.
- */
-export async function sendWhatsAppInteractiveMessage(
-  to: string,
-  bodyText: string,
-  buttons: Array<{ id: string; title: string }>,
-  caches?: WhatsAppApiCaches,
-): Promise<WhatsAppSendMessageResult> {
-  const { phoneNumberId, accessToken } =
-    await resolveWhatsAppCredentials(caches);
-  if (!phoneNumberId || !accessToken) {
-    throw new Error("WhatsApp credentials not configured");
-  }
-
-  const timeoutMs =
-    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
-
-  return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
-    caches?.configFile,
-    "sendInteractiveMessage",
-    () =>
-      fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to,
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: bodyText },
-            action: {
-              buttons: buttons.map((b) => ({
-                type: "reply",
-                reply: { id: b.id, title: b.title },
-              })),
-            },
-          },
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
-  );
-}
-
 /** Metadata returned by the WhatsApp media endpoint. */
 export interface WhatsAppMediaMetadata {
   url: string;

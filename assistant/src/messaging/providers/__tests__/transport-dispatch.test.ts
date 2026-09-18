@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ChannelReplyPayload } from "@vellumai/gateway-client";
+import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 // Replace each channel's provider-API send layer with spies so the dispatcher's
 // routing and sub-operation selection can be asserted without network calls.
@@ -559,23 +560,76 @@ describe("acknowledged provider posts", () => {
   });
 
   test("a delivery with no text acknowledges no post", async () => {
+    const attachments = [
+      {
+        id: "att-1",
+        filename: "a.txt",
+        mimeType: "text/plain",
+        sizeBytes: 1,
+        kind: "file",
+      },
+    ];
     const result = await deliverDirect(
       `${BASE}/deliver/telegram`,
-      payload({
-        attachments: [
-          {
-            id: "att-1",
-            filename: "a.txt",
-            mimeType: "text/plain",
-            sizeBytes: 1,
-            kind: "file",
-          },
-        ],
-      } as Partial<ChannelReplyPayload>),
+      payload({ attachments }),
     );
     expect(result).toEqual({ ok: true, messageIds: [] });
     expect(telegram.sendTelegramReply).not.toHaveBeenCalled();
+    expect(telegram.sendTelegramAttachments).toHaveBeenCalledTimes(1);
+    expect(telegram.sendTelegramAttachments.mock.calls[0]?.slice(0, 2)).toEqual(
+      ["C1", attachments],
+    );
   });
+});
+
+describe("attachment-only delivery failure", () => {
+  const attachments = [
+    {
+      id: "att-1",
+      filename: "a.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      kind: "file",
+    },
+    {
+      id: "att-2",
+      filename: "b.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      kind: "file",
+    },
+  ];
+  const allFailed = { allFailed: true, failureCount: 2, totalCount: 2 };
+
+  for (const { channel, sendAttachments } of [
+    { channel: "telegram", sendAttachments: telegram.sendTelegramAttachments },
+    { channel: "whatsapp", sendAttachments: whatsapp.sendWhatsAppAttachments },
+  ]) {
+    test(`${channel} fails with 502 when every attachment fails and there is no text`, async () => {
+      sendAttachments.mockImplementationOnce(() => Promise.resolve(allFailed));
+
+      const delivery = deliverDirect(
+        `${BASE}/deliver/${channel}`,
+        payload({ attachments }),
+      );
+
+      await expect(delivery).rejects.toBeInstanceOf(ChannelDeliveryError);
+      await expect(delivery).rejects.toMatchObject({ statusCode: 502 });
+      expect(sendAttachments).toHaveBeenCalledTimes(1);
+    });
+
+    test(`${channel} succeeds when every attachment fails but the text went out`, async () => {
+      sendAttachments.mockImplementationOnce(() => Promise.resolve(allFailed));
+
+      const result = await deliverDirect(
+        `${BASE}/deliver/${channel}`,
+        payload({ text: "hi", attachments }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(sendAttachments).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
 describe("unsupported callback", () => {
