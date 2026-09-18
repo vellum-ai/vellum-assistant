@@ -88,9 +88,7 @@ export function getBroadcaster(): NotificationBroadcaster {
           silent: info.silent,
         },
         undefined,
-        info.targetGuardianPrincipalId
-          ? { targetActorPrincipalId: info.targetGuardianPrincipalId }
-          : undefined,
+        { targetActorPrincipalId: info.targetGuardianPrincipalId },
       );
       log.info(
         {

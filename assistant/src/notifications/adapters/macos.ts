@@ -107,9 +107,7 @@ export class VellumAdapter implements ChannelAdapter {
           remotePushPlatforms: payload.remotePushPlatforms,
         },
         undefined,
-        targetGuardianPrincipalId
-          ? { targetActorPrincipalId: targetGuardianPrincipalId }
-          : undefined,
+        { targetActorPrincipalId: targetGuardianPrincipalId },
       );
 
       log.info(

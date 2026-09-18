@@ -1990,7 +1990,7 @@ An SSE push event surfaces new conversations in the macOS client sidebar:
 
 - **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
 
-The event follows this pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
+The daemon persists the conversation and its initial message before broadcasting, so a client that receives the event can fetch the conversation immediately. A guardian-sensitive conversation is announced only to the guardian's own connections.
 
 ### Conversation Routing Decision Flow
 

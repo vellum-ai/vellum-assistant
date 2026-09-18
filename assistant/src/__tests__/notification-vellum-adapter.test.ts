@@ -393,6 +393,6 @@ describe("VellumAdapter guardian scoping", () => {
       makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
     );
 
-    expect(options).toEqual([undefined]);
+    expect(options).toEqual([{ targetActorPrincipalId: undefined }]);
   });
 });
