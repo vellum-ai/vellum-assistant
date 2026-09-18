@@ -81,6 +81,7 @@ import { retryForResult } from "./llm-retry.js";
 import { findTerm } from "./section-needle.js";
 import { sectionBody } from "./sections.js";
 import {
+  type FinderLane,
   type MemoryRoutingTurn,
   type Section,
   sectionKey,
@@ -102,12 +103,16 @@ const log = getLogger("memory-v3-pool-select");
  */
 export class MemoryV3RetrievalUnavailableError extends Error {
   readonly conversationNotice?: PendingConversationNotice;
+  readonly pool?: SelectorPool;
+  readonly turn?: MemoryRoutingTurn;
 
   constructor(
     message: string,
     options?: {
       cause?: unknown;
       conversationNotice?: PendingConversationNotice;
+      pool?: SelectorPool;
+      turn?: MemoryRoutingTurn;
     },
   ) {
     super(
@@ -116,6 +121,8 @@ export class MemoryV3RetrievalUnavailableError extends Error {
     );
     this.name = "MemoryV3RetrievalUnavailableError";
     this.conversationNotice = options?.conversationNotice;
+    this.pool = options?.pool;
+    this.turn = options?.turn;
   }
 }
 
@@ -139,7 +146,7 @@ function providerBillingNoticeFromError(
 /** A dynamic-tail (finder) candidate: the slug plus the descriptor that
  *  justifies it (a matched section's text for a needle/dense hit, or a
  *  curated link description for an edge page), rendered as a one-line
- *  snippet and prefixed with the surfacing lane when one is supplied. A
+ *  snippet and prefixed with the surfacing lane. A
  *  candidate that also carries its matched `section` and the query `terms`
  *  that scored it (best first) renders a keyword-in-context snippet instead:
  *  a window of the section body around the first of those terms that occurs
@@ -150,7 +157,7 @@ function providerBillingNoticeFromError(
 export interface PoolCandidate {
   slug: Slug;
   descriptor: string;
-  lane?: string;
+  lane: FinderLane;
   section?: Section;
   terms?: string[];
 }
@@ -159,9 +166,12 @@ export interface PoolCandidate {
  *  (`renderCard` output — head section + TOC). Cards must be byte-stable
  *  across turns for the prefix to ride the provider KV cache, which is why
  *  callers pre-render them at lane init rather than per turn. */
+export type StableCandidateLane = "core" | "hot" | "fresh" | "always";
+
 export interface StableCandidate {
   slug: Slug;
   card: string;
+  lane: StableCandidateLane;
 }
 
 /**
@@ -408,12 +418,8 @@ function renderCardSegment(stable: StableCandidate[]): string {
 }
 
 /** A finder line's lane tag: `(lane) `, or `(rare: word) ` for a rare-term
- *  line, keyed on the one word it carries as its term; empty for a candidate
- *  without a lane. */
+ *  line, keyed on the one word it carries as its term. */
 function laneTag(candidate: PoolCandidate): string {
-  if (candidate.lane === undefined) {
-    return "";
-  }
   const word = candidate.lane === "rare" ? candidate.terms?.[0] : undefined;
   return word === undefined
     ? `(${candidate.lane}) `
@@ -422,8 +428,8 @@ function laneTag(candidate: PoolCandidate): string {
 
 /**
  * One finder line as the selector sees it, minus its pool number: the lane
- * tag (omitted for a candidate without one, naming the keyed word for a
- * rare-term line, `(rare: turnip)`), the slug, and the snippet after a dash
+ * tag (naming the keyed word for a rare-term line, `(rare: turnip)`), the
+ * slug, and the snippet after a dash
  * (no dash for a candidate with an empty descriptor). Shared with the pool
  * input capture (`pool-log-store.ts`), so the persisted text is exactly the
  * rendered line.
@@ -621,21 +627,60 @@ function buildGenericSelectorMessage(
   return { role: "user", content };
 }
 
-function latestCandidateSuffix(
+const STABLE_CANDIDATE_PRIORITY: Record<StableCandidateLane, number> = {
+  core: 0,
+  hot: 5,
+  fresh: 6,
+  always: 7,
+};
+
+const FINDER_CANDIDATE_PRIORITY: Record<FinderLane, number> = {
+  needle: 1,
+  dense: 2,
+  reply: 3,
+  span: 4,
+  entity: 8,
+  rare: 9,
+  edge: 10,
+  learned: 11,
+};
+
+function highestPriorityCandidates(
   pool: SelectorPool,
   retainedCount: number,
 ): SelectorPool {
-  const finderCount = Math.min(retainedCount, pool.finder.length);
-  const stableCount = Math.max(0, retainedCount - finderCount);
+  const ranked = [
+    ...pool.stable.map((candidate, index) => ({
+      segment: "stable" as const,
+      index,
+      poolIndex: index,
+      priority: STABLE_CANDIDATE_PRIORITY[candidate.lane],
+    })),
+    ...pool.finder.map((candidate, index) => ({
+      segment: "finder" as const,
+      index,
+      poolIndex: pool.stable.length + index,
+      priority: FINDER_CANDIDATE_PRIORITY[candidate.lane],
+    })),
+  ]
+    .sort(
+      (left, right) =>
+        left.priority - right.priority || left.poolIndex - right.poolIndex,
+    )
+    .slice(0, retainedCount);
+  const retainedStable = new Set(
+    ranked
+      .filter((candidate) => candidate.segment === "stable")
+      .map((candidate) => candidate.index),
+  );
+  const retainedFinder = new Set(
+    ranked
+      .filter((candidate) => candidate.segment === "finder")
+      .map((candidate) => candidate.index),
+  );
   return {
-    stable:
-      stableCount === 0
-        ? []
-        : pool.stable.slice(pool.stable.length - stableCount),
-    finder:
-      finderCount === 0
-        ? []
-        : pool.finder.slice(pool.finder.length - finderCount),
+    stable: pool.stable.filter((_, index) => retainedStable.has(index)),
+    finder: pool.finder.filter((_, index) => retainedFinder.has(index)),
   };
 }
 
@@ -652,7 +697,7 @@ function latestTurnContextSuffix(
   const currentMessage = takeSuffix(turn.currentMessage);
   const recentContext = takeSuffix(turn.recentContext);
   const situationalContext = turn.situationalContext
-    ? takeSuffix(turn.situationalContext)
+    ? takeSuffix(turn.situationalContext) || undefined
     : undefined;
   return {
     ...turn,
@@ -751,7 +796,7 @@ function budgetSelectorPool({
   }
 
   const candidateCount = pool.stable.length + pool.finder.length;
-  const newestCandidatePool = latestCandidateSuffix(pool, 1);
+  const newestCandidatePool = highestPriorityCandidates(pool, 1);
   let budgetedTurn = turn;
   if (estimate(newestCandidatePool, budgetedTurn) > budgetTokens) {
     let low = 0;
@@ -772,7 +817,7 @@ function budgetSelectorPool({
   let high = candidateCount;
   while (low < high) {
     const retainedCount = Math.ceil((low + high) / 2);
-    const candidatePool = latestCandidateSuffix(pool, retainedCount);
+    const candidatePool = highestPriorityCandidates(pool, retainedCount);
     if (estimate(candidatePool, budgetedTurn) <= budgetTokens) {
       low = retainedCount;
     } else {
@@ -780,7 +825,7 @@ function budgetSelectorPool({
     }
   }
 
-  const budgetedPool = latestCandidateSuffix(pool, low);
+  const budgetedPool = highestPriorityCandidates(pool, low);
   return {
     pool: budgetedPool,
     turn: budgetedTurn,
@@ -855,6 +900,7 @@ async function selectPoolWithTypesafe(
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
           conversationId: turn.conversationId,
+          selectionSeed: turn.conversationId,
           disableTurnStartCache: true,
         },
       });
@@ -897,7 +943,12 @@ async function selectPoolWithTypesafe(
       });
       return null;
     }
-    return { pages: mergeSelectedLines(ordered, picked), keptAll: false };
+    return {
+      pages: mergeSelectedLines(ordered, picked),
+      keptAll: false,
+      pool,
+      turn,
+    };
   });
 
   if (parsed === null) {
@@ -924,6 +975,8 @@ async function selectPoolWithTypesafe(
         {
           cause: lastError,
           conversationNotice: providerBillingNoticeFromError(lastError),
+          pool,
+          turn,
         },
       );
     }
@@ -940,6 +993,7 @@ async function selectPoolWithTypesafe(
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector returned no usable selection after retries",
+      { pool, turn },
     );
   }
 
@@ -949,6 +1003,10 @@ async function selectPoolWithTypesafe(
 /** A selection plus whether it came from the recall-safe keep-all fallback. */
 export interface PoolSelection {
   pages: SelectedPage[];
+  /** The exact candidate pool rendered for the selector request. */
+  pool: SelectorPool;
+  /** The exact context strings rendered for the selector request. */
+  turn: MemoryRoutingTurn;
   /** True only when the model OMITTED `ids` and every candidate was kept as the
    *  recall-safe fallback — NOT when it explicitly selected a large set. The two
    *  produce the same pages but mean different things (the model gave up judging
@@ -981,7 +1039,7 @@ export async function selectPool(
 ): Promise<PoolSelection> {
   const originalCandidateCount = pool.stable.length + pool.finder.length;
   if (originalCandidateCount === 0) {
-    return { pages: [], keptAll: false };
+    return { pages: [], keptAll: false, pool, turn };
   }
 
   const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE, {
@@ -999,6 +1057,7 @@ export async function selectPool(
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector provider unavailable",
+      { pool, turn },
     );
   }
 
@@ -1042,7 +1101,12 @@ export async function selectPool(
     );
   }
   if (ordered.length === 0) {
-    return { pages: [], keptAll: false };
+    return {
+      pages: [],
+      keptAll: false,
+      pool: budgetedPool,
+      turn: budgetedTurn,
+    };
   }
 
   if (provider.name === TYPE_SAFE_PROVIDER_ID) {
@@ -1101,6 +1165,7 @@ export async function selectPool(
         config: {
           callSite: MEMORY_V3_SELECT_CALL_SITE,
           conversationId: turn.conversationId,
+          selectionSeed: turn.conversationId,
           tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
           // The last block of this one-shot message varies every turn; the
           // provider's auto-applied turn-start breakpoint would land on it and
@@ -1180,6 +1245,8 @@ export async function selectPool(
         {
           cause: lastError,
           conversationNotice: providerBillingNoticeFromError(lastError),
+          pool: budgetedPool,
+          turn: budgetedTurn,
         },
       );
     }
@@ -1196,12 +1263,18 @@ export async function selectPool(
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector returned no usable selection after retries",
+      { pool: budgetedPool, turn: budgetedTurn },
     );
   }
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
   if (parsed.ids === undefined) {
-    return { pages: selectAllPoolCandidates(budgetedPool), keptAll: true };
+    return {
+      pages: selectAllPoolCandidates(budgetedPool),
+      keptAll: true,
+      pool: budgetedPool,
+      turn: budgetedTurn,
+    };
   }
 
   // Map 1-based IDs over the concatenated numbering, dropping out-of-range
@@ -1209,5 +1282,10 @@ export async function selectPool(
   const picked = parsed.ids
     .filter((id) => id >= 1 && id <= ordered.length)
     .map((id) => id - 1);
-  return { pages: mergeSelectedLines(ordered, picked), keptAll: false };
+  return {
+    pages: mergeSelectedLines(ordered, picked),
+    keptAll: false,
+    pool: budgetedPool,
+    turn: budgetedTurn,
+  };
 }

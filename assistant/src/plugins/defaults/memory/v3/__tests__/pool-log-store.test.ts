@@ -102,6 +102,22 @@ function section(article: Slug, title: string, ordinal: number): Section {
 function orchestrated(): OrchestrateResult {
   const recent = section("core/page", "Recent", 3);
   const lead = section("topic/a", "", 0);
+  const finder = [
+    { slug: "topic/a", section: lead, descriptor: "", lane: "needle" as const },
+    {
+      slug: "core/page",
+      section: recent,
+      descriptor: "",
+      lane: "dense" as const,
+    },
+    {
+      slug: "topic/b",
+      section: section("topic/b", "Details", 2),
+      descriptor: "",
+      lane: "entity" as const,
+    },
+    { slug: "topic/c", descriptor: "", lane: "edge" as const },
+  ];
   return {
     selections: [
       { slug: "core/page", sections: [recent] },
@@ -113,43 +129,30 @@ function orchestrated(): OrchestrateResult {
       hot: ["hot/page"],
       fresh: ["fresh/page"],
       always: ["skills/example"],
-      finder: [
-        { slug: "topic/a", section: lead, descriptor: "", lane: "needle" },
-        { slug: "core/page", section: recent, descriptor: "", lane: "dense" },
-        {
-          slug: "topic/b",
-          section: section("topic/b", "Details", 2),
-          descriptor: "",
-          lane: "entity",
-        },
-        { slug: "topic/c", descriptor: "", lane: "edge" },
-      ],
+      finder,
     },
     selectorRan: true,
-  };
-}
-
-/** {@link orchestrated} with the pool the selector was given: a card per
- *  stable-prefix slug and one finder candidate per finder line, in the
- *  record's order, plus the gate and keep-all facts. */
-function orchestratedWithPool(): OrchestrateResult {
-  const result = orchestrated();
-  return {
-    ...result,
     pool: {
       stable: [
-        { slug: "core/page", card: "core card" },
-        { slug: "hot/page", card: "hot card" },
-        { slug: "fresh/page", card: "fresh card" },
-        { slug: "skills/example", card: "skill card" },
+        { slug: "core/page", card: "core card", lane: "core" },
+        { slug: "hot/page", card: "hot card", lane: "hot" },
+        { slug: "fresh/page", card: "fresh card", lane: "fresh" },
+        { slug: "skills/example", card: "skill card", lane: "always" },
       ],
-      finder: result.lanes.finder.map((line) => ({
+      finder: finder.map((line) => ({
         slug: line.slug,
         lane: line.lane,
         section: line.section,
         descriptor: line.descriptor || `${line.slug} lead`,
       })),
     },
+  };
+}
+
+/** {@link orchestrated} plus the gate and keep-all facts captured beside it. */
+function orchestratedWithPool(): OrchestrateResult {
+  return {
+    ...orchestrated(),
     keptAll: false,
     gateReason: "dense_pass",
   };
@@ -279,6 +282,23 @@ describe("buildPoolRecord", () => {
         ],
       },
       selectorRan: true,
+      pool: {
+        stable: [{ slug: "topic/a", card: "topic a card", lane: "core" }],
+        finder: [
+          {
+            slug: "topic/a",
+            section: first,
+            descriptor: "",
+            lane: "needle",
+          },
+          {
+            slug: "topic/a",
+            section: second,
+            descriptor: "",
+            lane: "span",
+          },
+        ],
+      },
     });
 
     expect(
@@ -318,6 +338,14 @@ describe("buildPoolRecord", () => {
         finder: [],
       },
       selectorRan: false,
+      pool: {
+        stable: [
+          { slug: "core/page", card: "core card", lane: "core" },
+          { slug: "hot/page", card: "hot card", lane: "hot" },
+          { slug: "fresh/page", card: "fresh card", lane: "fresh" },
+        ],
+        finder: [],
+      },
     });
 
     expect(record).toEqual({
@@ -523,6 +551,116 @@ describe("pool input capture", () => {
     });
   });
 
+  test("persists only the exact budgeted pool and context rendered to the selector", () => {
+    const selected = orchestratedWithPool();
+    const result: OrchestrateResult = {
+      ...selected,
+      selections: [{ slug: "core/page", sections: [] }],
+      pool: {
+        stable: [
+          { slug: "core/page", card: "retained core card", lane: "core" },
+        ],
+        finder: [
+          {
+            slug: "topic/a",
+            descriptor: "retained direct hit",
+            lane: "needle",
+          },
+        ],
+      },
+      selectorTurn: {
+        ...turn,
+        situationalContext: undefined,
+        recentContext: "trimmed recent suffix",
+        currentMessage: "trimmed current message",
+      },
+    };
+
+    const record = buildPoolRecord(result);
+    const { input, texts } = buildPoolInput(result, turn, "select wisely");
+
+    expect(record.candidates.map((candidate) => candidate.slug)).toEqual([
+      "core/page",
+      "topic/a",
+    ]);
+    expect(record.candidates.map((candidate) => candidate.lane)).toEqual([
+      "core",
+      "needle",
+    ]);
+    expect(input).toMatchObject({
+      situational_context: null,
+      recent_context: "trimmed recent suffix",
+      current_message: "trimmed current message",
+    });
+    expect(input.candidate_text_hashes.map((hash) => texts.get(hash))).toEqual([
+      "retained core card",
+      "(needle) topic/a \u2014 retained direct hit",
+    ]);
+  });
+
+  test("persists a failed selector's exact attempted pool with stable cards chosen and finder lines unchosen", () => {
+    const result: OrchestrateResult = {
+      selections: [{ slug: "core/page", sections: [] }],
+      lanes: {
+        core: ["core/page"],
+        hot: ["hot/page"],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "topic/a",
+            descriptor: "direct hit",
+            lane: "needle",
+          },
+          {
+            slug: "topic/c",
+            descriptor: "weak association",
+            lane: "learned",
+          },
+        ],
+      },
+      selectorRan: false,
+      selectorFailure: new Error("selector failed") as never,
+      pool: {
+        stable: [
+          { slug: "core/page", card: "retained core card", lane: "core" },
+        ],
+        finder: [
+          {
+            slug: "topic/a",
+            descriptor: "direct hit",
+            lane: "needle",
+          },
+        ],
+      },
+      selectorTurn: {
+        ...turn,
+        recentContext: "attempted recent suffix",
+      },
+      keptAll: false,
+    };
+
+    const record = buildPoolRecord(result);
+    const { input, texts } = buildPoolInput(result, turn, "select wisely");
+
+    expect(
+      record.candidates.map((candidate) => [
+        candidate.slug,
+        candidate.lane,
+        candidate.chosen,
+      ]),
+    ).toEqual([
+      ["core/page", "core", true],
+      ["topic/a", "needle", false],
+    ]);
+    expect(record.selector_ran).toBe(false);
+    expect(input.recent_context).toBe("attempted recent suffix");
+    expect(input.candidate_text_hashes.map((hash) => texts.get(hash))).toEqual([
+      "retained core card",
+      "(needle) topic/a \u2014 direct hit",
+    ]);
+  });
+
   test("a turn whose selector never judged a pool captures the context and no candidate texts", () => {
     const { input, texts } = buildPoolInput(
       hardSkipped(),
@@ -546,7 +684,7 @@ describe("pool input capture", () => {
 
   test("a result without the selector's pool captures no candidate texts rather than misaligned ones", () => {
     const { input, texts } = buildPoolInput(
-      orchestrated(),
+      { ...orchestrated(), pool: undefined },
       turn,
       "select wisely",
     );

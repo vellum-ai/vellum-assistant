@@ -187,16 +187,24 @@ const CARD_A =
 const CARD_B = "# memory/concepts/page-b.md\nlead for page b";
 
 /** Two stable-prefix cards (`[1] page-a`, `[2] page-b`) and two finder lines
- * (`[3] topic-x`, `[4] page-a` — a finder hit on a stable-prefix page). */
+ * (`[3] topic-x`, `[4] page-a`, with the latter also in the prefix). */
 function makePool(): SelectorPool {
   return {
     stable: [
-      { slug: "page-a", card: CARD_A },
-      { slug: "page-b", card: CARD_B },
+      { slug: "page-a", card: CARD_A, lane: "core" },
+      { slug: "page-b", card: CARD_B, lane: "hot" },
     ],
     finder: [
-      { slug: "topic-x", descriptor: "section: about topic x" },
-      { slug: "page-a", descriptor: "section: the alpha rollout plan" },
+      {
+        slug: "topic-x",
+        descriptor: "section: about topic x",
+        lane: "needle",
+      },
+      {
+        slug: "page-a",
+        descriptor: "section: the alpha rollout plan",
+        lane: "dense",
+      },
     ],
   };
 }
@@ -440,6 +448,60 @@ describe("selectPool — infrastructure failures throw", () => {
     ]);
   });
 
+  test("provider failure carries the exact budgeted pool and turn", async () => {
+    selectorMaxInputTokens = 8_000;
+    const pool: SelectorPool = {
+      stable: Array.from({ length: 20 }, (_, index) => ({
+        slug: `stable-${index}`,
+        card: `stable card ${index} ${"x".repeat(4_000)}`,
+        lane: index === 0 ? ("core" as const) : ("hot" as const),
+      })),
+      finder: [
+        {
+          slug: "finder-learned",
+          descriptor: "learned association",
+          lane: "learned",
+        },
+        {
+          slug: "finder-needle",
+          descriptor: "direct lexical hit",
+          lane: "needle",
+        },
+      ],
+    };
+    const turn = {
+      ...makeTurn("preserve this current message"),
+      recentContext: `${"r".repeat(40_000)}RECENT-END`,
+      situationalContext: `old situation ${"s".repeat(20_000)}`,
+    };
+    providerStub = makeThrowingProvider();
+
+    let caught: unknown;
+    try {
+      await selectPool(pool, turn);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(MemoryV3RetrievalUnavailableError);
+    const failure = caught as InstanceType<
+      typeof MemoryV3RetrievalUnavailableError
+    >;
+    expect(failure.pool?.stable[0]?.slug).toBe("stable-0");
+    expect(
+      (failure.pool?.stable.length ?? 0) + (failure.pool?.finder.length ?? 0),
+    ).toBeLessThan(pool.stable.length + pool.finder.length);
+    expect(
+      failure.pool?.finder.map((candidate) => candidate.slug),
+    ).not.toContain("finder-learned");
+    expect(failure.turn?.currentMessage).toBe("preserve this current message");
+    expect(failure.turn?.recentContext).toEndWith("RECENT-END");
+    expect(failure.turn?.recentContext.length).toBeLessThan(
+      turn.recentContext.length,
+    );
+    expect(failure.turn?.situationalContext).toBeUndefined();
+  });
+
   test("managed provider 402 attaches a non-terminal credits notice", async () => {
     providerStub = {
       name: "managed",
@@ -524,6 +586,7 @@ describe("selectPool — request shape", () => {
     const [call] = providerCalls;
     const cfg = call.options?.config as Record<string, unknown>;
     expect(cfg?.callSite).toBe("memoryV3SelectL2");
+    expect(cfg?.selectionSeed).toBe("conv-xyz");
     expect(cfg?.tool_choice).toEqual({ type: "tool", name: "select_pages" });
     expect(cfg?.disableTurnStartCache).toBe(true);
     const tool = call.options?.tools?.[0];
@@ -540,11 +603,21 @@ describe("selectPool — request shape", () => {
       stable: Array.from({ length: 20 }, (_, index) => ({
         slug: `stable-${index}`,
         card: `stable card ${index} ${"x".repeat(4_000)}`,
+        lane: index === 0 ? ("core" as const) : ("hot" as const),
       })),
-      finder: Array.from({ length: 3 }, (_, index) => ({
-        slug: `finder-${index}`,
-        descriptor: `finder descriptor ${index}`,
-      })),
+      finder: [
+        {
+          slug: "finder-learned",
+          descriptor: "learned association",
+          lane: "learned",
+        },
+        { slug: "finder-edge", descriptor: "authored link", lane: "edge" },
+        {
+          slug: "finder-needle",
+          descriptor: "direct lexical hit",
+          lane: "needle",
+        },
+      ],
     };
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
 
@@ -564,9 +637,14 @@ describe("selectPool — request shape", () => {
     expect(estimatedInputTokens).toBeLessThanOrEqual(6_400);
     const sent = JSON.stringify(call.messages);
     expect(sent).toContain("preserve this generic current message");
-    expect(sent).not.toContain("stable-0");
-    expect(sent).toContain("finder-2");
-    expect(result.pages[0]?.slug).not.toBe("stable-0");
+    expect(sent).toContain("stable card 0");
+    expect(sent).toContain("finder-needle");
+    expect(sent).not.toContain("finder-learned");
+    expect(result.pool.stable[0]?.slug).toBe("stable-0");
+    expect(result.pool.finder.map((candidate) => candidate.slug)).toContain(
+      "finder-needle",
+    );
+    expect(result.pages[0]?.slug).toBe("stable-0");
   });
 
   test("stable prefix renders full cards in its own block carrying cache_control", async () => {
@@ -588,8 +666,12 @@ describe("selectPool — request shape", () => {
 
     // The tail continues the numbering after the cards and is NOT cached.
     expect(tail.type).toBe("text");
-    expect(tail.text).toContain("[3] topic-x — section: about topic x");
-    expect(tail.text).toContain("[4] page-a — section: the alpha rollout plan");
+    expect(tail.text).toContain(
+      "[3] (needle) topic-x \u2014 section: about topic x",
+    );
+    expect(tail.text).toContain(
+      "[4] (dense) page-a \u2014 section: the alpha rollout plan",
+    );
     expect(tail.text).toContain("<current_message>rollout?</current_message>");
     expect(tail.text).toContain("<recent_context>");
     expect(tail.cache_control).toBeUndefined();
@@ -597,7 +679,7 @@ describe("selectPool — request shape", () => {
     expect(tail.text).not.toContain("<candidate_cards>");
   });
 
-  test("finder lines render the surfacing lane tag when one is supplied", async () => {
+  test("finder lines render the surfacing lane tag", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [] }));
     const pool = makePool();
     pool.finder = [
@@ -608,7 +690,7 @@ describe("selectPool — request shape", () => {
 
     const [, tail] = sentBlocks();
     expect(tail.text).toContain(
-      "[3] (needle) topic-x — section: about topic x",
+      "[3] (needle) topic-x \u2014 section: about topic x",
     );
     // Empty descriptor: lane tag still renders, dash omitted.
     expect(tail.text).toContain("[4] (learned) page-a");
@@ -620,7 +702,13 @@ describe("selectPool — request shape", () => {
 
     // Same stable lanes, different finder hits + message (a new turn).
     const pool2 = makePool();
-    pool2.finder = [{ slug: "page-c", descriptor: "section: something else" }];
+    pool2.finder = [
+      {
+        slug: "page-c",
+        descriptor: "section: something else",
+        lane: "needle",
+      },
+    ];
     await selectPool(pool2, makeTurn("second question"));
 
     const [prefix1, tail1] = sentBlocks(0);
@@ -633,12 +721,15 @@ describe("selectPool — request shape", () => {
   test("an empty stable prefix renders a single un-cached block", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(
-      { stable: [], finder: [{ slug: "page-a", descriptor: "d" }] },
+      {
+        stable: [],
+        finder: [{ slug: "page-a", descriptor: "d", lane: "needle" }],
+      },
       makeTurn("x"),
     );
     const blocks = sentBlocks();
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].text).toContain("[1] page-a — d");
+    expect(blocks[0].text).toContain("[1] (needle) page-a \u2014 d");
     expect(blocks[0].cache_control).toBeUndefined();
   });
 
@@ -646,28 +737,38 @@ describe("selectPool — request shape", () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     const longDescriptor = `padded   ${"z".repeat(1000)}`;
     await selectPool(
-      { stable: [], finder: [{ slug: "page-a", descriptor: longDescriptor }] },
+      {
+        stable: [],
+        finder: [
+          { slug: "page-a", descriptor: longDescriptor, lane: "needle" },
+        ],
+      },
       makeTurn("x"),
     );
     const [block] = sentBlocks();
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] page-a — "))!;
+      .find((l) => l.startsWith("[1] (needle) page-a \u2014 "))!;
     expect(line).toContain("...");
     expect(line).not.toContain("z".repeat(1000));
-    // snippet cap (300) + the `[1] page-a — ` prefix.
-    expect(line.length).toBeLessThanOrEqual(300 + "[1] page-a — ".length);
+    // snippet cap (300) plus the numbered lane/slug prefix.
+    expect(line.length).toBeLessThanOrEqual(
+      300 + "[1] (needle) page-a \u2014 ".length,
+    );
   });
 
   test("a finder candidate with an empty descriptor renders without a dangling dash", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(
-      { stable: [], finder: [{ slug: "page-a", descriptor: "   " }] },
+      {
+        stable: [],
+        finder: [{ slug: "page-a", descriptor: "   ", lane: "needle" }],
+      },
       makeTurn("x"),
     );
     const [block] = sentBlocks();
-    expect(block.text).toContain("[1] page-a\n");
-    expect(block.text).not.toContain("[1] page-a — ");
+    expect(block.text).toContain("[1] (needle) page-a\n");
+    expect(block.text).not.toContain("[1] (needle) page-a \u2014 ");
   });
 
   test("situational context renders in the tail when present", async () => {
@@ -712,18 +813,24 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
   function sectionedPool(): SelectorPool {
     const pool = makePool();
     pool.finder = [
-      { slug: "topic-x", descriptor: "section: about topic x" },
+      {
+        slug: "topic-x",
+        descriptor: "section: about topic x",
+        lane: "needle",
+      },
       {
         slug: "page-a",
         descriptor: alpha.text,
         section: alpha,
         terms: ["rollout"],
+        lane: "needle",
       },
       {
         slug: "page-a",
         descriptor: beta.text,
         section: beta,
         terms: ["metrics"],
+        lane: "dense",
       },
     ];
     return pool;
@@ -815,13 +922,14 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
         descriptor: alpha.text,
         section: alpha,
         terms: ["missing"],
+        lane: "needle",
       }),
       makeTurn("x"),
     );
     const [block] = sentBlocks();
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] page-a "))!;
+      .find((l) => l.startsWith("[1] (needle) page-a "))!;
     expect(
       line.endsWith("page-a - Alpha the alpha rollout plan in detail"),
     ).toBe(true);
@@ -841,13 +949,14 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
         descriptor: lead.text,
         section: lead,
         terms: ["rollout"],
+        lane: "needle",
       }),
       makeTurn("x"),
     );
     const [block] = sentBlocks();
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] page-a "))!;
+      .find((l) => l.startsWith("[1] (needle) page-a "))!;
     expect(line.endsWith("the lead mentions the rollout early on")).toBe(true);
     expect(line).not.toContain("§");
     expect(line).not.toContain("…");
@@ -895,13 +1004,14 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
         descriptor: notes.text,
         section: notes,
         terms: ["weekly_turnip"],
+        lane: "needle",
       }),
       makeTurn("x"),
     );
     const [block] = sentBlocks();
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] page-a "))!;
+      .find((l) => l.startsWith("[1] (needle) page-a "))!;
     expect(line.endsWith("§Notes: we said: weekly, turnip is the label")).toBe(
       true,
     );
@@ -925,6 +1035,7 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
         descriptor: section.text,
         section,
         terms: ["turnip"],
+        lane: "needle",
       }),
       makeTurn("turnip?"),
     );
@@ -932,7 +1043,7 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     expect(stripOrphanedSurrogates(block.text)).toBe(block.text);
     const line = block.text
       .split("\n")
-      .find((l) => l.startsWith("[1] page-a "))!;
+      .find((l) => l.startsWith("[1] (needle) page-a "))!;
     expect(line).toContain("§Rollout: … ");
     expect(line).toContain("turnip");
     expect(line.endsWith(" …")).toBe(true);
@@ -1066,11 +1177,14 @@ describe("selectPool: TypeSafe System One", () => {
       stable: Array.from({ length: 40 }, (_, index) => ({
         slug: `stable-${index}`,
         card: `stable card ${index} ${"x".repeat(5_000)}`,
+        lane: index === 0 ? ("core" as const) : ("hot" as const),
       })),
-      finder: Array.from({ length: 4 }, (_, index) => ({
-        slug: `finder-${index}`,
-        descriptor: `finder descriptor ${index}`,
-      })),
+      finder: [
+        { slug: "finder-needle", descriptor: "needle", lane: "needle" },
+        { slug: "finder-dense", descriptor: "dense", lane: "dense" },
+        { slug: "finder-edge", descriptor: "edge", lane: "edge" },
+        { slug: "finder-learned", descriptor: "learned", lane: "learned" },
+      ],
     };
     let retainedSlugs: string[] = [];
     providerStub = {
@@ -1126,21 +1240,21 @@ describe("selectPool: TypeSafe System One", () => {
     expect(estimatedWireTokens).toBeLessThanOrEqual(25_600);
     expect(payload.state.current_message).toBe(currentMessage);
     expect(retainedSlugs.length).toBeLessThan(44);
-    expect(retainedSlugs).not.toContain("stable-0");
-    expect(retainedSlugs.slice(-4)).toEqual([
-      "finder-0",
-      "finder-1",
-      "finder-2",
-      "finder-3",
-    ]);
+    expect(retainedSlugs).toContain("stable-0");
+    expect(retainedSlugs).toContain("finder-needle");
+    expect(retainedSlugs).toContain("finder-dense");
+    expect(retainedSlugs).not.toContain("finder-learned");
     expect(Object.keys(payload.questions)).toHaveLength(retainedSlugs.length);
-    expect(result).toEqual({
-      pages: [
-        { slug: retainedSlugs[0], sections: [] },
-        { slug: "finder-3", sections: [] },
-      ],
-      keptAll: false,
-    });
+    expect(result.pool.stable[0]?.slug).toBe("stable-0");
+    expect(result.pool.finder.map((candidate) => candidate.slug)).toEqual([
+      "finder-needle",
+      "finder-dense",
+    ]);
+    expect(result.pages).toEqual([
+      { slug: retainedSlugs[0], sections: [] },
+      { slug: retainedSlugs[retainedSlugs.length - 1], sections: [] },
+    ]);
+    expect(result.keptAll).toBe(false);
   });
 
   test("preserves the current message and newest recent-context suffix when turn context is oversized", async () => {
@@ -1217,6 +1331,10 @@ describe("selectPool: TypeSafe System One", () => {
     expect(
       (call.options?.config as Record<string, unknown> | undefined)?.callSite,
     ).toBe("memoryV3SelectL2");
+    expect(
+      (call.options?.config as Record<string, unknown> | undefined)
+        ?.selectionSeed,
+    ).toBe("conv-xyz");
 
     const payload = JSON.parse(
       (call.messages[0]!.content[0] as { text: string }).text,
@@ -1266,8 +1384,15 @@ describe("selectPool: TypeSafe System One", () => {
       }),
     );
 
-    const result = await selectPool(makePool(), makeTurn("nothing relevant"));
-    expect(result).toEqual({ pages: [], keptAll: false });
+    const pool = makePool();
+    const turn = makeTurn("nothing relevant");
+    const result = await selectPool(pool, turn);
+    expect(result).toEqual({
+      pages: [],
+      keptAll: false,
+      pool,
+      turn,
+    });
   });
 
   test("unusable answers throw after the re-prompt retry", async () => {
