@@ -373,6 +373,31 @@ describe("ToolDetailPanel", () => {
     expect(getAllByText("Show more")).toHaveLength(1);
   });
 
+  test("opens a long field inside a folded group with the group's one Show more", () => {
+    const summary = "word ".repeat(200).trim();
+    const record = { stage: "qualified", summary };
+    // The long field is taller than the fold on its own, and so is its group.
+    restoreLayout = stubOverflow((el) => el.textContent.includes(summary));
+    const { getAllByText, getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_crm_upsert_contact",
+          input: { record },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+    act(() => {
+      fireEvent.click(getByText("Show more"));
+    });
+    // Nothing is left folded inside the opened group.
+    expect(queryByText("Show more")).toBeNull();
+    expect(getAllByText("Show less")).toHaveLength(1);
+  });
+
   test("counts the items past the first twenty instead of listing them", () => {
     const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
     const detail = makeDetail({
