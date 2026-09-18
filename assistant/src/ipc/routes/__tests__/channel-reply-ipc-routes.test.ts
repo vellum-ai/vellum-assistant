@@ -30,7 +30,8 @@ mock.module("../../../messaging/providers/telegram-bot/api.js", () => ({
 
 const { CHANNEL_REPLY_IPC_METHODS } =
   await import("../channel-reply-ipc-routes.js");
-const { BadRequestError } = await import("../../../runtime/routes/errors.js");
+const { BadGatewayError, BadRequestError } =
+  await import("../../../runtime/routes/errors.js");
 
 const deliverGatewayReply =
   CHANNEL_REPLY_IPC_METHODS[DELIVER_GATEWAY_REPLY_IPC_METHOD]!;
@@ -64,6 +65,26 @@ describe("deliver_gateway_reply", () => {
       message_thread_id: 7,
     });
     expect(result).toEqual({ ok: true, messageIds: ["42"] });
+  });
+
+  test("answers a send the channel refuses with a status, not a bare error", async () => {
+    // Only a RouteError crosses IPC with a status; without one the gateway
+    // reads the refusal as a daemon that never answered.
+    callTelegramBotApiMock.mockImplementationOnce(async () => {
+      throw new Error("Bad Request: chat not found");
+    });
+
+    const rejection = expect(
+      deliverGatewayReply({
+        body: {
+          callbackUrl: TELEGRAM_CALLBACK,
+          chatId: "12345",
+          text: "Welcome! You've been granted access.",
+        },
+      }),
+    ).rejects;
+    await rejection.toBeInstanceOf(BadGatewayError);
+    await rejection.toMatchObject({ statusCode: 502 });
   });
 
   test("refuses a callback no channel transport owns, sending nothing", async () => {

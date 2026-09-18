@@ -24,30 +24,41 @@ import {
   deliverDirect,
   isDirectDelivery,
 } from "../../messaging/providers/index.js";
-import { BadRequestError } from "../../runtime/routes/errors.js";
+import {
+  BadGatewayError,
+  BadRequestError,
+} from "../../runtime/routes/errors.js";
+import { parseBody } from "../../runtime/routes/parse-body.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 
 /**
  * Deliver a gateway-composed reply through the channel transport its callback
  * URL names. Refuses a callback no transport owns rather than fetching it, so
  * the gateway learns the channel cannot be answered this way.
+ *
+ * A send the channel refuses is answered as a `BadGatewayError`, as
+ * `channels/send` answers it: only a `RouteError` carries a status over IPC,
+ * and the gateway reads an error without one as a daemon that never answered.
  */
 export async function handleDeliverGatewayReply({
   body = {},
 }: RouteHandlerArgs) {
-  const parsed = GatewayReplyRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    throw new BadRequestError(parsed.error.message);
-  }
-  const { callbackUrl, chatId, text, assistantId } = parsed.data;
+  const { callbackUrl, chatId, text, assistantId } = parseBody(
+    GatewayReplyRequestSchema,
+    body,
+  );
   if (!isDirectDelivery(callbackUrl)) {
     throw new BadRequestError("No channel transport owns this callback URL");
   }
-  return deliverDirect(callbackUrl, {
-    chatId,
-    text,
-    ...(assistantId ? { assistantId } : {}),
-  });
+  try {
+    return await deliverDirect(callbackUrl, {
+      chatId,
+      text,
+      ...(assistantId ? { assistantId } : {}),
+    });
+  } catch (err) {
+    throw new BadGatewayError(err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
