@@ -347,27 +347,33 @@ export function consumeSession(
  * Claim a `pending_bootstrap` session for the mint that redeemed its deep
  * link, revoking it so the token cannot be spent twice. Status-guarded like
  * {@link consumeSession}: only the first claimant wins, and a later attempt
- * on an already-claimed row reports `false` instead of quietly succeeding.
+ * on an already-claimed row gets null instead of quietly succeeding.
+ *
+ * Returns the claimed session, because the mint that replaces it continues
+ * it: in particular it keeps the session's purpose.
  *
  * The claim has to name the row rather than match it by identity. A bootstrap
  * row carries whichever identity was bound onto it last, so two people
  * redeeming the same link leave it bound to the second one, and an
  * identity-matched revoke would miss it for the first.
  */
-export function claimBootstrapSession(id: string, channel: string): boolean {
-  const raw = (getGatewayDb() as unknown as { $client: Database }).$client;
-  return (
-    raw
-      .prepare(
-        `UPDATE channel_verification_sessions
-       SET status = 'revoked',
-           updated_at = ?
-       WHERE id = ?
-         AND channel = ?
-         AND status = 'pending_bootstrap'`,
-      )
-      .run(Date.now(), id, channel).changes > 0
-  );
+export function claimBootstrapSession(
+  id: string,
+  channel: string,
+): VerificationSession | null {
+  const [claimed] = getGatewayDb()
+    .update(channelVerificationSessions)
+    .set({ status: "revoked", updatedAt: Date.now() })
+    .where(
+      and(
+        eq(channelVerificationSessions.id, id),
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.status, "pending_bootstrap"),
+      ),
+    )
+    .returning()
+    .all();
+  return claimed ? rowToSession(claimed) : null;
 }
 
 // ---------------------------------------------------------------------------
