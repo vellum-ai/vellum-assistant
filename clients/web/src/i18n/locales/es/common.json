@@ -483,7 +483,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "Pregunta lo que quieras a Vellum..."
+    "placeholder": "Pregunta lo que quieras a Vellum...",
+    "send": "Enviar mensaje"
   },
   "referralContent": {
     "copied": "¡Copiado!",

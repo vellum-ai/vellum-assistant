@@ -485,7 +485,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "Ask Vellum anything..."
+    "placeholder": "Ask Vellum anything...",
+    "send": "Send message"
   },
   "referralContent": {
     "copied": "Copied!",

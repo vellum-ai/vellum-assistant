@@ -222,6 +222,7 @@ export function DynamicPageSurface({
             <button
               type="button"
               onClick={handleCollapse}
+              aria-label={t("dynamicPageSurface.collapse")}
               className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
             >
               <Minimize2 className="h-3.5 w-3.5" />

@@ -311,6 +311,7 @@ function EventCard({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
               className="flex items-center gap-1 text-label-medium-default hover:underline"
               style={{ color: "var(--content-secondary)" }}
             >

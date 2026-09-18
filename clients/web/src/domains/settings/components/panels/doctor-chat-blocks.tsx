@@ -106,6 +106,7 @@ export function ToolCallBlock({
     <div className="my-1 w-full">
       <button
         type="button"
+        aria-expanded={canExpand ? expanded : undefined}
         onClick={() => {
           if (canExpand) {
             setExpanded(!expanded);
@@ -275,6 +276,7 @@ export function ApprovalBlock({
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
             className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
           >
             <ChevronRight

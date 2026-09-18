@@ -329,8 +329,17 @@ export function FileUploadSurface({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            fileInputRef.current?.click();
+          }
+        }}
         className={cn(
           "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 transition-colors",
+          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
           isDragOver
             ? "border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)]"
             : "border-[var(--border-element)] bg-[var(--surface-sunken)] hover:border-[var(--content-faint)]",
@@ -390,6 +399,9 @@ export function FileUploadSurface({
                   e.stopPropagation();
                   removeFile(sf.id);
                 }}
+                aria-label={t("fileUploadSurface.removeFile", {
+                  name: sanitizeFilename(sf.file.name),
+                })}
                 className="shrink-0 rounded p-0.5 text-[var(--content-faint)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-secondary)] disabled:opacity-50"
               >
                 <X className="h-3.5 w-3.5" />

@@ -197,6 +197,7 @@ function EventRow({ event }: { event: AssistantSystemEvent }) {
           <button
             type="button"
             onClick={() => setDetailsOpen((o) => !o)}
+            aria-expanded={detailsOpen}
             className="text-body-small-default flex items-center gap-1"
             style={{ color: "var(--content-tertiary)" }}
           >
