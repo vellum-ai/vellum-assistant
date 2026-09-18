@@ -547,6 +547,7 @@ export async function sweepFailedEvents(
       },
       assistantId,
       trustContext,
+      author: trustContext,
       isInteractive:
         resolveRoutingStateFromRuntime(trustContext).promptWaitingAllowed,
       onEvent: observeAgentEvent,

@@ -98,6 +98,7 @@ import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import * as deliveryCrud from "../persistence/delivery-crud.js";
@@ -318,7 +319,11 @@ describe("channel-retry-sweep", () => {
           }
         | undefined;
 
+      let capturedAuthor: TrustContext | undefined;
+      let capturedTrust: TrustContext | undefined;
       await sweepFailedEvents(async (conversationId, _content, options) => {
+        capturedAuthor = options?.author;
+        capturedTrust = options?.trustContext;
         capturedOptions = options as {
           trustContext?: {
             trustClass?: string;
@@ -345,6 +350,10 @@ describe("channel-retry-sweep", () => {
         "principal-1",
       );
       expect(capturedOptions?.isInteractive).toBe(c.expectedInteractive);
+      // The replay persists the sender's own message, so it names them as
+      // the row's author, exactly as live ingress does.
+      expect(capturedAuthor?.trustClass).toBe(c.trustClass);
+      expect(capturedAuthor).toEqual(capturedTrust);
 
       const db = getDb();
       const row = db

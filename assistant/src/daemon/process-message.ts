@@ -67,12 +67,19 @@ import {
   preactivateHostProxySkills,
   shouldAttachHostProxyForCapability,
 } from "./host-proxy-preactivation.js";
+import { actorAuthorProvenance } from "./message-provenance.js";
 import type { SubagentToolGateMode } from "./tool-setup-types.js";
-import { restingTrust } from "./trust-context-types.js";
+import { restingTrust, type TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("process-message");
 
 type ProcessMessageOptions = ConversationCreateOptions & {
+  /**
+   * The person whose own inbound message this turn persists, set only by
+   * channel ingress and its retry replay. Names the author on the persisted
+   * user row; see `PersistMessageOptions.author`.
+   */
+  author?: TrustContext;
   /** Per-turn observer for live agent-loop events. Does not replace SSE broadcast. */
   onEvent?: (msg: AssistantEvent) => void;
   /** IDs of user-uploaded attachments to resolve and include in the turn. */
@@ -539,7 +546,7 @@ export async function processMessage(
       ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
     };
     const userMetaWithSlack = withChannelEnvelopes(
-      serverChannelMeta,
+      { ...serverChannelMeta, ...actorAuthorProvenance(options?.author) },
       slackMeta,
       providerMeta,
     );
@@ -638,7 +645,7 @@ export async function processMessage(
         : {}),
     };
     const compactUserMeta = withChannelEnvelopes(
-      compactChannelMeta,
+      { ...compactChannelMeta, ...actorAuthorProvenance(options?.author) },
       slackMeta,
       providerMeta,
     );
@@ -698,7 +705,7 @@ export async function processMessage(
         : {}),
     };
     const cleanUserMeta = withChannelEnvelopes(
-      cleanChannelMeta,
+      { ...cleanChannelMeta, ...actorAuthorProvenance(options?.author) },
       slackMeta,
       providerMeta,
     );
@@ -744,6 +751,7 @@ export async function processMessage(
       requestId,
       metadata: persistMetadata,
       displayContent: options?.displayContent,
+      ...(options?.author ? { author: options.author } : {}),
       ...(options?.skipUserMessageIndexing ? { skipIndexing: true } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
     },
@@ -825,6 +833,7 @@ export async function processMessageInBackground(
       requestId,
       metadata: persistMetadata,
       displayContent: options?.displayContent,
+      ...(options?.author ? { author: options.author } : {}),
       ...(ingressKey ? { clientMessageId: ingressKey } : {}),
     },
   );

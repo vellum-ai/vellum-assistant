@@ -969,6 +969,13 @@ export interface PersistMessageOptions {
    */
   trustContext?: TrustContext;
   /**
+   * The person whose own inbound message this row records, passed only by a
+   * caller relaying one (channel ingress and its retry replay). It names the
+   * row's author (`actorAuthorProvenance`). Machine-authored callers omit it,
+   * so their rows name no author whatever the conversation's trust is.
+   */
+  author?: TrustContext;
+  /**
    * Persist the row without indexing it (no memory segments, embeddings, or
    * lexical-index entry). For machine-authored prompts that must not enter
    * memory or search; see `ProcessMessageOptions.skipUserMessageIndexing`.
@@ -1217,11 +1224,12 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    // Callers that own a turn pass the sender's trust; the fallback serves
-    // ingress paths that persist before any per-turn stamp exists, where the
-    // slot their own resolution just wrote is the right actor.
-    const senderTrust = options.trustContext ?? restingTrust(ctx);
-    const provenance = provenanceFromTrustContext(senderTrust);
+    const provenance = provenanceFromTrustContext(
+      // Callers that own a turn pass the sender's trust; the fallback serves
+      // ingress paths that persist before any per-turn stamp exists, where
+      // the slot their own resolution just wrote is the right actor.
+      options.trustContext ?? restingTrust(ctx),
+    );
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted
@@ -1324,11 +1332,11 @@ export async function persistQueuedMessageBody(
       ...metadataWithoutSlackInbound,
       ...provenance,
       // A scripted or hidden row speaks in the person's voice without being
-      // their words, so only a message they sent names them as its author.
+      // their words, so even a relayed author is not named on one.
       ...(resolvedScripted ||
       isHiddenMessageMetadata(metadataWithoutSlackInbound)
         ? {}
-        : actorAuthorProvenance(senderTrust)),
+        : actorAuthorProvenance(options.author)),
       ...(turnCtx
         ? {
             userMessageChannel: turnCtx.userMessageChannel,

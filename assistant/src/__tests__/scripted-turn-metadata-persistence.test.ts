@@ -236,14 +236,29 @@ describe("author contact id on a persisted user message", () => {
     addMessageCalls.length = 0;
   });
 
-  test("a message the sender typed names them as its author", async () => {
+  test("a message relayed from the sender names them as its author", async () => {
     await persistQueuedMessageBody(createContext(), {
       content: "the export endpoint needs a scoped token",
       requestId: "req-author-typed",
       trustContext: sender,
+      author: sender,
     });
 
     expect(lastUserMetadata().provenanceContactId).toBe("contact-alice");
+  });
+
+  test("a row persisted under the sender's trust but not relayed from them names no author", async () => {
+    // Machine-authored rows (ACP and subagent notifications, pointer turns)
+    // share this writer and the conversation's trust; only an explicit
+    // author names one.
+    await persistQueuedMessageBody(createContext(), {
+      content: "the delegated task finished",
+      requestId: "req-author-machine",
+      trustContext: sender,
+      metadata: { acpNotification: { acpSessionId: "acp-session-1" } },
+    });
+
+    expect(lastUserMetadata().provenanceContactId).toBeUndefined();
   });
 
   test.each([
@@ -257,6 +272,7 @@ describe("author contact id on a persisted user message", () => {
         content: "sent on the sender's behalf",
         requestId: `req-author-${kind}`,
         trustContext: sender,
+        author: sender,
         ...extra,
       });
 
