@@ -136,15 +136,24 @@ export interface ConversationRowListProps {
 }
 
 /**
- * Whether a scroller's content runs past its box, kept live. A callback ref
- * (stored in state, as `useElementSize` does) so it re-measures when the
- * scroller mounts, and a `ResizeObserver` so it follows the box: the cap
- * coming and going with `expanded`, the rail squeezing the last section.
- * Content changes reach it through the same observer when they move the
- * box, and through `contentKey` when they do not (a row added under a
- * capped box grows `scrollHeight` alone).
+ * Whether a scroller's content runs past a cap that is holding it to
+ * `cap` tall, kept live. Overflow alone is not enough: a rail short enough
+ * to squeeze the box under the cap makes the content overflow too, and
+ * then the expanded layout has the same leftover height and nothing more
+ * to show, so the box has to stand at the cap itself for the cap to be
+ * what is holding the rows back.
+ *
+ * A callback ref (stored in state, as `useElementSize` does) so it
+ * re-measures when the scroller mounts, and a `ResizeObserver` so it
+ * follows the box: the cap coming and going with `expanded`, the rail
+ * squeezing the last section. Content changes reach it through the same
+ * observer when they move the box, and through `contentKey` when they do
+ * not (a row added under a capped box grows `scrollHeight` alone).
  */
-function useOverflows(contentKey: number): {
+function useOverflowsCap(
+  cap: number,
+  contentKey: number,
+): {
   ref: (el: HTMLDivElement | null) => void;
   overflows: boolean;
 } {
@@ -156,7 +165,8 @@ function useOverflows(contentKey: number): {
       setOverflows(false);
       return;
     }
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight);
+    const measure = () =>
+      setOverflows(el.clientHeight >= cap && el.scrollHeight > el.clientHeight);
     measure();
     if (typeof ResizeObserver === "undefined") {
       return;
@@ -164,7 +174,7 @@ function useOverflows(contentKey: number): {
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [el, contentKey]);
+  }, [el, cap, contentKey]);
 
   return { ref: setEl, overflows };
 }
@@ -199,12 +209,14 @@ export function ConversationRowList({
      rows' height and gap are set where they render (the card zeroes the
      list's gap, so ten rows fit the cap), and a count kept here would have
      to be kept in step with both. A windowed list has outgrown the cap by
-     definition. A section within its cap has nothing to expand
-     into, and an expanded section that has since shrunk to fit keeps the
-     control so it can be put back. */
+     definition. A section within its cap has nothing to expand into, and
+     neither has one the rail itself has squeezed under the cap (see
+     `useOverflowsCap`); an expanded section that has since shrunk to fit
+     keeps the control so it can be put back. */
   const canExpand =
     expandable === true && isLast === true && !unbounded && !scrollWithBody;
-  const { ref: scrollerRef, overflows: scrollerOverflows } = useOverflows(
+  const { ref: scrollerRef, overflows: scrollerOverflows } = useOverflowsCap(
+    SIDEBAR_SECTION_MAX_HEIGHT,
     items.length,
   );
   const overflowsCap =
