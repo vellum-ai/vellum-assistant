@@ -17,7 +17,11 @@
  * failure are short-circuited at the gateway.
  */
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  applyGuardianBindingGatewayWrites,
+  mirrorGuardianBinding,
+} from "../auth/guardian-bootstrap.js";
+import { getGatewayDb } from "../db/connection.js";
 import {
   consumeSession,
   findPendingSessionByHash,
@@ -326,6 +330,16 @@ export async function tryTextVerificationIntercept(
 // Side effects
 // ---------------------------------------------------------------------------
 
+/**
+ * Guardian side effect for a consumed guardian code. Returns false when no
+ * binding was made.
+ *
+ * When another sender already guards the channel, the code replaces them.
+ * The guardian's intent was settled when the code was minted: every guardian
+ * mint refuses a guarded channel unless the guardian asked to rebind
+ * (`already_bound` in the daemon's verification control plane), so a guardian
+ * code on a guarded channel is a rebind the guardian requested.
+ */
 async function applyGuardianSideEffects(params: {
   sourceChannel: string;
   canonicalUserId: string;
@@ -341,50 +355,8 @@ async function applyGuardianSideEffects(params: {
     actorUsername,
   } = params;
 
-  // Check for binding conflict — another user already holds guardian
-  const existing = getExistingGuardianBinding(sourceChannel);
-  if (existing?.address && existing.address !== canonicalUserId) {
-    log.warn(
-      {
-        sourceChannel,
-        existingGuardian: existing.address,
-        newActor: canonicalUserId,
-      },
-      "Guardian binding conflict: another user already holds this channel",
-    );
-    // Still upsert the contact channel so the sender is a known contact,
-    // but skip guardian binding creation.
-    const { verified } = await upsertVerifiedContactChannel({
-      sourceChannel,
-      externalUserId: canonicalUserId,
-      externalChatId: actorChatId,
-      displayName: actorDisplayName,
-      username: actorUsername,
-    });
-    return verified;
-  }
-
-  // The gateway is the source of truth: a blocked/revoked gateway row rejects
-  // the binding. Check BEFORE the same-user revoke below so a legitimately
-  // re-verifying guardian (whose current row is active) isn't blocked by their
-  // own about-to-be-revoked row. createGuardianBinding writes "active"
-  // unconditionally, so this guard is the only thing stopping a blocked actor.
-  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
-  if (gwStatus === "blocked" || gwStatus === "revoked") {
-    log.warn(
-      { sourceChannel, address: canonicalUserId, status: gwStatus },
-      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
-    );
-    return false;
-  }
-
-  // Revoke existing binding (same-user re-verification)
-  revokeExistingChannelGuardian(sourceChannel);
-
-  // Resolve canonical principal — unify all channel bindings
-  const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
-
-  // Determine display name — preserve existing if user is re-verifying
+  // Read before any write below, so the revoke and the binding that replaces
+  // it commit together with nothing awaited between them.
   const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
@@ -393,16 +365,48 @@ async function applyGuardianSideEffects(params: {
     ? existingContact.displayName
     : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
-  // Create guardian binding (dual-writes to both DBs)
-  await createGuardianBinding({
-    channel: sourceChannel,
-    externalUserId: canonicalUserId,
-    deliveryChatId: actorChatId,
-    guardianPrincipalId: canonicalPrincipal,
-    displayName,
-    verifiedVia: "challenge",
-    reactivateRevoked: true,
+  const existing = getExistingGuardianBinding(sourceChannel);
+  if (existing?.address && existing.address !== canonicalUserId) {
+    log.info(
+      {
+        sourceChannel,
+        existingGuardian: existing.address,
+        newActor: canonicalUserId,
+      },
+      "Rebinding guardian: the code replaces the channel's current guardian",
+    );
+  }
+
+  // The gateway is the source of truth: a blocked row refuses the binding.
+  // Checked here because the binding writer skips a blocked row without
+  // saying so, which would otherwise revoke the current guardian and bind
+  // nobody. A revoked row is left to the writer, which reactivates it for a
+  // fresh verification act like this one (`reactivateRevoked`).
+  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  if (gwStatus === "blocked") {
+    log.warn(
+      { sourceChannel, address: canonicalUserId, status: gwStatus },
+      "Skipping guardian binding: authoritative gateway channel is blocked",
+    );
+    return false;
+  }
+
+  // Replace the current binding (a same-user re-verification, or the rebind
+  // above) in one transaction, so a failed write leaves the current guardian
+  // in place rather than the channel with none.
+  const writes = getGatewayDb().transaction(() => {
+    revokeExistingChannelGuardian(sourceChannel);
+    return applyGuardianBindingGatewayWrites({
+      channel: sourceChannel,
+      externalUserId: canonicalUserId,
+      deliveryChatId: actorChatId,
+      guardianPrincipalId: resolveCanonicalPrincipal(canonicalUserId),
+      displayName,
+      verifiedVia: "challenge",
+      reactivateRevoked: true,
+    });
   });
+  await mirrorGuardianBinding(writes);
   return true;
 }
 
