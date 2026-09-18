@@ -570,6 +570,41 @@ describe("updating the activity", () => {
     });
   });
 
+  test("tool and approval detail overlays an escalated response", async () => {
+    renderMirror();
+    await setPhase("listening");
+    await settled(() => {
+      const store = useLiveVoiceStore.getState();
+      store.setResponsePhase("escalated");
+      store.setActivityLabel("");
+      store.setState("thinking");
+    });
+
+    await settled(() =>
+      useLiveVoiceStore.getState().setActivityLabel("Searching the web"),
+    );
+    expect(lastUpdatePayload()).toMatchObject({
+      detail: "Searching the web",
+      approvalRequestId: "",
+    });
+
+    await settled(() =>
+      useLiveVoiceStore
+        .getState()
+        .setActivityLabel("Waiting for approval", "approval-123"),
+    );
+    expect(lastUpdatePayload()).toMatchObject({
+      detail: "Waiting for approval",
+      approvalRequestId: "approval-123",
+    });
+
+    await settled(() => useLiveVoiceStore.getState().setActivityLabel(""));
+    expect(lastUpdatePayload()).toMatchObject({
+      detail: "",
+      approvalRequestId: "",
+    });
+  });
+
   // The island and the macOS companion render the label the mirror hands them
   // verbatim, so a label resolved in English would leave both reading a
   // language the app is not in. Nothing in the session moves on a switch, so
