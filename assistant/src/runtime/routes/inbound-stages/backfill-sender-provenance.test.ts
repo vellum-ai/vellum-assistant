@@ -72,7 +72,7 @@ describe("createBackfilledSenderProvenanceResolver", () => {
     });
   });
 
-  test("a stranger verdict carries no contact id", async () => {
+  test("a stranger verdict carries no contact id and no lookup-failed marker", async () => {
     readsBySender.set(
       "U_STRANGER",
       readOf({ trustClass: "unknown", canonicalSenderId: "U_STRANGER" }),
@@ -84,14 +84,16 @@ describe("createBackfilledSenderProvenanceResolver", () => {
     });
   });
 
-  test("an unreadable verdict falls back to the guardian address comparison", async () => {
+  test("an unreadable verdict falls back to the guardian address comparison and marks the failed lookup", async () => {
     const resolve = createBackfilledSenderProvenanceResolver(GUARDIAN_ID, []);
 
     expect(await resolve(GUARDIAN_ID)).toEqual({
       provenanceTrustClass: "guardian",
+      provenanceLookupFailed: true,
     });
     expect(await resolve("U_ALICE")).toEqual({
       provenanceTrustClass: "unknown",
+      provenanceLookupFailed: true,
     });
   });
 
@@ -107,6 +109,7 @@ describe("createBackfilledSenderProvenanceResolver", () => {
 
     expect(await resolve("U_ALICE")).toEqual({
       provenanceTrustClass: "unknown",
+      provenanceLookupFailed: true,
     });
   });
 
@@ -127,7 +130,7 @@ describe("createBackfilledSenderProvenanceResolver", () => {
     expect(readInboundTrustMock).toHaveBeenCalledTimes(2);
   });
 
-  test("a row with no sender id is unknown without a gateway read", async () => {
+  test("a row with no sender id is unknown without a gateway read or a lookup-failed marker", async () => {
     const resolve = createBackfilledSenderProvenanceResolver(GUARDIAN_ID, []);
 
     expect(await resolve(undefined)).toEqual({

@@ -410,6 +410,14 @@ export const messageMetadataSchema = z
      * this one the author. Absent when the author resolved to no contact.
      */
     provenanceContactId: z.string().optional(),
+    /**
+     * Set on a backfilled row whose sender was looked up but no usable gateway
+     * verdict came back, so its trust class is the guardian-address fallback
+     * and it names no author. Distinguishes that row from a sender the gateway
+     * resolved as a stranger, so the lookup can be re-run later. Live ingress
+     * never persists such a row: it denies a turn whose verdict failed.
+     */
+    provenanceLookupFailed: z.boolean().optional(),
     automated: z.boolean().optional(),
     /**
      * Transcript-suppression flag: the row is a machine signal (e.g. the

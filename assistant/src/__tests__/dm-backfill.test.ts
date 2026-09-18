@@ -199,6 +199,7 @@ function readPersistedSlackRows(): Array<{
   provenanceGuardianExternalUserId: string | undefined;
   provenanceRequesterIdentifier: string | undefined;
   provenanceContactId: string | undefined;
+  provenanceLookupFailed: boolean | undefined;
   sentAt: number | undefined;
   createdAt: number;
 }> {
@@ -256,6 +257,10 @@ function readPersistedSlackRows(): Array<{
         provenanceContactId:
           typeof envelope.provenanceContactId === "string"
             ? envelope.provenanceContactId
+            : undefined,
+        provenanceLookupFailed:
+          typeof envelope.provenanceLookupFailed === "boolean"
+            ? envelope.provenanceLookupFailed
             : undefined,
         sentAt:
           typeof envelope.sentAt === "number" ? envelope.sentAt : undefined,
@@ -360,6 +365,8 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
       expect(meta!.channelId).toBe(SLACK_DM_CHANNEL_ID);
       expect(meta!.actorExternalUserId).toBe(SLACK_DM_USER_ID);
       expect(r.provenanceTrustClass).toBe("unknown");
+      // No gateway in the test process: the lookup failed, and the row says so.
+      expect(r.provenanceLookupFailed).toBe(true);
       expect(r.provenanceSourceChannel).toBe("slack");
       expect(r.provenanceRequesterIdentifier).toBe(SLACK_DM_USER_ID);
       return meta!.channelTs;
@@ -597,6 +604,7 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     for (const row of memberRows) {
       expect(row.provenanceTrustClass).toBe("trusted_contact");
       expect(row.provenanceContactId).toBe("contact-dm-user");
+      expect(row.provenanceLookupFailed).toBeUndefined();
     }
     const ownPost = rows.find((r) => r.role === "assistant");
     expect(ownPost?.provenanceTrustClass).toBe("unknown");

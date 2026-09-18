@@ -9,7 +9,8 @@
  * the contact list at import time, which is when the row is written.
  *
  * When the verdict is unreadable or unusable, the row falls back to the
- * guardian-address comparison and carries no contact id.
+ * guardian-address comparison, carries no contact id, and is marked
+ * `provenanceLookupFailed` so it stays distinguishable from a stranger.
  *
  * A read goes through `readInboundTrust`, so it also refreshes the
  * member-verdict cache for that sender, as a live inbound read does.
@@ -27,6 +28,8 @@ import {
 
 export interface BackfilledSenderProvenance extends ActorAuthorProvenance {
   provenanceTrustClass: TrustClass;
+  /** The lookup ran and returned no usable verdict; see `messageMetadataSchema`. */
+  provenanceLookupFailed?: true;
 }
 
 /**
@@ -88,5 +91,6 @@ async function resolveSenderProvenance(
       inboundIdentitiesMatch("slack", senderId, guardianExternalUserId)
         ? "guardian"
         : "unknown",
+    provenanceLookupFailed: true,
   };
 }
