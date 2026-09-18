@@ -95,6 +95,33 @@ describe("coalesceClientConnectionSessions", () => {
     expect(sessions[0].durationMs).toBe(7_000);
     expect(sessions[0].closeReason).toBeNull();
   });
+
+  test("ends an orphaned open when a later open arrives with no close", () => {
+    const sessions = coalesceClientConnectionSessions(
+      [
+        event({
+          reason: "sse_open",
+          occurredAt: 1_000,
+          connectionId: "conn-1",
+        }),
+        event({
+          reason: "sse_open",
+          occurredAt: 5_000,
+          connectionId: "conn-2",
+        }),
+      ],
+      8_000,
+    );
+
+    expect(sessions).toHaveLength(2);
+    expect(sessions[1].startedAt).toBe(1_000);
+    expect(sessions[1].endedAt).toBe(5_000);
+    expect(sessions[1].closeReason).toBe("implicit_replaced");
+    expect(sessions[1].durationMs).toBe(4_000);
+    expect(sessions[0].startedAt).toBe(5_000);
+    expect(sessions[0].endedAt).toBeNull();
+    expect(sessions[0].durationMs).toBe(3_000);
+  });
 });
 
 describe("recordClientConnectionEvent / listClientConnectionHistory", () => {
@@ -187,5 +214,109 @@ describe("recordClientConnectionEvent / listClientConnectionHistory", () => {
     const history = listClientConnectionHistory();
     expect(Array.isArray(history.events)).toBe(true);
     expect(Array.isArray(history.sessions)).toBe(true);
+  });
+
+  test("preserves a session that opened before the since bound", () => {
+    const db = createTestDb();
+    const t0 = 1_700_000_000_000;
+
+    recordClientConnectionEvent(
+      {
+        clientId: "client-123",
+        interfaceId: "chrome-extension",
+        connectionId: "conn-1",
+        reason: "sse_open",
+        occurredAt: t0,
+        actorPrincipalId: "user-123",
+      },
+      db,
+    );
+    recordClientConnectionEvent(
+      {
+        clientId: "client-123",
+        interfaceId: "chrome-extension",
+        connectionId: "conn-1",
+        reason: "sse_close",
+        occurredAt: t0 + 8_000,
+        actorPrincipalId: "user-123",
+      },
+      db,
+    );
+
+    const history = listClientConnectionHistory(
+      { clientId: "client-123", since: t0 + 5_000, now: t0 + 10_000 },
+      db,
+    );
+
+    expect(history.sessions).toHaveLength(1);
+    expect(history.sessions[0].startedAt).toBe(t0);
+    expect(history.sessions[0].endedAt).toBe(t0 + 8_000);
+    expect(history.sessions[0].durationMs).toBe(8_000);
+    expect(history.events).toHaveLength(1);
+    expect(history.events[0].reason).toBe("sse_close");
+  });
+
+  test("keeps a still-open session whose only event is before since", () => {
+    const db = createTestDb();
+    const t0 = 1_700_000_000_000;
+
+    recordClientConnectionEvent(
+      {
+        clientId: "client-123",
+        interfaceId: "chrome-extension",
+        connectionId: "conn-1",
+        reason: "sse_open",
+        occurredAt: t0,
+        actorPrincipalId: "user-123",
+      },
+      db,
+    );
+
+    const history = listClientConnectionHistory(
+      { clientId: "client-123", since: t0 + 5_000, now: t0 + 10_000 },
+      db,
+    );
+
+    expect(history.sessions).toHaveLength(1);
+    expect(history.sessions[0].startedAt).toBe(t0);
+    expect(history.sessions[0].endedAt).toBeNull();
+    expect(history.sessions[0].durationMs).toBe(10_000);
+    expect(history.events).toHaveLength(0);
+  });
+
+  test("omits a session that ended before the since bound", () => {
+    const db = createTestDb();
+    const t0 = 1_700_000_000_000;
+
+    recordClientConnectionEvent(
+      {
+        clientId: "client-123",
+        interfaceId: "chrome-extension",
+        connectionId: "conn-old",
+        reason: "sse_open",
+        occurredAt: t0,
+        actorPrincipalId: "user-123",
+      },
+      db,
+    );
+    recordClientConnectionEvent(
+      {
+        clientId: "client-123",
+        interfaceId: "chrome-extension",
+        connectionId: "conn-old",
+        reason: "sse_close",
+        occurredAt: t0 + 1_000,
+        actorPrincipalId: "user-123",
+      },
+      db,
+    );
+
+    const history = listClientConnectionHistory(
+      { clientId: "client-123", since: t0 + 5_000, now: t0 + 10_000 },
+      db,
+    );
+
+    expect(history.sessions).toHaveLength(0);
+    expect(history.events).toHaveLength(0);
   });
 });

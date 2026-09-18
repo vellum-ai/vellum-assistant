@@ -7,7 +7,7 @@
  * throws back into the hub.
  */
 
-import { and, asc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
+import { and, asc, eq, lt, lte, type SQL } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -35,6 +35,11 @@ export const CLIENT_CONNECTION_EVENT_REASONS = [
 
 export type ClientConnectionEventReason =
   (typeof CLIENT_CONNECTION_EVENT_REASONS)[number];
+
+/** Session-only close when a later open arrives with no recorded close. */
+export type ClientConnectionSessionCloseReason =
+  | ClientConnectionEventReason
+  | "implicit_replaced";
 
 const CLOSE_REASONS = new Set<ClientConnectionEventReason>([
   "sse_close",
@@ -77,7 +82,7 @@ export interface ClientConnectionSession {
   durationMs: number | null;
   flapCount: number;
   openReason: ClientConnectionEventReason;
-  closeReason: ClientConnectionEventReason | null;
+  closeReason: ClientConnectionSessionCloseReason | null;
   clientVersion: string | null;
   sseWatchdog: boolean | null;
   machineName: string | null;
@@ -256,6 +261,10 @@ export function coalesceClientConnectionSessions(
           current.machineName = event.machineName ?? current.machineName;
           continue;
         }
+        if (current && current.endedAt == null) {
+          current.endedAt = event.occurredAt;
+          current.closeReason = "implicit_replaced";
+        }
         finalize();
         current = startSession(event);
         continue;
@@ -310,9 +319,6 @@ export function listClientConnectionHistory(
       eq(clientConnectionEvents.actorPrincipalId, params.actorPrincipalId),
     );
   }
-  if (params.since != null) {
-    filters.push(gte(clientConnectionEvents.occurredAt, params.since));
-  }
   if (params.until != null) {
     filters.push(lte(clientConnectionEvents.occurredAt, params.until));
   }
@@ -325,12 +331,47 @@ export function listClientConnectionHistory(
     const rows =
       filters.length > 0 ? query.where(and(...filters)).all() : query.all();
     const events = rows.map(rowToEvent);
+    const sessions = coalesceClientConnectionSessions(events, now)
+      .filter((session) => {
+        return sessionOverlapsWindow(session, params.since, params.until);
+      })
+      .slice(0, limit);
     return {
-      events,
-      sessions: coalesceClientConnectionSessions(events, now).slice(0, limit),
+      events: events.filter((event) => {
+        return eventInWindow(event, params.since, params.until);
+      }),
+      sessions,
     };
   } catch (err) {
     log.debug({ err }, "failed to list client connection history");
     return { events: [], sessions: [] };
   }
+}
+
+function sessionOverlapsWindow(
+  session: ClientConnectionSession,
+  since?: number,
+  until?: number,
+): boolean {
+  if (since != null && session.endedAt != null && session.endedAt < since) {
+    return false;
+  }
+  if (until != null && session.startedAt > until) {
+    return false;
+  }
+  return true;
+}
+
+function eventInWindow(
+  event: ClientConnectionEvent,
+  since?: number,
+  until?: number,
+): boolean {
+  if (since != null && event.occurredAt < since) {
+    return false;
+  }
+  if (until != null && event.occurredAt > until) {
+    return false;
+  }
+  return true;
 }

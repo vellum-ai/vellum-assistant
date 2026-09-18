@@ -108,7 +108,8 @@ Examples:
         },
         {
           flags: "--since <when>",
-          description: "ISO-8601 or epoch-ms lower bound on event time",
+          description:
+            "ISO-8601 or epoch-ms lower bound. Sessions already open at this time are included.",
         },
         {
           flags: "--limit <n>",
@@ -121,6 +122,7 @@ Options:
   --client-id <id>       Only show history for this client UUID.
   --interface-id <id>    Only show history for this interface.
   --since <when>         Lower bound as ISO-8601 or epoch milliseconds.
+                         Sessions already open at this time are included.
   --limit <n>            Max sessions after flap coalescing. Default 50.
 
 Reconnects shorter than 60 seconds are flaps on the same session, not

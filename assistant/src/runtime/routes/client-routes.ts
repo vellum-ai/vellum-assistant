@@ -183,7 +183,8 @@ export const ROUTES: RouteDefinition[] = [
         name: "since",
         type: "string",
         required: false,
-        description: "ISO-8601 or epoch-ms lower bound on event time.",
+        description:
+          "ISO-8601 or epoch-ms lower bound. Sessions already open at this time are included.",
       },
       {
         name: "limit",

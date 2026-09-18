@@ -29,4 +29,11 @@ describe("intersectChannelAllowlist", () => {
       "telegram",
     ]);
   });
+
+  test("deduplicates a repeated available channel", () => {
+    const available = ["vellum", "telegram"] as NotificationChannel[];
+    expect(
+      intersectChannelAllowlist(["telegram", "telegram"], available),
+    ).toEqual(["telegram"]);
+  });
 });
