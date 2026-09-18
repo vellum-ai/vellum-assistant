@@ -1208,7 +1208,7 @@ export function ChatComposer({
 
   // The row's one Stop, in the chrome the slot it stands in wears: the busy
   // row's default control with the flag off, and the send slot's occupant
-  // while `interrupt-on-send` leaves the composer nothing to send.
+  // while `interrupt-on-send` leaves no send to press.
   const stopControl = (
     <Button
       variant="primary"
