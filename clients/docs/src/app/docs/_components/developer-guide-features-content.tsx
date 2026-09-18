@@ -168,7 +168,7 @@ export function DeveloperGuideFeaturesContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li><strong>Desktop</strong> — inline base64 in SSE events; macOS app renders thumbnails</li>
-            <li><strong>Telegram</strong> — gateway delivers via <code className="text-sm">sendPhoto</code>/<code className="text-sm">sendDocument</code> (20 MB limit)</li>
+            <li><strong>Telegram</strong>: the assistant sends via <code className="text-sm">sendPhoto</code>/<code className="text-sm">sendDocument</code> (50 MB limit)</li>
             <li><strong>HTTP API</strong> — <code className="text-sm">GET /v1/assistants/:id/messages</code> returns metadata; <code className="text-sm">GET /v1/assistants/:assistantId/attachments/:attachmentId</code> returns full payload</li>
           </ul>
           <p className="mb-4 text-zinc-600">

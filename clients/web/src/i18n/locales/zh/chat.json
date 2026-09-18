@@ -1830,7 +1830,8 @@
     "rawInput": "原始输入"
   },
   "toolParamFields": {
-    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}",
+    "copyValue": "复制 {label}"
   },
   "toolStepPill": {
     "openAria": "打开 {label}",

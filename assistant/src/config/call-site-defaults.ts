@@ -153,6 +153,11 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  // The escalation judge only runs when this site resolves to the TypeSafe
+  // provider (see calls/voice-escalation-judge.ts), so the shipped default is
+  // any ordinary profile: the judge stays off until a user pins a TypeSafe
+  // profile here.
+  voiceEscalationJudge: { profile: "cost-optimized" },
   // Names the background continuation a barge-in spawns, from the interrupted
   // transcript. The label is fixed at spawn, so the call runs under a short
   // timeout and the deterministic label stands in when it misses; that makes

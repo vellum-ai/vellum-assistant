@@ -49,6 +49,7 @@ import {
   type ProgressCadence,
 } from "../calls/voice-progress-cadence.js";
 import type {
+  VoiceTurnCallbacks,
   VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../calls/voice-session-bridge.js";
@@ -6164,6 +6165,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               activeTurn.handle?.abort();
               activeTurn.handle = null;
             },
+            overruleLeg: () => {
+              const handle = activeTurn.handle;
+              activeTurn.handle = null;
+              if (handle?.overrule) {
+                handle.overrule();
+              } else {
+                handle?.abort();
+              }
+            },
             speakBridge: (bridge) =>
               this.speakEscalationBridge(activeTurn, bridge),
             startEscalatedLeg: (escalated) => {
@@ -6176,6 +6186,102 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (coordinator !== null) {
       activeTurn.frontDoor = coordinator;
     }
+
+    // The leg's completion. A front-door answer held for the escalation judge
+    // is spoken or overruled first, so the turn never closes its TTS buffer
+    // under text that has not been released yet.
+    const completeLeg = (
+      msg: Parameters<NonNullable<VoiceTurnCallbacks["message_complete"]>>[0],
+    ): void => {
+      if (
+        coordinator?.awaitingJudge === true &&
+        msg.type === "message_complete"
+      ) {
+        void coordinator.settled().then(() => completeLeg(msg));
+        return;
+      }
+      const current = this.activeAssistantTurn;
+      if (
+        current?.token !== token ||
+        current.assistantCompleted ||
+        // A barged-in turn finalizes through cancelAssistantTurn.
+        current.abortController.signal.aborted ||
+        this.isClosed
+      ) {
+        return;
+      }
+      if (!leg.frontDoor) {
+        this.claimSuspendedForegroundTask(current);
+      }
+      // A speculative leg that finished without a single delta (empty
+      // output, provider hiccup) carries no verdict, so fail open to a
+      // committed turn so the utterance releases and finalizes like a
+      // normal empty completion instead of dangling un-released.
+      if (current.speculativePending) {
+        this.commitSpeculativeTurn(current);
+      }
+      // A front-door leg that stopped mid-bridge hands off now with
+      // whatever arrived. A cancellation mid-bridge falls through to
+      // normal cancelled finalization instead: a dead turn must not
+      // spawn an escalated leg. A front-door leg that handed off is
+      // finished; the escalated leg drives completion, so this leg's
+      // own trailing completion (including the generation_cancelled
+      // from its abort) is a no-op.
+      if (coordinator !== null) {
+        if (msg.type === "message_complete") {
+          coordinator.complete();
+        }
+        if (coordinator.handedOff) {
+          return;
+        }
+      }
+      // A held "[…"-tail that never completed a marker is real text:
+      // force-flush it before assistantCompleted closes the TTS buffer
+      // and completeTtsForTurn signals the drain, so it is spoken and
+      // emitted rather than dropped.
+      if (!leg.frontDoor && msg.type === "message_complete") {
+        flushLegText(rawText, { force: true });
+      }
+      // Read off the leg that finished the reply: a front-door answer
+      // or the escalated leg. A handed-off front-door leg returned
+      // above, so its holding phrase can never end a call.
+      if (msg.type === "message_complete") {
+        current.notificationHandledSilently =
+          current.taskOutcome !== null &&
+          rawText.trim() === TASK_UPDATE_SILENT_MARKER;
+        const request = requestedSessionControl(rawText, this.sessionControls);
+        if (request?.action === "updates") {
+          // The session's own control: nothing to send, and nothing to
+          // wait for, since it shapes turns that have not started yet.
+          this.progressCadence = request.cadence;
+          log.info(
+            { turnId, cadence: request.cadence },
+            "Live voice progress cadence changed",
+          );
+        } else if (request?.action === "task_stop") {
+          this.stopOutstandingInterruptedWork("spoken_task_stop");
+        } else {
+          if (request?.action === "end") {
+            this.clearForegroundTask("call_end_requested");
+          }
+          current.sessionControlRequested = request;
+        }
+      }
+      if (leg.frontDoor) {
+        this.queueForegroundTaskResume(current);
+      }
+      current.assistantCompleted = true;
+      if (msg.type === "generation_cancelled") {
+        void this.finalizeAssistantTurn(
+          current,
+          "cancelled",
+          "generation_cancelled",
+        );
+        return;
+      }
+      current.assistantMessageId = msg.messageId ?? null;
+      this.completeTtsForTurn(token);
+    };
 
     let finishStart!: () => void;
     const startup = new Promise<void>((resolve) => {
@@ -6322,92 +6428,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             rawText += msg.text;
             flushLegText(rawText);
           },
-          message_complete: (msg) => {
-            const current = this.activeAssistantTurn;
-            if (
-              current?.token !== token ||
-              current.assistantCompleted ||
-              // A barged-in turn finalizes through cancelAssistantTurn.
-              current.abortController.signal.aborted ||
-              this.isClosed
-            ) {
-              return;
-            }
-            if (!leg.frontDoor) {
-              this.claimSuspendedForegroundTask(current);
-            }
-            // A speculative leg that finished without a single delta (empty
-            // output, provider hiccup) carries no verdict — fail open to a
-            // committed turn so the utterance releases and finalizes like a
-            // normal empty completion instead of dangling un-released.
-            if (current.speculativePending) {
-              this.commitSpeculativeTurn(current);
-            }
-            // A front-door leg that stopped mid-bridge hands off now with
-            // whatever arrived. A cancellation mid-bridge falls through to
-            // normal cancelled finalization instead: a dead turn must not
-            // spawn an escalated leg. A front-door leg that handed off is
-            // finished; the escalated leg drives completion, so this leg's
-            // own trailing completion (including the generation_cancelled
-            // from its abort) is a no-op.
-            if (coordinator !== null) {
-              if (msg.type === "message_complete") {
-                coordinator.complete();
-              }
-              if (coordinator.handedOff) {
-                return;
-              }
-            }
-            // A held "[…"-tail that never completed a marker is real text —
-            // force-flush it before assistantCompleted closes the TTS buffer
-            // and completeTtsForTurn signals the drain, so it is spoken and
-            // emitted rather than dropped.
-            if (!leg.frontDoor && msg.type === "message_complete") {
-              flushLegText(rawText, { force: true });
-            }
-            // Read off the leg that finished the reply: a front-door answer
-            // or the escalated leg. A handed-off front-door leg returned
-            // above, so its holding phrase can never end a call.
-            if (msg.type === "message_complete") {
-              current.notificationHandledSilently =
-                current.taskOutcome !== null &&
-                rawText.trim() === TASK_UPDATE_SILENT_MARKER;
-              const request = requestedSessionControl(
-                rawText,
-                this.sessionControls,
-              );
-              if (request?.action === "updates") {
-                // The session's own control: nothing to send, and nothing to
-                // wait for, since it shapes turns that have not started yet.
-                this.progressCadence = request.cadence;
-                log.info(
-                  { turnId, cadence: request.cadence },
-                  "Live voice progress cadence changed",
-                );
-              } else if (request?.action === "task_stop") {
-                this.stopOutstandingInterruptedWork("spoken_task_stop");
-              } else {
-                if (request?.action === "end") {
-                  this.clearForegroundTask("call_end_requested");
-                }
-                current.sessionControlRequested = request;
-              }
-            }
-            if (leg.frontDoor) {
-              this.queueForegroundTaskResume(current);
-            }
-            current.assistantCompleted = true;
-            if (msg.type === "generation_cancelled") {
-              void this.finalizeAssistantTurn(
-                current,
-                "cancelled",
-                "generation_cancelled",
-              );
-              return;
-            }
-            current.assistantMessageId = msg.messageId ?? null;
-            this.completeTtsForTurn(token);
-          },
+          message_complete: completeLeg,
           persisted_user_message_id: (messageId) => {
             const current = this.activeAssistantTurn;
             // Only the first leg's user row is the real caller utterance; the
@@ -6576,6 +6597,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       current.handle = handle;
+      if (coordinator !== null && handle.escalationJudgement) {
+        coordinator.attachEscalationJudge(handle.escalationJudgement);
+      }
       return true;
     } catch (err) {
       if (modeSessionRequestId) {

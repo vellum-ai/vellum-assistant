@@ -72,17 +72,24 @@ export function getBroadcaster(): NotificationBroadcaster {
     // Wire the conversation-created callback so the macOS client is notified
     // immediately when a vellum notification conversation is paired — before
     // slower channel deliveries (e.g. Telegram) delay the push.
+    // A guardian-sensitive conversation's title reaches only the guardian's
+    // own connections, the same scoping the vellum adapter applies to the
+    // notification itself.
     broadcasterInstance.setOnConversationCreated((info) => {
-      broadcastMessage({
-        type: "notification_conversation_created",
-        conversationId: info.conversationId,
-        title: info.title,
-        sourceEventName: info.sourceEventName,
-        targetGuardianPrincipalId: info.targetGuardianPrincipalId,
-        groupId: info.groupId,
-        source: info.source,
-        silent: info.silent,
-      });
+      broadcastMessage(
+        {
+          type: "notification_conversation_created",
+          conversationId: info.conversationId,
+          title: info.title,
+          sourceEventName: info.sourceEventName,
+          targetGuardianPrincipalId: info.targetGuardianPrincipalId,
+          groupId: info.groupId,
+          source: info.source,
+          silent: info.silent,
+        },
+        undefined,
+        { targetActorPrincipalId: info.targetGuardianPrincipalId },
+      );
       log.info(
         {
           conversationId: info.conversationId,

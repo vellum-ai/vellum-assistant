@@ -90,17 +90,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
   },
   {
-    label: "Attachment download",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "http",
-    auth: "JWT Bearer (service token)",
-    description:
-      "Gateway downloads attachment metadata and content from the assistant for channel delivery.",
-    callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
-  },
-  {
     label: "Twilio voice webhook forwarding",
     caller: "gateway",
     callee: "assistant",

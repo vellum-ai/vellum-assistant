@@ -13,40 +13,39 @@ This document enumerates every observed communication permutation between the th
 | 1 | Gateway -> Assistant | `http` | JWT Bearer (ingress token) | Channel inbound forwarding |
 | 2 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Conversation reset |
 | 3 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Attachment upload |
-| 4 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Attachment download |
-| 5 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Twilio voice webhook forwarding |
-| 6 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth callback forwarding |
-| 7 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime proxy |
-| 8 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Log export (daemon logs) |
-| 9 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
-| 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
-| 11 | Gateway -> Assistant | `http` | none | Readiness probe |
-| 12 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime health proxy |
-| 13 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Brain graph proxy |
-| 14 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel readiness proxy |
-| 15 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Contacts control-plane proxy |
-| 16 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration proxy (export/import) |
-| 17 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration rollback proxy |
-| 18 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Workspace commit proxy |
-| 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Upgrade broadcast proxy |
-| 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
-| 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
-| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
-| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
-| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
-| 25 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
-| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
-| 28 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
-| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 33 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 34 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 35 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 4 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Twilio voice webhook forwarding |
+| 5 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth callback forwarding |
+| 6 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime proxy |
+| 7 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Log export (daemon logs) |
+| 8 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
+| 9 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
+| 10 | Gateway -> Assistant | `http` | none | Readiness probe |
+| 11 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime health proxy |
+| 12 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Brain graph proxy |
+| 13 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel readiness proxy |
+| 14 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Contacts control-plane proxy |
+| 15 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration proxy (export/import) |
+| 16 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration rollback proxy |
+| 17 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Workspace commit proxy |
+| 18 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Upgrade broadcast proxy |
+| 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
+| 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
+| 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
+| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
+| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
+| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
+| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
+| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
+| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 32 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 33 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 34 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -79,18 +78,6 @@ This document enumerates every observed communication permutation between the th
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
 - **Description:** Gateway uploads channel attachments to the assistant via POST /v1/attachments.
-
-**Caller files:**
-- `gateway/src/runtime/client.ts`
-
-**Callee files:**
-- `assistant/src/runtime/routes/inbound-message-handler.ts`
-
-### Attachment download
-
-- **Protocol:** `http`
-- **Auth:** JWT Bearer (service token)
-- **Description:** Gateway downloads attachment metadata and content from the assistant for channel delivery.
 
 **Caller files:**
 - `gateway/src/runtime/client.ts`

@@ -1841,7 +1841,8 @@
     "rawInput": "Raw input"
   },
   "toolParamFields": {
-    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
+    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}",
+    "copyValue": "Copy {label}"
   },
   "toolStepPill": {
     "openAria": "Open {label}",

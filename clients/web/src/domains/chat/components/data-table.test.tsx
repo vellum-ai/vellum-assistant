@@ -87,6 +87,16 @@ describe("DataTable", () => {
     );
   });
 
+  test("offers copy as markdown unless the consumer copies its own way", () => {
+    const { unmount } = render(<DataTable columns={COLUMNS} rows={ROWS} />);
+    expect(screen.queryByLabelText("Copy table as markdown")).not.toBeNull();
+    unmount();
+
+    render(<DataTable columns={COLUMNS} rows={ROWS} copyable={false} />);
+    expect(screen.queryByLabelText("Copy table as markdown")).toBeNull();
+    expect(screen.getAllByRole("row").length).toBe(ROWS.length + 1);
+  });
+
   test("renderCell draws every cell's text, plain and rich alike", () => {
     render(
       <DataTable

@@ -6272,7 +6272,7 @@ components:
           type: boolean
           readOnly: true
           description: True when the owner chose to keep access on until they turn
-            it off, in which case access_consent_expires_at is null.
+            it off.
       required:
       - access_consent_expires_at
       - access_consent_never_expires
