@@ -15,41 +15,13 @@ metadata:
       - "Task can be done via a more specific skill (gmail, calendar, contacts, terminal-sessions) or a CLI / API call"
 ---
 
-This skill provides the computer_use_* action tools through the main agent
-loop and its shared computer-use history, step budget, and screenshot handling.
-
-Platform-hosted web conversations default to the streamed Virtual desktop.
-Native desktop apps, including the Mac app connected to a platform-hosted
-assistant, default to the user's connected computer. Use
-`target: "assistant-desktop"` when explicitly asked to use the virtual desktop
-from a native app. Non-platform assistants keep connected-computer behavior.
-
-Explicit targets override these defaults: `target: "connected-computer"` or
-`target_client_id` selects a connected computer even from the web. Do not combine
-`target_client_id` with `assistant-desktop`. An unavailable selected desktop
-returns an error rather than falling back to a different computer.
-
-## Virtual desktop
-
-Use `computer_use_observe` with `target: "assistant-desktop"` first. Every successful step
-returns a full desktop screenshot and an `observation_id`. Pass that ID with
-the next action (or sequence); it is consumed once. Observe again after browser
-actions, user handoff, errors, or interruption. Use element IDs from the latest
-accessibility tree for clicks, scrolling, and dragging. Use screenshot coordinates
-when an app does not expose the desired element. IDs expire with their observation.
-Click, type, key, scroll, drag, wait, and sequences share the browser automation
-session, cancellation, and user handoff. First use installs desktop components
-and starts the same desktop shown in the Virtual desktop panel.
-
-Use Linux shortcuts such as `ctrl+l`. Open apps through the dock or desktop UI;
-`open_app`, AppleScript, and window-scoped capture are unavailable.
-Call `computer_use_done` with the same target when finished to release the session. Prefer
-`assistant browser` for browser tasks that do not need desktop interaction.
+This skill provides the computer_use_* action tools for controlling a
+connected or virtual desktop.
 
 ## Observations
 
-On connected personal computers, every computer-use step returns the
-accessibility tree. Every action also returns a screenshot taken after it ran (one at the end of a
+Every computer-use step returns available accessibility information. Every
+action also returns a screenshot taken after it ran (one at the end of a
 `computer_use_sequence`), so check it to see what your action did. An
 observation comes with a screenshot on a desktop's first look, when it is
 window-scoped, or when you pass `include_screenshot: true`. Ask for one whenever
@@ -57,8 +29,16 @@ the tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
 unlabeled controls, or a layout question.
 
 The tree is walked to a limited depth to keep steps fast, and says when it was
-cut off. If the element you need is not in it, call `computer_use_observe` with
-`full_tree: true`.
+cut off. On connected computers, call `computer_use_observe` with
+`full_tree: true` if the element you need is not in it. Use screenshot coordinates
+when an element is not available in the tree.
+
+For the virtual desktop, pass the latest `observation_id` with each action or
+sequence; it is consumed once. Observe again after browser actions, user handoff,
+errors, or interruption. Use Linux shortcuts such as `ctrl+l` and open apps
+through the dock or desktop UI. `open_app`, AppleScript, window-scoped capture,
+and `full_tree` are unsupported. Call `computer_use_done` with the same target
+when finished.
 
 ## Scripting apps (macOS)
 
@@ -97,7 +77,7 @@ cannot be taken back. Send only when the user asked you to send, post or
 submit. When they asked you to type, write or draft something, type it and stop
 before pressing enter; tell them it is ready to send.
 
-## Batching known steps (macOS)
+## Batching known steps
 
 When you already know the next few actions and none depends on seeing the
 result of the one before, send them as one `computer_use_sequence` call, for
