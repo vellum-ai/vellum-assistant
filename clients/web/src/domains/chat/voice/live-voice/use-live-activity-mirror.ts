@@ -99,14 +99,20 @@ function toActivityContent(
   if (!isLiveVoiceSessionActive(session.state)) {
     return null;
   }
+  const phase =
+    session.responsePhase === "escalated" &&
+    session.state === "speaking" &&
+    !session.assistantAudioActive
+      ? "thinking"
+      : session.state;
   const labelKey = liveVoiceSurfaceLabelKey(
-    session.state,
+    phase,
     session.reconnecting,
     session.assistantAudioActive,
     session.muted,
   );
   return {
-    phase: session.state,
+    phase,
     // The room's label: the same `liveVoiceSurfaceLabelKey` call the room
     // makes, resolved through the same catalog, including its "Reconnecting…"
     // relabel, its silent-`speaking` to "Thinking…" remap, and its

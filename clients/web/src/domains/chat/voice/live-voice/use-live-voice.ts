@@ -1327,7 +1327,12 @@ export function useLiveVoice(
           // island's Approve/Deny buttons on a decision already made.
           const s = useLiveVoiceStore.getState();
           s.setActivityLabel(frame.label, frame.approvalRequestId ?? null);
-          s.setResponsePhase(frame.kind === "escalation" ? "escalated" : null);
+          // Ordinary tool and approval activity temporarily overlays the
+          // escalated response. It does not end that response, so keep the
+          // underlying phase for the empty activity frame that follows.
+          if (frame.kind === "escalation") {
+            s.setResponsePhase("escalated");
+          }
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) {

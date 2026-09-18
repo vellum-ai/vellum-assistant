@@ -377,7 +377,23 @@ describe("structured response activity", () => {
     expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
 
     act(() => {
-      h.client.emit("thinking", { type: "thinking", seq: 4, turnId: "t2" });
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 4,
+        turnId: "t1",
+        label: "Searching the web",
+      });
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 5,
+        turnId: "t1",
+        label: "",
+      });
+    });
+    expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 6, turnId: "t2" });
     });
     expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
   });

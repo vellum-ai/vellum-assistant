@@ -545,6 +545,31 @@ describe("updating the activity", () => {
     expect(lastUpdatePayload()?.label).toBe("Thinking…");
   });
 
+  test("a silent escalated response mirrors the thinking phase", async () => {
+    renderMirror();
+    await setPhase("listening");
+    await settled(() => {
+      const store = useLiveVoiceStore.getState();
+      store.setResponsePhase("escalated");
+      store.setAssistantAudioActive(true);
+      store.setState("speaking");
+    });
+
+    expect(lastUpdatePayload()).toMatchObject({
+      phase: "speaking",
+      detail: "",
+    });
+
+    await settled(() =>
+      useLiveVoiceStore.getState().setAssistantAudioActive(false),
+    );
+    expect(lastUpdatePayload()).toMatchObject({
+      phase: "thinking",
+      label: "Thinking…",
+      detail: "",
+    });
+  });
+
   // The island and the macOS companion render the label the mirror hands them
   // verbatim, so a label resolved in English would leave both reading a
   // language the app is not in. Nothing in the session moves on a switch, so
