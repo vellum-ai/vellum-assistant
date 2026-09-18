@@ -402,6 +402,13 @@ export const messageMetadataSchema = z
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
+    /**
+     * Contact id of the actor who produced this message, from the gateway
+     * trust verdict at persist time. Absent when no verdict resolved the
+     * actor to a contact. Unlike `provenanceRequesterIdentifier` (a mutable
+     * handle), this is the stable key that says who wrote the row.
+     */
+    provenanceContactId: z.string().optional(),
     automated: z.boolean().optional(),
     /**
      * Transcript-suppression flag: the row is a machine signal (e.g. the
@@ -709,6 +716,7 @@ export function provenanceFromTrustContext(
     provenanceSourceChannel: ctx.sourceChannel,
     provenanceGuardianExternalUserId: ctx.guardianExternalUserId,
     provenanceRequesterIdentifier: ctx.requesterIdentifier,
+    provenanceContactId: ctx.requesterContactId,
   };
 }
 
