@@ -2,8 +2,8 @@
  * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser, the
  * nested detail shown when a subagent `web_fetch` pill is clicked. Covers
  * header parsing (url/status/notices), `<external_content>` stripping, the
- * source card + notices + content render, the "View raw" toggle, and the
- * error-result fallback.
+ * source card + notices + content render, the unparsed result under Raw
+ * output, and the error-result fallback.
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
@@ -158,14 +158,15 @@ describe("WebFetchDetailView", () => {
     );
   });
 
-  test("'View raw' toggles to the unparsed result", () => {
+  test("keeps the unparsed result under Raw output", () => {
     const { getByText, queryByTestId, container } = renderView(payload({}));
-    // Parsed view first: the raw HTTP header is hidden.
-    expect(queryByTestId("markdown")).not.toBeNull();
+    // Readable view first: the raw HTTP header is hidden.
+    expect(getByText("Output")).toBeDefined();
+    expect(container.textContent).not.toContain("Requested URL:");
 
-    fireEvent.click(getByText("View raw"));
-    // Raw view shows the header lines; the markdown view is gone.
-    expect(queryByTestId("markdown")).toBeNull();
+    fireEvent.click(getByText("Raw output"));
+    // The raw result opens underneath; the readable view stays above it.
+    expect(queryByTestId("markdown")).not.toBeNull();
     expect(container.textContent).toContain(
       "Requested URL: https://www.cnbc.com/2025/09/22/michelob.html",
     );

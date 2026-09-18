@@ -1,33 +1,22 @@
 /**
- * The "Output" section of a `skill_load` detail panel (Figma node
- * 7778-163402): a Clean/Raw switch over one card, clamped to a readable height
- * with a Show more control.
+ * The "Output" section of a `skill_load` detail panel: the skill's instructions
+ * rendered as markdown and clamped to a readable height, with the verbatim
+ * result behind the Raw output disclosure underneath, the way every tool's raw
+ * data is reached.
  *
- * `skill_load`'s output is the skill body itself: markdown that renders
- * properly (Clean) but that an operator sometimes needs to see verbatim, header
- * lines and tool manifest included (Raw). Those were two separate collapsed
- * disclosures; the segment control makes them one thing viewed two ways, which
- * is what they are.
+ * `skill_load`'s output is the skill body itself: markdown that reads properly
+ * rendered, but that an operator sometimes needs verbatim, header lines and
+ * tool manifest included.
  */
 
-import { useState } from "react";
-
-import { SegmentControl } from "@vellumai/design-library";
-
 import {
-  CodePre,
+  CodeBlock,
   DetailBlock,
   SectionLabel,
 } from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { RawDisclosure } from "@/domains/chat/components/tool-activity/raw-disclosure";
 import { useTranslation } from "@/i18n";
-
-type OutputMode = "clean" | "raw";
-
-const MODES = [
-  { value: "clean" as const, label: "Clean" },
-  { value: "raw" as const, label: "Raw" },
-];
 
 export function SkillLoadOutput({
   /** Instruction markdown, header and tool manifest already stripped. */
@@ -41,54 +30,37 @@ export function SkillLoadOutput({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  const [mode, setMode] = useState<OutputMode>("clean");
 
-  // A skill whose body is nothing but the header and its tool manifest parses
-  // to empty instructions; Raw is then the only view worth offering, so the
-  // switch would be a control with one real choice.
-  const hasClean = instructions !== "";
-  const hasRaw = raw !== "";
-  if (!hasClean && !hasRaw) {
+  if (instructions === "" && raw === "") {
     return null;
   }
 
-  const activeMode: OutputMode = hasClean ? mode : "raw";
+  // A skill whose body is nothing but the header and its tool manifest parses
+  // to empty instructions. The verbatim result is then the whole output, and
+  // hiding it behind a disclosure would leave the section looking empty.
+  const readable = instructions !== "";
 
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        {/* The row owns the spacing under the header, so the label drops its
-            own bottom margin. Otherwise it sits off-centre from the switch. */}
-        <SectionLabel className="mb-0">
-          {t("skillLoadOutput.output")}
-        </SectionLabel>
-        {hasClean && hasRaw && (
-          <SegmentControl
-            items={MODES}
-            value={activeMode}
-            onChange={setMode}
-            ariaLabel={t("skillLoadOutput.outputFormatAria")}
-            // The control defaults to `w-full` for full-width pickers; here it
-            // trails the section label, so it hugs its two segments instead.
-            // The segments keep `flex-1`, so they stay equal width.
-            className="w-auto shrink-0"
-          />
+    <>
+      <div>
+        <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+        {readable ? (
+          <DetailBlock variant="filled">
+            <ChatMarkdownMessage
+              content={instructions}
+              assistantId={assistantId}
+            />
+          </DetailBlock>
+        ) : (
+          <CodeBlock text={raw} />
         )}
       </div>
-
-      <DetailBlock
-        variant="filled"
-        copyText={activeMode === "raw" ? raw : undefined}
-      >
-        {activeMode === "clean" ? (
-          <ChatMarkdownMessage
-            content={instructions}
-            assistantId={assistantId}
-          />
-        ) : (
-          <CodePre text={raw} />
-        )}
-      </DetailBlock>
-    </div>
+      {readable && raw !== "" && (
+        <RawDisclosure
+          label={t("toolOutputSection.rawOutput")}
+          text={() => raw}
+        />
+      )}
+    </>
   );
 }

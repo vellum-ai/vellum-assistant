@@ -4,18 +4,10 @@
  * output are both drawn this way, so a reader learns one shape for both.
  */
 
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
-import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
+import { SectionLabel } from "@/components/detail-primitives";
+import { RawDisclosure } from "@/domains/chat/components/tool-activity/raw-disclosure";
 import { ValueFields } from "@/domains/chat/components/tool-activity/value-fields";
 import type { ValueFieldList } from "@/domains/chat/utils/value-layout";
-
-/**
- * The raw form. Its own component so the disclosure, which unmounts closed
- * content, only builds the text once someone opens it.
- */
-function RawText({ text }: { text: () => string }) {
-  return <CodeBlock text={text()} />;
-}
 
 interface ValueSectionProps {
   /** The section's uppercase label, e.g. "Parameters". */
@@ -45,9 +37,7 @@ export function ValueSection({
           <ValueFields list={list} moreLabel={moreLabel} label={label} />
         </div>
       )}
-      <DetailDisclosure label={rawLabel}>
-        <RawText text={rawText} />
-      </DetailDisclosure>
+      <RawDisclosure label={rawLabel} text={rawText} />
     </>
   );
 }

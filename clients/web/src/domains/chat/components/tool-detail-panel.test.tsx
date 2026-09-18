@@ -704,6 +704,39 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("Show more")).toBeNull();
   });
 
+  test("drops Show less when the drawer moves to a call whose output fits", () => {
+    // The drawer stays mounted from one call to the next, so an opened fold
+    // can have its content replaced under it.
+    const long = "a line of output\n".repeat(200);
+    restoreLayout = stubOverflow((el) => el.textContent === long);
+    const observer = stubResizeObserver();
+    try {
+      const { getByText, queryByText, rerender } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: long })}
+          onClose={noop}
+        />,
+      );
+      act(() => {
+        fireEvent.click(getByText("Show more"));
+      });
+      expect(getByText("Show less")).toBeDefined();
+
+      rerender(
+        <ToolDetailPanel
+          detail={makeDetail({ toolCallId: "tc-next", result: "done" })}
+          onClose={noop}
+        />,
+      );
+      act(observer.resize);
+
+      expect(queryByText("Show less")).toBeNull();
+      expect(queryByText("Show more")).toBeNull();
+    } finally {
+      observer.restore();
+    }
+  });
+
   test("offers no Show more for long text that fits the fold", () => {
     // Long in characters, but it fits where it is drawn, so nothing is hidden.
     const result = "word ".repeat(300).trim();

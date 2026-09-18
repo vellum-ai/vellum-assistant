@@ -1700,10 +1700,6 @@
     "unnamedSkill": "技能",
     "usedSkill": "已使用技能"
   },
-  "skillLoadOutput": {
-    "output": "輸出",
-    "outputFormatAria": "輸出格式"
-  },
   "skillToolList": {
     "fromSkill": "來自 {name}"
   },
@@ -1970,13 +1966,9 @@
     "now": "現在"
   },
   "webFetchDetailView": {
-    "content": "內容",
     "fetchFailed": "擷取失敗。",
     "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。",
-    "rawResult": "原始結果",
-    "viewExtracted": "檢視已擷取內容",
-    "viewRaw": "檢視原始內容"
+    "noContent": "未擷取到內容。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",

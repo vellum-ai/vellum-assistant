@@ -1662,10 +1662,6 @@
     "unnamedSkill": "Habilidad",
     "usedSkill": "Habilidad usada"
   },
-  "skillLoadOutput": {
-    "output": "Salida",
-    "outputFormatAria": "Formato de salida"
-  },
   "skillToolList": {
     "fromSkill": "De {name}"
   },
@@ -1931,13 +1927,9 @@
     "now": "Ahora"
   },
   "webFetchDetailView": {
-    "content": "Contenido",
     "fetchFailed": "La obtención falló.",
     "fetching": "Obteniendo…",
-    "noContent": "No se extrajo contenido.",
-    "rawResult": "Resultado sin procesar",
-    "viewExtracted": "Ver extraído",
-    "viewRaw": "Ver sin procesar"
+    "noContent": "No se extrajo contenido."
   },
   "webSearchDetailView": {
     "noSources": "No se encontraron fuentes.",
