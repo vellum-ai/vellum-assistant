@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
 import type { AssistantEvent } from "@/types/event-types";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { useSessionDisclosureState } from "@/domains/chat/transcript/use-session-disclosure-state";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
@@ -224,5 +225,55 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
+  });
+
+  test("records a live session boundary even when completion lands in the same batch", () => {
+    setupStreamStore();
+    const { result } = renderHook(
+      () => {
+        const disclosure = useSessionDisclosureState("conv-A");
+        const handler = useStreamEventHandler({
+          push: () => {},
+          isNative: false,
+          cancelReconciliation: () => {},
+          startReconciliationLoop: () => {},
+          setAssetsRefreshKey: () => {},
+          observeLiveModeSession: disclosure.observeLiveSession,
+        });
+        return { disclosure, ...handler };
+      },
+      { wrapper },
+    );
+
+    expect(result.current.disclosure.isSessionOpen("historic-session")).toBe(
+      false,
+    );
+    act(() => {
+      result.current.handleStreamEvent(
+        {
+          type: "assistant_turn_start",
+          conversationId: "conv-A",
+          messageId: "assistant-1",
+          modeSession: { mode: "browser", id: "fast-session" },
+        } as unknown as AssistantEvent,
+        0,
+        "conv-A",
+      );
+      result.current.handleStreamEvent(
+        {
+          type: "message_complete",
+          conversationId: "conv-A",
+          messageId: "assistant-1",
+          modeSession: { mode: "browser", id: "fast-session" },
+        } as unknown as AssistantEvent,
+        0,
+        "conv-A",
+      );
+    });
+
+    expect(result.current.disclosure.isSessionOpen("fast-session")).toBe(true);
+    expect(result.current.disclosure.isSessionOpen("historic-session")).toBe(
+      false,
+    );
   });
 });

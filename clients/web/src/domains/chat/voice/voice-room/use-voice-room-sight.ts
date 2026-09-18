@@ -81,7 +81,9 @@ import {
 } from "react";
 
 import {
+  endLiveVoiceSightSession,
   isLiveVoiceUserSpeaking,
+  startLiveVoiceSightSession,
   takeLiveVoiceLookFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -89,6 +91,7 @@ import {
   createSightCapture,
   LOOK_FRAME_REASON,
   type SightKeepOrigin,
+  type SightCaptureRequest,
 } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
@@ -128,6 +131,15 @@ const ERROR_CONTEXT = "voice-room sight: sample/upload frame";
  * behind it, not just the next poll.
  */
 const LOOK_KEEP_TTL_MS = 5_000;
+
+let nextCameraEpoch = 1;
+
+function allocateCameraEpoch(): number {
+  const epoch = nextCameraEpoch;
+  nextCameraEpoch =
+    nextCameraEpoch === Number.MAX_SAFE_INTEGER ? 1 : nextCameraEpoch + 1;
+  return epoch;
+}
 
 /** The most recent frame the call was given. */
 export interface VoiceRoomSightFrame {
@@ -210,6 +222,21 @@ export function useVoiceRoomSight(
   const sightFramesUnsupported = useLiveVoiceStore.use.sightFramesUnsupported();
   const [heldFrame, setHeldFrame] = useState<VoiceRoomSightFrame | null>(null);
   const [live, setLiveState] = useState(false);
+  const currentRunRef = useRef<{
+    lifecycle: SightCaptureRequest["lifecycle"];
+  } | null>(null);
+  const startCameraRun = useCallback(() => {
+    if (useLiveVoiceStore.getState().reconnecting) {
+      currentRunRef.current = null;
+      return;
+    }
+    const cameraEpoch = allocateCameraEpoch();
+    currentRunRef.current = {
+      lifecycle: startLiveVoiceSightSession(cameraEpoch, "live")
+        ? { cameraEpoch, source: "live" }
+        : undefined,
+    };
+  }, []);
   // What the capture continuations read. The sampler outlives a render, so it
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
@@ -471,6 +498,7 @@ export function useVoiceRoomSight(
     // `active`, which a capture in a torn-down loop still reads as the value of
     // the render it started in.
     sight.grantConsent();
+    startCameraRun();
     /**
      * Put a frame the call was given on screen.
      *
@@ -522,12 +550,19 @@ export function useVoiceRoomSight(
         gate,
         onDecision: (decision, nowMs) => {
           recordFrameGateDecision("voice", decision, nowMs);
-          if (!decision.keep) {
+          const run = currentRunRef.current;
+          if (
+            !decision.keep ||
+            !run ||
+            useLiveVoiceStore.getState().reconnecting
+          ) {
             return;
           }
+          const lifecycle = run.lifecycle;
           void sight.capture({
             assistantId,
             keep: keepOrigin(decision),
+            ...(lifecycle ? { lifecycle } : {}),
             produceFrame: (filename) => captureVideoFrame(video, filename),
             onShared,
           });
@@ -538,18 +573,36 @@ export function useVoiceRoomSight(
     } else {
       const source = createNativeFrameSource({
         gate,
-        captureSample: () =>
-          captureNativeVoiceCameraSample(NATIVE_CAPTURE_QUALITY),
+        captureSample: async () => {
+          const run = currentRunRef.current;
+          if (!run || useLiveVoiceStore.getState().reconnecting) {
+            return null;
+          }
+          const sample = await captureNativeVoiceCameraSample(
+            NATIVE_CAPTURE_QUALITY,
+          );
+          return currentRunRef.current === run &&
+            !useLiveVoiceStore.getState().reconnecting
+            ? sample
+            : null;
+        },
         onDecision: (decision, nowMs, sample) => {
           recordFrameGateDecision("voice", decision, nowMs);
-          if (!decision.keep) {
+          const run = currentRunRef.current;
+          if (
+            !decision.keep ||
+            !run ||
+            useLiveVoiceStore.getState().reconnecting
+          ) {
             return;
           }
+          const lifecycle = run.lifecycle;
           // The judged bytes, not a second capture: one round trip, and the
           // frame the transcript ends up with is the one the gate said yes to.
           void sight.capture({
             assistantId,
             keep: keepOrigin(decision),
+            ...(lifecycle ? { lifecycle } : {}),
             produceFrame: async (filename) =>
               new File([sample], filename, { type: "image/jpeg" }),
             onShared,
@@ -561,6 +614,11 @@ export function useVoiceRoomSight(
       stopSampling = source.stop;
     }
     return () => {
+      const lifecycle = currentRunRef.current?.lifecycle;
+      currentRunRef.current = null;
+      if (lifecycle) {
+        endLiveVoiceSightSession(lifecycle.cameraEpoch);
+      }
       // What voids the work in flight for every other way a run can end: an
       // unmount, a closed room, a viewfinder swapped under it, the app being
       // put away. The revocation is the bump, so a run the user ended finds it
@@ -574,7 +632,15 @@ export function useVoiceRoomSight(
       lookArmedAtRef.current = null;
       hold(null);
     };
-  }, [active, assistantId, hold, nativePreview, sight, videoRef]);
+  }, [
+    active,
+    assistantId,
+    hold,
+    nativePreview,
+    sight,
+    startCameraRun,
+    videoRef,
+  ]);
 
   /**
    * Whether the user is part-way through saying something, as the session
@@ -690,21 +756,6 @@ export function useVoiceRoomSight(
     invalidateCaptures();
   }, [facing, invalidateCaptures]);
 
-  // A retryable transport close ends the SERVER-side session while the logical
-  // call (and so `sessionGeneration`) deliberately survives the gap. Keeps
-  // already made are in the transcript and stay there, but the pulse tracks
-  // the session that is running, and for the length of the gap none is.
-  //
-  // The flag is the narrowest signal for it: only the transport's `closed`
-  // handler raises it, and it is lowered again on the `ready` that means a
-  // fresh session exists. This effect re-runs only when it changes, so the
-  // early return is what confines the work to the transition INTO the gap:
-  // coming back out of one must not clear a frame shared since.
-  //
-  // The epoch bump is for the upload still in flight when the transport
-  // dropped: the generation survives the gap by design, so it can resolve
-  // after the fresh session is ready with every other guard passing, and a
-  // view from seconds before the gap would be persisted as the current one.
   // A refusal the store could tie to a keep this surface is displaying. Taking
   // the thumbnail down is all it costs here: giving the upload back belongs to
   // the session-lifetime reclaimer, because a minimized room is not mounted
@@ -752,11 +803,15 @@ export function useVoiceRoomSight(
 
   const reconnecting = useLiveVoiceStore.use.reconnecting();
   useEffect(() => {
-    if (!reconnecting) {
-      return;
+    if (reconnecting) {
+      currentRunRef.current = null;
+      invalidateCaptures();
+    } else if (active && gateRef.current && !currentRunRef.current) {
+      // The reconnect flag falls on replacement readiness. Announce ownership
+      // before sampling can send its first frame to that connection.
+      startCameraRun();
     }
-    invalidateCaptures();
-  }, [invalidateCaptures, reconnecting]);
+  }, [active, invalidateCaptures, reconnecting, startCameraRun]);
 
   return { heldFrame, liveAvailable, live, setLive, revokeCaptureConsent };
 }

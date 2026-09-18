@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { deriveTranscriptImagePresentation } from "@/domains/chat/transcript/computer-use-image-presentation";
+import { createToolResultImageProjector } from "@/domains/chat/components/chat-attachments/tool-result-images";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 function toolCall(
@@ -190,6 +191,99 @@ describe("deriveTranscriptImagePresentation", () => {
       "image-2.png",
     );
     expect(imagesFor(presentation, "ordinary-embedded")).toEqual([]);
+  });
+
+  test("processes only the final screenshot and ordinary images once", () => {
+    const decode = spyOn(globalThis, "atob");
+    try {
+      const presentation = deriveTranscriptImagePresentation(
+        [
+          toolCall("old", {
+            name: "computer_use_click",
+            imageDataList: ["AAAA", "BBBB"],
+          }),
+          toolCall("latest", {
+            name: "computer_use_click",
+            imageDataList: ["CCCC", "DDDD"],
+          }),
+          toolCall("ordinary", { imageDataList: ["EEEE", "FFFF"] }),
+        ],
+        undefined,
+      );
+
+      expect(decode.mock.calls.map(([payload]) => payload)).toEqual([
+        "DDDD", "EEEE", "FFFF",
+      ]);
+      expect(presentation.selectedComputerUseImage).toMatchObject({
+        occurrenceKey: "latest:2",
+        filename: "computer-use-click-2.png",
+      });
+      expect(imagesFor(presentation, "ordinary")).toHaveLength(2);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  test("refreshes changed bytes, names and references without changing occurrence identity", () => {
+    const project = createToolResultImageProjector();
+    const call = toolCall("cu", {
+      name: "computer_use_click",
+      imageData: "AAAA",
+    });
+    const select = (next: ChatMessageToolCall) =>
+      deriveTranscriptImagePresentation([next], undefined, undefined, project)
+        .selectedComputerUseImage!;
+    const first = select(call);
+    expect(select({ ...call })).toBe(first);
+
+    const changed = select({ ...call, imageData: "BBBB" });
+    expect(changed.previewUrl).toBe("data:image/png;base64,BBBB");
+    expect(changed).not.toBe(first);
+    const renamed = select({
+      ...call,
+      name: "computer_use_screenshot",
+      imageData: "BBBB",
+    });
+    expect(renamed.filename).toBe("computer-use-screenshot.png");
+
+    const referenced = { ...call, imageData: undefined, imageAttachmentIds: ["stored-shot"] };
+    const hydrated = select(referenced);
+    expect(hydrated).toMatchObject({
+      id: "stored-shot",
+      previewUrl: null,
+      resolveReferenceMetadata: true,
+    });
+    expect(hydrated.occurrenceKey).toBe(first.occurrenceKey);
+    expect(select({ ...referenced, imageAttachmentIds: ["replaced-shot"] }).id)
+      .toBe("replaced-shot");
+  });
+
+  test("reuses ordinary images while updating markdown and attachment suppression", () => {
+    const project = createToolResultImageProjector();
+    const calls = [
+      toolCall("cu", { name: "computer_use_click", imageDataList: ["AAAA"] }),
+      toolCall("ordinary", {
+        imageDataList: ["BBBB"],
+        result: "Saved /workspace/output.png",
+      }),
+    ];
+    const first = deriveTranscriptImagePresentation(calls, undefined, undefined, project);
+    const embedded = deriveTranscriptImagePresentation(
+      calls.map((call) => ({ ...call })),
+      undefined,
+      new Set(["output.png"]),
+      project,
+    );
+    expect(imagesFor(embedded, "ordinary")).toEqual([]);
+    expect(embedded.selectedComputerUseImage).toBe(first.selectedComputerUseImage);
+
+    const restored = deriveTranscriptImagePresentation(calls, undefined, undefined, project);
+    expect(imagesFor(restored, "ordinary")[0]).toBe(imagesFor(first, "ordinary")[0]);
+    const attached = deriveTranscriptImagePresentation(
+      calls, [attachment("saved")], undefined, project,
+    );
+    expect(imagesFor(attached, "ordinary")).toEqual([]);
+    expect(attached.selectedComputerUseImage).toBe(first.selectedComputerUseImage);
   });
 
   test("does not mutate caller-owned arrays", () => {

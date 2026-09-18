@@ -89,6 +89,7 @@ import type {
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
 import { turnActorPrincipalId } from "./turn-actor.js";
@@ -178,12 +179,61 @@ const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
 export function hasBlockingPendingSurface(ctx: {
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
 }): boolean {
-  for (const entry of ctx.pendingSurfaceActions.values()) {
+  return blockingPendingSurfaceIds(ctx).length > 0;
+}
+
+export function blockingPendingSurfaceIds(ctx: {
+  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+}): string[] {
+  const ids: string[] = [];
+  for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
     if (!NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType)) {
-      return true;
+      ids.push(surfaceId);
     }
   }
-  return false;
+  return ids;
+}
+
+function acceptModeSessionSurfaceResponse(
+  ctx: Conversation,
+  requestId: string,
+  surfaceId: string,
+): void {
+  bestEffortModeSessionTracking("surface response admission", () =>
+    ctx.modeSessions?.acceptTurn(requestId, {
+      kind: "surface",
+      responseId: surfaceId,
+    }),
+  );
+}
+
+function invalidateModeSessionSurfaceWait(
+  ctx: Partial<Pick<Conversation, "modeSessions">>,
+  surfaceId: string,
+): void {
+  bestEffortModeSessionTracking("surface wait invalidation", () =>
+    ctx.modeSessions?.invalidateStructuralWait({
+      kind: "surface",
+      responseId: surfaceId,
+    }),
+  );
+}
+
+function settleModeSessionSurfaceWait(
+  ctx: Pick<Conversation, "conversationId" | "modeSessions">,
+  surfaceId: string,
+): void {
+  try {
+    ctx.modeSessions?.settleStructuralWait(
+      { kind: "surface", responseId: surfaceId },
+      { status: "completed", endReason: "surface_launch_settled" },
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId: ctx.conversationId, surfaceId },
+      "Mode-session launcher settlement failed",
+    );
+  }
 }
 
 /**
@@ -1292,7 +1342,8 @@ export function cleanupStandaloneSurface(
     | "lastSurfaceAction"
     | "accumulatedSurfaceState"
     | "surfaceUndoStacks"
-  >,
+  > &
+    Partial<Pick<Conversation, "modeSessions">>,
   surfaceId: string,
 ): void {
   const entry = ctx.pendingStandaloneSurfaces?.get(surfaceId);
@@ -1305,6 +1356,7 @@ export function cleanupStandaloneSurface(
   ctx.lastSurfaceAction.delete(surfaceId);
   ctx.accumulatedSurfaceState.delete(surfaceId);
   ctx.surfaceUndoStacks.delete(surfaceId);
+  invalidateModeSessionSurfaceWait(ctx, surfaceId);
 
   // Record a tombstone so late client actions are silently dropped.
   if (ctx.recentlyCompletedStandaloneSurfaces) {
@@ -2110,6 +2162,7 @@ export async function handleSurfaceAction(
       ...(anchorMessageId ? { anchorMessageId } : {}),
       ...(originTrustContext ? { originTrustContext } : {}),
     });
+    settleModeSessionSurfaceWait(ctx, surfaceId);
     log.info(
       { originConversationId: ctx.conversationId, conversationId, surfaceId },
       "launch_conversation dispatched inline from surface action",
@@ -2284,6 +2337,8 @@ export async function handleSurfaceAction(
       return QUEUE_FULL_RESULT;
     }
 
+    acceptModeSessionSurfaceResponse(ctx, requestId, surfaceId);
+
     // Terminal user commit accepted — record the activation milestone if this
     // surface was tagged (best-effort, no-op otherwise). Deferred until after
     // the rejection check so a queue-full click doesn't over-report a moment
@@ -2310,6 +2365,7 @@ export async function handleSurfaceAction(
         type: "user_message_echo",
         text: prompt,
         conversationId: ctx.conversationId,
+        modeSession: ctx.modeSessions.getTurnOwner(requestId),
       });
     }
 
@@ -2537,6 +2593,8 @@ export async function handleSurfaceAction(
     return QUEUE_FULL_RESULT;
   }
 
+  acceptModeSessionSurfaceResponse(ctx, requestId, surfaceId);
+
   // Terminal user commit accepted — record the activation milestone if this
   // surface was tagged (best-effort, no-op otherwise). Deferred until after the
   // rejection check so a queue-full click doesn't over-report a moment (and the
@@ -2563,6 +2621,7 @@ export async function handleSurfaceAction(
       type: "user_message_echo",
       text: prompt,
       conversationId: ctx.conversationId,
+      modeSession: ctx.modeSessions.getTurnOwner(requestId),
     });
   }
   if (result.queued) {
@@ -3180,6 +3239,15 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
+      bestEffortModeSessionTracking("computer completion", () =>
+        ctx.computerUseModeSessions.endTask({
+          turnId: ctx.currentRequestId,
+          source: {
+            sourceId: hostCuProxy.sourceId,
+            generation: hostCuProxy.resetGeneration,
+          },
+        }),
+      );
       hostCuProxy.endTask(ctx.conversationId);
       return { content: summary, isError: false };
     }
@@ -3215,9 +3283,11 @@ export async function surfaceProxyResolver(
     // `maxStepsPerSession` would let a long walkthrough exhaust a budget
     // meant for actions and be told to call `computer_use_done`, which has
     // nothing to do with what it was doing.
+    const activityAt = Date.now();
     if (toolName !== POINT_AT_PROXY_TOOL) {
       hostCuProxy.recordAction(toolName, input, reasoning);
     }
+    const turnId = ctx.currentRequestId;
     return hostCuProxy.request(
       toolName,
       input,
@@ -3227,6 +3297,18 @@ export async function surfaceProxyResolver(
       signal,
       targetClientId,
       sourceActorPrincipalId,
+      toolName !== POINT_AT_PROXY_TOOL && turnId
+        ? () => {
+            ctx.computerUseModeSessions.recordAction({
+              turnId,
+              source: {
+                sourceId: hostCuProxy.sourceId,
+                generation: hostCuProxy.resetGeneration,
+              },
+              at: activityAt,
+            });
+          }
+        : undefined,
     );
   }
 

@@ -60,6 +60,45 @@
     "appExported": "Приложение экспортировано",
     "shareFailed": "Не удалось поделиться приложением"
   },
+  "actionDisplay": {
+    "click": "Нажатие",
+    "type": "Ввод текста",
+    "keyPress": "Нажатие клавиши",
+    "scroll": "Прокрутка",
+    "drag": "Перетаскивание",
+    "hover": "Наведение",
+    "observe": "Просмотр",
+    "navigate": "Навигация",
+    "terminal": "Выполнение команды"
+  },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "Сеанс управления компьютером",
+      "browser": "Сеанс браузера",
+      "liveVision": "Сеанс видеопросмотра",
+      "ambient": "Фоновый сеанс"
+    },
+    "durationSeconds": "{count, plural, one {# сек} few {# сек} many {# сек} other {# сек}}",
+    "durationMinutes": "{count, plural, one {# мин} few {# мин} many {# мин} other {# мин}}",
+    "working": "Работаю",
+    "workingWithDuration": "Работаю · {duration}",
+    "waiting": "Ожидание",
+    "waitingWithDuration": "Ожидание · {duration}",
+    "finishing": "Завершение",
+    "finishingWithDuration": "Завершение · {duration}",
+    "completedWithDurationAndEnd": "{duration} · Завершено в {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "Завершено в {endTime}",
+    "interrupted": "Прервано",
+    "interruptedWithDurationAndEnd": "Прервано · {duration} · Завершено в {endTime}",
+    "interruptedWithDurationAndLastActivity": "Прервано · {duration} · Последняя активность в {lastActivityTime}",
+    "interruptedWithLastActivity": "Прервано · Последняя активность в {lastActivityTime}",
+    "interruptedWithEnd": "Прервано · Завершено в {endTime}",
+    "disconnected": "Соединение потеряно",
+    "disconnectedWithDurationAndLastActivity": "Соединение потеряно · {duration} · Последняя активность в {lastActivityTime}",
+    "disconnectedWithLastActivity": "Соединение потеряно · Последняя активность в {lastActivityTime}",
+    "timingUnavailable": "Данные о времени недоступны"
+  },
   "assistantDesktop": {
     "fitView": "Вписать",
     "panView": "Обзор",

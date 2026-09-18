@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -120,6 +121,7 @@ function makeIdleSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
+    modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (
       _content: string,
       _messageId: string,
@@ -183,6 +185,7 @@ function makeConfirmationEmittingSession(opts?: {
     addPreactivatedSkillId: () => {},
     enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
+    modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (
       _content: string,
       _messageId: string,

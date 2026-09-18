@@ -537,6 +537,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "session-groups",
+      "scope": "both",
+      "key": "session-groups",
+      "label": "Session Groups",
+      "description": "Records eligible computer use, browser, live vision, and ambient runs and presents them as collapsible transcript groups. Off preserves ordinary actions and the flat transcript without new session tracking.",
+      "defaultEnabled": false
+    },
+    {
       "id": "assistant-desktop",
       "scope": "assistant",
       "key": "assistant-desktop",

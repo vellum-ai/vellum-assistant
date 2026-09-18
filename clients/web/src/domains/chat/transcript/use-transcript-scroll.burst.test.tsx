@@ -414,4 +414,301 @@ describe("useTranscriptScroll — load-older burst regression", () => {
     });
     expect(onLoadOlderCalls).toBe(2);
   });
+
+  test.each([false, true])(
+    "text updates do not scan rendered ids (groups=%s)",
+    (sessionGroupsEnabled) => {
+      const scrollEl = createScrollElement({
+        scrollTop: 0,
+        scrollHeight: 400,
+        clientHeight: 800,
+      });
+      let scans = 0;
+      let loads = 0;
+      const transcriptRef = {
+        current: {
+          scrollToLatest: () => {},
+          getScrollElement: () => scrollEl,
+          getRenderedMessageIds: () => {
+            scans += 1;
+            return ["m1"];
+          },
+        },
+      };
+      const args: UseTranscriptScrollArgs = {
+        transcriptRef: transcriptRef as any,
+        sessionGroupsEnabled,
+        items: [makeMessageItem("m1")],
+        conversationId: "c1",
+        hasMore: true,
+        isLoadingOlder: false,
+        onLoadOlder: () => {
+          loads += 1;
+        },
+      };
+      const { rerender } = renderHook(
+        (props: UseTranscriptScrollArgs) => useTranscriptScroll(props),
+        { initialProps: args },
+      );
+      const initialScans = scans;
+      for (let i = 0; i < 10; i += 1) {
+        rerender({ ...args, items: [makeMessageItem("m1")] });
+      }
+      expect(scans).toBe(initialScans);
+      expect(scans).toBe(sessionGroupsEnabled ? 1 : 0);
+      rerender({ ...args, isLoadingOlder: true });
+      rerender({ ...args, items: [makeMessageItem("m0"), ...args.items] });
+      expect(loads).toBe(sessionGroupsEnabled ? 1 : 2);
+      if (!sessionGroupsEnabled) {
+        expect(scans).toBe(0);
+      }
+    },
+  );
+
+  test("does not chain-load when a prepended page adds only unmounted messages", () => {
+    let onLoadOlderCalls = 0;
+    const scrollEl = createScrollElement({
+      scrollTop: 0,
+      scrollHeight: 400,
+      clientHeight: 800,
+    });
+    const renderedIds = ["m1"];
+    const transcriptRef = {
+      current: {
+        scrollToLatest: () => {},
+        getScrollElement: () => scrollEl,
+        getRenderedMessageIds: () => renderedIds,
+      },
+    };
+    const initialItems = [makeMessageItem("m1")];
+    const onLoadOlder = () => {
+      onLoadOlderCalls += 1;
+    };
+    const { rerender } = renderHook(
+      (args: UseTranscriptScrollArgs) => useTranscriptScroll(args),
+      {
+        initialProps: {
+          transcriptRef: transcriptRef as any,
+          sessionGroupsEnabled: true,
+          items: initialItems,
+          conversationId: "c1",
+          hasMore: true,
+          isLoadingOlder: false,
+          onLoadOlder,
+        },
+      },
+    );
+
+    rerender({
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: initialItems,
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: true,
+      onLoadOlder,
+    });
+    rerender({
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: [makeMessageItem("hidden-old"), ...initialItems],
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: false,
+      onLoadOlder,
+    });
+
+    expect(onLoadOlderCalls).toBe(1);
+  });
+
+  test("suppresses disclosure layout scroll once without starving explicit or later loads", () => {
+    let onLoadOlderCalls = 0;
+    const scrollEl = createScrollElement({
+      scrollTop: 0,
+      scrollHeight: 400,
+      clientHeight: 800,
+    });
+    const renderedIds = ["m1"];
+    const transcriptRef = {
+      current: {
+        scrollToLatest: () => {},
+        getScrollElement: () => scrollEl,
+        getRenderedMessageIds: () => renderedIds,
+      },
+    };
+    const initialItems = [makeMessageItem("m1")];
+    const args: UseTranscriptScrollArgs = {
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: initialItems,
+      conversationId: "c1",
+      hasMore: false,
+      isLoadingOlder: false,
+      onLoadOlder: () => {
+        onLoadOlderCalls += 1;
+      },
+    };
+    const { result, rerender } = renderHook(
+      (props: UseTranscriptScrollArgs) => useTranscriptScroll(props),
+      { initialProps: args },
+    );
+    rerender({ ...args, hasMore: true });
+
+    act(() => {
+      result.current.prepareForDisclosureToggle();
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    expect(onLoadOlderCalls).toBe(0);
+
+    act(() => {
+      scrollEl.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+    });
+    expect(onLoadOlderCalls).toBe(1);
+
+    rerender({ ...args, hasMore: true, isLoadingOlder: true });
+    rerender({ ...args, hasMore: true, isLoadingOlder: false });
+    renderedIds.unshift("m0");
+    rerender({
+      ...args,
+      items: [makeMessageItem("m0"), ...initialItems],
+      hasMore: true,
+    });
+    expect(onLoadOlderCalls).toBe(2);
+  });
+
+  test("expires disclosure suppression when layout emits no scroll event", () => {
+    let scheduledFrame: FrameRequestCallback | undefined;
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = (callback) => {
+      scheduledFrame = callback;
+      return 1;
+    };
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      let onLoadOlderCalls = 0;
+      const scrollEl = createScrollElement({
+        scrollTop: 0,
+        scrollHeight: 400,
+        clientHeight: 800,
+      });
+      const renderedIds = ["m1"];
+      const transcriptRef = {
+        current: {
+          scrollToLatest: () => {},
+          getScrollElement: () => scrollEl,
+          getRenderedMessageIds: () => renderedIds,
+        },
+      };
+      const initialItems = [makeMessageItem("m1")];
+      const args: UseTranscriptScrollArgs = {
+        transcriptRef: transcriptRef as any,
+        sessionGroupsEnabled: true,
+        items: initialItems,
+        conversationId: "c1",
+        hasMore: false,
+        isLoadingOlder: false,
+        onLoadOlder: () => {
+          onLoadOlderCalls += 1;
+        },
+      };
+      const { result, rerender } = renderHook(
+        (props: UseTranscriptScrollArgs) => useTranscriptScroll(props),
+        { initialProps: args },
+      );
+      rerender({ ...args, hasMore: true });
+
+      act(() => result.current.prepareForDisclosureToggle());
+      expect(scheduledFrame).toBeDefined();
+      act(() => scheduledFrame?.(0));
+
+      renderedIds.push("m2");
+      rerender({
+        ...args,
+        hasMore: true,
+        items: [...initialItems, makeMessageItem("m2")],
+      });
+      expect(onLoadOlderCalls).toBe(1);
+    } finally {
+      globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+      globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+  });
+
+  test("reveals a regrouped saved anchor before applying prepend correction", () => {
+    const scrollEl = createScrollElement({
+      scrollTop: 100,
+      scrollHeight: 1_800,
+      clientHeight: 800,
+    });
+    let revealCallback: (() => void) | undefined;
+    const reveals: string[] = [];
+    const transcriptRef = {
+      current: {
+        scrollToLatest: () => {},
+        getScrollElement: () => scrollEl,
+        getRenderedMessageIds: () => ["m1"],
+        revealMessage: (messageId: string, onRevealed: () => void) => {
+          reveals.push(messageId);
+          revealCallback = onRevealed;
+          return true;
+        },
+      },
+    };
+    const initialItems = [makeMessageItem("m1")];
+    const onLoadOlder = () => {};
+    const { rerender } = renderHook(
+      (props: UseTranscriptScrollArgs) => useTranscriptScroll(props),
+      {
+        initialProps: {
+          transcriptRef: transcriptRef as any,
+          sessionGroupsEnabled: true,
+          items: initialItems,
+          conversationId: "c1",
+          hasMore: false,
+          isLoadingOlder: false,
+          onLoadOlder,
+        },
+      },
+    );
+
+    rerender({
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: initialItems,
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: false,
+      onLoadOlder,
+    });
+
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    rerender({
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: initialItems,
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: true,
+      onLoadOlder,
+    });
+    (scrollEl as unknown as { scrollHeight: number }).scrollHeight = 2_100;
+    rerender({
+      transcriptRef: transcriptRef as any,
+      sessionGroupsEnabled: true,
+      items: [makeMessageItem("m0"), ...initialItems],
+      conversationId: "c1",
+      hasMore: false,
+      isLoadingOlder: false,
+      onLoadOlder,
+    });
+
+    expect(reveals).toEqual(["m1"]);
+    expect(scrollEl.scrollTop).toBe(100);
+    (scrollEl as unknown as { scrollHeight: number }).scrollHeight = 2_300;
+    act(() => revealCallback?.());
+    expect(scrollEl.scrollTop).toBe(600);
+  });
 });

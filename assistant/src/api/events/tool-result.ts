@@ -29,6 +29,7 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
 import {
   AllowlistOptionSchema,
   ConfirmationDiffSchema,
@@ -127,6 +128,7 @@ export const ToolResultEventSchema = z.object({
   imageDataList: z.array(z.string()).optional(),
   toolUseId: z.string().optional(),
   messageId: z.string().optional(),
+  modeSession: ModeSessionSchema.optional(),
   riskLevel: z.string().optional(),
   riskReason: z.string().optional(),
   matchedTrustRuleId: z.string().optional(),

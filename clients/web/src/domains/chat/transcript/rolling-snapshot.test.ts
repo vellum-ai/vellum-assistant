@@ -199,6 +199,34 @@ function withReplays(
 // ---------------------------------------------------------------------------
 
 describe("rolling-snapshot reducer", () => {
+  test("stamps only canonical boundary events and preserves ownership through deltas", () => {
+    const modeSession = { mode: "browser" as const, id: "session-1" };
+    const snapshot = applyEventsToHistory(SEED, [
+      env(1, {
+        type: "user_message_echo",
+        messageId: "u1",
+        text: "Open the page",
+        modeSession,
+      } as AssistantEvent),
+      env(2, {
+        type: "assistant_turn_start",
+        messageId: "a1",
+        modeSession,
+      } as AssistantEvent),
+      textDelta(3, "a1", "Done"),
+      env(4, {
+        type: "message_complete",
+        messageId: "a1",
+        modeSession,
+      } as AssistantEvent),
+    ]);
+
+    expect(snapshot.messages.map((message) => message.modeSession)).toEqual([
+      modeSession,
+      modeSession,
+    ]);
+  });
+
   test("rebuild is deterministic — no clock/uuid leak in the fold", () => {
     const events = cleanTurn();
     expect(applyEventsToHistory(SEED, events)).toEqual(

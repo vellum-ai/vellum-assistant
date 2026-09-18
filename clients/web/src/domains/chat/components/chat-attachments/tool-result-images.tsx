@@ -193,6 +193,44 @@ export interface ToolResultImage extends DisplayAttachment {
   resolveReferenceMetadata?: boolean;
 }
 
+type IncludeToolResultImage = (
+  toolCall: ChatMessageToolCall,
+  index: number,
+  total: number,
+) => boolean;
+
+interface CachedToolResultImage {
+  source: string;
+  filename: string;
+  image: ToolResultImage;
+}
+
+/** Retains only the previous projection's images. Create once per message. */
+export function createToolResultImageProjector() {
+  let previous = new Map<string, CachedToolResultImage>();
+  return (
+    toolCalls: ChatMessageToolCall[],
+    includeImage?: IncludeToolResultImage,
+  ): ToolResultImage[] => {
+    const next = new Map<string, CachedToolResultImage>();
+    const images = projectImages(
+      toolCalls,
+      includeImage,
+      (key, source, filename, build) => {
+        const cached = previous.get(key);
+        const image =
+          cached?.source === source && cached.filename === filename
+            ? cached.image
+            : build();
+        next.set(key, { source, filename, image });
+        return image;
+      },
+    );
+    previous = next;
+    return images;
+  };
+}
+
 /**
  * Project a message's tool-result images into {@link DisplayAttachment}
  * objects.
@@ -215,6 +253,24 @@ export interface ToolResultImage extends DisplayAttachment {
  */
 export function projectToolResultImages(
   toolCalls: ChatMessageToolCall[],
+  includeImage?: IncludeToolResultImage,
+): ToolResultImage[] {
+  return projectImages(
+    toolCalls,
+    includeImage,
+    (_key, _source, _filename, build) => build(),
+  );
+}
+
+function projectImages(
+  toolCalls: ChatMessageToolCall[],
+  includeImage: IncludeToolResultImage | undefined,
+  resolve: (
+    key: string,
+    source: string,
+    filename: string,
+    build: () => ToolResultImage,
+  ) => ToolResultImage,
 ): ToolResultImage[] {
   const attachments: ToolResultImage[] = [];
   let globalIndex = 0;
@@ -233,34 +289,47 @@ export function projectToolResultImages(
     refIds.forEach((attachmentId) => {
       globalIndex += 1;
       localIndex += 1;
-      attachments.push({
-        id: attachmentId,
-        stripKey: `tool-ref:${tc.id}:${localIndex}`,
-        occurrenceKey: `${tc.id}:${localIndex}`,
-        toolCallId: tc.id,
-        filename: nameFor("png"),
-        mimeType: "image/png",
-        sizeBytes: 0,
-        previewUrl: null,
-        resolveReferenceMetadata: true,
-      });
+      if (includeImage && !includeImage(tc, localIndex, total)) {
+        return;
+      }
+      const stripKey = `tool-ref:${tc.id}:${localIndex}`;
+      attachments.push(
+        resolve(stripKey, attachmentId, nameFor("png"), () => ({
+          id: attachmentId,
+          stripKey,
+          occurrenceKey: `${tc.id}:${localIndex}`,
+          toolCallId: tc.id,
+          filename: nameFor("png"),
+          mimeType: "image/png",
+          sizeBytes: 0,
+          previewUrl: null,
+          resolveReferenceMetadata: true,
+        })),
+      );
     });
     base64Images.forEach((imageData) => {
       globalIndex += 1;
       localIndex += 1;
-      const { mimeType, base64, src } = normalizeToolResultImage(imageData);
-      const ext = mimeType.split("/")[1] ?? "png";
+      if (includeImage && !includeImage(tc, localIndex, total)) {
+        return;
+      }
       const syntheticId = `tool-image:${tc.id}:${localIndex}`;
-      attachments.push({
-        id: syntheticId,
-        stripKey: syntheticId,
-        occurrenceKey: `${tc.id}:${localIndex}`,
-        toolCallId: tc.id,
-        filename: nameFor(ext),
-        mimeType,
-        sizeBytes: estimateBase64Bytes(base64),
-        previewUrl: src,
-      });
+      attachments.push(
+        resolve(syntheticId, imageData, nameFor(""), () => {
+          const { mimeType, base64, src } = normalizeToolResultImage(imageData);
+          const ext = mimeType.split("/")[1] ?? "png";
+          return {
+            id: syntheticId,
+            stripKey: syntheticId,
+            occurrenceKey: `${tc.id}:${localIndex}`,
+            toolCallId: tc.id,
+            filename: nameFor(ext),
+            mimeType,
+            sizeBytes: estimateBase64Bytes(base64),
+            previewUrl: src,
+          };
+        }),
+      );
     });
   }
   return attachments;
@@ -321,8 +390,8 @@ export function resolveToolResultImages(
   toolCalls: ChatMessageToolCall[],
   messageAttachments: readonly DisplayAttachment[] | undefined,
   embeddedImageNames: ReadonlySet<string> = EMPTY_NAMES,
+  projectedImages: ToolResultImage[] = projectToolResultImages(toolCalls),
 ): ToolResultImage[] {
-  const projectedImages = projectToolResultImages(toolCalls);
   const embeddedKeys = embeddedToolResultImageKeys(
     toolCalls,
     projectedImages,

@@ -106,6 +106,45 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Earlier activity"
   },
+  "actionDisplay": {
+    "click": "Clicking",
+    "type": "Typing",
+    "keyPress": "Pressing a key",
+    "scroll": "Scrolling",
+    "drag": "Dragging",
+    "hover": "Hovering",
+    "observe": "Observing",
+    "navigate": "Navigating",
+    "terminal": "Running a command"
+  },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "Computer use session",
+      "browser": "Browser session",
+      "liveVision": "Live vision session",
+      "ambient": "Ambient session"
+    },
+    "durationSeconds": "{count, plural, one {# sec} other {# sec}}",
+    "durationMinutes": "{count, plural, one {# min} other {# min}}",
+    "working": "Working",
+    "workingWithDuration": "Working · {duration}",
+    "waiting": "Waiting",
+    "waitingWithDuration": "Waiting · {duration}",
+    "finishing": "Finishing",
+    "finishingWithDuration": "Finishing · {duration}",
+    "completedWithDurationAndEnd": "{duration} · Ended {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "Ended {endTime}",
+    "interrupted": "Interrupted",
+    "interruptedWithDurationAndEnd": "Interrupted · {duration} · Ended {endTime}",
+    "interruptedWithDurationAndLastActivity": "Interrupted · {duration} · Last active {lastActivityTime}",
+    "interruptedWithLastActivity": "Interrupted · Last active {lastActivityTime}",
+    "interruptedWithEnd": "Interrupted · Ended {endTime}",
+    "disconnected": "Connection lost",
+    "disconnectedWithDurationAndLastActivity": "Connection lost · {duration} · Last active {lastActivityTime}",
+    "disconnectedWithLastActivity": "Connection lost · Last active {lastActivityTime}",
+    "timingUnavailable": "Timing unavailable"
+  },
   "assistantDesktop": {
     "fitView": "Fit",
     "panView": "Pan",

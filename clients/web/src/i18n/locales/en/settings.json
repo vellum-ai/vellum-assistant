@@ -2473,7 +2473,8 @@
       "terminal": "Terminal",
       "doctor": "Doctor",
       "database": "Database",
-      "conversations": "Conversations"
+      "conversations": "Conversations",
+      "tones": "Tone lab"
     }
   },
   "debugDatabasePanel": {
@@ -2493,5 +2494,64 @@
     "deferredHeading": "Deferred migrations",
     "validationHeading": "Validation error",
     "missingDeps": "Waiting on: {deps}"
+  },
+  "toneLab": {
+    "title": "Tone lab",
+    "subtitle": "Mix the tone a voice conversation plays when it connects. Its inverse plays when the conversation ends.",
+    "voiceToneDefault": "Voice start plays the default tone",
+    "voiceToneOverride": "Voice start plays your mix on this device",
+    "playVoiceTone": "Play",
+    "resetVoiceTone": "Reset to default",
+    "presets": "Prebuilt tones",
+    "presetNames": {
+      "rise": "Rise",
+      "glass": "Glass",
+      "bloom": "Bloom",
+      "wood": "Wood",
+      "tuneIn": "Tune in",
+      "doubleBlip": "Double blip",
+      "warm": "Warm"
+    },
+    "waveformLabel": "Waveform of the current tone",
+    "play": "Play",
+    "copy": "Copy",
+    "paste": "Paste",
+    "autoPlay": "Play on change",
+    "useForVoice": "Use for voice start",
+    "usedForVoiceToast": "Voice conversations on this device will play this tone",
+    "resetVoiceToast": "Voice start tone reset to default",
+    "copiedToast": "Tone copied as JSON",
+    "clipboardFailedToast": "Couldn't access the clipboard",
+    "pasteInvalidToast": "The clipboard doesn't hold a tone",
+    "mix": "Mix",
+    "volume": "Volume",
+    "brightness": "Brightness",
+    "echoTime": "Echo time",
+    "echoFeedback": "Echo repeats",
+    "echoMix": "Echo level",
+    "addLayer": "Add layer",
+    "layerTitle": "Layer {number}",
+    "duplicateLayer": "Duplicate layer",
+    "removeLayer": "Remove layer",
+    "waveform": "Waveform",
+    "waveforms": {
+      "sine": "Sine",
+      "triangle": "Triangle",
+      "square": "Square",
+      "sawtooth": "Saw"
+    },
+    "pitch": "Pitch",
+    "glideTo": "Glide to",
+    "start": "Start",
+    "level": "Level",
+    "attack": "Attack",
+    "decay": "Decay",
+    "detune": "Detune",
+    "hzValue": "{hz} Hz · {note}",
+    "hzPlainValue": "{hz} Hz",
+    "msValue": "{ms} ms",
+    "percentValue": "{percent}%",
+    "centsValue": "{cents} ¢",
+    "playEnd": "Play end tone"
   }
 }

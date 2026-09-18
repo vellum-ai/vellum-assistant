@@ -22,16 +22,14 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import {
-  resolveCallSiteConfig,
-  selectWinningProfile,
-} from "../config/llm-resolver.js";
+import { selectWinningProfile } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
   ABORT_WATCHDOG_MS,
   resolveTurnCommitWaitMs,
 } from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import type { ModeSessionSourceHandle } from "../daemon/conversation-mode-session.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
@@ -51,13 +49,9 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
-import {
-  doesSupportVision,
-  type ResolvedVisionTarget,
-} from "../plugin-api/vision-support.js";
 import { dispatchProviderResolvable } from "../providers/connection-resolution.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type { ContentBlock } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -97,74 +91,35 @@ import {
 const log = getLogger("voice-session-bridge");
 
 /**
- * Profile an image-bearing voice leg is pinned to.
+ * The conversation's effective `mainAgent` profile, or null when nothing
+ * selected one and the ordinary call-agent resolution applies. Images in the
+ * history need no special profile: a text-only model gets them captioned by
+ * the `image-fallback` plugin, exactly as a typed turn does.
  *
- * The latency-class profile is the one voice already leans on (it fronts every
- * turn through `voiceFrontDoor`); `callAgent`'s `balanced` profile carries no
- * guarantee that its model takes images, and a model that rejects an image
- * fails the whole leg rather than degrading it.
- *
- * Whether THIS profile takes images is an install-level question, not a
- * constant: a BYO provider resolves the key through its own column of the
- * intent matrix, and on Fireworks that lands on a text-only model while its
- * `balanced` column is vision-capable. Pinning there would break the exact
- * turns this pin exists to save, hence the capability check at the call site.
+ * A mix resolves to the arm this conversation's seed selects, not the mix's
+ * own name. Dispatch lands on that arm either way, but the image-fallback
+ * check judges the profile it is handed, and a mix reads as vision-capable
+ * when any arm is: a text-only chosen arm would get raw images.
  */
-const VOICE_IMAGE_PROFILE = "latency-optimized";
-
-/**
- * The conversation's effective `mainAgent` target. `profile` preserves the
- * selected profile name for an explicit pin, while `model` includes the
- * call-site's direct tuning and the concrete arm selected from a mix.
- */
-function conversationTargetForEscalation(
+function conversationProfileForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
-): { profile: string | null; visionTarget: ResolvedVisionTarget } {
+): string | null {
   const overrideProfile = resolveOverrideProfile(conversation);
-  const resolveOptions = {
+  const mix: { arm?: { mixProfile: string; chosenProfile: string } } = {};
+  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
     isResolvableProvider: dispatchProviderResolvable,
-  };
-  const selection = selectWinningProfile(
-    "mainAgent",
-    getConfig().llm,
-    resolveOptions,
-  );
-  const resolved = resolveCallSiteConfig(
-    "mainAgent",
-    getConfig().llm,
-    resolveOptions,
-  );
-  return {
-    profile:
-      selection.source === "default" ? null : (selection.profileName ?? null),
-    visionTarget: {
-      provider: resolved.provider,
-      model: resolved.model,
-      ...(selection.entry?.inputModalities !== undefined
-        ? { inputModalities: selection.entry.inputModalities }
-        : {}),
+    onMixSelected: (selected) => {
+      mix.arm = selected;
     },
-  };
-}
-
-/**
- * Does this conversation's history carry an image?
- *
- * Images persist inline and are re-sent on every later turn, so one photo
- * taken mid-call makes every remaining turn of that call an image turn -- the
- * check is over the whole history, not just this turn's own content.
- */
-function conversationCarriesImage(messages: readonly Message[]): boolean {
-  return messages.some((message) =>
-    message.content.some(
-      (block) =>
-        block.type === "image" ||
-        (block.type === "tool_result" &&
-          block.contentBlocks?.some((nested) => nested.type === "image")),
-    ),
-  );
+  });
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return mix.arm?.mixProfile === selection.profileName
+    ? mix.arm.chosenProfile
+    : selection.profileName;
 }
 
 /**
@@ -398,6 +353,13 @@ export interface VoiceTurnOptions {
   subagentNotification?: SubagentParentNotification;
   /** The conversation ID for this voice call's session. */
   conversationId: string;
+  /** Camera source captured when this voice turn was accepted. */
+  modeSessionSource?: ModeSessionSourceHandle;
+  /** Camera ownership already claimed by the accepting live session. */
+  preacceptedModeSession?: {
+    requestId: string;
+    source: ModeSessionSourceHandle;
+  };
   /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
   voiceSessionId?: string;
   /** The call session ID for scoped grant matching. */
@@ -1223,7 +1185,7 @@ export async function startVoiceTurn(
     detachApprovalObserver = undefined;
   };
 
-  const requestId = uuidv7();
+  const requestId = opts.preacceptedModeSession?.requestId ?? uuidv7();
   const turnId = crypto.randomUUID();
   // Ids this turn's row actually links, read back by `discardFn` so a rollback
   // does not take the attachments down with the row.
@@ -1507,6 +1469,13 @@ export async function startVoiceTurn(
     restoreTurnState(preInstallState);
     throw err;
   }
+  if (opts.modeSessionSource && !opts.preacceptedModeSession) {
+    conversation.modeSessions.claimTurn(
+      requestId,
+      opts.modeSessionSource,
+      Date.now(),
+    );
+  }
   try {
     messageId = await persistTurnUserMessage();
   } catch (err) {
@@ -1520,6 +1489,7 @@ export async function startVoiceTurn(
       // this turn still owns the state it installed. Release it to
       // defaults, matching the agent-loop finally of a turn that ran.
       cleanup();
+      conversation.modeSessions?.releaseTurn?.(requestId);
       throw err;
     }
     // A busy failure ALWAYS means a live winner holds the lock — even with
@@ -1545,6 +1515,7 @@ export async function startVoiceTurn(
       // The retry lost again (or failed outright) without this turn ever
       // running — leave the conversation exactly as the winner left it.
       restoreTurnState(preRetryState);
+      conversation.modeSessions?.releaseTurn?.(requestId);
       throw retryErr;
     }
   }
@@ -1586,12 +1557,14 @@ export async function startVoiceTurn(
   // (JARVIS-1258). Synthetic opener/verification prompts persist a row but are
   // not user speech, so their echo is suppressed.
   if (!isSyntheticVoicePrompt) {
+    const modeSession = conversation.modeSessions?.getTurnOwner?.(requestId);
     broadcastMessage({
       type: "user_message_echo",
       text: persistedContent,
       conversationId: opts.conversationId,
       messageId,
       requestId,
+      ...(modeSession ? { modeSession } : {}),
     });
     // The echoed row is already durably persisted and the agent loop hasn't
     // started, so advance the snapshot↔stream anchor to the echo's seq — else
@@ -2104,43 +2077,17 @@ export async function startVoiceTurn(
       // target, including direct call-site tuning and the concrete arm of a
       // mix. The semantic call site remains `callAgent` below so voice tool
       // and delivery behavior do not change.
-      const conversationTarget =
+      const conversationProfile =
         opts.routingLeg === "escalated"
-          ? conversationTargetForEscalation(conversation)
+          ? conversationProfileForEscalation(conversation)
           : null;
-      // Resolved once here rather than inside the options literal below, so
-      // the history scan happens once per leg. A front-door leg is skipped:
-      // its own call site already resolves to the same profile. A
-      // conversation target whose model takes images needs no image pin
-      // either; one that does not yields to the image pin, since a model
-      // that rejects an image fails the whole leg. The judged profile is the
-      // concrete arm that serves this conversation, not a mix's name. The
-      // capability checks come before the scan because they are the cheaper
-      // of the two and they decide whether the pin is worth anything at all.
-      const needsImagePin =
-        opts.routingLeg !== "front-door" &&
-        !(
-          conversationTarget != null &&
-          doesSupportVision(conversationTarget.visionTarget)
-        ) &&
-        doesSupportVision(VOICE_IMAGE_PROFILE) &&
-        conversationCarriesImage(conversation.getMessages());
-      if (needsImagePin) {
+      if (conversationProfile != null) {
         log.info(
-          { turnId, routingLeg: opts.routingLeg ?? null },
-          "Voice leg carries an image; pinning the image-capable profile",
-        );
-      } else if (conversationTarget?.profile != null) {
-        log.info(
-          { turnId, profile: conversationTarget.profile },
+          { turnId, profile: conversationProfile },
           "Escalated voice leg pinned to the conversation's own profile",
         );
       }
-      const profilePin =
-        opts.overrideProfile ??
-        (needsImagePin
-          ? VOICE_IMAGE_PROFILE
-          : (conversationTarget?.profile ?? null));
+      const profilePin = opts.overrideProfile ?? conversationProfile;
       // Optional cache traffic must not consume the last admitted request.
       // A configured cap reserves its whole budget for user-visible calls.
       const shouldWarmEscalation =
@@ -2232,14 +2179,7 @@ export async function startVoiceTurn(
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         ...(opts.routingLeg === "escalated"
-          ? {
-              // An image fallback is still a full call-agent turn. Keep it
-              // away from both main-agent tuning that selected an incompatible
-              // model and caption-specific vision tuning.
-              inferenceCallSite: needsImagePin
-                ? ("callAgent" as const)
-                : ("mainAgent" as const),
-            }
+          ? { inferenceCallSite: "mainAgent" as const }
           : {}),
         // A caller is on the line, so the turn is interactive: approval prompts
         // must be raised rather than pre-denied, because the approval observer
@@ -2258,11 +2198,9 @@ export async function startVoiceTurn(
         // profile or to the conversation's own profile for the escalated
         // leg. `forceOverrideProfile` preserves an explicit routing pin.
         //
-        // An explicit routing pin wins; failing that, a leg whose history
-        // carries an image is pinned to a profile whose model takes one;
-        // failing that, an escalated leg is pinned to the conversation's
-        // profile. A front-door leg needs none of these: its own call site
-        // already resolves there.
+        // An explicit routing pin wins; failing that, an escalated leg is
+        // pinned to the conversation's profile. A front-door leg needs
+        // neither: its own call site already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
@@ -2307,8 +2245,6 @@ export async function startVoiceTurn(
                     source = "pre_model_hook";
                   } else if (opts.overrideProfile != null) {
                     source = "turn_override";
-                  } else if (needsImagePin) {
-                    source = "image_compatibility";
                   } else {
                     source = "conversation";
                   }

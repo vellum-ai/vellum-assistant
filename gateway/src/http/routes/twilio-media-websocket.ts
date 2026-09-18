@@ -7,7 +7,6 @@ import {
 } from "../../auth/token-exchange.js";
 import type { ScopeProfile } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
-import type { ConfigFileCache } from "../../config-file-cache.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-media-ws");
@@ -83,10 +82,7 @@ export function extractMediaStreamMetadata(url: URL): {
  *
  * Uses the same edge-token auth model as the relay websocket upgrades.
  */
-export function createTwilioMediaWebsocketHandler(
-  config: GatewayConfig,
-  caches?: { configFile?: ConfigFileCache },
-) {
+export function createTwilioMediaWebsocketHandler(config: GatewayConfig) {
   return function handleUpgrade(
     req: Request,
     server: import("bun").Server<unknown>,
@@ -102,11 +98,7 @@ export function createTwilioMediaWebsocketHandler(
     // Authenticate before upgrading. Twilio passes the token via path
     // segments (primary) or query parameters (legacy fallback) since
     // WebSocket upgrades don't support arbitrary headers.
-    const isBypassed =
-      process.env.APP_VERSION === "0.0.0-dev" &&
-      (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
-        false);
-    const authResponse = checkMediaStreamAuth(req, url, pathToken, isBypassed);
+    const authResponse = checkMediaStreamAuth(req, url, pathToken);
     if (authResponse) return authResponse;
 
     const upgraded = server.upgrade(req, {
@@ -134,22 +126,15 @@ export function createTwilioMediaWebsocketHandler(
  *   2. Path-segment token extracted by {@link extractMediaStreamMetadata}
  *   3. `token` query parameter (legacy Twilio media streams fallback)
  *
- * Fail-closed: rejects all unauthenticated requests unless the deliver auth
- * bypass flag is set (local-dev only escape hatch). A valid edge token is not
- * enough on its own; it must carry the relay-token identity (see
+ * Fail-closed: rejects every request without a valid edge token. A valid edge
+ * token is not enough on its own; it must carry the relay-token identity (see
  * {@link RELAY_TOKEN_SUB}).
  */
 function checkMediaStreamAuth(
   req: Request,
   url: URL,
   pathToken: string | null,
-  isBypassed: boolean,
 ): Response | null {
-  // Local-dev bypass: allow unauthenticated access when deliverAuthBypass is set
-  if (isBypassed) {
-    return null;
-  }
-
   // Priority: Authorization header > path segment > query param
   const authHeader = req.headers.get("authorization");
   const queryToken = url.searchParams.get("token");

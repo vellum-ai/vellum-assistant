@@ -23,12 +23,6 @@ export const WhatsAppConfigSchema = z
       .string({ error: "whatsapp.phoneNumber must be a string" })
       .default("")
       .describe("WhatsApp Business phone number"),
-    deliverAuthBypass: z
-      .boolean({ error: "whatsapp.deliverAuthBypass must be a boolean" })
-      .default(false)
-      .describe(
-        "Whether to bypass authentication when delivering WhatsApp messages",
-      ),
     timeoutMs: z
       .number({ error: "whatsapp.timeoutMs must be a number" })
       .int("whatsapp.timeoutMs must be an integer")
@@ -80,12 +74,6 @@ export const TelegramConfigSchema = z
       .optional()
       .describe(
         "Webhook URL this deployment last registered with Telegram (managed by the gateway)",
-      ),
-    deliverAuthBypass: z
-      .boolean({ error: "telegram.deliverAuthBypass must be a boolean" })
-      .default(false)
-      .describe(
-        "Whether to bypass authentication when delivering Telegram messages",
       ),
     timeoutMs: z
       .number({ error: "telegram.timeoutMs must be a number" })
@@ -155,12 +143,6 @@ export const DiscordConfigSchema = z
 
 export const SlackConfigSchema = z
   .object({
-    deliverAuthBypass: z
-      .boolean({ error: "slack.deliverAuthBypass must be a boolean" })
-      .default(false)
-      .describe(
-        "Whether to bypass authentication when delivering Slack messages",
-      ),
     teamId: z
       .string({ error: "slack.teamId must be a string" })
       .default("")

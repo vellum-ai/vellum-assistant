@@ -77,7 +77,6 @@ import { writePid } from "./daemon-control.js";
 import {
   setDbMigrating,
   setDbMigrationFailed,
-  setDbReady,
   setStartupComplete,
 } from "./daemon-readiness.js";
 import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
@@ -91,6 +90,7 @@ import {
   reconcileInterruptedConversations,
   resumeInterruptedConversations,
 } from "./interrupted-turn-reconciler.js";
+import { recoverModeSessionsBeforeDbReady } from "./mode-session-startup-recovery.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
@@ -290,22 +290,39 @@ export async function runDaemon(): Promise<void> {
         "stream seq floor from persisted anchors failed — continuing startup",
       );
     }
+    const migrationFailureDetails = {
+      failedMigrations: initResult.failedMigrations,
+      deferredMigrations: initResult.deferredMigrations,
+      validationError: initResult.validationError,
+    };
+    const modeSessionRecovery = migrationsOk
+      ? recoverModeSessionsBeforeDbReady()
+      : null;
+    if (modeSessionRecovery?.ok && modeSessionRecovery.interruptedCount > 0) {
+      log.info(
+        { interruptedModeSessions: modeSessionRecovery.interruptedCount },
+        "Recovered active mode sessions as interrupted",
+      );
+    }
+    if (modeSessionRecovery && !modeSessionRecovery.ok) {
+      log.error(
+        { err: modeSessionRecovery.error },
+        "Mode session recovery failed; tracking is unavailable for this boot",
+      );
+    }
     if (migrationsOk) {
-      setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
-      setDbMigrationFailed(undefined, {
-        failedMigrations: initResult.failedMigrations,
-        deferredMigrations: initResult.deferredMigrations,
-        validationError: initResult.validationError,
-      });
+      setDbMigrationFailed(undefined, migrationFailureDetails);
+    }
+    if (!migrationsOk) {
       log.error(
         {
           failedMigrations: initResult.failedMigrations,
           deferredMigrations: initResult.deferredMigrations,
           validationError: initResult.validationError,
         },
-        "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
+        "Daemon startup: DB migrations failed; /readyz will remain unready",
       );
     }
     // Migrations have settled (successfully or in the failed degraded mode),

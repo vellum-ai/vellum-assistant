@@ -89,6 +89,7 @@ import {
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 const CONVERSATION_ID = "test-session-id";
 
@@ -101,6 +102,7 @@ function createMockDeps(): EventHandlerDeps {
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (_msg: AssistantEvent) => {},
     reqId: "test-req-id",
