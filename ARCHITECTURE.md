@@ -32,7 +32,6 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
-| Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 | Vellum Doctor                               | [`assistant/docs/vellum-doctor.md`](assistant/docs/vellum-doctor.md)                               |
 
 ## Cross-Cutting Invariants
@@ -280,8 +279,6 @@ Each bot container receives a bind of `/workspace` sourced from the assistant's 
 **Security boundary — single-user local only.** The Docker-in-Docker model requires the assistant container to run with `--privileged`, or at minimum `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`, so the inner `dockerd` can set up cgroups, overlay mounts, and container networks. This is acceptable for single-user local deployments where the assistant already runs with the user's privileges. It is **not** acceptable as-is for managed/multi-tenant mode: Kubernetes deployments must configure Pod Security Admission to allow this privilege level on the assistant pod, or swap in a different bot-spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances. Managed Meet support is explicitly out of scope for this Docker-in-Docker approach — see [`vellum-assistant-platform`](../vellum-assistant-platform).
 
 ### Cross-Service Access Patterns
-
-For the full inventory of every assistant/gateway/CES communication direction, protocol, and callsite, see the [Service Communication Matrix](docs/service-communication-matrix.md).
 
 In Docker mode (`IS_CONTAINERIZED=true`), services that need data from another service's security domain use HTTP APIs instead of direct filesystem access:
 
