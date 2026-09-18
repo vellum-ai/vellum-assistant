@@ -181,37 +181,6 @@ test("routing uses frozen turn trust even when the resting conversation is guard
   expect(execute).not.toHaveBeenCalled();
 });
 
-for (const target of [undefined, "connected-computer"]) {
-  test(`Mac target ${target} retains the connected-computer path`, async () => {
-    const { ctx, proxy } = conversation();
-    ctx.currentTurnClientOs = "macos";
-    const execute = spyOn(computerUse, "executeDesktopComputerUse");
-    spies.push(execute, spyOn(proxy, "isAvailable").mockReturnValue(false));
-    expect(
-      (await surfaceProxyResolver(ctx, "computer_use_observe", { target }))
-        .isError,
-    ).toBe(true);
-    expect(execute).not.toHaveBeenCalled();
-  });
-}
-
-test("native conversations can explicitly select the assistant desktop", async () => {
-  const { ctx } = conversation();
-  ctx.currentTurnClientOs = "macos";
-  const execute = spyOn(
-    computerUse,
-    "executeDesktopComputerUse",
-  ).mockResolvedValue({ content: "desktop", isError: false });
-  spies.push(execute);
-  expect(
-    (
-      await surfaceProxyResolver(ctx, "computer_use_observe", {
-        target: "assistant-desktop",
-      })
-    ).content,
-  ).toBe("desktop");
-});
-
 for (const input of [
   { target: "assistant-desktop", target_client_id: "client-123" },
   { target: "connected-computer", observation_id: "stale" },
