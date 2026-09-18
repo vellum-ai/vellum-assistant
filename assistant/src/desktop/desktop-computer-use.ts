@@ -401,7 +401,10 @@ export async function executeDesktopComputerUse(
           signal.throwIfAborted();
           return {
             ...observation,
-            executionResult: `Target: assistant-desktop. observation_id: ${desktopAutomationLease.recordObservation()}`,
+            executionResult:
+              observation.executionError != null
+                ? "Target: assistant-desktop. Call computer_use_observe before continuing."
+                : `Target: assistant-desktop. observation_id: ${desktopAutomationLease.recordObservation()}`,
           };
         }),
       false,

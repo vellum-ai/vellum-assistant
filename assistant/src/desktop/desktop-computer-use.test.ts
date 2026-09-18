@@ -413,7 +413,7 @@ test("native dispatch consumes observations while preserving CU history, images,
       call("computer_use_key", { key: "Return", observation_id: id(result) }),
     ).rejects.toThrow("stale");
     const refreshed = await call("computer_use_observe");
-    await call("computer_use_sequence", {
+    const sequenced = await call("computer_use_sequence", {
       observation_id: id(refreshed),
       actions: [
         { action: "key", key: "ctrl+l" },
@@ -421,6 +421,18 @@ test("native dispatch consumes observations while preserving CU history, images,
       ],
     });
     expect(backend.input.mock.calls.at(-1)?.[0]).toContain("example.com");
+    backend.input.mockRejectedValueOnce(new Error("Input failed"));
+    const failed = await call("computer_use_key", {
+      key: "Return",
+      observation_id: id(sequenced),
+    });
+    expect(failed.isError).toBe(true);
+    expect(failed.contentBlocks?.[0]).toMatchObject({ type: "image" });
+    expect(failed.content).not.toContain("observation_id:");
+    expect(failed.content).toContain("Call computer_use_observe");
+    expect(lease.isActive).toBe(false);
+    const recovered = await call("computer_use_observe");
+    expect(id(recovered)).toBeTruthy();
   } finally {
     await lease.runBrowser(
       context,

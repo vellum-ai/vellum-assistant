@@ -26,10 +26,10 @@ Virtual desktop on an enabled platform-hosted assistant. Omitted targets and
 
 ## Virtual desktop
 
-Use `computer_use_observe` with `target: "assistant-desktop"` first. Every step
+Use `computer_use_observe` with `target: "assistant-desktop"` first. Every successful step
 returns a full desktop screenshot and an `observation_id`. Pass that ID with
 the next action (or sequence); it is consumed once. Observe again after browser
-actions, user handoff, or interruption. There is no accessibility tree, so use
+actions, user handoff, errors, or interruption. There is no accessibility tree, so use
 screen coordinates from that screenshot.
 Click, type, key, scroll, drag, wait, and sequences share the browser automation
 session, cancellation, and user handoff. First use installs desktop components
