@@ -95,8 +95,8 @@ interface HandleEditorProps<T> {
    * How the editor is set. `"inline"` is the card's: a labelled field, a
    * compact Save that appears once there is something to save. `"modal"` is
    * for a dialog whose title already names the field: no second label, the
-   * helper line always present, and a full-width Save that is always there
-   * and only disables, so the dialog never changes height under the pointer.
+   * helper line always present, and a regular Save at the trailing edge that
+   * is always there and only disables, so the dialog never changes height under the pointer.
    */
   layout?: HandleEditorLayout;
 }
@@ -379,16 +379,17 @@ function HandleEditor<T>({
         data-testid={`${fieldId}-input`}
       />
       {inModal ? (
-        <Button
-          variant="primary"
-          fullWidth
-          onClick={handleSave}
-          disabled={!isSaveable}
-          aria-live="polite"
-          data-testid={`${fieldId}-save`}
-        >
-          {saveLabel}
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={handleSave}
+            disabled={!isSaveable}
+            aria-live="polite"
+            data-testid={`${fieldId}-save`}
+          >
+            {saveLabel}
+          </Button>
+        </div>
       ) : null}
       {!inModal && (!isUnchanged || saveStatus !== "idle") && (
         <div className="flex justify-end">
