@@ -270,7 +270,7 @@ describe("SSE reconnect replay (B7.2)", () => {
   test("replay excludes events the subscriber is not targeted to receive", async () => {
     // Stamp three events: two untargeted (seq 1, 3) + one with a
     // capability target (seq 2, host_bash). A process subscriber
-    // does NOT match capability targeting (matchesSubscriber requires
+    // does NOT match capability targeting (matchesTargeting requires
     // type=client + matching capability), so the replay filters out
     // seq 2. The subscriber receives seq 1 and 3.
     const { conversationId } = getOrCreateConversation("replay-targeting");

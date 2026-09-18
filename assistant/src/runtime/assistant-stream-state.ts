@@ -70,6 +70,11 @@ import {
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
+import {
+  matchesTargeting,
+  type SubscriberIdentity,
+} from "./assistant-event-targeting.js";
 
 const log = getLogger("assistant-stream-state");
 
@@ -93,41 +98,13 @@ const SEQ_RESERVATION_BLOCK = 1024;
 
 // ── Types ────────────────────────────────────────────────────────────
 
-/**
- * Targeting / exclusion modifiers attached to an event at publish time.
- * Stored on ring entries so replay can re-apply the same delivery
- * filter that the live `publish()` path used.
- *
- * Fields use plain `string` rather than branded channel types so
- * this module stays independent of the `channels/` package.
- */
-export interface EventTargeting {
-  targetCapability?: string;
-  targetClientId?: string;
-  targetInterfaceId?: string;
-  targetActorPrincipalId?: string;
-  excludeClientId?: string;
-}
-
-/**
- * Identity of the subscriber requesting a replay window. Replay
- * filtering mirrors the live `publish()` logic in `AssistantEventHub`:
- * targeted entries are only delivered when the subscriber matches.
- */
-export interface ReplaySubscriber {
-  type: "client" | "process";
-  clientId?: string;
-  interfaceId?: string;
-  capabilities?: readonly string[];
-  actorPrincipalId?: string;
-}
-
 interface RingEntry {
   seq: number;
   event: AssistantEventEnvelope;
   emittedAt: number;
   sizeBytes: number;
-  targeting?: EventTargeting;
+  /** The publish options the event went out with, re-applied on replay. */
+  targeting?: AssistantEventPublishOptions;
 }
 
 interface AssistantStreamState {
@@ -217,7 +194,7 @@ export function isStreamSeqStampingDisabled(): boolean {
  */
 export function stampAndBuffer(
   event: AssistantEventEnvelope,
-  options?: { targeting?: EventTargeting },
+  options?: { targeting?: AssistantEventPublishOptions },
 ): void {
   if (stampingDisabled) {
     return;
@@ -274,9 +251,9 @@ export function stampAndBuffer(
  * buffered entry -- callers should fall back to a snapshot resync.
  *
  * When `subscriber` is provided, entries carrying targeting metadata
- * are filtered using the same rules as the live `publish()` path in
- * `AssistantEventHub`, so targeted events do not leak to subscribers
- * outside their intended delivery set on reconnect.
+ * are filtered with {@link matchesTargeting}, the check the live
+ * `publish()` path in `AssistantEventHub` applies, so targeted events do
+ * not leak to subscribers outside their intended delivery set on reconnect.
  *
  * When `conversationId` is provided, only that conversation's events are
  * returned -- a conversation-scoped subscription only delivers its own
@@ -289,7 +266,7 @@ export function stampAndBuffer(
  */
 export function getReplayWindow(
   lastSeenSeq: number,
-  subscriber?: ReplaySubscriber,
+  subscriber?: SubscriberIdentity,
   conversationId?: string,
 ): readonly AssistantEventEnvelope[] | null {
   evict();
@@ -317,7 +294,7 @@ export function getReplayWindow(
         entry.seq > lastSeenSeq &&
         (conversationId == null ||
           entry.event.conversationId === conversationId) &&
-        (subscriber == null || matchesSubscriber(entry, subscriber)),
+        (subscriber == null || matchesTargeting(entry.targeting, subscriber)),
     )
     .map((entry) => entry.event);
 }
@@ -518,82 +495,6 @@ function readReservedCeiling(): number {
     // Missing or unreadable file: cold start from seq 1.
   }
   return 0;
-}
-
-/**
- * Mirrors the delivery logic in `AssistantEventHub.publish()`. Returns
- * `true` when `subscriber` would have received the entry during live
- * fanout.
- */
-function matchesSubscriber(
-  entry: RingEntry,
-  subscriber: ReplaySubscriber,
-): boolean {
-  const t = entry.targeting;
-  if (!t) {
-    return true;
-  }
-
-  // Self-echo suppression: the originating client never receives the
-  // event back.
-  if (
-    t.excludeClientId != null &&
-    subscriber.type === "client" &&
-    subscriber.clientId === t.excludeClientId
-  ) {
-    return false;
-  }
-
-  // Interface targeting: only clients of the requested interface.
-  if (t.targetInterfaceId != null) {
-    if (
-      subscriber.type !== "client" ||
-      subscriber.interfaceId !== t.targetInterfaceId
-    ) {
-      return false;
-    }
-  }
-
-  // Principal targeting: only the named person's own connections.
-  if (t.targetActorPrincipalId != null) {
-    if (
-      subscriber.type !== "client" ||
-      subscriber.actorPrincipalId !== t.targetActorPrincipalId
-    ) {
-      return false;
-    }
-  }
-
-  if (t.targetClientId != null) {
-    // Client targeting: bypass conversation filter, deliver only to the
-    // named client.
-    if (
-      subscriber.type !== "client" ||
-      subscriber.clientId !== t.targetClientId
-    ) {
-      return false;
-    }
-    if (
-      t.targetCapability != null &&
-      !subscriber.capabilities?.includes(t.targetCapability)
-    ) {
-      return false;
-    }
-    return true;
-  }
-
-  // Capability targeting (without client targeting): only subscribers
-  // that declare the required capability.
-  if (t.targetCapability != null) {
-    if (
-      subscriber.type !== "client" ||
-      !subscriber.capabilities?.includes(t.targetCapability)
-    ) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function evict(): void {
