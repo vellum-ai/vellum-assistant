@@ -49,10 +49,10 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
 export function ClampedContent({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  // Paused while expanded: uncapped content never overflows, and the measure
-  // is what keeps Show less on screen.
+  // Measured against the fold height rather than the box, so the measure holds
+  // while expanded too and content swapped in that fits drops the control.
   const { ref, overflows } = useOverflows<HTMLDivElement>({
-    paused: expanded,
+    limit: CLAMP_HEIGHT,
   });
   const clamped = overflows && !expanded;
 
