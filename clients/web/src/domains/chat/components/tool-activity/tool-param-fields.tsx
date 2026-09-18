@@ -182,7 +182,7 @@ export function ToolParamFields({
               {/* Every value copies from its label, revealed on hover (and
                   always shown where the device cannot hover), so a field of
                   any shape offers the same control in the same place. */}
-              <span data-reveal className="-my-1 shrink-0">
+              <span data-reveal className="-my-1 flex shrink-0">
                 <CopyButton
                   text={() => copyText(field.value)}
                   ariaLabel={t("toolParamFields.copyValue", {
