@@ -415,8 +415,7 @@ const meta = {
   argTypes: {
     accent: {
       name: "Assistant color",
-      description:
-        "Active assistant avatar color shared by the count and toggle.",
+      description: "Active assistant avatar color used by the unread toggle.",
       options: AVATAR_ACCENT_OPTIONS,
       mapping: AVATAR_ACCENT_MAPPING,
       control: { type: "select", labels: AVATAR_ACCENT_LABELS },
@@ -443,21 +442,21 @@ type Story = StoryObj<typeof meta>;
  */
 export const Default: Story = {};
 
-/** A light assistant accent keeps a white knob and gives the count dark contrast ink. */
+/** A light assistant accent keeps a white knob on the unread toggle. */
 export const LightAccent: Story = {
   args: {
     accent: "yellow",
   },
 };
 
-/** A pink accent colors the checked switch and the count's readable fill. */
+/** A pink accent colors the checked unread toggle. */
 export const PinkAccent: Story = {
   args: {
     accent: "pink",
   },
 };
 
-/** No avatar color keeps the notification badge's semantic fallback. */
+/** No avatar color keeps the unread toggle's semantic fallback. */
 export const NoAccent: Story = {
   args: {
     accent: NO_AVATAR_ACCENT,

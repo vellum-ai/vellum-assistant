@@ -67,11 +67,11 @@ export function NotificationsBellPanel({
           >
             {t("notificationsBell.heading")}
           </Typography>
-          <span className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--avatar-accent-fill,var(--system-positive-weak))] px-2 py-0.5">
+          <span className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full bg-[var(--system-positive-weak)] px-2 py-0.5">
             <Typography
               variant="body-small-default"
               data-testid="notifications-bell-count"
-              className="text-[var(--avatar-accent-ink,var(--system-positive-on-weak))]"
+              className="text-[var(--system-positive-on-weak)]"
             >
               {count}
             </Typography>
