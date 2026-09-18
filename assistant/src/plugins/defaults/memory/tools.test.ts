@@ -317,7 +317,8 @@ describe("rememberTool.execute — memory access", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("only available to the guardian");
-      expect(result.yieldToUser).toBe(true);
+      // The turn continues so the model can relay the refusal.
+      expect(result.yieldToUser).toBeUndefined();
       const bufferPath = join(tmpWorkspace, "memory", "buffer.md");
       const buffer = existsSync(bufferPath)
         ? readFileSync(bufferPath, "utf-8")
