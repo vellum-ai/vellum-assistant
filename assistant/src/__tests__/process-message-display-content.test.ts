@@ -148,6 +148,7 @@ import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { Message } from "../providers/types.js";
 
 function makeTestConversation() {
@@ -552,5 +553,60 @@ describe("processMessage skipUserMessageIndexing", () => {
 
     expect(addMessageCalls).toHaveLength(1);
     expect(addMessageCalls[0]!.skipIndexing).toBeUndefined();
+  });
+});
+
+describe("processMessage author", () => {
+  const author: TrustContext = {
+    sourceChannel: "slack",
+    trustClass: "trusted_contact",
+    requesterContactId: "contact-alice",
+  };
+
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+    activeConversation = undefined;
+    resolveSlashForTest = (content) => ({ kind: "passthrough", content });
+  });
+
+  test("a relayed message names its author on the user row", async () => {
+    activeConversation = makeTestConversation();
+
+    await processMessage("conv-display-content", "the export needs a token", {
+      author,
+    });
+
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.metadata?.provenanceContactId).toBe(
+      "contact-alice",
+    );
+  });
+
+  test("a message nobody relayed names no author", async () => {
+    activeConversation = makeTestConversation();
+
+    await processMessage("conv-display-content", "kickoff prompt body", {});
+
+    expect(addMessageCalls[0]!.metadata?.provenanceContactId).toBeUndefined();
+  });
+
+  test("a relayed slash command names its author on the user row, not the reply", async () => {
+    resolveSlashForTest = () => ({
+      kind: "unknown",
+      message: "Unknown slash command.",
+    });
+    activeConversation = makeTestConversation();
+
+    await processMessage("conv-display-content", "/missing-command", {
+      author,
+    });
+
+    expect(addMessageCalls).toHaveLength(2);
+    expect(addMessageCalls[0]!.role).toBe("user");
+    expect(addMessageCalls[0]!.metadata?.provenanceContactId).toBe(
+      "contact-alice",
+    );
+    expect(addMessageCalls[1]!.role).toBe("assistant");
+    expect(addMessageCalls[1]!.metadata?.provenanceContactId).toBeUndefined();
   });
 });

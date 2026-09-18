@@ -352,7 +352,7 @@ GET /v1/assistants/:assistantId/attachments/:attachmentId
 
 #### Telegram
 
-The gateway downloads attachments from the runtime API and delivers them via Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (exceeding 20 MB) are skipped. Partial failures send a user-visible notice listing undelivered files.
+The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/send.ts`) reads each attachment from the attachment store and uploads it with Telegram's `sendPhoto` (images within the 10 MB photo upload limit) or `sendDocument` (larger images and other files). Oversized attachments (over the 50 MB `sendDocument` limit) are skipped. Partial failures send a user-visible notice listing undelivered files.
 
 #### Attachment Sources
 
@@ -361,7 +361,7 @@ The assistant creates attachments from two sources:
 1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
 2. **Tool output**: Image and file content blocks from tool results are persisted as attachments. For computer-use calls, every screenshot remains linked to its tool-result row and only the final screenshot-bearing call is also linked automatically to the reply. Explicit attachments remain independent. Files and channel delivery continue to read reply links, so they receive that final screenshot plus any explicit or unrelated reply attachments.
 
-Limits: 100 MB per attachment (20 MB for Telegram).
+Limits: 100 MB per attachment (50 MB for Telegram, the Bot API `sendDocument` upload limit).
 
 ### Inline Media Embeds
 

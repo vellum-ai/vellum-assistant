@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   layoutValues as layout,
+  copyText,
+  layoutResult,
+  parseStructuredResult,
   type ValueField,
+  type ValueFieldList,
 } from "@/domains/chat/utils/value-layout";
 
 /** The first field `values` lays out to, for a test about one value. */
@@ -11,15 +15,28 @@ function firstField(values: Record<string, unknown>): ValueField | undefined {
 }
 
 describe("layoutValues", () => {
-  test("shows short values as text and long text as a code block", () => {
-    const query = "x".repeat(81);
-    expect(layout({ depth: "deep", max_results: 10, query })).toEqual({
+  test("shows a one-line value as text however long it is", () => {
+    const short = "select 1";
+    const long = `select ${"x, ".repeat(200)}1`;
+    expect(
+      layout({ depth: "deep", max_results: 10, short, long }),
+    ).toMatchObject({
       fields: [
         { kind: "text", label: "depth", text: "deep" },
         { kind: "text", label: "max_results", text: "10" },
-        { kind: "code", label: "query", text: query },
+        { kind: "text", label: "short", text: short },
+        { kind: "text", label: "long", text: long },
       ],
       more: 0,
+    });
+  });
+
+  test("shows text with a line break as a code block however short it is", () => {
+    const script = "cd app\nls";
+    expect(firstField({ script })).toMatchObject({
+      kind: "code",
+      label: "script",
+      text: script,
     });
   });
 
@@ -27,7 +44,7 @@ describe("layoutValues", () => {
     const long = "a sentence far too long to read comfortably in a list";
     expect(
       layout({ sources: ["memory", "documents"], notes: ["short", long] }),
-    ).toEqual({
+    ).toMatchObject({
       fields: [
         { kind: "list", label: "sources", items: ["memory", "documents"] },
         {
@@ -55,7 +72,7 @@ describe("layoutValues", () => {
           tags: ["inbound", "trial"],
         },
       }),
-    ).toEqual({
+    ).toMatchObject({
       fields: [
         {
           kind: "nested",
@@ -88,7 +105,7 @@ describe("layoutValues", () => {
         tags: [],
         options: {},
       }).fields,
-    ).toEqual([
+    ).toMatchObject([
       { kind: "text", label: "title", text: '""' },
       { kind: "text", label: "indent", text: '"  "' },
       { kind: "text", label: "public", text: "false" },
@@ -114,7 +131,7 @@ describe("layoutValues", () => {
           ? field.fields.fields.find((child) => child.label === "inner")
           : undefined;
     }
-    expect(field).toEqual({
+    expect(field).toMatchObject({
       kind: "code",
       label: "inner",
       text: JSON.stringify({ f: 1 }, null, 2),
@@ -146,7 +163,7 @@ describe("layoutValues tables", () => {
           { stage: "trial", email: "grace@example.com", owner: "growth" },
         ],
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "table",
       label: "contacts",
       columns: ["email", "stage", "owner"],
@@ -229,7 +246,7 @@ describe("layoutValues tables", () => {
           rows: [["2026-08-03", 12840], ["2026-08-10"]],
         },
       }),
-    ).toEqual({
+    ).toMatchObject({
       kind: "table",
       label: "result",
       columns: ["week", "users"],
@@ -269,7 +286,136 @@ describe("layoutValues tables", () => {
     expect(field).toMatchObject({ kind: "table", more: 3 });
     if (field?.kind === "table") {
       expect(field.rows).toHaveLength(100);
-      expect(field.rows[99]).toEqual(["100", "row 100"]);
+      expect(field.rows[99]).toMatchObject(["100", "row 100"]);
     }
+  });
+});
+
+describe("field values", () => {
+  test("every field carries the value it was laid out from", () => {
+    const values = {
+      query: "select 1",
+      limit: 10,
+      tags: ["a", "b"],
+      owner: { team: "growth" },
+      rows: [
+        { id: 1, name: "one" },
+        { id: 2, name: "two" },
+      ],
+    };
+    const { fields } = layout(values);
+    expect(fields.map((field) => field.value)).toEqual(Object.values(values));
+  });
+
+  test("copies a string as it is and anything else as JSON", () => {
+    expect(copyText("select 1")).toBe("select 1");
+    expect(copyText(10)).toBe("10");
+    expect(copyText(["a", "b"])).toBe(JSON.stringify(["a", "b"], null, 2));
+    expect(copyText({ team: "growth" })).toBe(
+      JSON.stringify({ team: "growth" }, null, 2),
+    );
+  });
+});
+
+describe("tool results", () => {
+  test("parses only a JSON object or array with something in it", () => {
+    expect(parseStructuredResult('{"a":1}')).toEqual({ a: 1 });
+    expect(parseStructuredResult("[1,2]")).toEqual([1, 2]);
+    for (const text of ["Moved 3 files.", "42", '"text"', "null", "{}", "[]"]) {
+      expect(parseStructuredResult(text)).toBeNull();
+    }
+  });
+
+  test("lays out a query result written as columns and rows as one unnamed table", () => {
+    expect(
+      layoutResult({
+        columns: ["week", "users"],
+        rows: [
+          ["2026-08-03", 12840],
+          ["2026-08-10", 13217],
+        ],
+      }),
+    ).toMatchObject({
+      fields: [
+        {
+          kind: "table",
+          label: "",
+          columns: ["week", "users"],
+          rows: [
+            ["2026-08-03", "12840"],
+            ["2026-08-10", "13217"],
+          ],
+        },
+      ],
+      more: 0,
+    });
+  });
+
+  test("lays out an object as its keys and a list as one unnamed field", () => {
+    expect(layoutResult({ a: "x" })).toMatchObject({
+      fields: [{ kind: "text", label: "a", text: "x" }],
+      more: 0,
+    });
+    const rows = [
+      { id: 1, name: "one" },
+      { id: 2, name: "two" },
+    ];
+    expect(layoutResult(rows)).toMatchObject({
+      fields: [{ kind: "table", label: "", columns: ["id", "name"] }],
+      more: 0,
+    });
+  });
+});
+
+describe("layout budget", () => {
+  /** Fields and table rows laid out in `list`, at every depth. */
+  function laidOut(list: ValueFieldList): number {
+    return list.fields.reduce(
+      (sum, field) =>
+        sum +
+        1 +
+        (field.kind === "table" ? field.rows.length : 0) +
+        (field.kind === "nested" ? laidOut(field.fields) : 0),
+      0,
+    );
+  }
+
+  /** Lists `width` wide nested `levels` deep, of text too long for one line. */
+  function broad(levels: number, width: number): unknown[] {
+    return Array.from({ length: width }, () =>
+      levels === 1
+        ? "a value long enough that no list of it is written on one line"
+        : broad(levels - 1, width),
+    );
+  }
+
+  test("bounds a value broad at every level, counting what it leaves out", () => {
+    const list = layoutResult(broad(4, 20));
+
+    // Twenty at each of four levels is 160,000 values.
+    expect(laidOut(list)).toBeLessThanOrEqual(500);
+    const root = list.fields[0];
+    expect(root?.kind).toBe("nested");
+    if (root?.kind === "nested") {
+      expect(root.fields.fields.length + root.fields.more).toBe(20);
+      expect(root.fields.more).toBeGreaterThan(0);
+    }
+  });
+
+  test("spends the budget on table rows too", () => {
+    const table = Array.from({ length: 100 }, (_, index) => ({
+      id: index,
+      name: `user${index}`,
+    }));
+    const values = Object.fromEntries(
+      Array.from({ length: 10 }, (_, index) => [`table${index}`, table]),
+    );
+    const list = layout(values);
+
+    expect(laidOut(list)).toBeLessThanOrEqual(500);
+    // The first tables are whole; the ones past the budget are counted.
+    expect(list.fields[0]).toMatchObject({ kind: "table", more: 0 });
+    expect(list.fields.length + list.more).toBe(10);
+    expect(list.more).toBeGreaterThan(0);
   });
 });

@@ -44,7 +44,7 @@
  * (via `ConversationRow`), so neither takes them as props.
  */
 
-import { type ReactNode, useLayoutEffect, useState } from "react";
+import { type ReactNode } from "react";
 
 import { type LucideIcon } from "lucide-react";
 
@@ -68,6 +68,7 @@ import {
 } from "@/domains/chat/components/group-actions-menu";
 import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
+import { useOverflows } from "@/hooks/use-overflows";
 
 /**
  * Row count past which a conversation list windows its rows instead of
@@ -135,40 +136,6 @@ export interface ConversationRowListProps {
   onExpandedChange?: (expanded: boolean) => void;
 }
 
-/**
- * Whether a scroller's content runs past its box, kept live. A callback ref
- * (stored in state, as `useElementSize` does) so it re-measures when the
- * scroller mounts, and a `ResizeObserver` so it follows the box: the cap
- * coming and going with `expanded`, the rail squeezing the last section.
- * Content changes reach it through the same observer when they move the
- * box, and through `contentKey` when they do not (a row added under a
- * capped box grows `scrollHeight` alone).
- */
-function useOverflows(contentKey: number): {
-  ref: (el: HTMLDivElement | null) => void;
-  overflows: boolean;
-} {
-  const [el, setEl] = useState<HTMLDivElement | null>(null);
-  const [overflows, setOverflows] = useState(false);
-
-  useLayoutEffect(() => {
-    if (!el) {
-      setOverflows(false);
-      return;
-    }
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight);
-    measure();
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [el, contentKey]);
-
-  return { ref: setEl, overflows };
-}
-
 export function ConversationRowList({
   items,
   scrollParent,
@@ -204,9 +171,8 @@ export function ConversationRowList({
      control so it can be put back. */
   const canExpand =
     expandable === true && isLast === true && !unbounded && !scrollWithBody;
-  const { ref: scrollerRef, overflows: scrollerOverflows } = useOverflows(
-    items.length,
-  );
+  const { ref: scrollerRef, overflows: scrollerOverflows } =
+    useOverflows<HTMLDivElement>({ contentKey: items.length });
   const overflowsCap =
     windows || scrollerOverflows || onEndReached !== undefined;
   const expandRow =

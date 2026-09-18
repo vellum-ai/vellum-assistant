@@ -243,8 +243,22 @@ describe("claimBootstrapSession", () => {
       status: "pending_bootstrap",
     });
 
-    expect(claimBootstrapSession("bootstrap", "telegram")).toBe(true);
+    expect(claimBootstrapSession("bootstrap", "telegram")).not.toBeNull();
     expect(getRow("bootstrap")?.status).toBe("revoked");
+  });
+
+  test("returns the claimed session, so its replacement keeps its purpose", () => {
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
+      verificationPurpose: "trusted_contact",
+    });
+
+    expect(claimBootstrapSession("bootstrap", "telegram")).toMatchObject({
+      id: "bootstrap",
+      verificationPurpose: "trusted_contact",
+    });
   });
 
   test("a second claim loses, so one deep link mints once", () => {
@@ -257,7 +271,7 @@ describe("claimBootstrapSession", () => {
     });
     claimBootstrapSession("bootstrap", "telegram");
 
-    expect(claimBootstrapSession("bootstrap", "telegram")).toBe(false);
+    expect(claimBootstrapSession("bootstrap", "telegram")).toBeNull();
   });
 
   test("a claim on another channel's row loses and leaves it alone", () => {
@@ -267,7 +281,7 @@ describe("claimBootstrapSession", () => {
       status: "pending_bootstrap",
     });
 
-    expect(claimBootstrapSession("bootstrap", "slack")).toBe(false);
+    expect(claimBootstrapSession("bootstrap", "slack")).toBeNull();
     expect(getRow("bootstrap")?.status).toBe("pending_bootstrap");
   });
 
@@ -276,7 +290,7 @@ describe("claimBootstrapSession", () => {
     // awaiting_response code belonging to someone mid-verification.
     insertRaw({ id: "live", channel: "telegram", status: "awaiting_response" });
 
-    expect(claimBootstrapSession("live", "telegram")).toBe(false);
+    expect(claimBootstrapSession("live", "telegram")).toBeNull();
     expect(getRow("live")?.status).toBe("awaiting_response");
   });
 });

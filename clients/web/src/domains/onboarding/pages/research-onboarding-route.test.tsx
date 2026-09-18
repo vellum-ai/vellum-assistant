@@ -78,7 +78,6 @@ const researchRunner = {
   get installedPlugins() {
     return installedPlugins;
   },
-  pluginCatalog: {} as Record<string, string>,
   start: startResearchMock,
   hydrate: hydrateResearchMock,
   reset: resetResearchMock,
@@ -363,32 +362,28 @@ mock.module("@/domains/onboarding/screens/research-result-steps", () => ({
   LookingYouUpStep: (props: { ready: boolean }) => (
     <div data-testid="looking-step" data-ready={String(props.ready)} />
   ),
-  FinishingUpStep: () => <div data-testid="finishing-step" />,
-  ResearchResultsStep: () => <div data-testid="results-step" />,
-  SuggestionsStep: () => <div data-testid="suggestions-step" />,
-  // Renders the real step's contract: a "Let's chat" CTA that the parent can
-  // hold via `disabled`. Mirrors the component's own guard (native disable +
-  // the handleStart no-op) so a disabled CTA can't fire the handoff.
-  LetsChatReadyStep: (props: {
-    onStart: () => void | Promise<void>;
-    disabled?: boolean;
-  }) => (
-    <div data-testid="letschat-ready-step">
+  // Renders the real step's contract: `onDone` fires only once `ready` holds.
+  // The button stands in for the step's closing-line timer, so a test can pin
+  // when the parent releases the handoff.
+  FinishingUpStep: (props: { ready: boolean; onDone: () => void }) => (
+    <div data-testid="finishing-step">
       <button
         type="button"
-        data-testid="letschat-start"
-        disabled={props.disabled}
+        data-testid="finishing-done"
+        disabled={!props.ready}
         onClick={() => {
-          if (props.disabled) {
+          if (!props.ready) {
             return;
           }
-          void props.onStart();
+          props.onDone();
         }}
       >
-        Let&apos;s chat
+        Done
       </button>
     </div>
   ),
+  ResearchResultsStep: () => <div data-testid="results-step" />,
+  SuggestionsStep: () => <div data-testid="suggestions-step" />,
 }));
 
 mock.module("@/domains/onboarding/screens/existing-assistant-step", () => ({
@@ -459,7 +454,6 @@ function doneSnapshot(): ResearchOnboardingSnapshot {
       droppedClaims: [],
       suggestions: [],
       installedPlugins: [],
-      pluginCatalog: {},
     },
   });
 }
@@ -562,9 +556,9 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     render(<ResearchOnboardingRoute />);
 
-    // personalityEnabled → the suggestions step renders the "Let's chat" screen.
+    // personalityEnabled → the suggestions step renders the chat handoff.
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-step")).toBeTruthy(),
     );
     // A fresh verdict must not divert, and a done journey never re-fires.
     expect(screen.queryByTestId("existing-step")).toBeNull();
@@ -572,10 +566,10 @@ describe("ResearchOnboardingRoute resume guard", () => {
   });
 
   // The completed snapshot lands on the terminal handoff synchronously, but the
-  // established check settles asynchronously. Until the verdict lands the "Let's
-  // chat" CTA must stay held — otherwise a click races past the guard, clears
+  // established check settles asynchronously. Until the verdict lands the chat
+  // handoff must stay held — otherwise it races past the guard, clears
   // the snapshot, and navigates away before `setStep("existing")` can divert.
-  test("holds the 'Let's chat' handoff while a resumed done journey awaits the guard, then diverts when established", async () => {
+  test("holds the chat handoff while a resumed done journey awaits the guard, then diverts when established", async () => {
     armDelayedEstablishedCheck();
     establishedResult = { established: true, assistantName: "Viper" };
     researchStatus = "done";
@@ -583,16 +577,16 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     render(<ResearchOnboardingRoute />);
 
-    // The terminal step is on screen, but the guard hasn't settled → CTA held.
+    // The terminal step is on screen, but the guard hasn't settled → handoff held.
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-start")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-done")).toBeTruthy(),
     );
     expect(
-      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
     ).toBe(true);
 
-    // Clicking the held CTA does nothing: no handoff navigation, snapshot intact.
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    // Triggering the held handoff does nothing: no handoff navigation, snapshot intact.
+    fireEvent.click(screen.getByTestId("finishing-done"));
     expect(navigateMock).not.toHaveBeenCalled();
     expect(readResearchSnapshot(USER_ID)).not.toBeNull();
 
@@ -616,23 +610,23 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     // Held while the verdict is pending.
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-start")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-done")).toBeTruthy(),
     );
     expect(
-      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
     ).toBe(true);
 
-    // A fresh verdict releases the hold — no divert, and the CTA becomes usable.
+    // A fresh verdict releases the hold — no divert, and the handoff becomes usable.
     releaseEstablishedCheck();
     await waitFor(() =>
       expect(
-        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+        (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
       ).toBe(false),
     );
     expect(screen.queryByTestId("existing-step")).toBeNull();
 
     // And now clicking it actually hands off to the chat.
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    fireEvent.click(screen.getByTestId("finishing-done"));
     await waitFor(() => expect(navigateMock).toHaveBeenCalled());
     expect(startResearchMock).not.toHaveBeenCalled();
   });
@@ -649,12 +643,12 @@ describe("ResearchOnboardingRoute resume guard", () => {
 
     await waitFor(() =>
       expect(
-        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+        (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
       ).toBe(false),
     );
     expect(readOnboardedAt("asst-1")).toBeUndefined();
 
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    fireEvent.click(screen.getByTestId("finishing-done"));
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalled());
     expect(readOnboardedAt("asst-1")).toBeTruthy();
@@ -804,13 +798,13 @@ describe("ResearchOnboardingRoute paid return", () => {
 
     await waitFor(() =>
       expect(
-        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+        (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
       ).toBe(true),
     );
 
-    // Clicking the held CTA hands off to nothing: no navigation, and the
+    // Triggering the held handoff hands off to nothing: no navigation, and the
     // journey's resume state survives for the retry.
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    fireEvent.click(screen.getByTestId("finishing-done"));
     expect(navigateMock).not.toHaveBeenCalled();
     expect(readResearchSnapshot(USER_ID)).not.toBeNull();
 
@@ -823,11 +817,11 @@ describe("ResearchOnboardingRoute paid return", () => {
     rerender(<ResearchOnboardingRoute />);
 
     // The retry window: no error left, still nothing to hand off to. Releasing
-    // the CTA here would enter a null assistant, exactly as the dead hatch did.
+    // the handoff here would enter a null assistant, exactly as the dead hatch did.
     expect(
-      (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+      (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
     ).toBe(true);
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    fireEvent.click(screen.getByTestId("finishing-done"));
     expect(navigateMock).not.toHaveBeenCalled();
     expect(readResearchSnapshot(USER_ID)).not.toBeNull();
 
@@ -838,10 +832,10 @@ describe("ResearchOnboardingRoute paid return", () => {
     // A recovered hatch has an assistant to hand off to again.
     await waitFor(() =>
       expect(
-        (screen.getByTestId("letschat-start") as HTMLButtonElement).disabled,
+        (screen.getByTestId("finishing-done") as HTMLButtonElement).disabled,
       ).toBe(false),
     );
-    fireEvent.click(screen.getByTestId("letschat-start"));
+    fireEvent.click(screen.getByTestId("finishing-done"));
     await waitFor(() => expect(navigateMock).toHaveBeenCalled());
   });
 
@@ -904,7 +898,7 @@ describe("ResearchOnboardingRoute paid return", () => {
     render(<ResearchOnboardingRoute />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-step")).toBeTruthy(),
     );
     expect(screen.queryByTestId("results-step")).toBeNull();
   });
@@ -930,7 +924,6 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
       droppedClaims: [],
       suggestions: [],
       installedPlugins: [],
-      pluginCatalog: {},
     });
   });
 
@@ -943,7 +936,7 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
     render(<ResearchOnboardingRoute />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-step")).toBeTruthy(),
     );
     await waitFor(() =>
       expect(hydrateResearchMock).toHaveBeenCalledWith({
@@ -952,7 +945,6 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
         droppedClaims: [],
         suggestions: [],
         installedPlugins: [],
-        pluginCatalog: {},
       }),
     );
     expect(screen.queryByTestId("looking-step")).toBeNull();
@@ -999,7 +991,7 @@ describe("ResearchOnboardingRoute empty-details research skip", () => {
     render(<ResearchOnboardingRoute />);
 
     await waitFor(() =>
-      expect(screen.getByTestId("letschat-ready-step")).toBeTruthy(),
+      expect(screen.getByTestId("finishing-step")).toBeTruthy(),
     );
     expect(startResearchMock).not.toHaveBeenCalled();
   });
@@ -1161,7 +1153,6 @@ describe("ResearchOnboardingRoute hatch retry", () => {
           droppedClaims: [],
           suggestions: [],
           installedPlugins: ["admin-copilot"],
-          pluginCatalog: {},
         },
       }),
     );

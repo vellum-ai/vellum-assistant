@@ -13,6 +13,11 @@ import {
   fileReadMissingDetail,
   fileWriteDetail,
   largeOutputDetail,
+  wideTableOutputDetail,
+  manyShortLinesDetail,
+  tallNestedParameterDetail,
+  tallTableParameterDetail,
+  longTextParameterDetail,
   managedWorkspaceDetail,
   mcpDetail,
   mcpSqlDetail,
@@ -90,8 +95,11 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Error | BashError, FileReadError, SkillLoadError | The panel styles an error result identically to a successful one; only the text says it failed. |
  * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
+ * | Structured output | McpTool, UnknownThirdPartyTool, RecordListParameter, WideTableOutput | A result that is a JSON object or list lays out the way the input does, with the result exactly as received under Raw output. Anything else, and an error or a streamed tail, stays a code block. |
+ * | Taller than the fold | ManyShortLinesOutput, TallTableParameter, TallNestedParameter | Any value taller than the fold folds behind Show more, measured at the width it is drawn at: many short lines as readily as one long paragraph, and a table or nested group as one value. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
+ * | Long and multi-line text | LongTextParameter | A value on one line reads inline however long it is, and folds behind Show more once it runs long; text with line breaks keeps its lines in a code block. |
  * | List of records | RecordListParameter | A list of same-shaped objects reads as a table, one column per key; a record missing a key leaves an empty cell. |
  * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
@@ -258,10 +266,47 @@ export const UnknownThirdPartyTool: Story = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Forty short lines of output. Short in characters but taller than the fold,
+ * so it folds by the height it is drawn at.
+ */
+export const ManyShortLinesOutput: Story = {
+  args: { detail: manyShortLinesDetail },
+};
+
+/** A table parameter of twenty rows, folded as one value. */
+export const TallTableParameter: Story = {
+  args: { detail: tallTableParameterDetail },
+};
+
+/** A nested parameter group of twelve fields, folded as one value. */
+export const TallNestedParameter: Story = {
+  args: { detail: tallNestedParameterDetail },
+};
+
+/**
  * A long result, clamped behind Show more. Tool results reach the panel at up
  * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
+
+/**
+ * An output table wider than the drawer and taller than a screen: thirty
+ * records with ten keys each. Columns take the width of their values on one
+ * line and the table scrolls sideways; the long `website` column wraps at the
+ * width cap.
+ */
+export const WideTableOutput: Story = {
+  args: { detail: wideTableOutputDetail },
+};
+
+/**
+ * Long and multi-line text. The note is one long line, so it reads inline and
+ * folds behind Show more once it runs past the clamp; the checklist is short
+ * but has line breaks, so it keeps them in a code block.
+ */
+export const LongTextParameter: Story = {
+  args: { detail: longTextParameterDetail },
+};
 
 /**
  * A parameter that is a list of same-shaped records. It reads as a table with

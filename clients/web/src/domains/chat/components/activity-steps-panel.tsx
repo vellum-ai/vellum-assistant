@@ -42,8 +42,10 @@ import {
   PhaseGroupedStepList,
   type PhaseSection,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { ActivityScreenshotTile } from "@/domains/chat/components/activity-screenshot-tile";
 import {
+  createToolResultImageProjector,
   projectToolResultImages,
   type ToolResultImage,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -101,19 +103,24 @@ export function buildActivityScreenshotGallery(
 function buildActivityScreenshotGalleryForIds(
   toolCalls: ChatMessageToolCall[],
   orderedToolCallIds: string[],
+  projectImages = projectToolResultImages,
 ): ActivityScreenshotOccurrence[] {
+  const renderedIds = new Set(orderedToolCallIds);
   const eligibleIds = new Set(
     toolCalls
-      .filter((toolCall) =>
-        isComputerUseToolCall(toolCall.name, toolCall.input),
+      .filter(
+        (toolCall) =>
+          renderedIds.has(toolCall.id) &&
+          isComputerUseToolCall(toolCall.name, toolCall.input),
       )
       .map((toolCall) => toolCall.id),
   );
   const imageByToolCallId = new Map<string, ToolResultImage>();
-  for (const image of projectToolResultImages(toolCalls)) {
-    if (eligibleIds.has(image.toolCallId)) {
-      imageByToolCallId.set(image.toolCallId, image);
-    }
+  for (const image of projectImages(
+    toolCalls,
+    (toolCall, index, total) => eligibleIds.has(toolCall.id) && index === total,
+  )) {
+    imageByToolCallId.set(image.toolCallId, image);
   }
 
   const gallery: ActivityScreenshotOccurrence[] = [];
@@ -211,9 +218,15 @@ function ActivityStepsPanelTarget({
       ),
     [items],
   );
+  const projectImages = useMemo(() => createToolResultImageProjector(), []);
   const screenshotGallery = useMemo(
-    () => buildActivityScreenshotGalleryForIds(toolCalls, orderedToolCallIds),
-    [toolCalls, orderedToolCallIds],
+    () =>
+      buildActivityScreenshotGalleryForIds(
+        toolCalls,
+        orderedToolCallIds,
+        projectImages,
+      ),
+    [toolCalls, orderedToolCallIds, projectImages],
   );
   const screenshotKeys = useMemo(
     () => screenshotGallery.map((entry) => entry.occurrenceKey),
@@ -422,6 +435,7 @@ function TimelineStep({
   groupIndex?: number;
 }) {
   const { t } = useTranslation("chat");
+  const resolveActionDisplayLabel = useActionDisplayLabel();
   // Thinking steps drill into the full reasoning markdown. Genuine reasoning
   // segments carry a `thinkingItemIndex` and a threaded message identity so
   // the detail level streams live; web-synthesized thinking steps
@@ -472,7 +486,11 @@ function TimelineStep({
   return (
     <ToolStepPill
       iconName={step.iconName}
-      label={step.activity || step.info || step.title}
+      label={resolveActionDisplayLabel({
+        activity: step.activity,
+        actionDisplayKey: step.actionDisplayKey,
+        fallback: step.activity || step.info || step.title,
+      })}
       active={activeDetail?.toolCallId === step.toolCallId}
       onClick={() => {
         if (!tc) {

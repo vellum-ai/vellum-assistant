@@ -31,6 +31,10 @@ import {
   type ConversationCreatedInfo,
   NotificationBroadcaster,
 } from "./broadcaster.js";
+import {
+  intersectChannelAllowlist,
+  readChannelAllowlist,
+} from "./channel-allowlist.js";
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
 import {
@@ -51,6 +55,7 @@ import type {
 import type {
   NotificationChannel,
   NotificationDeliveryResult,
+  NotificationReceiptClass,
 } from "./types.js";
 
 const log = getLogger("emit-signal");
@@ -72,17 +77,24 @@ export function getBroadcaster(): NotificationBroadcaster {
     // Wire the conversation-created callback so the macOS client is notified
     // immediately when a vellum notification conversation is paired — before
     // slower channel deliveries (e.g. Telegram) delay the push.
+    // A guardian-sensitive conversation's title reaches only the guardian's
+    // own connections, the same scoping the vellum adapter applies to the
+    // notification itself.
     broadcasterInstance.setOnConversationCreated((info) => {
-      broadcastMessage({
-        type: "notification_conversation_created",
-        conversationId: info.conversationId,
-        title: info.title,
-        sourceEventName: info.sourceEventName,
-        targetGuardianPrincipalId: info.targetGuardianPrincipalId,
-        groupId: info.groupId,
-        source: info.source,
-        silent: info.silent,
-      });
+      broadcastMessage(
+        {
+          type: "notification_conversation_created",
+          conversationId: info.conversationId,
+          title: info.title,
+          sourceEventName: info.sourceEventName,
+          targetGuardianPrincipalId: info.targetGuardianPrincipalId,
+          groupId: info.groupId,
+          source: info.source,
+          silent: info.silent,
+        },
+        undefined,
+        { targetActorPrincipalId: info.targetGuardianPrincipalId },
+      );
       log.info(
         {
           conversationId: info.conversationId,
@@ -240,7 +252,9 @@ export interface EmitSignalResult {
   deduplicated: boolean;
   dispatched: boolean;
   reason: string;
+  selectedChannels: NotificationChannel[];
   deliveryResults: NotificationDeliveryResult[];
+  receiptClass: NotificationReceiptClass;
   /**
    * True when the pipeline threw before reaching a verdict. Dispatch, dedupe,
    * suppression, and a blocked deterministic check are all verdicts. Callers
@@ -248,6 +262,55 @@ export interface EmitSignalResult {
    * `reason` is a human-facing log string and never a control signal.
    */
   pipelineFailed: boolean;
+}
+
+const PROVIDER_RECEIPT_CHANNELS = new Set(["telegram", "slack", "discord"]);
+
+/**
+ * Strongest proof the emit path can report from adapter results. A vellum
+ * `sent` row means the assistant broadcast a `notification_intent`; it is
+ * not a client ACK that the OS posted a banner.
+ */
+export function classifyNotificationReceipt(
+  results: readonly NotificationDeliveryResult[],
+): NotificationReceiptClass {
+  const accepted = results.filter((result) => {
+    return result.status === "sent" || result.status === "pending";
+  });
+  if (
+    accepted.some((result) => {
+      return PROVIDER_RECEIPT_CHANNELS.has(result.channel);
+    })
+  ) {
+    return "provider_accepted";
+  }
+  if (
+    accepted.some((result) => {
+      return result.channel === "platform";
+    })
+  ) {
+    return "gateway_accepted";
+  }
+  return "unknown";
+}
+
+function emitOutcome(
+  partial: Omit<
+    EmitSignalResult,
+    "deliveryResults" | "selectedChannels" | "receiptClass"
+  > & {
+    deliveryResults?: NotificationDeliveryResult[];
+    selectedChannels?: NotificationChannel[];
+  },
+): EmitSignalResult {
+  const deliveryResults = partial.deliveryResults ?? [];
+  const selectedChannels = partial.selectedChannels ?? [];
+  return {
+    ...partial,
+    selectedChannels,
+    deliveryResults,
+    receiptClass: classifyNotificationReceipt(deliveryResults),
+  };
 }
 
 /**
@@ -333,14 +396,13 @@ export async function emitNotificationSignal<TEventName extends string>(
         { signalId, dedupeKey: params.dedupeKey },
         "Signal deduplicated at event store level",
       );
-      return {
+      return emitOutcome({
         signalId,
         deduplicated: true,
         dispatched: false,
         reason: "Signal deduplicated at event store level",
-        deliveryResults: [],
         pipelineFailed: false,
-      };
+      });
     }
     eventPersisted = true;
 
@@ -357,14 +419,13 @@ export async function emitNotificationSignal<TEventName extends string>(
         { signalId, reason: sourceActiveCheck.reason },
         "Signal suppressed before decision stage (source-active)",
       );
-      return {
+      return emitOutcome({
         signalId,
         deduplicated: false,
         dispatched: false,
         reason: `Signal suppressed: ${sourceActiveCheck.reason}`,
-        deliveryResults: [],
         pipelineFailed: false,
-      };
+      });
     }
 
     // Step 2: Evaluate the signal through the decision engine
@@ -398,8 +459,31 @@ export async function emitNotificationSignal<TEventName extends string>(
     // dispatch rank, so selection order only matters to single_channel
     // enforcement's first-selected fallback (step 2.5b), which must keep
     // the in-app banner rather than a push the server may skip.
+    const exclusiveAllowlist = readChannelAllowlist(signal.contextPayload);
     const urgency = signal.attentionHints.urgency;
-    if (
+    if (exclusiveAllowlist) {
+      // Exclusive allowlist wins over the default set, urgent force, and
+      // routing-intent expansion. Delivery is the allowlist intersected
+      // with connected channels.
+      const allowed = intersectChannelAllowlist(
+        exclusiveAllowlist,
+        connectedChannels,
+      );
+      const alreadyMatches =
+        allowed.length === decision.selectedChannels.length &&
+        allowed.every((channel) => {
+          return decision.selectedChannels.includes(channel);
+        }) &&
+        decision.shouldNotify === allowed.length > 0;
+      if (!alreadyMatches) {
+        decision = {
+          ...decision,
+          selectedChannels: allowed,
+          shouldNotify: allowed.length > 0,
+          reasoningSummary: `${decision.reasoningSummary} (channelAllowlist: ${allowed.join(", ") || "none available"})`,
+        };
+      }
+    } else if (
       (urgency === "high" || urgency === "critical") &&
       decision.shouldNotify
     ) {
@@ -427,13 +511,16 @@ export async function emitNotificationSignal<TEventName extends string>(
       }
     }
 
-    // Step 2.5b: Enforce routing intent policy (fire-time guard)
-    decision = enforceRoutingIntent(
-      decision,
-      signal.routingIntent,
-      connectedChannels,
-      signal.sourceChannel,
-    );
+    // Step 2.5b: Enforce routing intent policy (fire-time guard).
+    // An exclusive allowlist already closed the channel set.
+    if (!exclusiveAllowlist) {
+      decision = enforceRoutingIntent(
+        decision,
+        signal.routingIntent,
+        connectedChannels,
+        signal.sourceChannel,
+      );
+    }
 
     // Step 2.5c: Access-request signals carry a decisionable canonical
     // guardian request created before this emit, and that row suppresses
@@ -509,14 +596,13 @@ export async function emitNotificationSignal<TEventName extends string>(
           { signalId, reason: checkResult.reason },
           "Signal blocked by deterministic checks",
         );
-        return {
+        return emitOutcome({
           signalId,
           deduplicated: false,
           dispatched: false,
           reason: `Signal blocked by deterministic checks: ${checkResult.reason}`,
-          deliveryResults: [],
           pipelineFailed: false,
-        };
+        });
       }
     }
 
@@ -562,14 +648,15 @@ export async function emitNotificationSignal<TEventName extends string>(
       },
       "Signal pipeline complete",
     );
-    return {
+    return emitOutcome({
       signalId,
       deduplicated: false,
       dispatched: dispatchResult.dispatched,
       reason: dispatchResult.reason,
+      selectedChannels: decision.selectedChannels,
       deliveryResults: dispatchResult.deliveryResults,
       pipelineFailed: false,
-    };
+    });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error(
@@ -599,13 +686,12 @@ export async function emitNotificationSignal<TEventName extends string>(
     if (params.throwOnError) {
       throw err instanceof Error ? err : new Error(errMsg);
     }
-    return {
+    return emitOutcome({
       signalId,
       deduplicated: false,
       dispatched: false,
       reason: `Signal pipeline failed: ${errMsg}`,
-      deliveryResults: [],
       pipelineFailed: true,
-    };
+    });
   }
 }

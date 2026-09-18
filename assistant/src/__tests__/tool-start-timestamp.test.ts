@@ -48,6 +48,7 @@ import {
   createEventHandlerState,
   handleToolUse,
 } from "../daemon/conversation-agent-loop-handlers.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ function makeDeps(onEvent: (event: AssistantEvent) => void): EventHandlerDeps {
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent,
     reqId: "test-req",

@@ -50,7 +50,6 @@ import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
-import { HeartbeatAlertEventSchema } from "./events/heartbeat-alert.js";
 import { HeartbeatConversationCreatedEventSchema } from "./events/heartbeat-conversation-created.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
@@ -396,10 +395,6 @@ export {
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
 export {
-  type HeartbeatAlertEvent,
-  HeartbeatAlertEventSchema,
-} from "./events/heartbeat-alert.js";
-export {
   type HeartbeatConversationCreatedEvent,
   HeartbeatConversationCreatedEventSchema,
 } from "./events/heartbeat-conversation-created.js";
@@ -735,6 +730,24 @@ export {
   WorkflowStartedEventSchema,
 } from "./events/workflow-started.js";
 export {
+  type ModeSession,
+  type ModeSessionActivity,
+  ModeSessionActivitySchema,
+  type ModeSessionDescriptor,
+  ModeSessionDescriptorSchema,
+  type ModeSessionMode,
+  ModeSessionModeSchema,
+  type ModeSessionRuntimeState,
+  ModeSessionRuntimeStateSchema,
+  ModeSessionSchema,
+  type ModeSessionStatus,
+  ModeSessionStatusSchema,
+  type ModeSessionSummary,
+  ModeSessionSummarySchema,
+  parseModeSession,
+  TolerantModeSessionSchema,
+} from "./mode-session.js";
+export {
   type DictationContext,
   DictationContextSchema,
   type DictationRequest,
@@ -1021,7 +1034,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
-  HeartbeatAlertEventSchema,
   HeartbeatConversationCreatedEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,

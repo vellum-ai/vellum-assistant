@@ -303,6 +303,20 @@ const CATALOG_RECORD: CatalogRecord = {
       "Fast front-door leg fronting live-voice turns under triage-and-escalate: leading-token verdict, holding phrase, or the direct answer.",
     domain: "agentLoop",
   },
+  voiceEscalationJudge: {
+    id: "voiceEscalationJudge",
+    displayName: "Voice Escalation Judge",
+    description:
+      "Second opinion on the voice front door's escalate decision. Runs only when pinned to a TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
+    domain: "agentLoop",
+  },
+  voiceContinuationJudge: {
+    id: "voiceContinuationJudge",
+    displayName: "Voice Continuation Judge",
+    description:
+      "Decides from the caller's interruption whether a barged-in request should keep running in the background. Runs only when pinned to a TypeSafe profile.",
+    domain: "agentLoop",
+  },
   voiceContinuationLabel: {
     id: "voiceContinuationLabel",
     displayName: "Voice Continuation Label",

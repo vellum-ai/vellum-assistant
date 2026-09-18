@@ -458,6 +458,138 @@ export const recordListDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * A third-party tool whose parameters show both halves of the text rule: a
+ * long note on one line reads inline and folds behind Show more, and a short
+ * checklist with line breaks keeps its lines in a block.
+ */
+export const longTextParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-notes-append-1",
+  toolName: "acme_notes_append",
+  title: "Working",
+  activity: "Adding the planting plan to the garden notebook",
+  input: {
+    activity: "Adding the planting plan to the garden notebook",
+    notebook: "Garden",
+    note: [
+      "Start tomatoes, peppers and basil indoors in the second week of March under the shop light, and keep the tray on the heat mat until most seedlings are up.",
+      "Harden them off on the porch for ten days once nights stay above ten degrees, bringing them in if the forecast drops.",
+      "Plant the tomatoes in the two back beds with cages set at planting time, peppers along the fence where they get afternoon sun, and basil between the tomatoes.",
+      "Direct sow beans and squash in the front bed after the last frost date, then mulch everything with straw once the soil has warmed.",
+      "Water deeply twice a week rather than a little every day, and check the drip line for clogs at the start of each month.",
+      "Pick beans every other day once they start, and pull any squash leaves that show mildew before it spreads down the row.",
+    ].join(" "),
+    checklist: "Order compost\nFix the rain barrel tap\nLabel the seed trays",
+  },
+  result: JSON.stringify({ appended: true }, null, 2),
+  riskLevel: "low",
+});
+
+/**
+ * A query whose result is a list of thirty records with ten keys each: wider
+ * than the drawer and taller than a screen. The columns take the width of
+ * their values on one line and the table scrolls sideways; the long `website`
+ * column wraps once it reaches the width cap.
+ */
+export const wideTableOutputDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-accounts-query-1",
+  toolName: "mcp__warehouse__query",
+  title: "Working",
+  activity: "Listing the accounts on the team and enterprise plans",
+  input: {
+    activity: "Listing the accounts on the team and enterprise plans",
+    query:
+      "select * from accounts where plan in ('team', 'enterprise') limit 30",
+  },
+  result: JSON.stringify(
+    Array.from({ length: 30 }, (_, index) => ({
+      id: `acct_${1000 + index}`,
+      name: `Example Account ${index + 1}`,
+      email: `user${index + 1}@example.com`,
+      plan: index % 3 === 0 ? "enterprise" : "team",
+      seats: 10 + index,
+      region: "us-east-1",
+      created_at: "2026-08-03T12:00:00Z",
+      owner: "growth",
+      status: index % 4 === 0 ? "churn_risk" : "active",
+      website: `https://example.com/accounts/${1000 + index}/overview`,
+    })),
+  ),
+  riskLevel: "low",
+});
+
+/**
+ * Output of many short lines: forty file paths, far under the length that
+ * reads as "long" in characters but taller than the fold, so it folds by the
+ * height it is drawn at.
+ */
+export const manyShortLinesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-list-files-1",
+  toolName: "acme_repo_list_files",
+  title: "Working",
+  activity: "Listing the files the change touched",
+  input: {
+    activity: "Listing the files the change touched",
+    since: "main",
+  },
+  result: Array.from({ length: 40 }, (_, index) => `src/f${index + 1}.ts`).join(
+    "\n",
+  ),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is a list of twenty records: a table taller than the fold,
+ * so the table folds as one value with a single Show more.
+ */
+export const tallTableParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-tasks-import-1",
+  toolName: "acme_tasks_import",
+  title: "Working",
+  activity: "Importing twenty tasks into the launch board",
+  input: {
+    activity: "Importing twenty tasks into the launch board",
+    board: "Launch",
+    tasks: Array.from({ length: 20 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      owner: index % 2 === 0 ? "design" : "engineering",
+      due: `2026-10-${String(index + 1).padStart(2, "0")}`,
+    })),
+  },
+  result: JSON.stringify({ imported: 20 }),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is an object of many fields: a nested group taller than the
+ * fold, so the group folds as one value.
+ */
+export const tallNestedParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-settings-update-1",
+  toolName: "acme_workspace_update_settings",
+  title: "Working",
+  activity: "Updating the workspace notification settings",
+  input: {
+    activity: "Updating the workspace notification settings",
+    settings: {
+      digest: "daily",
+      digest_hour: 9,
+      timezone: "America/New_York",
+      mentions: "immediately",
+      replies: "immediately",
+      reactions: "never",
+      weekly_summary: true,
+      quiet_hours_start: "22:00",
+      quiet_hours_end: "07:00",
+      channels: "email and push",
+      escalate_after_minutes: 30,
+      include_resolved: false,
+    },
+  },
+  result: JSON.stringify({ updated: true }),
+  riskLevel: "low",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well

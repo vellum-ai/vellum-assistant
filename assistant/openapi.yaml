@@ -5647,6 +5647,64 @@ paths:
                 required:
                   - disconnected
                 additionalProperties: false
+  /v1/clients/history:
+    get:
+      operationId: clients_history_get
+      summary: List client connection history
+      description:
+        Return persisted client subscribe/dispose events and coalesced sessions. Reconnects shorter than 60 seconds
+        are flaps, not outages.
+      tags:
+        - clients
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Restrict history to one client UUID.
+        - name: interfaceId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Restrict history to one interface (e.g. chrome-extension).
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ISO-8601 or epoch-ms lower bound. Sessions already open at this time are included.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Max coalesced sessions to return (1-500, default 50).
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                required:
+                  - sessions
+                  - events
+                additionalProperties: false
   /v1/clients/presence:
     post:
       operationId: clients_presence_post
@@ -20944,6 +21002,12 @@ paths:
           schema:
             type: integer
           description: Maximum number of messages to return.
+        - name: modeSessionIds
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated mode-session IDs to include with summaries for loaded active groups outside this page.
       responses:
         "200":
           description: Successful response
@@ -20959,6 +21023,38 @@ paths:
                       properties:
                         id:
                           type: string
+                        modeSession:
+                          type: object
+                          properties:
+                            mode:
+                              type: string
+                              enum:
+                                - computer_use
+                                - browser
+                                - live_vision
+                                - ambient
+                            id:
+                              type: string
+                              minLength: 1
+                          required:
+                            - mode
+                            - id
+                          additionalProperties: false
+                        modeSessionActivity:
+                          type: object
+                          properties:
+                            firstAt:
+                              type: integer
+                              minimum: 0
+                              maximum: 8640000000000000
+                            lastAt:
+                              type: integer
+                              minimum: 0
+                              maximum: 8640000000000000
+                          required:
+                            - firstAt
+                            - lastAt
+                          additionalProperties: false
                         mergedMessageIds:
                           type: array
                           items:
@@ -22277,6 +22373,223 @@ paths:
                       locally but the server reports `processing: false`, the turn has ended (or died) and the UI should
                       stop waiting rather than spin indefinitely. Absent on older daemons that predate this field."
                     type: boolean
+                  modeSessions:
+                    description: Conversation-owned mode-session summaries referenced by this page or explicitly requested by ID.
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        summary:
+                          oneOf:
+                            - type: object
+                              properties:
+                                id:
+                                  type: string
+                                  minLength: 1
+                                conversationId:
+                                  type: string
+                                  minLength: 1
+                                mode:
+                                  type: string
+                                  enum:
+                                    - computer_use
+                                    - browser
+                                    - live_vision
+                                    - ambient
+                                sourceStartedAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                firstIncludedAt:
+                                  anyOf:
+                                    - type: integer
+                                      minimum: 0
+                                      maximum: 9007199254740991
+                                    - type: "null"
+                                firstIncludedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                lastActivityAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                lastOwnedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                revision:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                status:
+                                  type: string
+                                  const: active
+                                endedAt:
+                                  type: "null"
+                                endReason:
+                                  type: "null"
+                              required:
+                                - id
+                                - conversationId
+                                - mode
+                                - sourceStartedAt
+                                - firstIncludedAt
+                                - firstIncludedMessageId
+                                - lastActivityAt
+                                - lastOwnedMessageId
+                                - revision
+                                - status
+                                - endedAt
+                                - endReason
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                id:
+                                  type: string
+                                  minLength: 1
+                                conversationId:
+                                  type: string
+                                  minLength: 1
+                                mode:
+                                  type: string
+                                  enum:
+                                    - computer_use
+                                    - browser
+                                    - live_vision
+                                    - ambient
+                                sourceStartedAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                firstIncludedAt:
+                                  anyOf:
+                                    - type: integer
+                                      minimum: 0
+                                      maximum: 9007199254740991
+                                    - type: "null"
+                                firstIncludedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                lastActivityAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                lastOwnedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                revision:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                status:
+                                  type: string
+                                  const: completed
+                                endedAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                endReason:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - id
+                                - conversationId
+                                - mode
+                                - sourceStartedAt
+                                - firstIncludedAt
+                                - firstIncludedMessageId
+                                - lastActivityAt
+                                - lastOwnedMessageId
+                                - revision
+                                - status
+                                - endedAt
+                                - endReason
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                id:
+                                  type: string
+                                  minLength: 1
+                                conversationId:
+                                  type: string
+                                  minLength: 1
+                                mode:
+                                  type: string
+                                  enum:
+                                    - computer_use
+                                    - browser
+                                    - live_vision
+                                    - ambient
+                                sourceStartedAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                firstIncludedAt:
+                                  anyOf:
+                                    - type: integer
+                                      minimum: 0
+                                      maximum: 9007199254740991
+                                    - type: "null"
+                                firstIncludedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                lastActivityAt:
+                                  type: integer
+                                  minimum: 0
+                                  maximum: 9007199254740991
+                                lastOwnedMessageId:
+                                  anyOf:
+                                    - type: string
+                                      minLength: 1
+                                    - type: "null"
+                                revision:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                status:
+                                  type: string
+                                  const: interrupted
+                                endedAt:
+                                  anyOf:
+                                    - type: integer
+                                      minimum: 0
+                                      maximum: 9007199254740991
+                                    - type: "null"
+                                endReason:
+                                  type: string
+                                  minLength: 1
+                              required:
+                                - id
+                                - conversationId
+                                - mode
+                                - sourceStartedAt
+                                - firstIncludedAt
+                                - firstIncludedMessageId
+                                - lastActivityAt
+                                - lastOwnedMessageId
+                                - revision
+                                - status
+                                - endedAt
+                                - endReason
+                              additionalProperties: false
+                          type: object
+                        runtimeState:
+                          type: string
+                          enum:
+                            - waiting
+                            - finishing
+                      required:
+                        - summary
+                      additionalProperties: false
                 required:
                   - messages
                 additionalProperties: false
@@ -24391,11 +24704,58 @@ paths:
                     type: boolean
                   reason:
                     type: string
+                  selectedChannels:
+                    type: array
+                    items:
+                      type: string
+                  deliveryResults:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        destination:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - pending
+                            - sent
+                            - failed
+                            - skipped
+                        errorCode:
+                          type: string
+                        errorMessage:
+                          type: string
+                        sentAt:
+                          type: number
+                        conversationId:
+                          type: string
+                        messageId:
+                          type: string
+                        conversationStrategy:
+                          type: string
+                      required:
+                        - channel
+                        - destination
+                        - status
+                      additionalProperties: false
+                  receiptClass:
+                    type: string
+                    enum:
+                      - provider_accepted
+                      - gateway_accepted
+                      - client_os_posted
+                      - unknown
                 required:
                   - signalId
                   - dispatched
                   - deduplicated
                   - reason
+                  - selectedChannels
+                  - deliveryResults
+                  - receiptClass
                 additionalProperties: false
   /v1/notifications/events:
     post:
@@ -28852,8 +29212,8 @@ paths:
       operationId: roadmap_by_slug_patch
       summary: Update a roadmap item
       description:
-        Updates a roadmap item. At least one field is required; the roadmap service decides which items this
-        assistant may edit.
+        Updates the title or description of a roadmap item this assistant filed, while the item is still open.
+        Status and tags are set by Vellum staff.
       tags:
         - roadmap
       parameters:
@@ -28873,13 +29233,7 @@ paths:
                   type: string
                 description:
                   type: string
-                status:
-                  type: string
-                tags:
-                  description: Tag slugs
-                  type: array
-                  items:
-                    type: string
+              additionalProperties: false
       responses:
         "200":
           description: Successful response

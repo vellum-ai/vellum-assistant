@@ -179,10 +179,20 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
 let heartbeatRunIdCounter = 0;
 let lastRunAtFromHistory: number | null = null;
 const skipHeartbeatRunCalls: Array<{ runId: string; reason: string }> = [];
+const completeHeartbeatRunCalls: Array<{
+  runId: string;
+  result: { status: string; error?: string };
+}> = [];
 mock.module("../heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
   startHeartbeatRun: () => true,
-  completeHeartbeatRun: () => true,
+  completeHeartbeatRun: (
+    runId: string,
+    result: { status: string; error?: string },
+  ) => {
+    completeHeartbeatRunCalls.push({ runId, result });
+    return true;
+  },
   skipHeartbeatRun: (runId: string, reason: string) => {
     skipHeartbeatRunCalls.push({ runId, reason });
   },
@@ -226,6 +236,7 @@ beforeEach(() => {
   onBroadcast = null;
   runBackgroundJobCalls.length = 0;
   skipHeartbeatRunCalls.length = 0;
+  completeHeartbeatRunCalls.length = 0;
   lastRunAtFromHistory = null;
   preFirstMessageGateOpen = true;
   seedHeartbeat();
@@ -340,14 +351,9 @@ describe("HeartbeatService", () => {
     await service.runOnce({ force: true });
 
     expect(runnerCompleted).toBe(true);
-    // No heartbeat_alert broadcast because the runner returned ok=true and
-    // there was no outer-timeout failure to surface.
-    expect(
-      broadcastedMessages.filter((m) => m.type === "heartbeat_alert"),
-    ).toHaveLength(0);
   });
 
-  test("calls alerter with the failure message when the runner reports ok=false", async () => {
+  test("records the failure on the run when the runner reports ok=false", async () => {
     runBackgroundJobImpl = async () => ({
       conversationId: STUB_CONVERSATION_ID,
       ok: false,
@@ -359,25 +365,15 @@ describe("HeartbeatService", () => {
 
     await service.runOnce({ force: true });
 
-    const alerts = broadcastedMessages.filter(
-      (m) => m.type === "heartbeat_alert",
-    );
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({
-      type: "heartbeat_alert",
-      title: "Heartbeat Failed",
-      body: "LLM call failed",
-    });
-  });
-
-  test("does not call alerter when the runner reports ok=true", async () => {
-    const service = new HeartbeatService();
-
-    await service.runOnce({ force: true });
-
-    expect(
-      broadcastedMessages.filter((m) => m.type === "heartbeat_alert"),
-    ).toHaveLength(0);
+    expect(completeHeartbeatRunCalls).toEqual([
+      {
+        runId: expect.any(String),
+        result: expect.objectContaining({
+          status: "error",
+          error: "LLM call failed",
+        }),
+      },
+    ]);
   });
 
   test("scheduled run skips with reason 'pre_first_user_message' when the user has not yet interacted", async () => {

@@ -35,6 +35,7 @@ import { createApprovalCopyGenerator } from "../../../daemon/approval-generators
 import { findConversation } from "../../../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
+import { actorAuthorProvenance } from "../../../daemon/message-provenance.js";
 import { processMessage } from "../../../daemon/process-message.js";
 import { renderReactionHistoryText } from "../../../daemon/reaction-history-render.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
@@ -544,6 +545,7 @@ async function persistReactionAsMessage(params: {
     {
       metadata: {
         ...provenanceFromTrustContext(params.trustCtx),
+        ...actorAuthorProvenance(params.trustCtx),
         ...buildReactionRowEnvelope(facts),
       },
       skipIndexing: true,

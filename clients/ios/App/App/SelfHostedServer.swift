@@ -166,6 +166,38 @@ enum SelfHostedServer {
         return candidatePath == basePath || candidatePath.hasPrefix(basePath + "/")
     }
 
+    /// The SPA entry point for a server base, `<base>/assistant`. The ingress
+    /// redirects a bare `/` to a prefix-less `/assistant/`, which would drop a
+    /// hosting prefix, so the segment is appended here instead. The baked cloud
+    /// URL already carries the segment and is returned unchanged.
+    static func appEntryURL(forBase base: URL) -> URL {
+        guard base.lastPathComponent != "assistant" else {
+            return base
+        }
+        return base.appendingPathComponent("assistant")
+    }
+
+    /// Whether a main-document HTTP error means the configured server cannot
+    /// be reached. A dead tunnel answers 4xx/5xx on the first document (the
+    /// provider's own error page). After the SPA has loaded once, only an
+    /// error on the app entry itself is treated as a lost assistant. Nested
+    /// 4xx from settings paths, platform probes, or a WebView that
+    /// mis-attributes a subresource as the main frame are not.
+    static func shouldTreatHttpErrorAsUnreachable(
+        status: Int,
+        failedURL: URL,
+        server: URL,
+        pageAlreadyLoaded: Bool
+    ) -> Bool {
+        guard status >= 400, contains(failedURL, base: server) else {
+            return false
+        }
+        if !pageAlreadyLoaded {
+            return true
+        }
+        return canonicalize(failedURL) == canonicalize(appEntryURL(forBase: server))
+    }
+
     /// A canonicalized path as containment compares it: percent-escape hex
     /// uppercased, since RFC 3986 makes it case-insensitive and `%2f` has to
     /// match `%2F`. Comparison-only, like Android's `foldEscapeCase`; canonical

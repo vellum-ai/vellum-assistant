@@ -33,6 +33,10 @@ import {
 import { AnsweredQuestionSchema } from "../events/question-answered.js";
 import { QuestionEntrySchema } from "../events/question-request.js";
 import { ToolActivityMetadataSchema } from "../events/tool-result.js";
+import {
+  ModeSessionActivitySchema,
+  ModeSessionSchema,
+} from "../mode-session.js";
 
 // ---------------------------------------------------------------------------
 // Attachment metadata
@@ -492,6 +496,8 @@ export type ConversationContentBlock = z.infer<
  */
 export const ConversationMessageSchema = z.object({
   id: z.string(),
+  modeSession: ModeSessionSchema.optional(),
+  modeSessionActivity: ModeSessionActivitySchema.optional(),
   /**
    * Server message ids folded into this display row when consecutive
    * assistant messages were consolidated for history rendering.

@@ -2,9 +2,9 @@
  * Invite redemption intercept tests for `handle-inbound.ts`:
  *
  *  - A valid 6-digit code (or /start iv_<token> deep link) from a non-member
- *    is redeemed at the gateway: no forward, reply delivered via the
- *    callback URL, gateway channel activated, daemon `invite_redeemed`
- *    info-mirror fired.
+ *    is redeemed at the gateway: no forward, reply handed to the daemon's
+ *    channel transport for the callback URL, gateway channel activated,
+ *    daemon `invite_redeemed` info-mirror fired.
  *  - A bare 6-digit matching no invite falls through to normal forwarding.
  *  - Member senders and disabled channels are never intercepted.
  *  - A cross-channel code hit intercepts with the mismatch reply and
@@ -16,29 +16,14 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { DELIVER_GATEWAY_REPLY_IPC_METHOD } from "@vellumai/gateway-client";
+
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
   RuntimeInboundResponse,
 } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
-
-type FetchFn = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
-let fetchCalls: { url: string; body: Record<string, unknown> }[] = [];
-const fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
-  async (input, init) => {
-    fetchCalls.push({
-      url: String(input),
-      body: init?.body
-        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
-        : {},
-    });
-    return new Response();
-  },
-);
 
 let runtimePayloads: RuntimeInboundPayload[] = [];
 const forwardToRuntimeMock = mock(
@@ -60,6 +45,8 @@ let ipcCalls: { method: string; params?: Record<string, unknown> }[] = [];
 // Simulates a down assistant daemon for the identity mirror only: the typed
 // identity lookup + contacts_mirror_* writes throw; unrelated IPC still acks.
 let assistantMirrorDown = false;
+// Simulates the channel refusing the reply the daemon was asked to send.
+let replyDeliveryFails = false;
 const ipcCallAssistantMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
@@ -70,13 +57,19 @@ const ipcCallAssistantMock = mock(
     ) {
       throw new Error("assistant IPC unavailable");
     }
+    if (replyDeliveryFails && method === DELIVER_GATEWAY_REPLY_IPC_METHOD) {
+      throw new Error("provider send failed");
+    }
     return { ok: true };
   },
 );
 
-mock.module("../fetch.js", () => ({
-  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
-}));
+/** The replies handed to the daemon's channel transport, in order. */
+function replies(): Record<string, unknown>[] {
+  return ipcCalls
+    .filter((c) => c.method === DELIVER_GATEWAY_REPLY_IPC_METHOD)
+    .map((c) => c.params!.body as Record<string, unknown>);
+}
 
 mock.module("../runtime/client.js", () => ({
   CircuitBreakerOpenError: class CircuitBreakerOpenError extends Error {
@@ -133,7 +126,9 @@ const { bustGuardianIntegrityCache } =
 const CHANNEL = "telegram";
 const CODE = "123456";
 const TOKEN = "tok_raw_abc123";
-const REPLY_URL = "http://127.0.0.1:7830/deliver/telegram";
+// The path the gateway's Telegram webhook builds, on a reserved host: a fetch
+// of this URL cannot reach a live service.
+const REPLY_URL = "http://gateway.invalid/deliver/telegram";
 
 function seedContact(id: string, role = "contact"): void {
   const now = Date.now();
@@ -228,11 +223,11 @@ beforeEach(async () => {
   bustGuardianIntegrityCache();
   initAdmissionPolicyCache();
   runtimePayloads = [];
-  fetchCalls = [];
   ipcCalls = [];
   forwardToRuntimeMock.mockClear();
   interceptResult = { intercepted: false };
   assistantMirrorDown = false;
+  replyDeliveryFails = false;
   assistantDbQueryImpl = async () => [];
   assistantDbRunImpl = async () => {};
 });
@@ -257,13 +252,17 @@ describe("handle-inbound invite redemption intercept", () => {
     expect(result.rejected).toBe(false);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
 
-    // Reply delivered via the callback URL (no pending reply text).
+    // The confirmation goes to the daemon's channel transport for the
+    // callback URL, addressed to the sender's chat (no pending reply text).
     expect(result.inviteReplyText).toBeUndefined();
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]!.url).toBe(REPLY_URL);
-    expect(fetchCalls[0]!.body.text).toBe(
-      "Welcome! You've been granted access.",
-    );
+    expect(replies()).toEqual([
+      {
+        callbackUrl: REPLY_URL,
+        chatId: "chat-sender",
+        text: "Welcome! You've been granted access.",
+        assistantId: "asst-1",
+      },
+    ]);
 
     // Redemption landed: use consumed, gateway channel active.
     expect(inviteRow(inviteId).useCount).toBe(1);
@@ -286,9 +285,7 @@ describe("handle-inbound invite redemption intercept", () => {
   test("reply delivery failure after a successful claim: intercept stands, no forward", async () => {
     seedContact("c1");
     const inviteId = seedInvite();
-    fetchMock.mockImplementationOnce(async () => {
-      throw new Error("provider send failed");
-    });
+    replyDeliveryFails = true;
 
     const result = await handleInbound(makeConfig(), makeEvent(), {
       ...ROUTING,
@@ -313,7 +310,7 @@ describe("handle-inbound invite redemption intercept", () => {
 
     expect(result.inviteIntercepted).toBe(true);
     expect(result.inviteReplyText).toBe("Welcome! You've been granted access.");
-    expect(fetchCalls).toHaveLength(0);
+    expect(replies()).toHaveLength(0);
   });
 
   test("/start iv_<token> deep link (commandIntent) redeems at the gateway", async () => {
@@ -391,7 +388,7 @@ describe("handle-inbound invite redemption intercept", () => {
 
     expect(result.inviteIntercepted).toBe(true);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
-    expect(fetchCalls[0]!.body.text).toBe(
+    expect(replies()[0]!.text).toBe(
       "This invite is not valid for this channel.",
     );
     expect(inviteRow(inviteId).useCount).toBe(0);
@@ -411,7 +408,7 @@ describe("handle-inbound invite redemption intercept", () => {
     });
 
     expect(result.inviteIntercepted).toBe(true);
-    expect(fetchCalls[0]!.body.text).toBe("This invite is no longer valid.");
+    expect(replies()[0]!.text).toBe("This invite is no longer valid.");
     expect(inviteRow(inviteId).useCount).toBe(0);
     const channel = getGatewayDb().select().from(contactChannels).all()[0];
     expect(channel?.status).toBe("blocked");
@@ -435,10 +432,8 @@ describe("handle-inbound invite redemption intercept", () => {
     expect(result.inviteIntercepted).toBe(true);
     expect(result.forwarded).toBe(false);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]!.body.text).toBe(
-      "Welcome! You've been granted access.",
-    );
+    expect(replies()).toHaveLength(1);
+    expect(replies()[0]!.text).toBe("Welcome! You've been granted access.");
 
     expect(inviteRow(inviteId).useCount).toBe(1);
     const channel = getGatewayDb().select().from(contactChannels).all()[0];

@@ -5,20 +5,30 @@ import type {
   ChannelReplyPayload,
 } from "@vellumai/gateway-client";
 
+import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import type { CallbackContext } from "../channel-transport.js";
 
 // Derive the mock signature from the real export so the test cannot drift from
 // the production call signature.
 type CallTelegramBotApi = typeof import("./api.js").callTelegramBotApi;
+type CallTelegramBotApiMultipart =
+  typeof import("./api.js").callTelegramBotApiMultipart;
+type GetAttachmentContent =
+  typeof import("../../../persistence/attachments-store.js").getAttachmentContent;
 
 const callTelegramBotApiMock = mock<CallTelegramBotApi>(
   async () => ({}) as never,
 );
+const callTelegramBotApiMultipartMock = mock<CallTelegramBotApiMultipart>(
+  async () => ({}) as never,
+);
+const getAttachmentContentMock = mock<GetAttachmentContent>(() => null);
 
 mock.module("./api.js", () => ({
   callTelegramBotApi: (method: string, body: Record<string, unknown>) =>
     callTelegramBotApiMock(method, body),
-  callTelegramBotApiMultipart: async () => ({}),
+  callTelegramBotApiMultipart: (method: string, form: FormData) =>
+    callTelegramBotApiMultipartMock(method, form),
   TelegramNonRetryableError: class TelegramNonRetryableError extends Error {
     readonly description: string | undefined;
     constructor(message: string, description?: string) {
@@ -29,9 +39,15 @@ mock.module("./api.js", () => ({
   },
 }));
 
+mock.module("../../../persistence/attachments-store.js", () => ({
+  getAttachmentContent: (attachmentId: string) =>
+    getAttachmentContentMock(attachmentId),
+}));
+
 const { TelegramNonRetryableError } = await import("./api.js");
 const {
   editTelegramMessage,
+  sendTelegramAttachments,
   sendTelegramReaction,
   sendTelegramReply,
   sendTelegramRichReply,
@@ -61,6 +77,10 @@ const callsTo = (method: string) =>
 beforeEach(() => {
   callTelegramBotApiMock.mockReset();
   callTelegramBotApiMock.mockImplementation(async () => ({}) as never);
+  callTelegramBotApiMultipartMock.mockReset();
+  callTelegramBotApiMultipartMock.mockImplementation(async () => ({}) as never);
+  getAttachmentContentMock.mockReset();
+  getAttachmentContentMock.mockImplementation(() => null);
 });
 
 describe("sendTelegramRichReply", () => {
@@ -668,5 +688,220 @@ describe("telegramTransport.streamReply", () => {
     });
 
     expect(result).toEqual({ ok: false });
+  });
+});
+
+describe("sendTelegramAttachments", () => {
+  // The Bot API's multipart upload limits: a photo, and any other file. The
+  // sender skips anything over the second.
+  const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+  const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+  function attachment(
+    id: string,
+    filename: string,
+    mimeType: string,
+    sizeBytes = 3,
+  ): RuntimeAttachmentMetadata {
+    return { id, filename, mimeType, sizeBytes, kind: "file" };
+  }
+
+  /** Serve these bytes from the attachment store, keyed by attachment id. */
+  function storeHolds(contents: Record<string, Buffer>) {
+    getAttachmentContentMock.mockImplementation((id) => contents[id] ?? null);
+  }
+
+  const multipartCalls = () =>
+    callTelegramBotApiMultipartMock.mock.calls.map(([method, form]) => ({
+      method,
+      form,
+    }));
+
+  const noticeTexts = () =>
+    callsTo("sendMessage").map(([, body]) => body.text as string);
+
+  test("sends an image from the store with sendPhoto", async () => {
+    storeHolds({ "att-1": Buffer.from("png") });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "chart.png", "image/png"),
+    ]);
+
+    const [call] = multipartCalls();
+    expect(multipartCalls()).toHaveLength(1);
+    expect(call?.method).toBe("sendPhoto");
+    expect(call?.form.get("chat_id")).toBe("123");
+    expect(call?.form.get("document")).toBeNull();
+    const photo = call?.form.get("photo") as File;
+    expect(photo.name).toBe("chart.png");
+    expect(photo.type).toBe("image/png");
+    expect(await photo.text()).toBe("png");
+    expect(noticeTexts()).toEqual([]);
+    expect(result).toEqual({
+      allFailed: false,
+      failureCount: 0,
+      totalCount: 1,
+    });
+  });
+
+  test("sends a non-image from the store with sendDocument", async () => {
+    storeHolds({ "att-1": Buffer.from("pdf") });
+
+    await sendTelegramAttachments("123", [
+      attachment("att-1", "report.pdf", "application/pdf"),
+    ]);
+
+    const [call] = multipartCalls();
+    expect(multipartCalls()).toHaveLength(1);
+    expect(call?.method).toBe("sendDocument");
+    expect(call?.form.get("photo")).toBeNull();
+    const document = call?.form.get("document") as File;
+    expect(document.name).toBe("report.pdf");
+    expect(document.type).toBe("application/pdf");
+    expect(await document.text()).toBe("pdf");
+  });
+
+  test("sends an image over the photo limit with sendDocument", async () => {
+    storeHolds({
+      "att-1": Buffer.alloc(MAX_PHOTO_BYTES),
+      "att-2": Buffer.alloc(MAX_PHOTO_BYTES + 1),
+    });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "fits.png", "image/png", MAX_PHOTO_BYTES),
+      attachment("att-2", "scan.png", "image/png", MAX_PHOTO_BYTES + 1),
+    ]);
+
+    expect(multipartCalls().map((c) => c.method)).toEqual([
+      "sendPhoto",
+      "sendDocument",
+    ]);
+    const document = multipartCalls()[1]?.form.get("document") as File;
+    expect(document.name).toBe("scan.png");
+    expect(document.type).toBe("image/png");
+    expect(document.size).toBe(MAX_PHOTO_BYTES + 1);
+    expect(noticeTexts()).toEqual([]);
+    expect(result).toEqual({
+      allFailed: false,
+      failureCount: 0,
+      totalCount: 2,
+    });
+  });
+
+  test("targets the topic on both the upload and the failure notice", async () => {
+    storeHolds({ "att-1": Buffer.from("png") });
+
+    await sendTelegramAttachments(
+      "123",
+      [
+        attachment("att-1", "chart.png", "image/png"),
+        attachment("att-2", "gone.txt", "text/plain"),
+      ],
+      { messageThreadId: "42" },
+    );
+
+    expect(multipartCalls()[0]?.form.get("message_thread_id")).toBe("42");
+    const [notice] = callsTo("sendMessage");
+    expect(notice?.[1].message_thread_id).toBe(42);
+  });
+
+  test("leaves the topic field off a main-chat upload", async () => {
+    storeHolds({ "att-1": Buffer.from("png") });
+
+    await sendTelegramAttachments("123", [
+      attachment("att-1", "chart.png", "image/png"),
+    ]);
+
+    expect(multipartCalls()[0]?.form.has("message_thread_id")).toBe(false);
+  });
+
+  test("skips an attachment whose declared size is over the cap without reading it", async () => {
+    storeHolds({ "att-1": Buffer.from("png") });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "huge.mov", "video/mp4", MAX_ATTACHMENT_BYTES + 1),
+    ]);
+
+    expect(getAttachmentContentMock).not.toHaveBeenCalled();
+    expect(multipartCalls()).toHaveLength(0);
+    expect(noticeTexts()).toEqual([
+      "\u26a0\ufe0f 1 attachment(s) could not be delivered: huge.mov",
+    ]);
+    expect(result).toEqual({ allFailed: true, failureCount: 1, totalCount: 1 });
+  });
+
+  test("skips an attachment whose stored bytes are over the cap", async () => {
+    // The declared size understates what the store actually holds.
+    storeHolds({ "att-1": Buffer.alloc(MAX_ATTACHMENT_BYTES + 1) });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "huge.bin", "application/octet-stream"),
+    ]);
+
+    expect(multipartCalls()).toHaveLength(0);
+    expect(noticeTexts()).toEqual([
+      "\u26a0\ufe0f 1 attachment(s) could not be delivered: huge.bin",
+    ]);
+    expect(result).toEqual({ allFailed: true, failureCount: 1, totalCount: 1 });
+  });
+
+  test("reports an attachment the store has no content for", async () => {
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "missing.txt", "text/plain"),
+    ]);
+
+    expect(getAttachmentContentMock).toHaveBeenCalledWith("att-1");
+    expect(multipartCalls()).toHaveLength(0);
+    expect(noticeTexts()).toEqual([
+      "\u26a0\ufe0f 1 attachment(s) could not be delivered: missing.txt",
+    ]);
+    expect(result).toEqual({ allFailed: true, failureCount: 1, totalCount: 1 });
+  });
+
+  test("keeps sending after one upload fails and names only the failure", async () => {
+    storeHolds({
+      "att-1": Buffer.from("a"),
+      "att-2": Buffer.from("b"),
+      "att-3": Buffer.from("c"),
+    });
+    callTelegramBotApiMultipartMock.mockImplementation(
+      async (_method, form) => {
+        if ((form.get("document") as File | null)?.name === "b.txt") {
+          throw new Error("Bad Request: file is empty");
+        }
+        return {} as never;
+      },
+    );
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "a.txt", "text/plain"),
+      attachment("att-2", "b.txt", "text/plain"),
+      attachment("att-3", "c.txt", "text/plain"),
+    ]);
+
+    expect(
+      multipartCalls().map((c) => (c.form.get("document") as File).name),
+    ).toEqual(["a.txt", "b.txt", "c.txt"]);
+    expect(noticeTexts()).toEqual([
+      "\u26a0\ufe0f 1 attachment(s) could not be delivered: b.txt",
+    ]);
+    expect(result).toEqual({
+      allFailed: false,
+      failureCount: 1,
+      totalCount: 3,
+    });
+  });
+
+  test("still returns the result when the failure notice cannot be sent", async () => {
+    callTelegramBotApiMock.mockImplementation(async () => {
+      throw new Error("Forbidden: bot was blocked by the user");
+    });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "missing.txt", "text/plain"),
+    ]);
+
+    expect(callsTo("sendMessage")).toHaveLength(1);
+    expect(result).toEqual({ allFailed: true, failureCount: 1, totalCount: 1 });
   });
 });

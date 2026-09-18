@@ -26,6 +26,23 @@ interface DisconnectClientResponse {
   disconnected: number;
 }
 
+interface ClientHistorySessionJSON {
+  clientId: string;
+  interfaceId: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  flapCount: number;
+  closeReason: string | null;
+  clientVersion: string | null;
+  sseWatchdog: boolean | null;
+}
+
+interface ListClientHistoryResponse {
+  sessions: ClientHistorySessionJSON[];
+  events: unknown[];
+}
+
 export function registerClientsCommand(program: Command): void {
   registerCommand(program, {
     name: clientsHelp.name,
@@ -108,6 +125,85 @@ export function registerClientsCommand(program: Command): void {
         },
       );
 
+      subcommand(clients, "history").action(
+        async (
+          opts: {
+            json?: boolean;
+            clientId?: string;
+            interfaceId?: string;
+            since?: string;
+            limit?: string;
+          },
+          cmd: Command,
+        ) => {
+          const result = await cliIpcCall<ListClientHistoryResponse>(
+            "list_client_history",
+            optsToQueryParams(opts),
+          );
+
+          if (!result.ok) {
+            log.error(result.error ?? "Failed to load client history");
+            process.exitCode = 1;
+            return;
+          }
+
+          const response = result.result!;
+          if (opts.json) {
+            writeOutput(cmd, response);
+            return;
+          }
+
+          const sessions = response.sessions;
+          if (sessions.length === 0) {
+            log.info("No client connection history.");
+            return;
+          }
+
+          const header = [
+            "CLIENT ID",
+            "INTERFACE",
+            "STARTED",
+            "ENDED",
+            "DURATION",
+            "FLAPS",
+            "CLOSE",
+            "VERSION",
+            "WATCHDOG",
+          ];
+          const rows: string[][] = sessions.map((session) => [
+            session.clientId,
+            session.interfaceId,
+            formatRelativeTime(session.startedAt),
+            session.endedAt ? formatRelativeTime(session.endedAt) : "connected",
+            formatDuration(session.durationMs),
+            String(session.flapCount),
+            session.closeReason ?? "-",
+            session.clientVersion ?? "-",
+            session.sseWatchdog == null
+              ? "-"
+              : session.sseWatchdog
+                ? "yes"
+                : "no",
+          ]);
+
+          const colWidths = header.map((h: string, i: number) =>
+            Math.max(h.length, ...rows.map((r: string[]) => r[i].length)),
+          );
+          const pad = (s: string, w: number) => s.padEnd(w);
+          log.info(
+            header.map((h: string, i: number) => pad(h, colWidths[i])).join("  "),
+          );
+          log.info(colWidths.map((w: number) => "─".repeat(w)).join("  "));
+          for (const row of rows) {
+            log.info(
+              row
+                .map((c: string, i: number) => pad(c, colWidths[i]))
+                .join("  "),
+            );
+          }
+        },
+      );
+
       subcommand(clients, "disconnect").action(
         async (clientId: string, opts: { json?: boolean }, cmd: Command) => {
           const result = await cliIpcCall<DisconnectClientResponse>(
@@ -154,4 +250,24 @@ function formatRelativeTime(iso: string): string {
   }
   const days = Math.floor(hr / 24);
   return `${days}d ago`;
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms == null || ms < 0) {
+    return "-";
+  }
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) {
+    return `${sec}s`;
+  }
+  const min = Math.floor(sec / 60);
+  if (min < 60) {
+    return `${min}m`;
+  }
+  const hr = Math.floor(min / 60);
+  if (hr < 24) {
+    return `${hr}h ${min % 60}m`;
+  }
+  const days = Math.floor(hr / 24);
+  return `${days}d ${hr % 24}h`;
 }

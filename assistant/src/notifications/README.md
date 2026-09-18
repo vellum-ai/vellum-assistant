@@ -264,6 +264,8 @@ Schedule fires (scheduler.ts: notify mode)
             → Broadcaster → Adapters → Delivery
 ```
 
+`contextPayload.channelAllowlist` is an exclusive channel set. When present, emit-signal intersects it with connected channels, skips urgent vellum/platform force, and skips routing-intent expansion. `--preferred-channels` stays additive and is ignored when an allowlist is present. Access-request signals still force the in-app vellum card.
+
 The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
 
 - **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).
@@ -290,7 +292,7 @@ schedule_jobs table (routing_intent, routing_hints_json)
 
 ## Channel Delivery Architecture
 
-The notification system delivers to three channel types:
+The notification system delivers to five channel types:
 
 ### Vellum (always connected)
 
@@ -300,18 +302,33 @@ Local SSE via the assistant's broadcast mechanism. The `VellumAdapter` emits a `
 - `title` and `body` -- rendered notification copy
 - `deepLinkMetadata` -- optional metadata for navigating to the relevant context (e.g. `{ conversationId }`)
 
-The macOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
+Every first-party client runs the shared web renderer (browser, desktop app, mobile apps), which posts a local notification from this payload and acks the delivery. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
 
-### Telegram (when guardian binding exists)
+A guardian-sensitive notification (approval requests, access requests, channel activation codes) carries `targetGuardianPrincipalId` and is published with `targetActorPrincipalId`, so the event hub delivers it only to connections authenticated as the guardian. The client shows it when the sending assistant is new enough to apply that targeting (`clients/web/src/lib/backwards-compat/guardian-notification-targeting.ts`) and drops it otherwise.
 
-HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID (resolved from the active guardian binding), with deterministic fallbacks when model copy is unavailable.
+### Platform (always connected)
+
+The `PlatformPushAdapter` posts the notification to the platform's `/v1/assistants/{id}/push/dispatch/` endpoint, which fans it out to the bound user's registered devices for native mobile push. Without platform credentials the delivery is recorded as failed.
+
+### External channels: Telegram, Slack, Discord
+
+The assistant sends these itself. Each adapter calls the provider's API through the send module in `../messaging/providers/<channel>/`; nothing goes through the gateway.
+
+- **Telegram**: the `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID through `telegram-bot/send.ts`, which calls the Telegram Bot API. Approval cards carry inline keyboard buttons and fall back to plain text with typed-reply instructions if the rich send fails.
+- **Slack**: the `SlackAdapter` posts to the guardian's DM through `slack/send.ts`. Approval cards render as a Card block with the approval's action buttons.
+- **Discord**: the `DiscordAdapter` opens the guardian's DM from their user ID through the Discord REST API and sends through `discord/send.ts`. Approval cards render component buttons.
+
+The destination for each comes from the guardian delivery list in `destination-resolver.ts`, with deterministic fallback copy when model copy is unavailable.
 
 ### Channel Connectivity
 
-Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
+Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`, from the guardian delivery list (`getGuardianDelivery()`):
 
-- **Vellum** is always considered connected (HTTP transport is always available when the assistant is running)
-- **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
+- **Vellum** is always considered connected (the local transport is always available when the assistant is running)
+- **Platform** is always considered connected; a missing credential surfaces as a failed delivery
+- **Telegram** is connected when the guardian has a chat ID on the channel
+- **Slack** is connected when the guardian's chat ID is a DM channel (`D`-prefixed), so a binding made from a shared channel never receives notifications
+- **Discord** is connected when a guardian binding names a user to DM
 
 ## Conversation Materialization
 
@@ -425,9 +442,12 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | `broadcaster.ts`                | Fan-out to channel adapters with delivery audit trail; emits `notification_conversation_created` SSE event |
 | `copy-composer.ts`              | Template-based fallback notification copy when LLM copy is unavailable                                     |
 | `conversation-seed-composer.ts` | Surface-aware conversation seed generation (richer than notification copy)                                 |
-| `destination-resolver.ts`       | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                              |
+| `destination-resolver.ts`       | Resolves per-channel endpoints (Telegram and Slack chat ID, Discord user ID)                               |
 | `adapters/macos.ts`             | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                         |
-| `adapters/telegram.ts`          | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                                   |
+| `adapters/platform.ts`          | Platform adapter: posts to the platform push-dispatch endpoint for native mobile push                      |
+| `adapters/telegram.ts`          | Telegram adapter: calls the Telegram Bot API through `messaging/providers/telegram-bot/send.ts`            |
+| `adapters/slack.ts`             | Slack adapter: posts to the guardian's DM through `messaging/providers/slack/send.ts`                      |
+| `adapters/discord.ts`           | Discord adapter: sends to the guardian's DM through `messaging/providers/discord/send.ts`                  |
 | `preference-extractor.ts`       | Detects notification preferences in conversation messages                                                  |
 | `preference-summary.ts`         | Builds preference context string for the decision engine prompt                                            |
 | `preferences-store.ts`          | CRUD for `notification_preferences` table                                                                  |

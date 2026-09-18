@@ -99,7 +99,7 @@ function makeAssistantToolSignal(
     createdAt: Date.now(),
     sourceChannel: "assistant_tool",
     sourceContextId: "tool-call-1",
-    sourceEventName: "user.send_notification",
+    sourceEventName: "assistant.share",
     contextPayload: {
       requestedMessage: "exact verbatim text here",
       requestedTitle: "Custom Title",
@@ -355,6 +355,81 @@ describe("assistant_tool pass-through in notification decision engine", () => {
 
     expect(decision.selectedChannels).toEqual(["vellum"]);
     expect(decision.renderedCopy.vellum?.body).toBe("fyi");
+  });
+
+  test("channelAllowlist replaces the default channel set", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "telegram only",
+        channelAllowlist: ["telegram"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.shouldNotify).toBe(true);
+    expect(decision.renderedCopy.telegram?.body).toBe("telegram only");
+  });
+
+  test("channelAllowlist wins over preferredChannels", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "exclusive telegram",
+        preferredChannels: ["slack"],
+        channelAllowlist: ["telegram"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.selectedChannels).not.toContain("vellum");
+    expect(decision.selectedChannels).not.toContain("slack");
+  });
+
+  test("urgent + channelAllowlist stays exclusive", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "urgent telegram only",
+        channelAllowlist: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: true,
+        urgency: "critical",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+      "slack",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual(["telegram"]);
+    expect(decision.shouldNotify).toBe(true);
+  });
+
+  test("channelAllowlist with no overlap yields an empty selection", async () => {
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: "nowhere to send",
+        channelAllowlist: ["disconnected_channel"],
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+      "telegram",
+    ] as NotificationChannel[]);
+
+    expect(decision.selectedChannels).toEqual([]);
+    expect(decision.shouldNotify).toBe(false);
   });
 });
 
@@ -905,7 +980,9 @@ describe("scheduler requested-message pass-through in notification decision engi
       expect(decision.reasoningSummary).not.toBe(
         "scheduler requested-message pass-through",
       );
-      expect(decision.reasoningSummary).not.toBe("schedule_result pass-through");
+      expect(decision.reasoningSummary).not.toBe(
+        "schedule_result pass-through",
+      );
     } finally {
       providerSendMessage = previousSendMessage;
     }

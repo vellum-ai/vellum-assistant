@@ -106,6 +106,45 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Actividad anterior"
   },
+  "actionDisplay": {
+    "click": "Haciendo clic",
+    "type": "Escribiendo",
+    "keyPress": "Pulsando una tecla",
+    "scroll": "Desplazando",
+    "drag": "Arrastrando",
+    "hover": "Pasando el cursor",
+    "observe": "Observando",
+    "navigate": "Navegando",
+    "terminal": "Ejecutando un comando"
+  },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "Sesión de ordenador",
+      "browser": "Sesión del navegador",
+      "liveVision": "Sesión de visión en directo",
+      "ambient": "Sesión ambiental"
+    },
+    "durationSeconds": "{count, plural, one {# s} other {# s}}",
+    "durationMinutes": "{count, plural, one {# min} other {# min}}",
+    "working": "Trabajando",
+    "workingWithDuration": "Trabajando · {duration}",
+    "waiting": "Esperando",
+    "waitingWithDuration": "Esperando · {duration}",
+    "finishing": "Finalizando",
+    "finishingWithDuration": "Finalizando · {duration}",
+    "completedWithDurationAndEnd": "{duration} · Finalizó a las {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "Finalizó a las {endTime}",
+    "interrupted": "Interrumpida",
+    "interruptedWithDurationAndEnd": "Interrumpida · {duration} · Finalizó a las {endTime}",
+    "interruptedWithDurationAndLastActivity": "Interrumpida · {duration} · Última actividad a las {lastActivityTime}",
+    "interruptedWithLastActivity": "Interrumpida · Última actividad a las {lastActivityTime}",
+    "interruptedWithEnd": "Interrumpida · Finalizó a las {endTime}",
+    "disconnected": "Conexión perdida",
+    "disconnectedWithDurationAndLastActivity": "Conexión perdida · {duration} · Última actividad a las {lastActivityTime}",
+    "disconnectedWithLastActivity": "Conexión perdida · Última actividad a las {lastActivityTime}",
+    "timingUnavailable": "Horario no disponible"
+  },
   "assistantDesktop": {
     "fitView": "Ajustar",
     "panView": "Desplazar",
@@ -1696,7 +1735,8 @@
     "copied": "Copiado",
     "copy": "Copiar",
     "copyAria": "Copiar tabla como markdown",
-    "copyFailed": "No se pudo copiar la tabla."
+    "copyFailed": "No se pudo copiar la tabla.",
+    "table": "Tabla"
   },
   "taskPreferencesSurface": {
     "continue": "Continuar",
@@ -1750,10 +1790,15 @@
   },
   "toolInputParameters": {
     "parameters": "Parámetros",
-    "rawInput": "Entrada sin procesar"
-  },
-  "toolParamFields": {
+    "rawInput": "Entrada sin procesar",
     "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
+  },
+  "toolOutputSection": {
+    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}",
+    "rawOutput": "Salida sin procesar"
+  },
+  "valueFields": {
+    "copyValue": "Copiar {label}"
   },
   "toolStepPill": {
     "openAria": "Abrir {label}",

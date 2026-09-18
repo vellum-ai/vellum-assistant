@@ -5,6 +5,7 @@ import {
   decodeLiteralLineBreaks,
   describeMedia,
   mediaEmbeds,
+  readPayloadStringArray,
   sanitizeMultilineMessagePreview,
   stripMarkdownForPreview,
 } from "../notification-utils.js";
@@ -277,6 +278,23 @@ describe("describeMedia", () => {
 
   test("returns empty for no labels, leaving the fallback to the caller", () => {
     expect(describeMedia([])).toBe("");
+  });
+});
+
+describe("readPayloadStringArray", () => {
+  test("returns string entries and drops non-strings", () => {
+    expect(
+      readPayloadStringArray(
+        { channelAllowlist: ["telegram", 1, "slack"] },
+        "channelAllowlist",
+      ),
+    ).toEqual(["telegram", "slack"]);
+  });
+
+  test("returns undefined when the key is missing or not an array", () => {
+    expect(readPayloadStringArray({ channelAllowlist: "telegram" }, "channelAllowlist")).toBeUndefined();
+    expect(readPayloadStringArray({}, "channelAllowlist")).toBeUndefined();
+    expect(readPayloadStringArray(null, "channelAllowlist")).toBeUndefined();
   });
 });
 

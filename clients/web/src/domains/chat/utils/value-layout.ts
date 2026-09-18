@@ -2,21 +2,25 @@
  * How a value is laid out in a detail panel, decided from its shape alone so
  * the component only has to draw it.
  *
- * Every value is a field: a label above its value. A short value is text, and
- * long or multi-line text is a code block. A list of same-shaped records is a
+ * Every value is a field: a label above its value. A value on one line is
+ * text, however long, and text with line breaks is a code block that keeps
+ * them. How tall a value may grow before it folds is the drawing's call, not
+ * this module's. A list of same-shaped records is a
  * table, as is an object of `columns` and `rows`. A list of a few short values
  * reads as one line, as does an object of a few short fields; anything larger
  * nests as fields of its own, each list item labelled by its position, down to
  * a depth past which the rest is shown as JSON.
+ *
+ * How much is laid out has a bound of its own, whatever the value: every
+ * collection is capped, and one budget across the whole value caps what the
+ * caps multiply to at depth. What is left out is counted, never dropped
+ * silently; the raw form beneath has it all.
  */
 
 import { isRecord } from "@/utils/is-record";
 
 /** Nesting depth at which a list or object is shown as JSON instead. */
 const MAX_DEPTH = 4;
-
-/** Text longer than this, or with a line break, is a code block. */
-const LONG_TEXT_CHARS = 80;
 
 /** A list or object is written on one line only when it fits in this many characters. */
 const ONE_LINE_CHARS = 80;
@@ -56,6 +60,20 @@ const TABLE_KEY_COVERAGE = 0.5;
  */
 const MAX_TABLE_ROWS = 100;
 
+/**
+ * Fields and table rows laid out across one whole value. The per-collection
+ * caps compound with depth (twenty at each of four levels is 160,000 fields),
+ * and a tool result is built by a program, not written by the model, so its
+ * size bounds nothing. Spent depth first: the fields ahead keep their detail,
+ * and those past the budget are counted like any other over-long collection.
+ */
+const LAYOUT_BUDGET = 500;
+
+/** What is left of {@link LAYOUT_BUDGET} for the value being laid out. */
+interface Budget {
+  left: number;
+}
+
 /** One key and short value of an object written on a single line. */
 export interface ValuePair {
   key: string;
@@ -73,14 +91,20 @@ export interface TableField {
   more: number;
 }
 
-/** A labelled field, with its value shaped by how it is shown. */
-export type ValueField =
+/** How a field's value is shown. */
+type ValueShape =
   | { kind: "text"; label: string; text: string }
   | { kind: "code"; label: string; text: string }
   | { kind: "list"; label: string; items: string[] }
   | { kind: "pairs"; label: string; pairs: ValuePair[] }
   | TableField
   | { kind: "nested"; label: string; fields: ValueFieldList };
+
+/**
+ * A labelled field: its value shaped by how it is shown, and the value itself,
+ * which is what the field's copy button copies.
+ */
+export type ValueField = ValueShape & { value: unknown };
 
 /** Fields in order, and how many more were left out past the cap. */
 export interface ValueFieldList {
@@ -132,6 +156,14 @@ export function jsonText(value: unknown): string {
 }
 
 /**
+ * What copying a field puts on the clipboard: a string as it is, anything else
+ * as the JSON it arrived as.
+ */
+export function copyText(value: unknown): string {
+  return typeof value === "string" ? value : jsonText(value);
+}
+
+/**
  * The text of one table cell. A scalar is written the way any other value is;
  * anything with contents is compact JSON, which wraps in the cell. A missing
  * cell is empty. An explicit `null` is written out, because in a query result
@@ -157,14 +189,16 @@ function unionKeys(records: Record<string, unknown>[]): string[] {
 }
 
 /**
- * The columns of `items` when it is a list of same-shaped records that reads
- * as a table, else `null`: at least `MIN_TABLE_ROWS` items, every one a plain
- * object, between 1 and `MAX_TABLE_COLUMNS` keys across them, and every key
- * present in at least `TABLE_KEY_COVERAGE` of the items. The columns are the
- * union of the keys in first-seen order, so a key one record adds late still
- * gets a column.
+ * `items` as the records of a table, with its columns, when it is a list of
+ * same-shaped records that reads as one, else `null`: at least
+ * `MIN_TABLE_ROWS` items, every one a plain object, between 1 and
+ * `MAX_TABLE_COLUMNS` keys across them, and every key present in at least
+ * `TABLE_KEY_COVERAGE` of the items. The columns are the union of the keys in
+ * first-seen order, so a key one record adds late still gets a column.
  */
-function recordTableColumns(items: unknown[]): string[] | null {
+function recordTable(
+  items: unknown[],
+): { columns: string[]; records: Record<string, unknown>[] } | null {
   if (items.length < MIN_TABLE_ROWS || !items.every(isRecord)) {
     return null;
   }
@@ -177,7 +211,7 @@ function recordTableColumns(items: unknown[]): string[] | null {
     (column) =>
       items.filter((item) => Object.hasOwn(item, column)).length >= needed,
   );
-  return covered ? columns : null;
+  return covered ? { columns, records: items } : null;
 }
 
 /**
@@ -206,19 +240,22 @@ function isColumnsRowsTable(
   );
 }
 
-/** A table of the first `MAX_TABLE_ROWS` of `total` rows, the rest counted. */
-function tableField(
+/** A table of as many rows as the caps allow, the rest counted. */
+function tableField<Row>(
   label: string,
   columns: string[],
-  rows: unknown[][],
-  total: number,
+  rows: Row[],
+  cells: (row: Row) => unknown[],
+  budget: Budget,
 ): TableField {
+  const shown = rows.slice(0, Math.min(MAX_TABLE_ROWS, budget.left));
+  budget.left -= shown.length;
   return {
     kind: "table",
     label,
     columns,
-    rows: rows.map((row) => row.map(cellText)),
-    more: Math.max(0, total - MAX_TABLE_ROWS),
+    rows: shown.map((row) => cells(row).map(cellText)),
+    more: rows.length - shown.length,
   };
 }
 
@@ -260,17 +297,37 @@ function oneLinePairs(entries: [string, unknown][]): ValuePair[] | null {
 function capped<T>(
   children: T[],
   toField: (child: T, index: number) => ValueField,
+  budget: Budget,
 ): ValueFieldList {
-  return {
-    fields: children.slice(0, MAX_CHILDREN).map(toField),
-    more: Math.max(0, children.length - MAX_CHILDREN),
-  };
+  const fields: ValueField[] = [];
+  for (const child of children) {
+    if (fields.length === MAX_CHILDREN || budget.left <= 0) {
+      break;
+    }
+    fields.push(toField(child, fields.length));
+  }
+  return { fields, more: children.length - fields.length };
 }
 
-function fieldFor(label: string, value: unknown, depth: number): ValueField {
+function fieldFor(
+  label: string,
+  value: unknown,
+  depth: number,
+  budget: Budget,
+): ValueField {
+  budget.left -= 1;
+  return { ...shapeFor(label, value, depth, budget), value };
+}
+
+function shapeFor(
+  label: string,
+  value: unknown,
+  depth: number,
+  budget: Budget,
+): ValueShape {
   const scalar = scalarText(value);
   if (scalar !== null) {
-    return typeof value === "string" && !isShortText(scalar, LONG_TEXT_CHARS)
+    return typeof value === "string" && scalar.includes("\n")
       ? { kind: "code", label, text: scalar }
       : { kind: "text", label, text: scalar };
   }
@@ -278,15 +335,15 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
     return { kind: "code", label, text: jsonText(value) };
   }
   if (Array.isArray(value)) {
-    const columns = recordTableColumns(value);
-    if (columns) {
+    const table = recordTable(value);
+    if (table) {
+      const { columns, records } = table;
       return tableField(
         label,
         columns,
-        value
-          .slice(0, MAX_TABLE_ROWS)
-          .map((record) => columns.map((column) => record[column])),
-        value.length,
+        records,
+        (record) => columns.map((column) => record[column]),
+        budget,
       );
     }
     const items = oneLineList(value);
@@ -296,8 +353,10 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
     return {
       kind: "nested",
       label,
-      fields: capped(value, (item, index) =>
-        fieldFor(String(index + 1), item, depth + 1),
+      fields: capped(
+        value,
+        (item, index) => fieldFor(String(index + 1), item, depth + 1, budget),
+        budget,
       ),
     };
   }
@@ -307,10 +366,9 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
       return tableField(
         label,
         columns,
-        rows
-          .slice(0, MAX_TABLE_ROWS)
-          .map((row) => columns.map((_, index) => row[index])),
-        rows.length,
+        rows,
+        (row) => columns.map((_, index) => row[index]),
+        budget,
       );
     }
     const entries = Object.entries(value);
@@ -321,17 +379,60 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
     return {
       kind: "nested",
       label,
-      fields: capped(entries, ([key, entryValue]) =>
-        fieldFor(key, entryValue, depth + 1),
+      fields: capped(
+        entries,
+        ([key, entryValue]) => fieldFor(key, entryValue, depth + 1, budget),
+        budget,
       ),
     };
   }
   return { kind: "text", label, text: String(value) };
 }
 
+/** A tool result that lays out as fields: a JSON object or array. */
+export type StructuredResult = Record<string, unknown> | unknown[];
+
+/**
+ * A tool result's text as a JSON object or array with something in it, or
+ * `null` for anything else: text that is not JSON, a scalar, or an empty
+ * object or list, which read better as the text they are.
+ */
+export function parseStructuredResult(text: string): StructuredResult | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Most results are prose or command output; not being JSON is the
+    // ordinary case, not a failure.
+    return null;
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.length > 0 ? parsed : null;
+  }
+  if (isRecord(parsed)) {
+    return Object.keys(parsed).length > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * The fields a tool's output lays out to. A list, or a query result written as
+ * `{ columns, rows }`, is one field with no name, since the section it sits in
+ * already names it; any other object lays out its keys as fields, the way the
+ * input does.
+ */
+export function layoutResult(result: StructuredResult): ValueFieldList {
+  return Array.isArray(result) || isColumnsRowsTable(result)
+    ? { fields: [fieldFor("", result, 0, { left: LAYOUT_BUDGET })], more: 0 }
+    : layoutValues(result);
+}
+
 /** The fields that lay out `values`, in insertion order. */
 export function layoutValues(values: Record<string, unknown>): ValueFieldList {
-  return capped(Object.entries(values), ([key, value]) =>
-    fieldFor(key, value, 0),
+  const budget = { left: LAYOUT_BUDGET };
+  return capped(
+    Object.entries(values),
+    ([key, value]) => fieldFor(key, value, 0, budget),
+    budget,
   );
 }

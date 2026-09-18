@@ -17,12 +17,11 @@ import { Bolt, Brain } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
 import { RiskChip } from "@/domains/chat/components/risk-chip";
 import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
-import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
+import { ToolOutputSection } from "@/domains/chat/components/tool-activity/tool-output-section";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
 import {
   TRANSCRIPT_TOOL_CALL_SOURCE,
@@ -93,15 +92,10 @@ export function ToolDetailBody({
   /** Threaded to any markdown a tool-specific renderer shows. */
   assistantId?: string | null;
 }) {
-  const { t } = useTranslation("chat");
   const liveTc = useLiveToolCall(source, detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
-  // An empty string is a result: the tool ran and returned nothing. Only an
-  // absent result means the call has not produced one yet.
-  const hasResult = result !== undefined;
-  const isEmptyResult = result === "";
   const isRunning = liveTc
     ? isToolCallRunning(liveTc)
     : detail.status === "running";
@@ -141,18 +135,13 @@ export function ToolDetailBody({
         </div>
       )}
 
-      {/* Output: the final result once present, else the live streamed tail
-          while running, else a bare running placeholder. Suppressed for tools
-          whose renderer already presents the result itself. */}
+      {/* Output, laid out like the input when the result is structured.
+          Suppressed for tools whose renderer already presents the result. */}
       {!renderer?.ownsOutput && (
-        <div className="mt-5">
-          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          <ToolOutputBody
-            text={
-              hasResult && !isEmptyResult
-                ? (result as string)
-                : (streamedOutput ?? "")
-            }
+        <div className="mt-5 flex flex-col gap-5">
+          <ToolOutputSection
+            result={result}
+            streamedOutput={streamedOutput}
             isDenied={isDenied}
             isRunning={isRunning}
             isError={isError}

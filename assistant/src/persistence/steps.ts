@@ -488,6 +488,11 @@ import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagen
 import { migrateCreateConversationToolSurfaces } from "./migrations/378-create-conversation-tool-surfaces.js";
 import { migrateOAuthProvidersResponseOkField } from "./migrations/379-oauth-providers-response-ok-field.js";
 import { migrateConversationToolSurfacesDelegateIndependentTasks } from "./migrations/380-conversation-tool-surfaces-delegate-independent-tasks.js";
+import {
+  downCreateConversationModeSessions,
+  migrateCreateConversationModeSessions,
+} from "./migrations/381-create-conversation-mode-sessions.js";
+import { migrateCreateClientConnectionEvents } from "./migrations/382-create-client-connection-events.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1632,4 +1637,16 @@ export const migrationSteps: MigrationStep[] = [
     // step must be checkpointed first.
     dependsOn: ["migrateCreateConversationToolSurfaces"],
   },
+  {
+    name: "migrateCreateConversationModeSessions",
+    run: migrateCreateConversationModeSessions,
+    rollback: [
+      {
+        version: 58,
+        description: "Create conversation-owned mode session lifecycle records",
+        down: downCreateConversationModeSessions,
+      },
+    ],
+  },
+  migrateCreateClientConnectionEvents,
 ];

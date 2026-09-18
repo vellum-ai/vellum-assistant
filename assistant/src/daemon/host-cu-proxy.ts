@@ -13,7 +13,6 @@
  * RPC lifecycle (resolve/reject/timer/detachAbort) is stored in
  * pendingInteractions alongside routing metadata.
  */
-
 import { v4 as uuid } from "uuid";
 
 import { loadConfig } from "../config/loader.js";
@@ -30,6 +29,7 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { resolveHostCuTarget } from "./host-cu-target.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 
 const log = getLogger("host-cu-proxy");
 
@@ -210,6 +210,8 @@ function clientAdvertises(
 // ---------------------------------------------------------------------------
 
 export class HostCuProxy {
+  /** Stable identity for this conversation-owned proxy instance. */
+  private readonly _sourceId = uuid();
   // CU state tracking (per-conversation)
   private _stepCount = 0;
   private _maxSteps: number;
@@ -281,6 +283,14 @@ export class HostCuProxy {
     return this._actionHistory;
   }
 
+  get sourceId(): string {
+    return this._sourceId;
+  }
+
+  get resetGeneration(): number {
+    return this._resetGeneration;
+  }
+
   // ---------------------------------------------------------------------------
   // Availability
   // ---------------------------------------------------------------------------
@@ -315,6 +325,7 @@ export class HostCuProxy {
     signal?: AbortSignal,
     targetClientId?: string,
     sourceActorPrincipalId?: string,
+    onValidatedDispatch?: () => void,
   ): Promise<ToolExecutionResult> {
     if (signal?.aborted) {
       return Promise.resolve({
@@ -386,6 +397,9 @@ export class HostCuProxy {
         isError: true,
       });
     }
+    bestEffortModeSessionTracking("computer admission", () =>
+      onValidatedDispatch?.(),
+    );
     const scopedObservation = hasCaptureTarget(input);
     if (scopedObservation) {
       this._previousAXTree = undefined;
@@ -640,7 +654,8 @@ export class HostCuProxy {
    * stopping and puts the pointer back where the user left it, instead of
    * waiting out its idle fallback.
    */
-  endTask(conversationId: string): void {
+  endTask(conversationId: string): number {
+    const endedGeneration = this._resetGeneration;
     for (const targetClientId of this._dispatchedTargets.values()) {
       try {
         broadcastMessage(
@@ -658,10 +673,12 @@ export class HostCuProxy {
       }
     }
     this.reset();
+    return endedGeneration;
   }
 
   /** Reset all CU state. Called on terminal tools (computer_use_done, etc.). */
-  reset(): void {
+  reset(): number {
+    const endedGeneration = this._resetGeneration;
     this._dispatchedTargets.clear();
     this._stepCount = 0;
     this._previousAXTree = undefined;
@@ -669,6 +686,7 @@ export class HostCuProxy {
     this._actionHistory = [];
     this._observedTargets.clear();
     this._resetGeneration++;
+    return endedGeneration;
   }
 
   /**

@@ -39,6 +39,11 @@ const { useChatSessionStore } =
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import {
+  stubContentHeight,
+  stubOverflow,
+  stubResizeObserver,
+} from "@/hooks/overflow.test-helper";
 
 /** Wrap messages into a materialized-snapshot page. */
 function snap(messages: DisplayMessage[]): PaginatedHistoryResult {
@@ -91,6 +96,8 @@ function makeDetail(
 }
 
 let writeText: ReturnType<typeof mock>;
+/** Set by a test that stubs layout; `afterEach` restores it. */
+let restoreLayout: (() => void) | null = null;
 
 beforeEach(() => {
   queryClient = new QueryClient({
@@ -104,6 +111,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreLayout?.();
+  restoreLayout = null;
   cleanup();
   act(() => {
     useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
@@ -227,20 +236,251 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("1")).toBeNull();
   });
 
-  test("sets long text as a copyable code block", () => {
+  test("reads a one-line value inline whatever its length", () => {
     const query =
       "SELECT week, count(DISTINCT person_id) AS users FROM events GROUP BY week ORDER BY week";
     const detail = makeDetail({
       toolName: "mcp__analytics__exec",
       input: { query },
     });
-    const { getByText, getAllByLabelText } = render(
+    const { getByText, getByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
-    expect(getByText(query).tagName).toBe("PRE");
-    // One copy button for the query, one for the output.
-    expect(getAllByLabelText("Copy")).toHaveLength(2);
+    expect(getByText(query).tagName).not.toBe("PRE");
+    // The query's own copy button copies the query alone, not the raw input.
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
+  });
+
+  test("sets text with line breaks as a code block copied from its label", () => {
+    const query = "SELECT week\nFROM events";
+    const detail = makeDetail({
+      toolName: "mcp__analytics__exec",
+      input: { query },
+      result: "4 rows",
+    });
+    const { container, getAllByLabelText, getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    const blocks = [...container.querySelectorAll("pre")].map(
+      (pre) => pre.textContent,
+    );
+    expect(blocks).toContain(query);
+    // The block carries no copy button of its own; the only unlabelled one
+    // is the output's.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
+  });
+
+  test("copies a table field from its label, with no separate table control", () => {
+    const contacts = [
+      { email: "user1@example.com", stage: "new" },
+      { email: "user2@example.com", stage: "trial" },
+    ];
+    const detail = makeDetail({
+      toolName: "acme_crm_import_contacts",
+      input: { contacts },
+    });
+    const { getByLabelText, queryByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(queryByLabelText("Copy table as markdown")).toBeNull();
+    fireEvent.click(getByLabelText("Copy contacts"));
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify(contacts, null, 2));
+  });
+
+  test("reveals only the hovered field's copy button inside a group", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_upsert_contact",
+      input: {
+        record: {
+          stage: "qualified",
+          address: { city: "Lisbon", country: "Portugal" },
+        },
+      },
+    });
+    const { container, getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // Hover reaches every row around the pointer, so a row that held
+    // another row would reveal its own button along with the inner one.
+    expect(
+      container.querySelectorAll("[data-reveal-row] [data-reveal-row]"),
+    ).toHaveLength(0);
+    for (const label of ["Copy record", "Copy stage", "Copy address"]) {
+      expect(getByLabelText(label).closest("[data-reveal-row]")).not.toBeNull();
+    }
+  });
+
+  test("folds a long one-line value behind Show more", () => {
+    const note = "word ".repeat(200).trim();
+    restoreLayout = stubOverflow((el) => el.textContent === note);
+    const detail = makeDetail({
+      toolName: "acme_notes_append",
+      input: { note },
+      result: "",
+    });
+    const { getByText, getAllByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText(note).tagName).not.toBe("PRE");
+    expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  describe("an opened value", () => {
+    const note = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_append",
+      input: { note },
+      result: "",
+    });
+
+    /**
+     * Opens the value in `openedDetail` that folds, given the height it draws
+     * at, and lays it out again as the browser would once it has opened.
+     */
+    function openValue(openedDetail: ToolDetailPayload, height: number) {
+      // Only the fold's box carries a max-height, so it is what measures.
+      restoreLayout = stubContentHeight((el) =>
+        el.style.maxHeight ? height : undefined,
+      );
+      const observer = stubResizeObserver();
+      try {
+        const view = render(
+          <ToolDetailPanel detail={openedDetail} onClose={noop} />,
+        );
+        act(() => {
+          fireEvent.click(view.getByText("Show more"));
+        });
+        act(observer.resize);
+        return view;
+      } finally {
+        observer.restore();
+      }
+    }
+
+    const openNote = (height: number) => openValue(detail, height);
+
+    test("stops at the expanded height and scrolls, named after its field", () => {
+      const { getByRole, getByText } = openNote(1000);
+
+      const box = getByRole("region", { name: "note" });
+      expect(box.style.maxHeight).toBe("480px");
+      expect(box.tabIndex).toBe(0);
+      expect(getByText("Show less")).toBeDefined();
+    });
+
+    test("names a whole output after its section", () => {
+      const rows = Array.from({ length: 40 }, (_, index) => ({
+        id: `row-${index + 1}`,
+        stage: "new",
+      }));
+      const { getByRole } = openValue(
+        makeDetail({
+          toolName: "acme_crm_list_contacts",
+          input: {},
+          result: JSON.stringify(rows),
+        }),
+        1000,
+      );
+
+      expect(getByRole("region", { name: "Output" })).toBeDefined();
+    });
+
+    test("folds back to its start after scrolling while open", () => {
+      const { getByRole, getByText } = openNote(1000);
+      const box = getByRole("region", { name: "note" });
+      box.scrollTop = 300;
+
+      act(() => {
+        fireEvent.click(getByText("Show less"));
+      });
+
+      expect(box.scrollTop).toBe(0);
+    });
+
+    test("shows whole, with nothing to scroll, when it fits that height", () => {
+      const { queryByRole, getByText } = openNote(300);
+
+      expect(queryByRole("region")).toBeNull();
+      expect(getByText("Show less")).toBeDefined();
+    });
+  });
+
+  test("folds a table taller than the fold as one value", () => {
+    const notes = Array.from({ length: 12 }, (_, index) => ({
+      title: `note-${index + 1}`,
+      body: "short",
+    }));
+    restoreLayout = stubOverflow(
+      (el) =>
+        el.querySelector("table") !== null &&
+        el.textContent.includes("note-12"),
+    );
+    const { getAllByText, getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_notes_import",
+          input: { notes },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // One Show more for the whole table, not one per cell.
+    expect(getAllByText("Show more")).toHaveLength(1);
+    expect(getByText("note-12")).toBeDefined();
+  });
+
+  test("folds a nested group taller than the fold as one value", () => {
+    const record = Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [`field_${index + 1}`, "x"]),
+    );
+    restoreLayout = stubOverflow((el) => el.textContent.startsWith("field_1"));
+    const { getAllByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_crm_upsert_contact",
+          input: { record },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  test("opens a long field inside a folded group with the group's one Show more", () => {
+    const summary = "word ".repeat(200).trim();
+    const record = { stage: "qualified", summary };
+    // The long field is taller than the fold on its own, and so is its group.
+    restoreLayout = stubOverflow((el) => el.textContent.includes(summary));
+    const { getAllByText, getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_crm_upsert_contact",
+          input: { record },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+    act(() => {
+      fireEvent.click(getByText("Show more"));
+    });
+    // Nothing is left folded inside the opened group.
+    expect(queryByText("Show more")).toBeNull();
+    expect(getAllByText("Show less")).toHaveLength(1);
   });
 
   test("counts the items past the first twenty instead of listing them", () => {
@@ -448,8 +688,9 @@ describe("ToolDetailPanel", () => {
     );
   });
 
-  test("clamps a long result behind Show more", () => {
+  test("folds a result taller than the fold behind Show more", () => {
     const long = "a line of output\n".repeat(200);
+    restoreLayout = stubOverflow((el) => el.textContent === long);
     const { getByText, queryByText } = render(
       <ToolDetailPanel detail={makeDetail({ result: long })} onClose={noop} />,
     );
@@ -460,6 +701,16 @@ describe("ToolDetailPanel", () => {
       fireEvent.click(toggle);
     });
     expect(getByText("Show less")).toBeDefined();
+    expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("offers no Show more for long text that fits the fold", () => {
+    // Long in characters, but it fits where it is drawn, so nothing is hidden.
+    const result = "word ".repeat(300).trim();
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+    );
+
     expect(queryByText("Show more")).toBeNull();
   });
 
@@ -669,18 +920,19 @@ describe("ToolDetailPanel", () => {
   });
 
   test("copy button writes the content to the clipboard", () => {
-    const { getAllByLabelText, getByText } = render(
+    const { getAllByLabelText, getByText, queryAllByLabelText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Short parameters are fields with nothing to copy, so at rest only the
-    // output has a copy button. Opening the raw input adds its own.
-    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    // Parameters and a structured output copy from their labels, and both raw
+    // forms start closed, so at rest no block has a copy button. Opening the
+    // raw input adds its own.
+    expect(queryAllByLabelText("Copy")).toHaveLength(0);
     act(() => {
       fireEvent.click(getByText("Raw input"));
     });
     const copyButtons = getAllByLabelText("Copy");
-    expect(copyButtons.length).toBe(2);
+    expect(copyButtons.length).toBe(1);
 
     fireEvent.click(copyButtons[0]!);
     expect(writeText).toHaveBeenCalledTimes(1);
@@ -691,6 +943,106 @@ describe("ToolDetailPanel", () => {
         2,
       ),
     );
+  });
+
+  describe("output laid out like input", () => {
+    test("a JSON object result reads as fields, with the result as received under Raw output", () => {
+      const result = '{"imported":3,"list":"Inbound"}';
+      const { getByText, queryByText, getByLabelText } = render(
+        <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+      );
+
+      expect(getByText("imported")).toBeDefined();
+      expect(getByText("Inbound")).toBeDefined();
+      // The raw form starts closed and, once opened, is the text as received,
+      // not a re-serialization of it.
+      expect(queryByText(result)).toBeNull();
+      act(() => {
+        fireEvent.click(getByText("Raw output"));
+      });
+      expect(getByText(result).tagName).toBe("PRE");
+      fireEvent.click(getByLabelText("Copy list"));
+      expect(writeText).toHaveBeenCalledWith("Inbound");
+    });
+
+    test("a list of records at the root reads as a table with no label of its own", () => {
+      const rows = [
+        { week: "2026-08-03", users: 12840 },
+        { week: "2026-08-10", users: 13217 },
+      ];
+      const { getAllByRole, getByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: JSON.stringify(rows) })}
+          onClose={noop}
+        />,
+      );
+
+      expect(getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+        "week",
+        "users",
+      ]);
+      expect(getByText("Raw output")).toBeDefined();
+    });
+
+    test("a result that is not JSON, or an empty object, stays a code block", () => {
+      for (const result of ["Moved 3 files.", "{}", "[]", "42"]) {
+        const { container, queryByText, unmount } = render(
+          <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+        );
+        expect(container.querySelector("pre")?.textContent).toBe(result);
+        expect(queryByText("Raw output")).toBeNull();
+        unmount();
+      }
+    });
+
+    test("an error or a streamed tail reads as the text it is, whatever its shape", () => {
+      const json = '{"error":"quota exceeded"}';
+      for (const overrides of [
+        { result: json, status: "error" as const },
+        {
+          result: undefined,
+          streamedOutput: json,
+          status: "running" as const,
+        },
+      ]) {
+        const { container, queryByText, unmount } = render(
+          <ToolDetailPanel detail={makeDetail(overrides)} onClose={noop} />,
+        );
+        expect(container.querySelector("pre")?.textContent).toBe(json);
+        expect(queryByText("Raw output")).toBeNull();
+        unmount();
+      }
+    });
+
+    test("a renderer that owns its output keeps it, JSON or not", () => {
+      const { container, queryByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({
+            toolName: "bash",
+            input: { command: "cat package.json" },
+            result: '{"name":"app"}',
+          })}
+          onClose={noop}
+        />,
+      );
+
+      expect(
+        [...container.querySelectorAll("pre")].map((pre) => pre.textContent),
+      ).toContain('{"name":"app"}');
+      expect(queryByText("Raw output")).toBeNull();
+    });
+
+    test("counts what an output leaves out against Raw output", () => {
+      const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
+      const { getByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: JSON.stringify({ ids }) })}
+          onClose={noop}
+        />,
+      );
+
+      expect(getByText("3 more in Raw output")).toBeDefined();
+    });
   });
 
   test("thinking variant renders the reasoning markdown without input/output sections", () => {

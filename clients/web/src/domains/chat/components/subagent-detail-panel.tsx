@@ -58,6 +58,7 @@ import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projectio
 import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
+import { useOverflows } from "@/hooks/use-overflows";
 
 /**
  * The icon name for a nested step detail — the same glyph its timeline pill
@@ -212,50 +213,32 @@ export function SubagentDetailPanel({
   // Objective collapse/expand. The toggle only appears when the clamped body
   // actually overflows, so short objectives show no affordance.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  const [objectiveOverflows, setObjectiveOverflows] = useState(false);
-  const objectiveBodyRef = useRef<HTMLParagraphElement>(null);
+  // Measured against the collapsed clamp, and held while expanded so "Show
+  // less" stays. Keyed on the subagent as well as the text, so a switch
+  // between two subagents with the same objective still re-measures.
+  const { ref: objectiveBodyRef, overflows: objectiveOverflows } =
+    useOverflows<HTMLParagraphElement>({
+      contentKey: `${entry.subagentId}:${entry.objective}`,
+      paused: objectiveExpanded,
+    });
 
   // Reset objective collapse state when the subagent changes. The desktop
   // parent reuses this instance across subagent switches (no `key`), so without
-  // this an objective expanded for one subagent leaks onto the next — and since
-  // the measurement effect below early-returns while `objectiveExpanded` is
-  // true, the new (possibly short) objective would render stale-expanded with a
-  // spurious "Show less" and never re-measure. Resetting during render (React's
-  // "store previous prop" pattern) clears both flags before paint (no flash);
-  // clearing `objectiveOverflows` lets the effect re-measure from a clean state.
+  // this an objective expanded for one subagent leaks onto the next, and since
+  // the measurement holds while expanded, the new (possibly short) objective
+  // would render stale-expanded with a spurious "Show less". Resetting during
+  // render (React's "store previous prop" pattern) collapses it before paint
+  // (no flash), which resumes the measurement for the new objective.
   const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
   if (prevSubagentId !== entry.subagentId) {
     setPrevSubagentId(entry.subagentId);
     setObjectiveExpanded(false);
-    setObjectiveOverflows(false);
     // Switching subagents returns the panel to the timeline view and clears
     // the previous subagent's expanded groups.
     setSelectedDetailKey(null);
     setExpandedSectionKeys(new Set());
   }
 
-  // Measure overflow against the collapsed clamp. While collapsed the clamp is
-  // the source of truth, so `scrollHeight` exceeds `clientHeight` only when the
-  // body is taller than the visible 5 lines. Skip measuring while expanded
-  // (the clamp is removed, which would otherwise report no overflow) so the
-  // "Show less" affordance stays visible.
-  //
-  // Depend on `entry.subagentId` too: the render-phase reset above forces
-  // `objectiveOverflows` to `false` on a subagent switch, so the effect must
-  // re-run to recompute it. Without the id in the deps a switch between two
-  // subagents whose objective text is byte-identical changes neither
-  // `entry.objective` nor `objectiveExpanded`, the effect skips, and the
-  // toggle would stay incorrectly hidden for an overflowing objective.
-  useLayoutEffect(() => {
-    if (objectiveExpanded) {
-      return;
-    }
-    const node = objectiveBodyRef.current;
-    if (!node) {
-      return;
-    }
-    setObjectiveOverflows(node.scrollHeight > node.clientHeight);
-  }, [entry.subagentId, entry.objective, objectiveExpanded]);
 
   // The panel is where a settled subagent's timeline is fetched: the
   // conversation-load auto-fetch only covers live rows, so opening one of the

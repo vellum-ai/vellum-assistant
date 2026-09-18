@@ -281,7 +281,9 @@ describe("writeHomeFeedItemForSignal", () => {
       "The deployment completed successfully.",
     );
     expect(appendCalls[0]!.conversationId).toBe("conv-source-1");
-    expect(appendCalls[0]!.metadata?.notificationConversationMessageId).toBeUndefined();
+    expect(
+      appendCalls[0]!.metadata?.notificationConversationMessageId,
+    ).toBeUndefined();
     expect(messageAppends).toEqual([]);
     expect(messagesInvalidated).toEqual([]);
     expect(conversationLookups).toEqual(["conv-source-1", "conv-source-1"]);
@@ -347,6 +349,93 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]!.title).toBe("Shared from CLI");
+    expect(appendCalls[0]!.noteworthy).toBe(true);
+    expect(appendCalls[0]!.conversationId).toBeUndefined();
+    expect(conversationLookups).toEqual(["cli-12345"]);
+  });
+
+  test("assistant_tool source skips the automatic Home mirror when channelAllowlist omits vellum", async () => {
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+      contextPayload: {
+        title: "Telegram only",
+        channelAllowlist: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "critical",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        telegram: { title: "Telegram only", body: "Alarm body" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item).toBeNull();
+    expect(appendCalls).toHaveLength(0);
+  });
+
+  test("assistant_tool source still mirrors when channelAllowlist includes vellum", async () => {
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+      contextPayload: {
+        title: "Inbox and telegram",
+        channelAllowlist: ["vellum", "telegram"],
+      },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["vellum", "telegram"],
+      renderedCopy: {
+        vellum: { title: "Inbox and telegram", body: "Shared body" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+  });
+
+  test("assistant_tool exclusive allowlist still mirrors when isAsyncBackground is set", async () => {
+    conversationRow = null;
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "assistant.share",
+      sourceContextId: "cli-12345",
+      contextPayload: {
+        title: "Background telegram",
+        channelAllowlist: ["telegram"],
+      },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["telegram"],
+      renderedCopy: {
+        telegram: { title: "Background telegram", body: "Still a feed item" },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
     expect(appendCalls[0]!.noteworthy).toBe(true);
     expect(appendCalls[0]!.conversationId).toBeUndefined();
     expect(conversationLookups).toEqual(["cli-12345"]);
@@ -956,7 +1045,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
@@ -970,7 +1059,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 
@@ -1126,7 +1215,7 @@ describe("writeHomeFeedItemForSignal", () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
       sourceChannel: "assistant_tool",
-      sourceEventName: "user.send_notification",
+      sourceEventName: "assistant.share",
       contextPayload: { title: "Tool share", body: "Body" },
     });
 

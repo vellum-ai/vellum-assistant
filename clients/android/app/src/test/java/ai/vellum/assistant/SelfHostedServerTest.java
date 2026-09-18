@@ -348,6 +348,180 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void treatsBootHttpErrorsOnTheConfiguredServerAsUnreachable() {
+        URI server = SelfHostedServer.validate("https://example.com");
+
+        assertTrue(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                404,
+                "https://example.com/assistant",
+                server,
+                false
+            )
+        );
+        assertTrue(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                502,
+                "https://example.com/assistant",
+                server,
+                false
+            )
+        );
+        assertTrue(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                401,
+                "https://example.com/assistant/settings/general",
+                server,
+                false
+            )
+        );
+    }
+
+    @Test
+    public void ignoresNestedHttpErrorsAfterTheSpaHasLoaded() {
+        URI server = SelfHostedServer.validate("https://example.com");
+
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                401,
+                "https://example.com/v1/releases/",
+                server,
+                true
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                403,
+                "https://example.com/v1/remote-web/pairing-requests",
+                server,
+                true
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                404,
+                "https://example.com/assistant/settings/general",
+                server,
+                true
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                502,
+                "https://example.com/assistant/settings/ai",
+                server,
+                true
+            )
+        );
+    }
+
+    @Test
+    public void stillTreatsAppEntryHttpErrorsAfterTheSpaHasLoaded() {
+        URI server = SelfHostedServer.validate("https://example.com");
+
+        assertTrue(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                404,
+                "https://example.com/assistant",
+                server,
+                true
+            )
+        );
+        assertTrue(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                502,
+                "https://example.com:443/assistant/",
+                server,
+                true
+            )
+        );
+    }
+
+    @Test
+    public void ignoresHttpErrorsOutsideTheConfiguredServer() {
+        URI server = SelfHostedServer.validate("https://example.com/tenant");
+
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                404,
+                "https://other.example.com/assistant",
+                server,
+                false
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                399,
+                "https://example.com/tenant/assistant",
+                server,
+                false
+            )
+        );
+    }
+
+    @Test
+    public void cancelsLeakedSettingsDocumentNavigationsAfterTheSpaHasLoaded() {
+        URI server = SelfHostedServer.validate("https://example.com");
+
+        assertTrue(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant/settings/general",
+                server,
+                true,
+                "GET"
+            )
+        );
+        assertTrue(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant/settings/ai",
+                server,
+                true,
+                "GET"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant",
+                server,
+                true,
+                "GET"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant/pair",
+                server,
+                true,
+                "GET"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant/settings/general",
+                server,
+                false,
+                "GET"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://example.com/assistant/settings/general",
+                server,
+                true,
+                "POST"
+            )
+        );
+        assertFalse(
+            SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                "https://other.example.com/assistant/settings/general",
+                server,
+                true,
+                "GET"
+            )
+        );
+    }
+
+    @Test
     public void parsesBakedServerUrlFromCapacitorConfig() {
         assertEquals(
             "https://www.vellum.ai/assistant",

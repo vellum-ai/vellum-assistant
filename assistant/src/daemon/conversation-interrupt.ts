@@ -316,13 +316,11 @@ export async function interruptRunningTurn(
   }
 
   let repaired = false;
-  let preemptedToolResultOnTail = false;
   try {
-    const repair = await repairInterruptedToolUseBlocks(conversation, {
+    await repairInterruptedToolUseBlocks(conversation, {
       force: true,
       requireDurable: true,
     });
-    preemptedToolResultOnTail = repair.preemptedToolResultOnTail;
     repaired = true;
   } catch (err) {
     // The repair row is not durable, so the caller must not write the
@@ -352,14 +350,12 @@ export async function interruptRunningTurn(
   // busy conversation with nothing running and no path back to idle.
   conversation.pendingInterruptActivityBridge = true;
 
-  // An abort that landed during the provider call answered no tool call, so
-  // nothing in the history tells the model its turn was cut off. Arm the note
-  // the interrupting user message carries instead. A tail that already holds a
-  // preempted `tool_result` needs none: that result says the same thing, and
-  // saying it twice in one prompt is noise.
-  if (!preemptedToolResultOnTail) {
-    conversation.pendingInterruptNote = true;
-  }
+  // Arm the note the interrupting user message carries. It is the one place
+  // the behavior after an interrupt is spelled out, so it rides on every
+  // handover, tool call stopped or not: a synthetic `tool_result` states only
+  // what happened to the one call it answers, and it lands ahead of the user's
+  // words rather than on them.
+  conversation.pendingInterruptNote = true;
 
   return "released";
 }

@@ -39,6 +39,7 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
+import { isSessionGroupsEnabled } from "../config/session-groups-gate.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -118,6 +119,8 @@ import { withSqliteRetry } from "../util/sqlite-retry.js";
 import type { WorkspaceGitService } from "../workspace/git-service.js";
 import type { commitTurnChanges } from "../workspace/turn-commit.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import { BrowserModeSessionProducer } from "./browser-mode-session.js";
+import { ComputerUseModeSessionProducer } from "./computer-use-mode-session.js";
 import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
@@ -141,6 +144,7 @@ import {
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
 } from "./conversation-messaging.js";
+import { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
@@ -193,6 +197,7 @@ import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { renderReactionHistoryText } from "./reaction-history-render.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 import {
@@ -526,6 +531,13 @@ export class Conversation {
    */
   enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
+  /** Canonical recorded-session ownership for this conversation. */
+  readonly modeSessions: ConversationModeSessionCoordinator;
+  /** Computer-use producer mapped onto the canonical session coordinator. */
+  readonly computerUseModeSessions: ComputerUseModeSessionProducer;
+  /** Browser producer mapped onto the canonical session coordinator. */
+  readonly browserModeSessions: BrowserModeSessionProducer;
+  private liveVoiceResidencyLeases = 0;
   /**
    * The `clientMessageId` the running turn was started by, recorded in the same
    * synchronous step that takes the processing lock.
@@ -784,17 +796,22 @@ export class Conversation {
    */
   pendingInterruptActivityBridge = false;
   /**
-   * Set by `interruptRunningTurn` when the abort it ran landed with no tool
-   * call in flight, and consumed exactly once by the persist of the
-   * interrupting user message, which appends
+   * Set by `interruptRunningTurn` on every handover it completes, and consumed
+   * exactly once by the first user message persisted after it, which appends
    * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
    * and stamps `interruptedPriorTurn` on the row.
    *
-   * An interrupt caught mid-tool needs nothing here: the synthetic
-   * `tool_result` the loop or the repair writes already tells the model a
-   * message preempted it. Caught mid-provider-call there is no `tool_use` to
-   * answer, so the note is the only signal, and it rides on the message that
-   * did the interrupting.
+   * The note is the only place the behavior after an interrupt is spelled out.
+   * A synthetic `tool_result` states what happened to the one call it answers
+   * and nothing more, so an interrupt caught mid-tool arms this too.
+   *
+   * It belongs to the history position, not to the send that armed it. That
+   * first row is the one sitting directly under the work the handover stopped,
+   * so it is the row whose note the model reads in the right place. Normally it
+   * is the interrupting message itself. When that send loses the lock race and
+   * queues, the message that persists first was also sent while the assistant
+   * was working, and the note is true of it; the queued one drains after a
+   * completed turn, where the same note would be stale.
    * @internal
    */
   pendingInterruptNote = false;
@@ -976,6 +993,16 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
+    this.modeSessions = new ConversationModeSessionCoordinator(conversationId);
+    this.computerUseModeSessions = new ComputerUseModeSessionProducer(
+      this.modeSessions,
+      isSessionGroupsEnabled,
+    );
+    this.browserModeSessions = new BrowserModeSessionProducer(
+      this.modeSessions,
+      1,
+      isSessionGroupsEnabled,
+    );
     this.parentConversationId = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -2553,14 +2580,31 @@ export class Conversation {
     return !this.queue.isEmpty;
   }
 
+  acquireLiveVoiceResidency(): () => void {
+    this.liveVoiceResidencyLeases += 1;
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.liveVoiceResidencyLeases = Math.max(
+        0,
+        this.liveVoiceResidencyLeases - 1,
+      );
+    };
+  }
+
   /**
    * True when dropping this instance would lose work that is still in flight:
-   * a live turn, a queued successor, or a child subagent.
+   * a live turn, queued successor, child subagent, or mode-session lifecycle.
    */
   hasInFlightWork(): boolean {
     return (
       this.isProcessing() ||
       this.hasQueuedMessages() ||
+      this.liveVoiceResidencyLeases > 0 ||
+      this.modeSessions.hasResidentWork() ||
       getSubagentManager().hasActiveChildren(this.conversationId)
     );
   }
@@ -2687,6 +2731,16 @@ export class Conversation {
 
   setHostCuProxy(proxy: HostCuProxy | undefined): void {
     if (this.hostCuProxy && this.hostCuProxy !== proxy) {
+      const previousProxy = this.hostCuProxy;
+      bestEffortModeSessionTracking("computer use proxy replacement", () => {
+        this.computerUseModeSessions.endTask({
+          turnId: this.currentRequestId,
+          source: {
+            sourceId: previousProxy.sourceId,
+            generation: previousProxy.resetGeneration,
+          },
+        });
+      });
       this.hostCuProxy.dispose();
     }
     this.hostCuProxy = proxy;

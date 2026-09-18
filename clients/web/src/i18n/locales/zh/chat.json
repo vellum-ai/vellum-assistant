@@ -106,6 +106,45 @@
   "assistantContentDisclosure": {
     "earlierActivity": "更早的活动"
   },
+  "actionDisplay": {
+    "click": "点击",
+    "type": "输入",
+    "keyPress": "按键",
+    "scroll": "滚动",
+    "drag": "拖动",
+    "hover": "悬停",
+    "observe": "查看",
+    "navigate": "导航",
+    "terminal": "运行命令"
+  },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "计算机会话",
+      "browser": "浏览器会话",
+      "liveVision": "实时视觉会话",
+      "ambient": "环境会话"
+    },
+    "durationSeconds": "{count, plural, other {# 秒}}",
+    "durationMinutes": "{count, plural, other {# 分钟}}",
+    "working": "正在工作",
+    "workingWithDuration": "正在工作 · {duration}",
+    "waiting": "等待中",
+    "waitingWithDuration": "等待中 · {duration}",
+    "finishing": "正在结束",
+    "finishingWithDuration": "正在结束 · {duration}",
+    "completedWithDurationAndEnd": "{duration} · 结束于 {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "结束于 {endTime}",
+    "interrupted": "已中断",
+    "interruptedWithDurationAndEnd": "已中断 · {duration} · 结束于 {endTime}",
+    "interruptedWithDurationAndLastActivity": "已中断 · {duration} · 上次活动于 {lastActivityTime}",
+    "interruptedWithLastActivity": "已中断 · 上次活动于 {lastActivityTime}",
+    "interruptedWithEnd": "已中断 · 结束于 {endTime}",
+    "disconnected": "连接已断开",
+    "disconnectedWithDurationAndLastActivity": "连接已断开 · {duration} · 最后活动时间 {lastActivityTime}",
+    "disconnectedWithLastActivity": "连接已断开 · 最后活动时间 {lastActivityTime}",
+    "timingUnavailable": "时间不可用"
+  },
   "assistantDesktop": {
     "fitView": "适应屏幕",
     "panView": "平移",
@@ -1734,7 +1773,8 @@
     "copied": "已复制",
     "copy": "复制",
     "copyAria": "将表格复制为 Markdown",
-    "copyFailed": "无法复制表格。"
+    "copyFailed": "无法复制表格。",
+    "table": "表格"
   },
   "taskPreferencesSurface": {
     "continue": "继续",
@@ -1788,10 +1828,15 @@
   },
   "toolInputParameters": {
     "parameters": "参数",
-    "rawInput": "原始输入"
-  },
-  "toolParamFields": {
+    "rawInput": "原始输入",
     "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
+  },
+  "toolOutputSection": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}",
+    "rawOutput": "原始输出"
+  },
+  "valueFields": {
+    "copyValue": "复制 {label}"
   },
   "toolStepPill": {
     "openAria": "打开 {label}",

@@ -27,6 +27,7 @@ import type { LiveVoiceSightFrameTiming } from "@/domains/chat/voice/live-voice/
 import type {
   LiveVoiceEntry,
   LiveVoiceMetricsServerFrame,
+  LiveVoiceSightSource,
 } from "@/domains/chat/voice/live-voice/protocol";
 import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
@@ -191,6 +192,11 @@ export interface LiveVoiceSessionControls {
    * unless the session is `speaking`.
    */
   interrupt: () => void;
+  startSightSession?: (
+    cameraEpoch: number,
+    source: LiveVoiceSightSource,
+  ) => boolean;
+  endSightSession?: (cameraEpoch: number) => boolean;
   /**
    * Mute (or unmute) the mic without ending the session. While muted the
    * capture graph keeps running but silence is streamed in place of the
@@ -242,6 +248,7 @@ export interface LiveVoiceSessionControls {
   sightFrame: (
     attachmentId: string,
     timing?: LiveVoiceSightFrameTiming,
+    lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
   ) => boolean;
 }
 
@@ -1734,6 +1741,7 @@ export function sendLiveVoiceSightFrame(
   attachmentId: string,
   sessionGeneration: number,
   timing?: LiveVoiceSightFrameTiming,
+  lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
 ): boolean {
   const state = useLiveVoiceStore.getState();
   if (state.sessionGeneration !== sessionGeneration) {
@@ -1744,11 +1752,31 @@ export function sendLiveVoiceSightFrame(
   if (state.sightFramesUnsupported) {
     return false;
   }
-  const sent = state.controls?.sightFrame(attachmentId, timing) ?? false;
+  const sent = lifecycle
+    ? (state.controls?.sightFrame(attachmentId, timing, lifecycle) ?? false)
+    : (state.controls?.sightFrame(attachmentId, timing) ?? false);
   if (sent) {
     state.noteSightFrameSent(attachmentId);
   }
   return sent;
+}
+
+export function startLiveVoiceSightSession(
+  cameraEpoch: number,
+  source: LiveVoiceSightSource,
+): boolean {
+  return (
+    useLiveVoiceStore
+      .getState()
+      .controls?.startSightSession?.(cameraEpoch, source) ?? false
+  );
+}
+
+export function endLiveVoiceSightSession(cameraEpoch: number): boolean {
+  return (
+    useLiveVoiceStore.getState().controls?.endSightSession?.(cameraEpoch) ??
+    false
+  );
 }
 
 /**

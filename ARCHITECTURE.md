@@ -18,6 +18,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Plugin marketplace and bundled packages     | [`docs/plugin-marketplace.md`](docs/plugin-marketplace.md)                                         |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
+| Transcript mode sessions                    | [`assistant/docs/mode-sessions.md`](assistant/docs/mode-sessions.md)                               |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
 | Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
@@ -31,7 +32,6 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
-| Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 | Vellum Doctor                               | [`assistant/docs/vellum-doctor.md`](assistant/docs/vellum-doctor.md)                               |
 
 ## Cross-Cutting Invariants
@@ -40,6 +40,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - Bundled-skill outbound API calls that require credentials use the Credential Execution Service (CES) tools (`make_authenticated_request`, `run_authenticated_command`) rather than manual token plumbing or proxied shell execution. See `assistant/docs/credential-execution-service.md`.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
+- Transcript mode sessions use one conversation-owned coordinator to connect guarded computer-use, browser, and camera sources to immutable message membership. Source retirement stops future claims while captured turns and accepted frame writes settle. Durable lifecycle and display-boundary writes use compare-and-swap revisions. Startup recovery interrupts leftover active records while preserving last confirmed activity and unknown end; an auxiliary recovery failure disables tracking for that boot while ordinary assistant work remains available. Tracking errors are isolated from authorized actions and accepted content. History batches session descriptors with messages, uses the existing conversation-messages invalidation path, and reconciles revisions in the client query cache. See [`assistant/docs/mode-sessions.md`](assistant/docs/mode-sessions.md).
 - Plugin-declared remote MCP servers store OAuth records under `mcp-plugin/v1/<plugin>/<server>/<endpoint-digest>/<leaf>`, where plugin and server segments are base64url encoded and the SHA-256 endpoint digest covers the transport type plus the canonical URL without its fragment. The runtime public server id is presentation and routing state, not credential identity. Workspace MCP servers keep the existing `mcp:<serverId>:<leaf>` keys. This isolates plugin credentials by installed owner, original `mcp.json` key, and endpoint while leaving persisted workspace files unchanged. Plugin uninstall deletes the exact owner prefix when credential storage is reachable. If storage is unavailable, current `mcp.json` or install-fingerprint evidence blocks removal; without that evidence, removal succeeds with a warning because older credentials cannot be verified. An upgrade that removed both the declaration and its recorded fingerprint is indistinguishable from a plugin that never declared MCP, so historical keys may remain after offline removal.
 - The macOS and Windows Electron shells share platform-neutral window security, IPC validation, origin checks, and preload capability registration through `@vellumai/electron-desktop`, plus native helper process and JSON-RPC lifecycle through `@vellumai/native-sidecar`. Each client keeps platform lifecycle and native features in its own adapter modules under `clients/<platform>/src/`. Both preloads implement the same `VellumBridge` contract (`packages/ipc-contract`); a surface only one shell can back is optional there and documented in [`clients/windows/docs/parity-matrix.md`](clients/windows/docs/parity-matrix.md), which `clients/windows/src/preload/bridge-parity.test.ts` enforces against the macOS preload.
 - Packaged Windows startup provisions a user-scoped CLI runtime from
@@ -278,8 +279,6 @@ Each bot container receives a bind of `/workspace` sourced from the assistant's 
 **Security boundary — single-user local only.** The Docker-in-Docker model requires the assistant container to run with `--privileged`, or at minimum `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`, so the inner `dockerd` can set up cgroups, overlay mounts, and container networks. This is acceptable for single-user local deployments where the assistant already runs with the user's privileges. It is **not** acceptable as-is for managed/multi-tenant mode: Kubernetes deployments must configure Pod Security Admission to allow this privilege level on the assistant pod, or swap in a different bot-spawn model (e.g. a Kubernetes job runner or a dedicated bot-scheduler service) before Meet can ship to managed instances. Managed Meet support is explicitly out of scope for this Docker-in-Docker approach — see [`vellum-assistant-platform`](../vellum-assistant-platform).
 
 ### Cross-Service Access Patterns
-
-For the full inventory of every assistant/gateway/CES communication direction, protocol, and callsite, see the [Service Communication Matrix](docs/service-communication-matrix.md).
 
 In Docker mode (`IS_CONTAINERIZED=true`), services that need data from another service's security domain use HTTP APIs instead of direct filesystem access:
 
@@ -553,6 +552,9 @@ subgraph "Text Q&A Session"
     %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
     %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
     %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    %% A reply the gateway composes for a message it answered at ingress (a
+    %% verification code, an invite redemption) reaches the same transport over
+    %% the daemon's IPC-only deliver_gateway_reply method.
     %% The same transport carries proactive sends: the messaging tool and
     %% POST /v1/channels/send run sendChannelText (runtime/channel-send.ts), which
     %% asks the transport to address a chat or person (addressFor) and records the

@@ -254,7 +254,7 @@ function checkDedupe(
 /**
  * Fail-closed check that the rendered copy is real text and not an
  * accidental fallback leak (empty body, or body that is just the raw
- * source event name like "user.send_notification").
+ * source event name like "assistant.share").
  *
  * Only validates channels that the decision engine actually emitted
  * copy for. Channels appended after the decision (urgency-forced

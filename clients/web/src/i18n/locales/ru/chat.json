@@ -60,6 +60,45 @@
     "appExported": "Приложение экспортировано",
     "shareFailed": "Не удалось поделиться приложением"
   },
+  "actionDisplay": {
+    "click": "Нажатие",
+    "type": "Ввод текста",
+    "keyPress": "Нажатие клавиши",
+    "scroll": "Прокрутка",
+    "drag": "Перетаскивание",
+    "hover": "Наведение",
+    "observe": "Просмотр",
+    "navigate": "Навигация",
+    "terminal": "Выполнение команды"
+  },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "Сеанс работы с компьютером",
+      "browser": "Сеанс браузера",
+      "liveVision": "Сеанс видеопросмотра",
+      "ambient": "Фоновый сеанс"
+    },
+    "durationSeconds": "{count, plural, one {# сек} few {# сек} many {# сек} other {# сек}}",
+    "durationMinutes": "{count, plural, one {# мин} few {# мин} many {# мин} other {# мин}}",
+    "working": "Работаю",
+    "workingWithDuration": "Работаю · {duration}",
+    "waiting": "Ожидание",
+    "waitingWithDuration": "Ожидание · {duration}",
+    "finishing": "Завершение",
+    "finishingWithDuration": "Завершение · {duration}",
+    "completedWithDurationAndEnd": "{duration} · Завершено в {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "Завершено в {endTime}",
+    "interrupted": "Прервано",
+    "interruptedWithDurationAndEnd": "Прервано · {duration} · Завершено в {endTime}",
+    "interruptedWithDurationAndLastActivity": "Прервано · {duration} · Последняя активность в {lastActivityTime}",
+    "interruptedWithLastActivity": "Прервано · Последняя активность в {lastActivityTime}",
+    "interruptedWithEnd": "Прервано · Завершено в {endTime}",
+    "disconnected": "Соединение потеряно",
+    "disconnectedWithDurationAndLastActivity": "Соединение потеряно · {duration} · Последняя активность в {lastActivityTime}",
+    "disconnectedWithLastActivity": "Соединение потеряно · Последняя активность в {lastActivityTime}",
+    "timingUnavailable": "Данные о времени недоступны"
+  },
   "assistantDesktop": {
     "fitView": "Вписать",
     "panView": "Обзор",
@@ -948,6 +987,9 @@
     "summaryStats": "{uniqueCount, plural, one {# уникальный навык} few {# уникальных навыка} many {# уникальных навыков} other {# уникальных навыка}} · {totalLoads, plural, one {# вызов загрузки} few {# вызова загрузки} many {# вызовов загрузки} other {# вызова загрузки}}",
     "summaryTitle": "Навыки, загруженные в этом диалоге"
   },
+  "tableSurface": {
+    "table": "Таблица"
+  },
   "toolDefinitionsContent": {
     "defaultValue": "по умолчанию: {value}",
     "inputSchema": "Схема ввода",
@@ -1015,10 +1057,15 @@
   },
   "toolInputParameters": {
     "parameters": "Параметры",
-    "rawInput": "Исходные входные данные"
-  },
-  "toolParamFields": {
+    "rawInput": "Исходные входные данные",
     "moreCount": "{count, plural, one {Ещё # в «Исходные входные данные»} few {Ещё # в «Исходные входные данные»} many {Ещё # в «Исходные входные данные»} other {Ещё # в «Исходные входные данные»}}"
+  },
+  "toolOutputSection": {
+    "moreCount": "{count, plural, one {Ещё # в «Исходные выходные данные»} few {Ещё # в «Исходные выходные данные»} many {Ещё # в «Исходные выходные данные»} other {Ещё # в «Исходные выходные данные»}}",
+    "rawOutput": "Исходные выходные данные"
+  },
+  "valueFields": {
+    "copyValue": "Скопировать {label}"
   },
   "frameGateHud": {
     "collapse": "Скрыть показатели фильтра кадров",

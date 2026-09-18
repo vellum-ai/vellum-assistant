@@ -100,6 +100,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 const testAuthContext: AuthContext = {
   subject: "actor:self:test-user",
@@ -176,6 +177,7 @@ function makeSendMessageDeps() {
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
+    modeSessions: mockUnownedModeSessions(),
   } as unknown as import("../daemon/conversation.js").Conversation;
 
   return {

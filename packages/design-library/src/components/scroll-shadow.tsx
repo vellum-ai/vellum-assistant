@@ -1,20 +1,18 @@
-import {
-  type CSSProperties,
-  type ReactNode,
-  type Ref,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type ReactNode, type Ref, useMemo } from "react";
 
+import {
+  type ScrollAxis,
+  type ScrollFadeEdges,
+  scrollEdgeMask,
+  useScrollEdges,
+} from "../hooks/use-scroll-edges";
+import { mergeRefs } from "../utils/merge-refs";
 import { cn } from "../utils/cn";
 
-export type ScrollShadowOrientation = "vertical" | "horizontal";
+export type ScrollShadowOrientation = ScrollAxis;
 
 /** Which edges fade: both, only the start (top / left), or only the end. */
-export type ScrollShadowFadeEdges = "both" | "start" | "end";
+export type ScrollShadowFadeEdges = ScrollFadeEdges;
 
 export interface ScrollShadowProps {
   children: ReactNode;
@@ -35,13 +33,6 @@ export interface ScrollShadowProps {
   ref?: Ref<HTMLDivElement>;
 }
 
-interface EdgeState {
-  /** True when content is hidden before the visible start (top / left). */
-  start: boolean;
-  /** True when content is hidden past the visible end (bottom / right). */
-  end: boolean;
-}
-
 /**
  * Wraps a scrollable region and fades its edges with a `mask-image` gradient,
  * signalling that more content lies above/below (or left/right). Each edge's
@@ -59,70 +50,18 @@ export function ScrollShadow({
   className,
   ref,
 }: ScrollShadowProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [edges, setEdges] = useState<EdgeState>({ start: false, end: false });
-
-  const setRefs = useCallback(
-    (node: HTMLDivElement | null) => {
-      scrollRef.current = node;
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        (ref as { current: HTMLDivElement | null }).current = node;
-      }
-    },
-    [ref],
+  const { ref: measureRef, edges } = useScrollEdges<HTMLDivElement>(
+    orientation,
+    { offset, enabled: isEnabled },
   );
 
-  const recompute = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || !isEnabled) {
-      setEdges((prev) => (!prev.start && !prev.end ? prev : { start: false, end: false }));
-      return;
-    }
-    const isVertical = orientation === "vertical";
-    const pos = isVertical ? el.scrollTop : el.scrollLeft;
-    const max = isVertical
-      ? el.scrollHeight - el.clientHeight
-      : el.scrollWidth - el.clientWidth;
-    const start = pos > offset;
-    const end = pos < max - offset;
-    setEdges((prev) =>
-      prev.start === start && prev.end === end ? prev : { start, end },
-    );
-  }, [isEnabled, orientation, offset]);
-
-  // Re-measure after every render so content changes (rows added/removed)
-  // update the fades even when the container's own box size is unchanged.
-  useLayoutEffect(() => {
-    recompute();
-  });
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
-      return;
-    }
-    el.addEventListener("scroll", recompute, { passive: true });
-    const observer =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(recompute) : null;
-    // Observe the container (its box changes on viewport resize) AND the inner
-    // content (its box changes when rows are added/removed or a child grows) —
-    // a max-height-capped container never resizes when its content overflows,
-    // so watching only the container would miss content-size changes.
-    observer?.observe(el);
-    if (contentRef.current) {
-      observer?.observe(contentRef.current);
-    }
-    return () => {
-      el.removeEventListener("scroll", recompute);
-      observer?.disconnect();
-    };
-  }, [recompute]);
+  const setRefs = useMemo(
+    () => mergeRefs(measureRef, ref),
+    [measureRef, ref],
+  );
 
   const maskImage = isEnabled
-    ? buildMask(orientation, size, edges, fadeEdges)
+    ? scrollEdgeMask(orientation, size, edges, fadeEdges)
     : undefined;
 
   // The scrollbar is hidden with an inline property as well as the utility
@@ -148,31 +87,9 @@ export function ScrollShadow({
       )}
       style={Object.keys(style).length > 0 ? style : undefined}
     >
-      <div ref={contentRef} className={orientation === "horizontal" ? "w-max" : undefined}>
+      <div className={orientation === "horizontal" ? "w-max" : undefined}>
         {children}
       </div>
     </div>
   );
-}
-
-function buildMask(
-  orientation: ScrollShadowOrientation,
-  size: number,
-  edges: EdgeState,
-  fadeEdges: ScrollShadowFadeEdges,
-): string {
-  const direction = orientation === "vertical" ? "to bottom" : "to right";
-  // An edge the caller opted out of contributes no stops, so the neighbouring
-  // stop's colour carries all the way to that end of the box.
-  const stops: string[] = [];
-  if (fadeEdges !== "end") {
-    stops.push(edges.start ? "transparent" : "#000", `#000 ${size}px`);
-  }
-  if (fadeEdges !== "start") {
-    stops.push(
-      `#000 calc(100% - ${size}px)`,
-      edges.end ? "transparent" : "#000",
-    );
-  }
-  return `linear-gradient(${direction}, ${stops.join(", ")})`;
 }

@@ -12,7 +12,7 @@ import { DELIVERY_STATUS } from "@vellumai/gateway-client";
 import { resolveDeliverCallbackUrlForChannel } from "../approvals/guardian-channel-delivery.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
-import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
+import { composeGuardianActionMessage } from "../runtime/guardian-action-message-composer.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-action-sweep");
@@ -52,9 +52,8 @@ export async function sendGuardianExpiryNotices(
     }
 
     try {
-      const expiryText = await composeGuardianActionMessageGenerative({
+      const expiryText = composeGuardianActionMessage({
         scenario: "guardian_stale_expired",
-        channel: delivery.destinationChannel,
       });
 
       if (

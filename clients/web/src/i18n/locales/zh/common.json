@@ -313,6 +313,7 @@
   },
   "detailPrimitives": {
     "copy": "复制",
+    "expandedValue": "展开的值",
     "showLess": "显示更少",
     "showMore": "显示更多"
   },

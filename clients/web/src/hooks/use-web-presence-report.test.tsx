@@ -118,6 +118,7 @@ mock.module("@/runtime/is-electron", () => ({
 
 let windowAttended = true;
 mock.module("@/runtime/window-attention", () => ({
+  isWindowOnScreen: () => true,
   isVisibleToUser: () =>
     electron ? windowAttended : document.visibilityState === "visible",
 }));
