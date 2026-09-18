@@ -44,6 +44,10 @@ export interface SidebarDiscButtonProps
  * primitive's own mobile growth steps aside so that constant holds at every
  * width. The glyph is drawn at the size every other leading icon in the
  * rail is.
+ *
+ * Transitional: the circle is a `rounded-full` class only because `Button`
+ * has no shape option yet. Once it has `shape="pill"`, use that here and
+ * drop the class.
  */
 export function SidebarDiscButton({
   icon: Icon,
