@@ -1128,7 +1128,7 @@ describe("prompt cache warming", () => {
     expect(sendMessage.mock.calls[0]?.[1]?.config).toMatchObject({
       callSite: "mainAgent",
       conversationId: "conv-cache-warm-test",
-      max_tokens: 1,
+      max_tokens: 16,
       selectionSeed: "conv-cache-warm-test",
     });
     expect(
