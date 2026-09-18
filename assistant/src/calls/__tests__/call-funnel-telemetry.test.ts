@@ -94,11 +94,13 @@ describe("call funnel start rows", () => {
     );
   });
 
-  test("a call with no mode written still stamps both halves", () => {
+  test("an ordinary call stamps the normal mode it never writes", () => {
+    // createInboundVoiceSession and startCall leave callMode null; only the
+    // verification and invite flows set one.
     startCall();
 
     expect(recordPhoneCallStarted).toHaveBeenCalledWith(
-      expect.objectContaining({ screen: "started_inbound:unknown" }),
+      expect.objectContaining({ screen: "started_inbound:normal" }),
     );
   });
 });

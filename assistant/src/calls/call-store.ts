@@ -139,8 +139,9 @@ export function createCallSession(opts: {
   };
   db.insert(callSessions).values(row).run();
   // The call is attempted the moment its row exists, which is before the
-  // provider dials and before any preflight can reject it: a call that never
-  // connects is exactly the one the funnel needs to count.
+  // provider dials: a call that never connects is exactly the one the funnel
+  // needs to count. An outbound attempt the ingress preflight rejects never
+  // reaches here; see `telemetry/phone-call-funnel.ts`.
   recordPhoneCallStarted({
     callSessionId: row.id,
     screen: phoneCallStartScreen(opts.direction, row.callMode),

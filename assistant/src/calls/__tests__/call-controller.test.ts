@@ -5049,6 +5049,10 @@ describe("call-controller", () => {
       expect(turn.timestamps.firstAssistantDeltaAtMs).not.toBeNull();
       expect(turn.durations.dispatchToFirstAssistantDeltaMs).not.toBeNull();
       expect(turn.durations.totalTurnDurationMs).not.toBeNull();
+      // The provider's final doubles as the speech-end anchor, so the turn's
+      // round trip is measurable on phone as it is in live voice.
+      expect(turn.timestamps.utteranceEndAtMs).not.toBeNull();
+      expect(turn.durations.roundTripMs).not.toBeNull();
 
       controller.destroy();
     });

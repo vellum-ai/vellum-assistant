@@ -17,13 +17,13 @@ describe("phoneCallStartScreen", () => {
     );
   });
 
-  it("keeps both halves present when the mode was never written", () => {
-    // A query splits the stamp on its colon; a stand-in for the missing half
-    // keeps that split from needing a null branch.
+  it("reads an unwritten mode as the ordinary call it is", () => {
+    // Only verification and invite calls write a mode, so a null there is a
+    // normal conversation rather than a dimension nobody filled in.
     expect(phoneCallStartScreen("inbound", null)).toBe(
-      "started_inbound:unknown",
+      "started_inbound:normal",
     );
-    expect(phoneCallStartScreen("inbound")).toBe("started_inbound:unknown");
+    expect(phoneCallStartScreen("inbound")).toBe("started_inbound:normal");
   });
 
   it("keeps the longest stamp inside the wire field's 64-char bound", () => {

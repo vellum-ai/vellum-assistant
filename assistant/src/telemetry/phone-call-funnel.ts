@@ -32,10 +32,17 @@ export const PHONE_CALL_FUNNEL_VERSION = "phone_call_v1_2026_09";
  * Phone-call funnel steps. `stepName` is the wire value; `stepIndex` is the
  * ordinal position.
  *
- * `callStarted` fires when the call session row is created, which is before
- * the provider has dialled anything and before any credential preflight can
- * reject it. A call that never connects is exactly the one worth counting, so
- * the start event deliberately precedes every way the attempt can fail.
+ * `callStarted` fires when the call session row is created, before the
+ * provider has dialled: a call that never connects is exactly the one worth
+ * counting, so the start event precedes no-answer, busy, provider failure and
+ * the inbound credential preflight (an inbound session exists before that
+ * preflight runs and records against it).
+ *
+ * It does **not** cover an outbound attempt rejected before a session exists:
+ * `startCall`, `startVerificationCall` and `startInviteCall` all return on a
+ * failed `preflightVoiceIngress()` without creating a row, and this funnel is
+ * keyed by the session id it would have had. Counting those needs a key that
+ * does not depend on a session row, which is its own piece of work.
  */
 export const PHONE_CALL_STEPS = {
   callStarted: { stepName: "phone_call_started", stepIndex: 0 },
@@ -90,10 +97,11 @@ export function phoneCallSilenceReason(signals: {
 }
 
 /**
- * The half of a stamp that stands in for a dimension the call session did not
- * record: a row written before the mode was known.
+ * The mode an ordinary call carries. Only the verification and invite flows
+ * write a mode on the session row, so a null there is not a missing dimension
+ * but the ordinary conversation every other path creates.
  */
-const PHONE_CALL_UNATTRIBUTED = "unknown";
+const PHONE_CALL_DEFAULT_MODE: CallMode = "normal";
 
 /**
  * The `screen` dimension for a started call: which way it was placed and what
@@ -108,7 +116,7 @@ export function phoneCallStartScreen(
   direction: PhoneCallDirection,
   mode?: CallMode | null,
 ): string {
-  return `started_${direction}:${mode ?? PHONE_CALL_UNATTRIBUTED}`;
+  return `started_${direction}:${mode ?? PHONE_CALL_DEFAULT_MODE}`;
 }
 
 /**

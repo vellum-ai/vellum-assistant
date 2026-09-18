@@ -2034,9 +2034,14 @@ export class CallController {
     const finalTranscriptAtMs = this.pendingFinalTranscriptAtMs;
     this.pendingFinalTranscriptAtMs = null;
     this.metricsTurnId = turnId;
+    // The provider's utterance-boundary final is both the transcript and the
+    // moment the caller stopped speaking, so it anchors the round trip too;
+    // a phone turn has no separate VAD end or push-to-talk release to use.
     this.metrics.startTurn(
       turnId,
-      finalTranscriptAtMs !== null ? { finalTranscriptAtMs } : {},
+      finalTranscriptAtMs !== null
+        ? { finalTranscriptAtMs, utteranceEndAtMs: finalTranscriptAtMs }
+        : {},
     );
   }
 
