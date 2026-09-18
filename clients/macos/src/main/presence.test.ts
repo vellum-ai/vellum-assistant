@@ -41,6 +41,8 @@ const getSystemIdleStateMock = mock((_threshold: number): SystemIdleState => {
 });
 
 mock.module("electron", () => ({
+  // `./logger` reads `app.isPackaged` to place the log file.
+  app: { isPackaged: false },
   powerMonitor: {
     on: powerOnMock,
     off: powerOffMock,

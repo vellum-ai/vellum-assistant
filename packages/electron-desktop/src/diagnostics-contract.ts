@@ -40,4 +40,9 @@ export interface FeedbackDependencies {
   getLogFilePaths: () => string[];
   getFeatureFlags: () => Record<string, boolean> | null;
   hasSession: () => boolean;
+  /**
+   * Facts only this shell can supply, keyed by feature (the macOS voice key,
+   * for one). They land under `host` in the diagnostics payload.
+   */
+  getHostDiagnostics?: () => Record<string, unknown>;
 }
