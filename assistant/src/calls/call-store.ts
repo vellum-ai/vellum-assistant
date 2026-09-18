@@ -1,6 +1,10 @@
-import { and, desc, eq, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import {
+  recordPhoneCallEnded,
+  recordPhoneCallStarted,
+} from "../onboarding/onboarding-events-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { rawChanges, rawRun } from "../persistence/raw-query.js";
 import {
@@ -8,10 +12,15 @@ import {
   callPendingQuestions,
   callSessions,
 } from "../persistence/schema/index.js";
+import {
+  phoneCallEndScreen,
+  phoneCallSilenceReason,
+  phoneCallStartScreen,
+} from "../telemetry/phone-call-funnel.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
 import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";
-import { validateTransition } from "./call-state-machine.js";
+import { isTerminalState, validateTransition } from "./call-state-machine.js";
 import type {
   CallEvent,
   CallEventType,
@@ -122,6 +131,16 @@ export function createCallSession(opts: {
     updatedAt: now,
   };
   db.insert(callSessions).values(row).run();
+  // The call is attempted the moment its row exists, which is before the
+  // provider dials and before any preflight can reject it: a call that never
+  // connects is exactly the one the funnel needs to count.
+  recordPhoneCallStarted({
+    callSessionId: row.id,
+    screen: phoneCallStartScreen(
+      row.task === null ? "inbound" : "outbound",
+      row.callMode,
+    ),
+  });
   return { ...row, skipDisclosure };
 }
 
@@ -224,6 +243,13 @@ export function updateCallSession(
     .where(eq(callSessions.id, id))
     .run();
 
+  // Terminal states are immutable and the validator above rejects any write
+  // that follows one, so the first terminal transition to get here is the only
+  // one: the ended event needs no separate once-only latch.
+  if (updates.status && isTerminalState(updates.status)) {
+    recordCallEndedEvent(id, updates.status);
+  }
+
   opts?.beforeLeaseSync?.();
 
   if (shouldSyncActiveLease) {
@@ -239,6 +265,36 @@ export function updateCallSession(
 }
 
 // ── Recovery queries ─────────────────────────────────────────────────
+
+/**
+ * Emit the call's funnel end event, classifying a call that never took a
+ * caller turn by how far it got. Both signals come from one query over the
+ * call's own event log: `call_connected` is written when the media stream
+ * opens, `caller_spoke` once per transcribed caller utterance.
+ */
+function recordCallEndedEvent(id: string, status: CallStatus): void {
+  const db = getDb();
+  const marks = db
+    .selectDistinct({ eventType: callEvents.eventType })
+    .from(callEvents)
+    .where(
+      and(
+        eq(callEvents.callSessionId, id),
+        inArray(callEvents.eventType, ["call_connected", "caller_spoke"]),
+      ),
+    )
+    .all();
+  const seen = new Set(marks.map((mark) => mark.eventType));
+  const silence = seen.has("caller_spoke")
+    ? null
+    : phoneCallSilenceReason({ connected: seen.has("call_connected") });
+
+  recordPhoneCallEnded({
+    callSessionId: id,
+    screen: phoneCallEndScreen(status, silence),
+    outcome: status === "failed" ? "failed" : "completed",
+  });
+}
 
 /**
  * Returns all call sessions that are in a non-terminal state
