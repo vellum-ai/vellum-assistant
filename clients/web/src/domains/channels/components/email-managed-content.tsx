@@ -7,7 +7,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
 import { InboxRailRestore } from "@/domains/assistant-inbox/components/inbox-rail-restore";
-import { useHandleClaim } from "@/domains/assistant-inbox/hooks/use-handle-claim";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
   assistantsDomainsCreateMutation,
@@ -225,8 +224,6 @@ export function EmailManagedContent({
   const activeAssistantId = useActiveAssistantId();
   const assistantName = useAssistantIdentityStore.use.name();
   const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
-  // `assistantId` here is the platform's id, which is what the handle calls take.
-  const handleClaim = useHandleClaim(assistantId);
   const refreshReadinessMutateAsync = refreshReadiness.mutateAsync;
   const refreshChannelReadiness = useCallback(() => {
     void refreshReadinessMutateAsync({
@@ -431,12 +428,10 @@ export function EmailManagedContent({
         assistantName={assistantName ?? ""}
         handle={assistantHandle ?? ""}
         rootDomain={emailRootDomain}
-        claim={handleClaim}
         onUpgrade={() => navigate(routes.plans)}
         onSeePlans={() => navigate(routes.plans)}
         footnote={<InboxRailRestore align="start" />}
         align="start"
-        plainPerks
       />
     );
   }

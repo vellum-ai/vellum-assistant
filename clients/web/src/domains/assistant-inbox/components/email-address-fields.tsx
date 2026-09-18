@@ -1,11 +1,10 @@
 import { useTranslation } from "@/i18n";
 
-/** The inbox's bare text field, shared with the handle claim's input. */
-export const HANDLE_FIELD_CLASSES =
+const FIELD_CLASSES =
   "h-9 rounded-lg border border-[var(--border-element)] bg-[var(--field-bg)] px-3 text-[14px] text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none transition-[border-color] duration-150 focus:border-[var(--border-active)] disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-[var(--system-negative-strong)]";
 
 /** A DNS label: what a subdomain, and so a handle claimed here, may hold. */
-export function toHandleInput(raw: string): string {
+function toHandleInput(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9-]/g, "");
 }
 
@@ -56,7 +55,7 @@ export function EmailAddressFields({
         disabled={disabled}
         autoFocus={autoFocus && !onHandleChange}
         placeholder={t("emailAddressFields.prefixPlaceholder")}
-        className={`${HANDLE_FIELD_CLASSES} w-24`}
+        className={`${FIELD_CLASSES} w-24`}
       />
       <span className="text-[var(--content-secondary)]">@</span>
       {onHandleChange ? (
@@ -71,7 +70,7 @@ export function EmailAddressFields({
             disabled={disabled}
             autoFocus={autoFocus}
             placeholder={t("emailAddressFields.handlePlaceholder")}
-            className={`${HANDLE_FIELD_CLASSES} w-44 min-w-0`}
+            className={`${FIELD_CLASSES} w-44 min-w-0`}
           />
           <span className="shrink-0 text-[14px] text-[var(--content-tertiary)]">
             .{rootDomain}

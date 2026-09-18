@@ -78,13 +78,5 @@
     "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
     "restoreButton": "Volver a añadirla",
     "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
-  },
-  "handleClaim": {
-    "claimButton": "Reclama tu identificador único",
-    "changeButton": "Cambiar identificador",
-    "saveButton": "Reclamar",
-    "cancelButton": "Cancelar",
-    "claimedToast": "{handle} es tuyo.",
-    "saveFailed": "No se pudo guardar el identificador. Inténtalo de nuevo."
   }
 }

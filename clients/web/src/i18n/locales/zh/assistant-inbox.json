@@ -78,13 +78,5 @@
     "hiddenNote": "助手收件箱已从侧边菜单中隐藏。",
     "restoreButton": "重新添加",
     "restoredToast": "助手收件箱已回到侧边菜单。"
-  },
-  "handleClaim": {
-    "claimButton": "领取你的专属用户名",
-    "changeButton": "更改用户名",
-    "saveButton": "领取",
-    "cancelButton": "取消",
-    "claimedToast": "{handle} 已归你所有。",
-    "saveFailed": "无法保存用户名，请重试。"
   }
 }

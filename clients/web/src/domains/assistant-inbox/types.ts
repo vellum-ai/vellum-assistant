@@ -70,16 +70,3 @@ export type InboxFolder = "inbox" | "sent";
 export type HandleCheckResult =
   | { available: true }
   | { available: false; message: string };
-
-/** What saving a handle came back with. */
-export type HandleSaveResult = { ok: true } | { ok: false; message: string };
-
-/**
- * The two calls behind choosing a handle, injected so the surfaces that draw
- * the choice stay free of the platform client: a probe for a handle being
- * typed, and the save that claims it.
- */
-export interface HandleClaimIo {
-  check: (handle: string, signal: AbortSignal) => Promise<HandleCheckResult>;
-  save: (handle: string) => Promise<HandleSaveResult>;
-}

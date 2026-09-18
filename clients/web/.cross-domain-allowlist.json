@@ -2,9 +2,6 @@
   "src/domains/assistant-inbox/assistant-inbox.stories.tsx": [
     "chat"
   ],
-  "src/domains/assistant-inbox/hooks/use-handle-claim.ts": [
-    "account"
-  ],
   "src/domains/channels/components/email-channel-section.tsx": [
     "assistant-inbox"
   ],

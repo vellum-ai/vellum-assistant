@@ -78,13 +78,5 @@
     "hiddenNote": "Почта ассистента скрыта из бокового меню.",
     "restoreButton": "Вернуть",
     "restoredToast": "Почта ассистента снова в боковом меню."
-  },
-  "handleClaim": {
-    "claimButton": "Займите своё уникальное имя",
-    "changeButton": "Изменить имя",
-    "saveButton": "Занять",
-    "cancelButton": "Отмена",
-    "claimedToast": "Имя {handle} теперь ваше.",
-    "saveFailed": "Не удалось сохранить имя. Попробуйте ещё раз."
   }
 }

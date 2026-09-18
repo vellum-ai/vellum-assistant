@@ -78,13 +78,5 @@
     "hiddenNote": "助理收件匣已從側邊選單隱藏。",
     "restoreButton": "重新加入",
     "restoredToast": "助理收件匣已回到側邊選單。"
-  },
-  "handleClaim": {
-    "claimButton": "領取你的專屬使用者名稱",
-    "changeButton": "變更使用者名稱",
-    "saveButton": "領取",
-    "cancelButton": "取消",
-    "claimedToast": "{handle} 已歸你所有。",
-    "saveFailed": "無法儲存使用者名稱，請再試一次。"
   }
 }
