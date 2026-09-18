@@ -483,3 +483,27 @@ test("queued actions cannot consume the same observation twice", async () => {
   ]);
   expect(input).toHaveBeenCalledTimes(1);
 });
+
+test("a stale observation cannot start setup or reserve an unowned desktop", async () => {
+  const f = fixture();
+  const input = mock(operation);
+  f.uninstall();
+  await expect(
+    f.lease.runBrowser(context, input, false, { id: "stale" }),
+  ).rejects.toThrow("stale");
+  expect(f.ensureReady).not.toHaveBeenCalled();
+  expect(f.started).not.toHaveBeenCalled();
+  expect(f.lease.isActive).toBe(false);
+  expect(input).not.toHaveBeenCalled();
+  f.completeSetup();
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+  );
+  expect(f.started).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+    true,
+  );
+});

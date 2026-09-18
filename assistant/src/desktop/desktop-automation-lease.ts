@@ -285,6 +285,16 @@ export class DesktopAutomationLease {
         };
       }
       context.signal?.throwIfAborted();
+      if (
+        observation &&
+        (typeof observation.id !== "string" ||
+          !this.owner?.observationId ||
+          observation.id !== this.owner.observationId)
+      ) {
+        throw new Error(
+          "Desktop observation is missing or stale. Call computer_use_observe with target assistant-desktop before acting.",
+        );
+      }
       try {
         if (
           !this.owner &&
@@ -341,16 +351,6 @@ export class DesktopAutomationLease {
         ? AbortSignal.any([context.signal, owner.abort.signal])
         : owner.abort.signal;
       signal.throwIfAborted();
-      if (
-        observation &&
-        (typeof observation.id !== "string" ||
-          !owner.observationId ||
-          observation.id !== owner.observationId)
-      ) {
-        throw new Error(
-          "Desktop observation is missing or stale. Call computer_use_observe with target assistant-desktop before acting.",
-        );
-      }
       owner.observationId = undefined;
       owner.lastActivity = Date.now();
       try {
