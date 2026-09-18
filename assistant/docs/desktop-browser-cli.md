@@ -38,15 +38,14 @@ Desktop streaming checks the current in-memory gateway feature flags during conn
 
 ## Computer use on the same desktop
 
-In eligible web conversations, the existing `computer-use` skill controls this
-same desktop by default. It returns full-screen screenshots and accepts screen
-coordinates for mouse actions. Browser commands and computer use share session
-ownership, cancellation, and the user-help reservation. Use browser commands for
-page-level operations and computer use for desktop UI. Native app conversations
-and explicit `target_client_id` requests retain the personal-computer path.
+The existing `computer-use` skill controls this desktop when each call includes
+`target: "assistant-desktop"`. It returns full-screen screenshots and accepts
+screen coordinates for mouse actions. Omitted targets and
+`target: "connected-computer"` retain the personal-computer path on every client;
+`target_client_id` selects a specific connected computer.
 
-Native dialogs and desktop apps use the existing `computer_use_*` tools with
-`target: "assistant-desktop"`. Observe first and pass the returned `observation_id`
-with each action. Browser commands invalidate that ID, so observe again before
-returning to native input. Both paths share the same ownership and handoff lease.
-Omitting the computer-use target retains connected-computer behavior.
+Observe first and pass the returned `observation_id` with each native action.
+Browser commands, user handoff, errors, and interruption require a fresh
+observation before returning to native input. Browser commands and computer use
+share session ownership, cancellation, and the user-help reservation. Use
+browser commands for page-level operations and computer use for desktop UI.
