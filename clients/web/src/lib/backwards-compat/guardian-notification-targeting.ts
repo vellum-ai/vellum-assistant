@@ -14,7 +14,7 @@
  */
 import { assistantScopedSupports } from "@/lib/backwards-compat/utils";
 
-const MIN_VERSION = "0.12.3";
+const MIN_VERSION = "0.12.2-dev.202609181913.1108ac3";
 
 /**
  * Whether the assistant that sent a notification delivers guardian-scoped

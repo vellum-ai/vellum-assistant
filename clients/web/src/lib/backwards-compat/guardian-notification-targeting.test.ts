@@ -15,15 +15,22 @@ describe("supportsGuardianNotificationTargeting", () => {
   });
 
   test("is false for an assistant older than the targeting", () => {
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.2", "asst-1");
-    expect(supportsGuardianNotificationTargeting("asst-1")).toBe(false);
+    for (const version of ["0.12.1", "0.12.2", "0.12.2-dev.202609181818.66f51a7"]) {
+      useAssistantIdentityStore.getState().setIdentity("Test", version, "asst-1");
+      expect(supportsGuardianNotificationTargeting("asst-1")).toBe(false);
+    }
   });
 
   test("is true for an assistant that targets the guardian's connections", () => {
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.3", "asst-1");
-    expect(supportsGuardianNotificationTargeting("asst-1")).toBe(true);
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.13.0", "asst-1");
-    expect(supportsGuardianNotificationTargeting("asst-1")).toBe(true);
+    for (const version of [
+      "0.12.2-dev.202609181913.1108ac3",
+      "0.12.2-dev.202609190013.abcdef1",
+      "0.12.3",
+      "0.13.0",
+    ]) {
+      useAssistantIdentityStore.getState().setIdentity("Test", version, "asst-1");
+      expect(supportsGuardianNotificationTargeting("asst-1")).toBe(true);
+    }
   });
 
   test("is false when the known version belongs to a different assistant", () => {
