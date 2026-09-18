@@ -96,7 +96,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Credential storage:** Only hashed tokens are persisted. Access token hashes go in `credential_records`; refresh token hashes in `refresh_token_records`. Raw tokens are returned once and never stored server-side.
 
-**Notification scoping:** Guardian-sensitive notifications (`notification_intent`, `notification_conversation_created`) are published with `targetActorPrincipalId`, so the event hub delivers them, live and on reconnect replay, only to SSE connections whose verified `actorPrincipalId` is the guardian's. Connections without a principal never receive them. The payload's `targetGuardianPrincipalId` records the scoping; clients show every intent they receive.
+**Notification scoping:** Guardian-sensitive notifications (`notification_intent`, `notification_conversation_created`) are published with `targetActorPrincipalId`, so the event hub delivers them, live, on reconnect replay, and from the `events/tail` recovery route, only to SSE connections whose verified `actorPrincipalId` is the guardian's. Connections without a principal never receive them. The payload's `targetGuardianPrincipalId` records the scoping; clients show every intent they receive.
 
 **Key source files:**
 

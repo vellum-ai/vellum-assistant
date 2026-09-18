@@ -170,6 +170,31 @@ describe("GET events/tail", () => {
     expect(other.events.map((e) => e.seq)).toEqual([1, 2]);
   });
 
+  test("returns a principal-targeted event only to that principal's client", () => {
+    stampAndBuffer(mkEvent()); // seq 1, untargeted
+    stampAndBuffer(mkEvent(), {
+      targeting: { targetActorPrincipalId: "principal-g" },
+    }); // seq 2
+
+    const client = {
+      "x-vellum-client-id": "c",
+      "x-vellum-interface-id": "web",
+    };
+    const guardian = callTail(
+      { conversationId: CONV, fromSeq: "0" },
+      { ...client, "x-vellum-actor-principal-id": "principal-g" },
+    );
+    const other = callTail(
+      { conversationId: CONV, fromSeq: "0" },
+      { ...client, "x-vellum-actor-principal-id": "principal-x" },
+    );
+    const anonymous = callTail({ conversationId: CONV, fromSeq: "0" });
+
+    expect(guardian.events.map((e) => e.seq)).toEqual([1, 2]);
+    expect(other.events.map((e) => e.seq)).toEqual([1]);
+    expect(anonymous.events.map((e) => e.seq)).toEqual([1]);
+  });
+
   test("toSeq bounds the window inclusively and moves the frontier", () => {
     // GIVEN five buffered events for the conversation (seq 1..5)
     for (let i = 0; i < 5; i++) {
