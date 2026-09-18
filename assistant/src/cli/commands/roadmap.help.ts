@@ -25,7 +25,7 @@ no verb to post one.
 Examples:
   $ assistant roadmap list --sort upvotes --limit 10
   $ assistant roadmap get scheduled-messages
-  $ assistant roadmap create --title "Add dark mode" --tag ui
+  $ assistant roadmap create --title "Add dark mode" --tag area-interface
   $ assistant roadmap upvote scheduled-messages`,
   subcommands: [
     {
@@ -97,7 +97,7 @@ accepted, since status is assigned by Vellum.
 Examples:
   $ assistant roadmap create --title "Add dark mode"
   $ assistant roadmap create --title "Recurring reminders" \\
-      --description "Repeat a scheduled message weekly" --tag scheduling`,
+      --description "Repeat a scheduled message weekly" --tag area-assistant`,
     },
     {
       name: "update",
@@ -130,7 +130,7 @@ assistant does not own.
 
 Examples:
   $ assistant roadmap update dark-mode --description "Follow the OS setting"
-  $ assistant roadmap update dark-mode --tag ui --tag theming
+  $ assistant roadmap update dark-mode --tag area-interface --tag area-macos
   $ assistant roadmap update dark-mode --clear-tags`,
     },
     {
