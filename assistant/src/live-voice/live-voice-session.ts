@@ -1174,6 +1174,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     promise: Promise<string | null>;
     settle: (words: string | null) => void;
   } | null = null;
+  // The continuation judge's pending verdict on a foreground task a barge-in
+  // suspended. The resume waits on it, so a task the caller called off is
+  // cleared instead of resumed.
+  private foregroundTaskJudgement: {
+    epoch: number;
+    settled: Promise<void>;
+  } | null = null;
   // Reads the interrupted turn's teardown promise so the barge-in path can wait
   // for it to settle before forking the continuation.
   private readonly getTurnTeardown:
@@ -3271,6 +3278,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // immediately invalidates every earlier still-running continuation.
     const detachSeq = ++this.detachSequence;
     this.openBargeInInterruption(detachSeq);
+    if (keepForegroundTaskOnParent) {
+      this.judgeSuspendedForegroundTask(detachSeq);
+    }
     this.clearFillerTimers(turn);
     // Tagged reason: provider catch-sites classify untagged caller aborts as
     // retryable transport failures (ERROR log + futile retry against the
@@ -3608,6 +3618,53 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       settle = finish;
     });
     this.bargeInInterruption = { detachSeq, promise, settle };
+  }
+
+  // Asks the continuation judge whether the foreground task this barge-in
+  // suspended should still be finished. A drop clears the task, so the
+  // automatic resume never fires; a keep leaves the resume as it was. The
+  // interrupting turn may claim the task first, in which case it owns the
+  // outcome and the verdict is only logged.
+  private judgeSuspendedForegroundTask(detachSeq: number): void {
+    const task = this.foregroundTaskState;
+    if (task?.phase !== "suspended" || !this.judgeBackgroundContinuation) {
+      return;
+    }
+    const epoch = task.epoch;
+    const entry: { epoch: number; settled: Promise<void> } = {
+      epoch,
+      settled: Promise.resolve(),
+    };
+    entry.settled = this.requestContinuationJudgement(
+      task.request,
+      detachSeq,
+      new AbortController().signal,
+    ).then((judgement) => {
+      if (this.foregroundTaskJudgement === entry) {
+        this.foregroundTaskJudgement = null;
+      }
+      if (judgement === null || judgement.outcome === "unavailable") {
+        return;
+      }
+      log.info(
+        {
+          epoch,
+          outcome: judgement.outcome,
+          noul: judgement.noul,
+          latencyMs: judgement.latencyMs,
+        },
+        "Voice foreground task judged",
+      );
+      const current = this.foregroundTaskState;
+      if (
+        !judgement.keep &&
+        current?.phase === "suspended" &&
+        current.epoch === epoch
+      ) {
+        this.clearForegroundTask("caller_moved_on");
+      }
+    });
+    this.foregroundTaskJudgement = entry;
   }
 
   // The continuation judge's verdict for one barge-in, or null when no judge
@@ -3989,6 +4046,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async resumeForegroundTask(
     task: SuspendedForegroundTask,
   ): Promise<void> {
+    // A verdict still out on this task decides whether it resumes at all.
+    const judgement = this.foregroundTaskJudgement;
+    if (judgement?.epoch === task.epoch) {
+      await judgement.settled;
+    }
     const current = this.foregroundTaskState;
     if (
       current?.phase !== "suspended" ||

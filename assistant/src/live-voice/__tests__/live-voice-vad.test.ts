@@ -539,6 +539,7 @@ async function startForegroundTaskBargeInScenario(options?: {
   skillExecuteInput?: Record<string, unknown>;
   skillExecuteAllowedToolNames?: ReadonlySet<string>;
   startHostTool?: boolean;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
 }): Promise<{
   calls: VoiceTurnOptions[];
   frames: LiveVoiceServerFrame[];
@@ -563,6 +564,9 @@ async function startForegroundTaskBargeInScenario(options?: {
       return makeTtsResult("assistant audio");
     }),
     spawnBackgroundContinuation,
+    ...(options?.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
+      : {}),
     foregroundTaskResumeSilenceMs: options?.foregroundTaskResumeSilenceMs ?? 20,
     ...(options?.foregroundTaskMaxInterveningTurns !== undefined
       ? {
@@ -1286,6 +1290,85 @@ describe("LiveVoiceSession server VAD", () => {
     resume?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
     resume?.callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  function scriptedJudge(verdict: Promise<boolean> | boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judge: LiveVoiceContinuationJudge = async (args) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      const keep = await verdict;
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    return { judge, judged };
+  }
+
+  async function answerInterruption(calls: VoiceTurnOptions[]) {
+    const answer = calls[2];
+    answer?.callbacks?.assistant_text_delta?.(makeTextDelta("Okay."));
+    answer?.callbacks?.message_complete?.(makeMessageComplete());
+  }
+
+  test("a suspended task the caller called off is cleared, not resumed", async () => {
+    const { judge, judged } = scriptedJudge(false);
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => judged.length === 1);
+    expect(judged[0]).toEqual({
+      interruptedRequest: "change the title",
+      interruption: "what title is there now",
+    });
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    // Well past the resume silence: no hidden resume turn was launched.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+  });
+
+  test("a suspended task the caller still wants resumes as before", async () => {
+    const { judge } = scriptedJudge(true);
+    const { calls } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => calls.length === 4);
+    expect(calls[3]).toMatchObject({ hiddenSyntheticPrompt: true });
+    expect(calls[3]?.content).toContain("change the title");
+  });
+
+  test("the resume waits for a verdict still in flight", async () => {
+    let decide!: (keep: boolean) => void;
+    const { judge } = scriptedJudge(
+      new Promise<boolean>((resolve) => {
+        decide = resolve;
+      }),
+    );
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+
+    decide(false);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(calls).toHaveLength(3);
   });
 
   test("a new barged-in task becomes the resume anchor", async () => {
