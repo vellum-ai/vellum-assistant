@@ -1,9 +1,11 @@
 /**
- * Shared guardian reply router for inbound channel messages.
+ * Shared guardian reply router.
  *
- * Provides a single entry point (`routeGuardianReply`) for all inbound
- * guardian reply processing across Telegram and WhatsApp. Routes
- * through a priority-ordered pipeline:
+ * Provides a single entry point (`routeGuardianReply`) for every guardian
+ * reply: typed in the app (`daemon/conversation-process.ts`,
+ * `routes/conversation-routes.ts`) or arriving on any channel
+ * (`routes/inbound-stages/guardian-reply-intercept.ts`). Routes through a
+ * priority-ordered pipeline:
  *
  *   1. Deterministic callback/ref parsing (button presses with `apr:<requestId>:<action>`)
  *   2. Request code parsing (6-char alphanumeric prefix matching)

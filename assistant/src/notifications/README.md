@@ -106,31 +106,23 @@ Each policy defines:
 
 ### How to Add a New Channel
 
-1. Add the channel to `CHANNEL_IDS` in `channels/types.ts`.
-2. Add a policy entry in `CHANNEL_POLICIES` in `channels/config.ts`. The compiler will enforce this.
-3. If `deliveryEnabled: true`, add an adapter in `adapters/` and register it in `emit-signal.ts` `getBroadcaster()`.
-4. Add a connectivity check in `getConnectedChannels()` in `emit-signal.ts`.
-5. Add a destination resolver case in `destination-resolver.ts`.
+1. Add the channel to `CHANNEL_IDS` in `packages/service-contracts/src/channels.ts` (re-exported through `channels/types.ts`).
+2. Add its policy to `CHANNEL_POLICIES` in `channels/config.ts`; the compiler requires an entry for every channel. `deliveryEnabled: true` makes it a `NotificationChannel` (`DeliverableChannelId` is derived from these policies), and `conversationStrategy` decides what conversation pairing does for it.
+3. For a deliverable channel, add an adapter in `adapters/` implementing `ChannelAdapter` and register it in `getBroadcaster()` in `emit-signal.ts`.
+4. Add its case to `getConnectedChannels()` in `emit-signal.ts` and to `resolveDestinations()` in `destination-resolver.ts`. Both switch over deliverable channels, so the compiler flags a missing case.
 
-## Conversation Pairing Invariant
+## Conversation Pairing
 
-**Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy and the decision engine's per-channel conversation action:
+Before an adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) decides which conversation the delivery belongs to, from the channel's `conversationStrategy` and the decision engine's per-channel conversation action. The module header and the function's inline comments are the source of truth for the details. The rules that hold across them:
 
-### Conversation Reuse Path (`reuse_existing`)
+- **Vellum (`start_new_conversation`)**:
+  - A signal that sets `requiresConversation` gets a conversation of its own, created with its seed message before the send (`standard` unless the producer overrides `conversationType`). An explicit `reuse_existing` action appends to a valid target instead, and falls back to a new conversation (`conversationFallbackUsed: true`) when the target is stale.
+  - A signal that does not set it creates no conversation. Its body is appended to the conversation that produced it (resolved from `sourceContextId`). A `chat.assistant_reply` appends nothing, because the full reply is already in that transcript.
+- **External channels (`continue_existing_conversation`)**: only the chat's home conversation is resolved, and nothing is written. The broadcaster records the delivered post as an assistant row once the channel acknowledges it (`recordDeliveredChannelPost`), so a failed or pending delivery never reads as something the assistant said.
+- **`push_only`** (platform) and **`not_deliverable`**: nothing is paired. Platform push deep-links through the vellum delivery's conversation.
+- **Guardian-request deliveries to channels** pair nothing either: they are projections of a canonical request, and only their vellum delivery carries a conversation (see `notifications/AGENTS.md`).
 
-When the decision engine selects `reuse_existing` for a channel with a valid candidate `conversationId`:
-
-1. The pairing function looks up the target conversation.
-2. If the conversation exists and has `source: 'notification'`, the seed message is **appended** to the existing conversation (not a new one). The result has `createdNewConversation: false`.
-3. If the target is invalid (does not exist, or has a different `source`), the function falls back to creating a new conversation and sets `conversationFallbackUsed: true` on the result. A warning is logged with the invalid target details.
-
-### New Conversation Path (`start_new` / default)
-
-- **`start_new_conversation`**: Creates a new conversation with `conversationType: 'standard'` and `source: 'notification'`, plus an assistant message containing the conversation seed. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall. The result has `createdNewConversation: true`.
-- **`continue_existing_conversation`**: Looks up a previously bound conversation by binding key (`sourceChannel` + `externalChatId` via `getBindingByChannelChat()`). When a valid bound conversation with `source: 'notification'` exists, the seed message is appended to it and the binding timestamp is refreshed. When no binding exists or the bound conversation is stale/invalid, a new conversation is created and the binding is upserted for future reuse. The result has `createdNewConversation: false` on reuse, `true` on fresh creation.
-- **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
-
-The pairing function is resilient -- errors are caught and logged. A pairing failure never breaks the delivery pipeline.
+Pairing is resilient: errors are caught and logged, and a pairing failure never breaks the delivery pipeline.
 
 ## Multi-Surface Copy Architecture
 
@@ -138,7 +130,7 @@ The system produces **three distinct copy outputs** per notification:
 
 | Output                    | Purpose                                          | Verbosity                |
 | ------------------------- | ------------------------------------------------ | ------------------------ |
-| `title` + `body`          | Native notification popup (macOS banner)         | Short and glanceable     |
+| `title` + `body`          | OS notification banner (desktop and mobile apps) | Short and glanceable     |
 | `deliveryText`            | Channel-native chat message text (Telegram)      | Natural chat phrasing    |
 | Conversation seed message | Opening message in the notification conversation | Richer and context-aware |
 
@@ -146,7 +138,7 @@ The system produces **three distinct copy outputs** per notification:
 
 1. The **decision engine** can produce `title`/`body` (popup copy), `deliveryText` (chat copy), and `conversationSeedMessage` (richer conversation content) per channel.
 2. **Adapters** use the surface-appropriate field:
-   - Vellum/macOS notifications use `title` + `body`.
+   - Vellum notifications use `title` + `body`.
    - Telegram delivery prefers `deliveryText` and falls back to `conversationSeedMessage`, then `body`, then `title`.
 3. **Conversation pairing** uses the conversation seed as the conversation's opening message:
    - If the LLM produced a valid `conversationSeedMessage`, it is used directly (after a sanity check rejects empty, too-short, JSON dumps, or excessively long values).
@@ -190,7 +182,7 @@ Reminder. Take out the trash. Action required.
 
 ## Conversation Surfacing via `notification_conversation_created` Event (Creation-Only)
 
-The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger this event — the macOS client already knows about the conversation from the original creation.
+The `notification_conversation_created` SSE event is emitted **only when a brand-new conversation is actually created** by the broadcaster. Reused conversations do not trigger it.
 
 This is enforced in `broadcaster.ts` by gating the event emission on `pairing.createdNewConversation === true`:
 
@@ -206,20 +198,11 @@ if (
 }
 ```
 
-When a vellum notification conversation **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the broadcast past the macOS deep-link retry window.
+When a vellum notification conversation **is** newly created (strategy `start_new_conversation`), the broadcaster emits the SSE event **immediately**, before slower channel deliveries such as Telegram, so a slow channel send cannot delay it.
 
-The SSE event payload:
+The payload is `NotificationConversationCreatedEventSchema` in `api/events/notification-conversation-created.ts`.
 
-```ts
-{
-  type: 'notification_conversation_created',
-  conversationId: string,
-  title: string,
-  sourceEventName: string,
-}
-```
-
-The macOS client listens for this event and surfaces the conversation in the sidebar, enabling deep-link navigation to the notification conversation.
+No first-party client acts on this event today: the shared web renderer (browser, desktop app, mobile apps) lists it as a no-op in `use-stream-event-handler.ts`.
 
 ### Per-Dispatch Conversation Callback
 
@@ -228,7 +211,7 @@ The macOS client listens for this event and surfaces the conversation in the sid
 **Important distinction between the two callbacks:**
 
 - **Per-dispatch `options.onConversationCreated`**: Fires for **both** new and reused vellum conversation pairings. Callers like `dispatchGuardianQuestion` rely on this to create delivery bookkeeping rows before `emitNotificationSignal()` returns, regardless of whether the conversation was newly created or reused.
-- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event so macOS clients surface the new conversation in the sidebar. Reused conversations do not trigger this event because the client already knows about the conversation.
+- **Class-level `this.onConversationCreated` (SSE broadcast)**: Fires **only** when a brand-new conversation is created (`createdNewConversation === true && strategy === 'start_new_conversation'`). This emits the `notification_conversation_created` SSE event. Reused conversations do not trigger it.
 
 ## Schedule Routing Metadata and Trigger-Time Enforcement
 
@@ -255,8 +238,8 @@ The `routing_hints_json` field is free-form JSON metadata passed alongside the r
 When a schedule fires in `notify` mode, the routing metadata flows through the notification pipeline with a post-decision enforcement step:
 
 ```
-Schedule fires (scheduler.ts: notify mode)
-  → notifyScheduleOneShot callback (lifecycle.ts)
+Schedule fires (schedule worker: runDueSchedulesOnce in scheduler.ts, notify mode)
+  → emitScheduleNotifySignal (scheduler.ts)
     → emitNotificationSignal({ routingIntent, routingHints })
       → Decision Engine (LLM selects channels)
         → enforceRoutingIntent() (post-decision guard)
@@ -280,8 +263,8 @@ A key design principle: **one schedule produces one notification signal that fan
 
 ```
 schedule_jobs table (routing_intent, routing_hints_json)
-  → scheduler.ts: claimDueSchedules() reads routing metadata
-    → lifecycle.ts: notifyScheduleOneShot({ routingIntent, routingHints })
+  → schedule-store.ts: claimDueSchedules() reads routing metadata
+    → scheduler.ts: emitScheduleNotifySignal({ routingIntent, routingHints })
       → emitNotificationSignal({ routingIntent, routingHints })
         → signal.ts: NotificationSignal.routingIntent / routingHints
           → decision-engine.ts: evaluateSignal() → enforceRoutingIntent()
@@ -338,9 +321,9 @@ The system uses a single conversation materialization path for **all** notificat
 
 Guardian dispatch follows this same path and uses the optional `onConversationCreated` callback to attach guardian-delivery bookkeeping to the paired vellum conversation.
 
-### Conversation Pairing Invariant
+### Conversation-Before-Event Invariant
 
-For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the conversation-created event.
+For notification flows that create conversations, the conversation must be created **before** the SSE event is emitted. This ensures a client can immediately fetch the conversation contents when it receives the conversation-created event.
 
 ## Conversation Decision Audit Trail
 
@@ -395,34 +378,17 @@ When the decision engine routes multiple guardian questions to the **same** conv
 
 Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) at creation time, generated gateway-side during `guardian_requests_create` (`generateRequestCode()` in `gateway/src/db/guardian-request-store.ts`). The guardian sees the code only where they need to type it: in the plain-text fallback a transport appends when it sends a request without buttons, and in the router's disambiguation reply when several requests are pending.
 
-### Disambiguation Flow
+### Reply Routing and Disambiguation
 
-The disambiguation logic is identical on all channels — mac/vellum (`conversation-process.ts`) and Telegram (`inbound-message-handler.ts`):
+Every guardian reply, typed in the app or on a channel, goes through `routeGuardianReply()` in `runtime/guardian-reply-router.ts`: from `conversation-process.ts` and `conversation-routes.ts` for the app, and from `inbound-stages/guardian-reply-intercept.ts` for channels. In priority order it tries:
 
-1. **Single pending delivery in the conversation**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
+1. A button callback (`apr:<requestId>:<action>`).
+2. A request-code prefix on the reply. Matching is case-insensitive.
+3. A bare-text answer, when exactly one question is pending in the conversation it was asked in.
+4. An explicit approve or reject phrase, when exactly one request is pending.
+5. Natural-language classification, on channels that enable it (app sessions do not).
 
-2. **Multiple pending deliveries in the conversation**: The guardian must prefix their reply with the request code of the question they are answering (e.g. `A1B2C3 yes, allow it`). Matching is case-insensitive.
-
-3. **No code match**: If the guardian's reply does not start with any active request code, a **disambiguation message** is sent back listing all active request codes so the guardian can retry with the correct prefix.
-
-### Channel Parity
-
-The disambiguation invariant is enforced identically across:
-
-- **Mac/Vellum** (`conversation-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
-- **Telegram** (`inbound-message-handler.ts`): Intercepts inbound messages matched to conversations with pending guardian action deliveries.
-
-All three paths use the same pattern: look up pending deliveries by conversation, apply single-match fast path or request-code prefix matching, and send disambiguation messages via the guardian action message composer when ambiguous.
-
-### Disambiguation Message Generation
-
-All disambiguation messages are generated through `composeGuardianActionMessageGenerative()` in `guardian-action-message-composer.ts`, which uses a 2-tier priority chain (LLM generator with deterministic fallback). Three disambiguation scenarios exist:
-
-| Scenario                           | When triggered                                         |
-| ---------------------------------- | ------------------------------------------------------ |
-| `guardian_disambiguation`          | Multiple pending approval requests in a conversation   |
-| `guardian_expired_disambiguation`  | Multiple expired requests with late replies            |
-| `guardian_followup_disambiguation` | Multiple follow-up deliveries awaiting guardian action |
+When several requests are pending and the reply names none of them, the router answers with `composeDisambiguationReply()`, listing each request's code and how to reply to it, in two cases: the reply is an explicit approve or reject phrase, or natural-language classification reached a decision without identifying which request it answers. Any other reply that names no request falls through to the normal message pipeline. Every decision applies through `applyGuardianDecision()`. The end-to-end map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md).
 
 ## Key Files
 
@@ -448,7 +414,7 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | `adapters/discord.ts`           | Discord adapter: sends to the guardian's DM through `messaging/providers/discord/send.ts`                  |
 | `preference-extractor.ts`       | Detects notification preferences in conversation messages                                                  |
 | `preference-summary.ts`         | Builds preference context string for the decision engine prompt                                            |
-| `preferences-store.ts`          | CRUD for `notification_preferences` table                                                                  |
+| `preferences-store.ts`          | Create and list for the `notification_preferences` table                                                   |
 | `events-store.ts`               | CRUD for `notification_events` table                                                                       |
 | `decisions-store.ts`            | CRUD for `notification_decisions` table                                                                    |
 | `deliveries-store.ts`           | CRUD for `notification_deliveries` table                                                                   |
@@ -497,15 +463,6 @@ Step 1 suppresses on this hint before anything else runs, and nothing downstream
 - **Never opt in a `guardian.question` producer.** The card _is_ the prompt, so a `true` suppresses the question's only rendering and the tool hangs until the prompt timeout. `runtime/question-request-guardian-bridge.ts` carries the rationale at its hint block, and three regression pins hold the line: `runtime/__tests__/question-request-guardian-bridge.test.ts`, `__tests__/confirmation-request-guardian-bridge.test.ts`, and `__tests__/notification-guardian-path.test.ts`.
 - **A producer running inside the schedule worker cannot read presence at all.** `schedule/worker.ts` is a standalone OS process and the sole runner of schedule execution, while the resolver reads `assistantEventHub` through `isWebConversationFocused()` and that hub's SSE clients exist only in the assistant process. Every presence read from the worker resolves `false`, whatever the user is watching. The trap is in testing: a test that drives the producer and mocks presence in one process passes while the shipped worker suppresses nothing. Tracked as JARVIS-1711.
 
-## How to Add a New Channel
-
-1. Add the channel to `CHANNEL_IDS` in `channels/types.ts`.
-2. Create an adapter in `adapters/` implementing the `ChannelAdapter` interface.
-3. Register the adapter in `emit-signal.ts` `getBroadcaster()`.
-4. Add a connectivity check in `getConnectedChannels()` in `emit-signal.ts`.
-5. Add a destination resolver case in `destination-resolver.ts`.
-6. Add the channel to the `NotificationChannel` union in `types.ts`.
-
 ## Audit Trail
 
 Three SQLite tables form the audit chain:
@@ -516,21 +473,21 @@ Three SQLite tables form the audit chain:
 
 ### Client Delivery Ack
 
-For vellum (macOS) deliveries, the audit trail now extends past the SSE broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+For vellum deliveries, the audit trail extends past the SSE broadcast to the OS notification post. The `notification_intent` message carries an optional `deliveryId`; after posting the notification (or deciding not to, for the conversation already on screen), the client reports the outcome to `POST notification-intent-result` through `sendNotificationIntentAck()` in `clients/web/src/runtime/notifications.ts`.
 
 The ack populates three columns on `notification_deliveries`:
 
-| Column                   | Type    | Description                                                                    |
-| ------------------------ | ------- | ------------------------------------------------------------------------------ |
-| `client_delivery_status` | TEXT    | `'delivered'` if the OS accepted the notification, `'client_failed'` otherwise |
-| `client_delivery_error`  | TEXT    | Error description when the post failed (e.g. authorization denied)             |
-| `client_delivery_at`     | INTEGER | Epoch ms timestamp of when the client reported the outcome                     |
+| Column                   | Type    | Description                                                                 |
+| ------------------------ | ------- | --------------------------------------------------------------------------- |
+| `client_delivery_status` | TEXT    | `'delivered'` if the client handled the intent, `'client_failed'` otherwise |
+| `client_delivery_error`  | TEXT    | Error description when the post failed (e.g. authorization denied)          |
+| `client_delivery_at`     | INTEGER | Epoch ms timestamp of when the client reported the outcome                  |
 
-This means the audit trail can now answer three questions for each vellum delivery:
+`'delivered'` covers two outcomes the column cannot tell apart: the OS accepted a posted banner, or the client deliberately showed none (the user was already watching that conversation, or the sending assistant predates guardian targeting and the intent was guardian-scoped). So the audit trail answers three questions for each vellum delivery:
 
 1. **Was the intent broadcast?** -- existing `status` column (`sent`)
-2. **Did the client attempt to post?** -- `client_delivery_status` is non-null
-3. **Did the OS post succeed or fail, and why?** -- `client_delivery_status` + `client_delivery_error`
+2. **Did a client handle it?** -- `client_delivery_status` is non-null
+3. **Did handling fail, and why?** -- `client_delivery_status = 'client_failed'` + `client_delivery_error`
 
 Query examples:
 
