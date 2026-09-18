@@ -57,11 +57,6 @@ import type { MemoryRoutingTurn, Section } from "../types.js";
 let providerStub: Provider | null = null;
 let selectorContextMockActive = false;
 let selectorMaxInputTokens = 200_000;
-const contextResolutionReal = {
-  ...(createRequire(import.meta.url)(
-    "../../../../../config/llm-context-resolution.js",
-  ) as Record<string, unknown>),
-};
 const registryReal = {
   ...(createRequire(import.meta.url)(
     "../../../../../providers/registry.js",
@@ -79,26 +74,16 @@ const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
   ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
-}));
-
-mock.module("../../../../../config/llm-context-resolution.js", () => ({
-  ...contextResolutionReal,
-  resolveEffectiveContextWindow: (...args: unknown[]) => {
-    const resolveReal = contextResolutionReal.resolveEffectiveContextWindow as (
-      ...values: unknown[]
-    ) => Record<string, unknown>;
-    const resolved = resolveReal(...args);
-    return selectorContextMockActive
+  getEffectiveContextWindow: (
+    ...args: Parameters<typeof realPluginApi.getEffectiveContextWindow>
+  ) =>
+    selectorContextMockActive
       ? {
-          ...resolved,
-          provider: providerStub?.name ?? resolved.provider,
-          model: providerStub?.defaultModel ?? resolved.model,
+          provider: providerStub?.name ?? "stub",
+          model: providerStub?.defaultModel ?? "stub-model",
           maxInputTokens: selectorMaxInputTokens,
-          modelMaxInputTokens: selectorMaxInputTokens,
-          defaultInputTokens: selectorMaxInputTokens,
         }
-      : resolved;
-  },
+      : realPluginApi.getEffectiveContextWindow(...args),
 }));
 
 mock.module("../../../../../providers/registry.js", () => ({

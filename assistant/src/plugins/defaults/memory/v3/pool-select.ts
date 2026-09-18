@@ -56,11 +56,13 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
+import {
+  getConfiguredProvider,
+  getEffectiveContextWindow,
+  safeStringSlice,
+} from "@vellumai/plugin-api";
 import { z } from "zod";
 
-import { resolveEffectiveContextWindow } from "../../../../config/llm-context-resolution.js";
-import { getConfig } from "../../../../config/loader.js";
 import {
   estimatePromptTokensWithTools,
   estimateTextTokens,
@@ -1000,11 +1002,10 @@ export async function selectPool(
     );
   }
 
-  const effectiveContextWindow = resolveEffectiveContextWindow({
-    llm: getConfig().llm,
-    callSite: MEMORY_V3_SELECT_CALL_SITE,
-    selectionSeed: turn.conversationId,
-  });
+  const effectiveContextWindow = getEffectiveContextWindow(
+    MEMORY_V3_SELECT_CALL_SITE,
+    { selectionSeed: turn.conversationId },
+  );
   const budget = budgetSelectorPool({
     pool,
     turn,
