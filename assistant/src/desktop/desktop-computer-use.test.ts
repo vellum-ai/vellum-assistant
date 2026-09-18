@@ -14,10 +14,11 @@ import {
 } from "./desktop-computer-use.js";
 import * as sessionManager from "./desktop-session-manager.js";
 
-function driver() {
+function driver(userGuidance?: string) {
   return {
     input: mock(async (_args: string[], _signal?: AbortSignal) => {}),
     capture: mock(async (_signal: AbortSignal) => ({
+      userGuidance,
       screenshot: "anBlZw==",
       screenshotWidthPx: 1600,
       screenshotHeightPx: 900,
@@ -334,7 +335,8 @@ describe("virtual desktop computer use", () => {
 });
 
 test("native dispatch consumes observations while preserving CU history, images, and loop warnings", async () => {
-  const backend = driver();
+  const warning = "Accessibility is unavailable. Use screenshot coordinates.";
+  const backend = driver(warning);
   const manager = {
     browser: { release: async () => {} },
     acquireAutomationSlot: () => ({ ok: true }),
@@ -384,6 +386,8 @@ test("native dispatch consumes observations while preserving CU history, images,
     expect(proxy.stepCount).toBe(0);
     const observed = await call("computer_use_observe");
     expect(observed.contentBlocks?.[0]).toMatchObject({ type: "image" });
+    expect(observed.content).toContain(`USER GUIDANCE: ${warning}`);
+    expect(observed.content).toContain("pass the latest observation_id");
     const firstId = id(observed);
     let result = await call("computer_use_click", {
       x: 30,

@@ -29,16 +29,9 @@ the tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
 unlabeled controls, or a layout question.
 
 The tree is walked to a limited depth to keep steps fast, and says when it was
-cut off. On connected computers, call `computer_use_observe` with
+cut off. Where supported, call `computer_use_observe` with
 `full_tree: true` if the element you need is not in it. Use screenshot coordinates
 when an element is not available in the tree.
-
-For the virtual desktop, pass the latest `observation_id` with each action or
-sequence; it is consumed once. Observe again after browser actions, user handoff,
-errors, or interruption. Use Linux shortcuts such as `ctrl+l` and open apps
-through the dock or desktop UI. `open_app`, AppleScript, window-scoped capture,
-and `full_tree` are unsupported. Call `computer_use_done` with the same target
-when finished.
 
 ## Scripting apps (macOS)
 

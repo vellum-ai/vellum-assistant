@@ -481,6 +481,13 @@ export async function executeDesktopComputerUse(
           }
           return {
             ...observation,
+            userGuidance: [
+              observation.userGuidance,
+              "On this virtual desktop, pass the latest observation_id with each action or sequence; it is consumed once. Observe again after browser actions, user handoff, errors, or interruption.",
+              "Use Linux shortcuts such as ctrl+l and open apps through the dock or desktop UI. open_app, AppleScript, window-scoped capture, and full_tree are unsupported. Call computer_use_done with the same target when finished.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
             executionResult:
               observation.executionError != null
                 ? "Target: assistant-desktop. Call computer_use_observe before continuing."
