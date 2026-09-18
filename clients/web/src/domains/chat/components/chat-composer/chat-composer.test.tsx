@@ -1210,7 +1210,7 @@ describe("ChatComposer — send/stop button visibility", () => {
  * Under `interrupt-on-send` a turn in flight is not a reason to take Send
  * away: the message the user types stops that turn and is answered at once, so
  * the row keeps its resting shape for the whole turn. The send slot is the one
- * control that changes, holding Stop while there is nothing to send, which is
+ * control that changes, holding Stop wherever Send cannot be pressed, which is
  * the only way to end a turn without sending something.
  */
 describe("ChatComposer: send/stop under interrupt-on-send", () => {
@@ -1288,6 +1288,32 @@ describe("ChatComposer: send/stop under interrupt-on-send", () => {
     const html = renderComposer({ input: "", isAssistantBusy: true });
     expect(html).toContain('aria-label="Send message"');
     expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("a draft the composer refuses to send hands the slot to Stop", () => {
+    // A send nobody can press is no interrupt, so the turn would have no end
+    // the user can reach.
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({
+      input: "hello",
+      sendDisabled: true,
+      isAssistantBusy: true,
+    });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
+  });
+
+  test("a draft held by an uploading attachment hands the slot to Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({
+      input: "hello",
+      attachmentsUploadingCount: 1,
+      isAssistantBusy: true,
+    });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
   });
 
   test("an idle composer with nothing to send offers no Stop", () => {
