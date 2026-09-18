@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useLayoutEffect, useRef } from "react";
 import {
-  Camera,
   ChevronRight,
+  Eye,
   Globe,
   Monitor,
   Waves,
@@ -32,7 +32,7 @@ export type SessionGroupMode =
 const MODE_ICONS: Record<SessionGroupMode, LucideIcon> = {
   computerUse: Monitor,
   browser: Globe,
-  liveVision: Camera,
+  liveVision: Eye,
   ambient: Waves,
 };
 
