@@ -10,6 +10,7 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `assistant-inbox` | not opened; default off; scope client |
 | `assistant-reply-push` | not opened; default on |
 | `channel-trust-floors` | not opened; default on |
+| `connections-channel` | not opened; default off |
 | `figma-oauth` | not opened; default off |
 | `inline-assistant-intermediates` | deferred; local opt-out only |
 | `interrupt-on-send` | vellum-assistant-platform #10474; default off; scope both |

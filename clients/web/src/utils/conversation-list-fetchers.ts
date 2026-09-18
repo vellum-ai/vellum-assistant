@@ -106,6 +106,7 @@ export const ORIGIN_CHANNELS = [
   "platform",
   "a2a",
   "discord",
+  "connections",
 ] as const satisfies readonly NonNullable<OriginChannel>[];
 
 type _Exhaustive =

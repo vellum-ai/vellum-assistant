@@ -4797,6 +4797,7 @@ paths:
                       - a2a
                       - discord
                       - plugin
+                      - connections
                   assistantId:
                     type: string
                   hasPendingChallenge:
@@ -5227,6 +5228,7 @@ paths:
                             - a2a
                             - discord
                             - plugin
+                            - connections
                         ready:
                           type: boolean
                         setupStatus:
@@ -5351,6 +5353,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - connections
                 includeRemote:
                   description: Include remote checks (default true)
                   type: boolean
@@ -5382,6 +5385,7 @@ paths:
                             - a2a
                             - discord
                             - plugin
+                            - connections
                         ready:
                           type: boolean
                         setupStatus:
@@ -5515,6 +5519,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - connections
                   description: Channel to send on
                 target:
                   type: object
@@ -5565,6 +5570,7 @@ paths:
                       - a2a
                       - discord
                       - plugin
+                      - connections
                   chatId:
                     type: string
                   threadId:
@@ -7958,6 +7964,7 @@ paths:
               - a2a
               - discord
               - plugin
+              - connections
           description:
             Filter by origin channel. When provided, only conversations with this exact origin_channel value are
             returned. Omit to include all channels.
@@ -8121,6 +8128,7 @@ paths:
                                 - a2a
                                 - discord
                                 - plugin
+                                - connections
                             - type: "null"
                         assistantAttention:
                           type: object
@@ -8487,6 +8495,7 @@ paths:
                               - a2a
                               - discord
                               - plugin
+                              - connections
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -9701,6 +9710,7 @@ paths:
                               - a2a
                               - discord
                               - plugin
+                              - connections
                           - type: "null"
                       assistantAttention:
                         type: object
@@ -24576,6 +24586,7 @@ paths:
                     - a2a
                     - discord
                     - plugin
+                    - connections
                     - scheduler
                     - watcher
                 sourceContextId:

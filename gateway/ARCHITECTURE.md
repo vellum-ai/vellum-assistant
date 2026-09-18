@@ -773,6 +773,31 @@ Any persistent-stream transport that does not buffer events for disconnected cli
 
 **What the ingress does not do:** it never forwards the bot's own posts to the daemon (except a deletion of one, which the daemon records), and it never reads history on the daemon's behalf beyond the bounded reconnect catch-up above; the daemon's inbound-triggered backfill hydrates context.
 
+### Connections Channel (Platform-Delivered)
+
+The `connections` channel carries a message one Vellum user sends to another user's assistant from inside their own Vellum. The sender never authenticates to this assistant: the Vellum platform authenticates them by their Vellum session and delivers the message, the way Slack delivers a DM from a Slack user. From the gateway onward it is an ordinary channel message, so the sender is a contact on a channel and every non-guardian protection applies unchanged. It is a separate channel id from `vellum`, which names the guardian's own app.
+
+**Ingress** (`POST /webhooks/connections`, `http/routes/connections-webhook.ts`):
+
+1. Returns 404 unless the `connections-channel` assistant flag is on.
+2. Reads the body with `readLimitedBody`, then verifies `Vellum-Signature` (`sha256=` HMAC over the raw body) against the per-assistant platform webhook secret, the same secret and scheme as the platform email webhook. No secret configured is a 409; a bad signature is a 403.
+3. Parses the delivery with a tolerant schema (`connections/normalize.ts`) and rejects it with a 403 when its signed `issuedAt` is more than five minutes from the gateway clock. Within the window, `eventId` dedups in memory and again in the runtime's permanent inbound-event record.
+4. Seeds the sender as a contact (`contact_channels` type `connections`, address = platform user id), then calls `handleInbound` with no reply callback. Trust, the admission floor, content fencing, provenance and memory exclusion all follow from that.
+5. Responds with the runtime's result. Text the runtime or a gateway intercept produced without running a turn, such as the canned reply to an unapproved sender, comes back as `replyText` for the platform to show the sender.
+
+**Delivery payload** (JSON, signed as sent):
+
+| Field                                              | Meaning                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `eventId`                                          | One delivery occurrence; the dedup key and the external message id |
+| `issuedAt`                                         | Unix seconds the platform signed the delivery at                   |
+| `threadId`                                         | The platform thread; each thread is its own conversation           |
+| `sender.userId`                                    | The sender's platform user id, their identity on this channel      |
+| `sender.displayName`, `sender.username` (optional) | Display fields for the seeded contact                              |
+| `text`                                             | The message                                                        |
+
+**Admission.** The channel is hidden from Channel Trust Floors and pinned at `trusted_contacts`: an unknown sender is denied and the guardian gets an access request; once the guardian trusts them, their messages are admitted as a trusted contact.
+
 ---
 
 ## AI Phone Calls — Twilio Voice

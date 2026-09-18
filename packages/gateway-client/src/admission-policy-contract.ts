@@ -81,10 +81,15 @@ export function isAdmissionPolicyExemptChannel(channelType: string): boolean {
  * `vellum` is the local desktop/web client surface; the guardian is always
  * max-rank there, so the seed default admits them regardless of the floor.
  *
+ * `connections` ingress is behind a feature flag that defaults off. Hiding it
+ * keeps the floor pinned at the seed default (`trusted_contacts`) instead of
+ * offering a Channel Trust Floors row for a channel most assistants cannot
+ * receive on.
  */
 export const ADMISSION_POLICY_HIDDEN_CHANNELS: ReadonlySet<string> = new Set([
   "vellum",
   "whatsapp",
+  "connections",
 ]);
 
 export function isAdmissionPolicyHiddenChannel(channelType: string): boolean {

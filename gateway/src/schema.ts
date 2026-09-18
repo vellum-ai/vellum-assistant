@@ -714,6 +714,118 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/connections": {
+        post: {
+          summary: "Connections inbound webhook",
+          description:
+            "Receives a message another Vellum user sent this assistant from their own Vellum, delivered by the Vellum platform. Verifies the HMAC signature and the signed issue time, then forwards the message through the channel admission gate. Returns 404 while the connections-channel flag is off.",
+          operationId: "connectionsInboundWebhook",
+          security: [{ VellumSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description:
+                    "Connections delivery: eventId, issuedAt (unix seconds), threadId, sender { userId, displayName, username }, text.",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description:
+                "Delivery accepted; carries replyText when the gateway or runtime answered without running a turn",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      ok: { type: "boolean" },
+                      replyText: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": {
+              description:
+                "Invalid JSON, unreadable body, or missing delivery fields",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description:
+                "Signature verification failed or delivery outside the issue window",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "404": {
+              description: "Connections channel is not enabled",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "422": {
+              description: "No assistant to deliver to",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Service temporarily unavailable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/resend": {
         post: {
           summary: "Resend inbound webhook",

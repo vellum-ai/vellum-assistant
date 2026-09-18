@@ -83,6 +83,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "connections-channel",
+      "scope": "assistant",
+      "key": "connections-channel",
+      "label": "Connections Channel",
+      "description": "Accept messages other Vellum users send this assistant from their own Vellum, delivered by the platform on the connections channel",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",

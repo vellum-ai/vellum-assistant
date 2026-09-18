@@ -83,4 +83,16 @@ describe("seedAdmissionPolicyDefaults", () => {
     expect(store.get("whatsapp")).toBe("trusted_contacts");
     expect(store.get("vellum")).toBe("guardian_only");
   });
+
+  test("keeps connections enforced at trusted_contacts, the floor knock-and-approve needs", () => {
+    // An unknown sender stays below the floor until the guardian trusts them,
+    // and a trusted contact clears it. A vellum-style guardian_only floor
+    // would deny even a trusted contact.
+    seedAdmissionPolicyDefaults(store);
+    expect(store.get("connections")).toBe("trusted_contacts");
+
+    store.set("connections", "strangers", "drifted row");
+    seedAdmissionPolicyDefaults(store);
+    expect(store.get("connections")).toBe("trusted_contacts");
+  });
 });

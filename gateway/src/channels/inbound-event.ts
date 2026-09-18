@@ -17,7 +17,14 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "whatsapp" | "slack" | "email" | "a2a" | "discord" | "plugin"
+  | "telegram"
+  | "whatsapp"
+  | "slack"
+  | "email"
+  | "a2a"
+  | "discord"
+  | "plugin"
+  | "connections"
 >;
 
 export type GatewayInboundAttachment = {
@@ -179,6 +186,13 @@ export type DiscordInboundEvent = InboundEventBase<"discord">;
  * reaches the runtime on `sourceMetadata`, not here.
  */
 export type PluginInboundEvent = InboundEventBase<"plugin">;
+/**
+ * Constructed by `connections/normalize.ts` from a platform-signed delivery.
+ * `actorExternalId` is the sending Vellum user's platform user id and
+ * `conversationExternalId` the platform thread id, so each thread is its own
+ * conversation. Only the sender reads a thread, so every event is a DM.
+ */
+export type ConnectionsInboundEvent = InboundEventBase<"connections">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
@@ -187,7 +201,8 @@ export type GatewayInboundEvent =
   | EmailInboundEvent
   | A2aInboundEvent
   | DiscordInboundEvent
-  | PluginInboundEvent;
+  | PluginInboundEvent
+  | ConnectionsInboundEvent;
 
 /**
  * Whether the event acts on a message rather than being one: an edit, a

@@ -27,6 +27,10 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "a2a", description: "Agent-to-agent protocol channel" },
   { id: "discord", description: "Discord channel" },
   { id: "plugin", description: "Channel brought by an installed plugin" },
+  {
+    id: "connections",
+    description: "Another Vellum user, delivered by the platform",
+  },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
   { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;

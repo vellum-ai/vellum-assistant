@@ -71,6 +71,7 @@ import {
 } from "./http/routes/live-voice-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 
+import { createConnectionsWebhookHandler } from "./http/routes/connections-webhook.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createGuardianChannelHandler } from "./http/routes/guardian-channel-create.js";
 import { createInboundRegisterHandler } from "./http/routes/inbound-register.js";
@@ -634,6 +635,10 @@ async function main() {
       credentials: credentialCache,
       configFile: configFileCache,
     });
+  const { handler: handleConnectionsWebhook } = createConnectionsWebhookHandler(
+    config,
+    { credentials: credentialCache },
+  );
   const { handler: handleResendWebhook } = createResendWebhookHandler(config, {
     credentials: credentialCache,
     configFile: configFileCache,
@@ -805,6 +810,10 @@ async function main() {
     {
       path: "/webhooks/email",
       handler: (req) => handleEmailWebhook(req),
+    },
+    {
+      path: "/webhooks/connections",
+      handler: (req) => handleConnectionsWebhook(req),
     },
     {
       path: "/webhooks/resend",

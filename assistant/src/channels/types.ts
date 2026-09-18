@@ -216,6 +216,9 @@ export const INTERFACE_IDS = [
   // every plugin, matching the `plugin` channel; which plugin it was is in
   // `sourceMetadata.plugin`.
   "plugin",
+  // Turns another Vellum user sent from their own Vellum, delivered by the
+  // platform on the `connections` channel. Non-interactive and non-host-proxy.
+  "connections",
 ] as const;
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];

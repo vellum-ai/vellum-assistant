@@ -34,6 +34,13 @@ describe("isChannelId", () => {
     expect(isChannelId("discord")).toBe(true);
   });
 
+  test("includes connections", () => {
+    // A message one Vellum user sends to another user's assistant arrives on
+    // its own channel id rather than `vellum`, which names the guardian's own
+    // app and carries guardian-only behavior.
+    expect(isChannelId("connections")).toBe(true);
+  });
+
   test("rejects unknown strings and non-string values", () => {
     expect(isChannelId("mastodon")).toBe(false);
     expect(isChannelId("")).toBe(false);

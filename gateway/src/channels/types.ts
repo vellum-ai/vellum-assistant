@@ -18,6 +18,7 @@ export const CHANNEL_IDS = [
   "a2a",
   "discord",
   "plugin",
+  "connections",
 ] as const satisfies readonly CanonicalChannelId[];
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];

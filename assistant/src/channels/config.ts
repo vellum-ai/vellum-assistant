@@ -99,6 +99,15 @@ const CHANNEL_POLICIES = {
       conversationStrategy: "continue_existing_conversation",
     },
   },
+  connections: {
+    notification: {
+      // A connections sender is another Vellum user reached only through the
+      // platform thread they wrote in, so the channel has no address a
+      // proactive notification could be sent to.
+      deliveryEnabled: false,
+      conversationStrategy: "continue_existing_conversation",
+    },
+  },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;

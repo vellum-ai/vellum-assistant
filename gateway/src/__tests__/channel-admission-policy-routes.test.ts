@@ -125,7 +125,7 @@ describe("GET /v1/channel-admission-policy", () => {
     expect(phone?.policy).toBe(ADMISSION_POLICY_DEFAULT);
   });
 
-  test("omits exempt `a2a` and hidden `vellum`/`whatsapp` but includes enforced `phone`", async () => {
+  test("omits exempt `a2a` and hidden `vellum`/`whatsapp`/`connections` but includes enforced `phone`", async () => {
     // a2a stays exempt (no runtime admission model). vellum/whatsapp are still
     // enforced at runtime but hidden from the Channel Trust Floors UI, so they
     // must not surface even when a row is persisted. phone is now enforced and
@@ -133,6 +133,7 @@ describe("GET /v1/channel-admission-policy", () => {
     store.set("a2a", "guardian_only");
     store.set("vellum", "guardian_only");
     store.set("whatsapp", "guardian_only");
+    store.set("connections", "guardian_only");
 
     const handler = createChannelAdmissionPolicyListHandler();
     const res = await handler(
@@ -145,6 +146,7 @@ describe("GET /v1/channel-admission-policy", () => {
     expect(seen.has("a2a")).toBe(false);
     expect(seen.has("vellum")).toBe(false);
     expect(seen.has("whatsapp")).toBe(false);
+    expect(seen.has("connections")).toBe(false);
     // phone is enforced + visible; other visible channels still surface.
     expect(seen.has("phone")).toBe(true);
     expect(seen.has("telegram")).toBe(true);
@@ -161,11 +163,10 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
   test("upserts a valid policy and invalidates the cache", async () => {
     const handler = createChannelAdmissionPolicySetHandler();
     const res = await handler(
-      jsonRequest(
-        "http://localhost/v1/channel-admission-policy/slack",
-        "PUT",
-        { policy: "guardian_only", note: "tight" },
-      ),
+      jsonRequest("http://localhost/v1/channel-admission-policy/slack", "PUT", {
+        policy: "guardian_only",
+        note: "tight",
+      }),
       "slack",
     );
     expect(res.status).toBe(200);
@@ -199,11 +200,9 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
   test("rejects invalid policy with 400", async () => {
     const handler = createChannelAdmissionPolicySetHandler();
     const res = await handler(
-      jsonRequest(
-        "http://localhost/v1/channel-admission-policy/email",
-        "PUT",
-        { policy: "lets-everyone-in" },
-      ),
+      jsonRequest("http://localhost/v1/channel-admission-policy/email", "PUT", {
+        policy: "lets-everyone-in",
+      }),
       "email",
     );
     expect(res.status).toBe(400);
@@ -242,11 +241,11 @@ describe("PUT /v1/channel-admission-policy/:channelType", () => {
     expect(body.policy.note).toBeNull();
   });
 
-  test("rejects PUT for hidden channels (`vellum`, `whatsapp`) with 403", async () => {
+  test("rejects PUT for hidden channels (`vellum`, `whatsapp`, `connections`) with 403", async () => {
     // Hidden channels are managed automatically and not user-configurable;
     // even a non-kill-switch policy must be rejected so no stranded row forms.
     const handler = createChannelAdmissionPolicySetHandler();
-    for (const channel of ["vellum", "whatsapp"] as const) {
+    for (const channel of ["vellum", "whatsapp", "connections"] as const) {
       const res = await handler(
         jsonRequest(
           `http://localhost/v1/channel-admission-policy/${channel}`,
@@ -298,17 +297,20 @@ describe("DELETE /v1/channel-admission-policy/:channelType", () => {
     store.set("slack", "guardian_only");
     const handler = createChannelAdmissionPolicyDeleteHandler();
     const res = await handler(
-      jsonRequest("http://localhost/v1/channel-admission-policy/slack", "DELETE"),
+      jsonRequest(
+        "http://localhost/v1/channel-admission-policy/slack",
+        "DELETE",
+      ),
       "slack",
     );
     expect(res.status).toBe(200);
     expect(store.get("slack")).toBe(ADMISSION_POLICY_DEFAULT);
   });
 
-  test("rejects DELETE for hidden channels (`vellum`, `whatsapp`) with 403", async () => {
+  test("rejects DELETE for hidden channels (`vellum`, `whatsapp`, `connections`) with 403", async () => {
     store.set("whatsapp", "no_one");
     const handler = createChannelAdmissionPolicyDeleteHandler();
-    for (const channel of ["vellum", "whatsapp"] as const) {
+    for (const channel of ["vellum", "whatsapp", "connections"] as const) {
       const res = await handler(
         jsonRequest(
           `http://localhost/v1/channel-admission-policy/${channel}`,
@@ -335,7 +337,9 @@ describe("GET /v1/channel-admission-policy — phone enforced", () => {
       jsonRequest("http://localhost/v1/channel-admission-policy", "GET"),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { policies: Array<{ channelType: string }> };
+    const body = (await res.json()) as {
+      policies: Array<{ channelType: string }>;
+    };
     const seen = new Set(body.policies.map((p) => p.channelType));
     expect(seen.has("phone")).toBe(true);
     // Confirm other non-exempt channels still appear.
