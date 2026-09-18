@@ -81,24 +81,12 @@ class TimeoutReporter extends LiveActivityReporter {
     return this.waitForPendingDispatches();
   }
 
-  protected override async dispatch(
-    phase: string,
-    _event: "update" | "end",
-    _detail: string,
-    signal: AbortSignal,
-  ): Promise<void> {
+  protected override async dispatch(phase: string): Promise<void> {
     this.dispatched.push(phase);
     if (this.dispatched.length > 1) {
       return;
     }
-    await new Promise<void>((_resolve, reject) => {
-      const rejectOnAbort = () => reject(signal.reason);
-      if (signal.aborted) {
-        rejectOnAbort();
-        return;
-      }
-      signal.addEventListener("abort", rejectOnAbort, { once: true });
-    });
+    await new Promise<void>(() => undefined);
   }
 }
 

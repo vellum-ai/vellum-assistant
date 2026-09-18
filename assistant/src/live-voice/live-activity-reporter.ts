@@ -214,12 +214,21 @@ export class LiveActivityReporter {
 
   private startDispatch(pending: PendingDispatch): void {
     this.dispatchInFlight = true;
-    void this.dispatch(
-      pending.phase,
-      pending.event,
-      pending.detail,
-      AbortSignal.timeout(this.dispatchTimeoutMs),
-    )
+    const signal = AbortSignal.timeout(this.dispatchTimeoutMs);
+    const deadline = new Promise<void>((resolve) => {
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+      signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    // Race the whole operation, including platform-client and credential
+    // resolution. The same signal reaches `fetch`, so a timed-out operation
+    // that resolves credentials later cannot send its stale snapshot.
+    void Promise.race([
+      this.dispatch(pending.phase, pending.event, pending.detail, signal),
+      deadline,
+    ])
       .catch((err: unknown) => {
         // `dispatch` contains its own best-effort error boundary. Keep this
         // guard for subclasses and future implementations so one rejection
