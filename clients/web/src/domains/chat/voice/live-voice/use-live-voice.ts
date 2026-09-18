@@ -108,6 +108,7 @@ import {
   liveVoiceSessionControls,
 } from "@/domains/chat/voice/live-voice/session-control";
 import { fixedT } from "@/i18n";
+import { playVoiceStartTone } from "@/lib/sounds/voice-start-tone";
 import {
   isLiveVoiceSessionActive,
   type LiveVoiceErrorRecovery,
@@ -1064,6 +1065,7 @@ export function useLiveVoice(
           // The session has connected at least once: retire the initial-connect
           // resilience (a later drop reconnects via `reconnectAttemptRef`) and
           // clear its budget.
+          const isFirstReady = !hasReadyRef.current;
           hasReadyRef.current = true;
           initialConnectAttemptRef.current = 0;
           useLiveVoiceStore.getState().setReconnecting(false);
@@ -1097,6 +1099,12 @@ export function useLiveVoice(
           void finishCaptureStartup(session, teardown).then(() => {
             if (!live() || !session.captureRunning) {
               return;
+            }
+            // The mic is open: cue the user that the conversation is live.
+            // Only on the session's first `ready`, so a mid-call reconnect
+            // stays silent.
+            if (isFirstReady && !useLiveVoiceStore.getState().outputMuted) {
+              playVoiceStartTone();
             }
             const seed = pendingSeedRef.current;
             pendingSeedRef.current = null;
