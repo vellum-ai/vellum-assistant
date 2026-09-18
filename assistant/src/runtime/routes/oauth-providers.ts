@@ -6,6 +6,7 @@
  * the standard runtime auth middleware.
  */
 
+import { INTEGRATION_CATEGORIES } from "@vellumai/service-contracts/integration-categories";
 import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
@@ -401,6 +402,12 @@ export const oauthProviderSummarySchema = z.object({
   supports_managed_mode: z.boolean(),
   managed_service_is_paid: z.boolean(),
   feature_flag: z.string().nullable(),
+  category: z
+    .enum(INTEGRATION_CATEGORIES)
+    .nullable()
+    .describe(
+      "Where the integrations catalog files the provider; null for a provider without a seed entry.",
+    ),
   tenant_host: z
     .object({
       pattern: z.string(),

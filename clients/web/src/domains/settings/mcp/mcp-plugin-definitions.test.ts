@@ -61,10 +61,26 @@ describe("buildMcpPluginDefinitions", () => {
         documentationUrl: "https://example.com/docs",
         logo: "example.png",
         oauthProvider: undefined,
+        category: undefined,
         setup: { mode: "oauth", instructions: "Sign in to Example." },
         installed: undefined,
       },
     ]);
+  });
+
+  test("carries the category the catalog files the entry under", () => {
+    const filed = match();
+    filed.integration!.category = "meetings";
+    const unknown = match({ name: "future-mcp" });
+    unknown.integration!.category = "future" as never;
+
+    const [definition, unfiled] = buildMcpPluginDefinitions(
+      [filed, unknown],
+      [],
+    );
+
+    expect(definition.category).toBe("meetings");
+    expect(unfiled.category).toBeUndefined();
   });
 
   test("joins installed ownership only by the exact plugin name", () => {

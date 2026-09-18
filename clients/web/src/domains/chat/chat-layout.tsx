@@ -7,11 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  useLocation,
-  useNavigate,
-  useNavigationType,
-} from "react-router";
+import { useLocation, useNavigate, useNavigationType } from "react-router";
 import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 import { assistantStateCanServeChat } from "@/assistant/lifecycle";
@@ -94,6 +90,7 @@ import { StatusBanner } from "@/components/status-banner";
 import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
 import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
+import { AssistantInboxRailEntry } from "@/domains/assistant-inbox/components/assistant-inbox-rail-entry";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -1053,12 +1050,19 @@ export function ChatLayout({
         args.variant === "overlay" ? topBarAccessory : undefined
       }
       footerAction={
-        <PreferencesMenu
-          assistantId={assistantId}
-          assistantVersion={assistantVersion}
-          activeConversationId={activeConversationId}
-          triggerVariant={args.variant === "overlay" ? "pill" : "item"}
-        />
+        /* The inbox entry sits directly above Preferences and renders
+           nothing at all unless its flag, the platform gate, and the
+           user's own dismissal all allow it, so the foot of the rail is
+           unchanged for everyone else. */
+        <div className="flex flex-col gap-2">
+          <AssistantInboxRailEntry assistantId={assistantId} />
+          <PreferencesMenu
+            assistantId={assistantId}
+            assistantVersion={assistantVersion}
+            activeConversationId={activeConversationId}
+            triggerVariant={args.variant === "overlay" ? "pill" : "item"}
+          />
+        </div>
       }
       onClose={args.onClose}
     />
@@ -1156,9 +1160,7 @@ export function ChatLayout({
         }
         desktopPreview={<AssistantDesktopPreview />}
         sleepStage={<AssistantSleepStage />}
-        popoutVoiceSession={
-          <VoiceSessionPillHost variant="standalone" />
-        }
+        popoutVoiceSession={<VoiceSessionPillHost variant="standalone" />}
         desktopVoiceRoom={<VoiceRoom variant="content" />}
         mobileDrawer={
           drawerGestures.present ? (

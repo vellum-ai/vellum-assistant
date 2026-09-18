@@ -8,6 +8,7 @@ import {
   type McpPluginMethod,
 } from "./integration-items";
 import type { McpServerEntry } from "./mcp/mcp-api";
+import { pluginLogoUrl } from "./mcp/plugin-logo";
 
 /**
  * Every way a user can connect an integration, collapsed to the four shapes
@@ -260,7 +261,7 @@ export function buildConnectPlan(
   } else {
     const { definition } = item.method;
     iconKey = definition.pluginName;
-    logoUrl = definition.logo || null;
+    logoUrl = pluginLogoUrl(definition);
     description = definition.description;
     methods.push(pluginMethod(item.method, context.mcpServersLoaded));
   }

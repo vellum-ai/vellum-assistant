@@ -19,12 +19,22 @@ export interface ChannelSourceLinkPillProps {
  * thread in the external channel. Rendered next to ConversationAssetsPill
  * for conversations that originate from Slack (and, once their bindings
  * carry links, other channels).
+ *
+ * Roomy windows only. A narrow header keeps its room for the controls that
+ * act on the conversation, and this one only leaves it: the same destination
+ * is an item in the conversation actions sheet
+ * (`conversation-actions-menu.tsx`), which is where a phone reaches every
+ * other conversation-level action already.
  */
 export function ChannelSourceLinkPill({
   href,
   channelId,
 }: ChannelSourceLinkPillProps) {
   const isMobile = useIsMobile();
+  if (isMobile) {
+    return null;
+  }
+
   const label = getOpenInChannelLabel(channelId);
   const icon =
     channelId === "slack" ? (
@@ -36,26 +46,6 @@ export function ChannelSourceLinkPill({
     ) : (
       <ExternalLink className="h-3.5 w-3.5" />
     );
-
-  if (isMobile) {
-    return (
-      <Button
-        asChild
-        variant="ghost"
-        active
-        iconOnly={icon}
-        tintColor="var(--content-default)"
-      >
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer noopener"
-          aria-label={label}
-          onClick={(e) => handleNativeAnchorClick(e, href)}
-        />
-      </Button>
-    );
-  }
 
   return (
     <Button

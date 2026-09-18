@@ -22,6 +22,7 @@ export const DOUBLE_TAP_GAP_MS = 300;
 export type VoiceKeyGesture =
   | { kind: "holdStart" }
   | { kind: "holdEnd" }
+  | { kind: "tap" }
   | { kind: "doubleTap" };
 
 /** One edge of the key, as the host's hold detector reports it. */
@@ -65,9 +66,19 @@ export interface VoiceKeyGestureClassifier {
  * are a double tap, reported on the second release so that a second press that
  * turns into a hold or a chord is read as that instead.
  *
- * A single tap is deliberately nothing. The key is the user's before it is
- * ours, and macOS runs its own answer to a tap of Fn; leaving that alone is
- * what makes taking the gestures around it reasonable.
+ * **A single tap drives nothing, and is still reported.** The key is the user's
+ * before it is ours, and macOS runs its own answer to a tap of Fn; leaving that
+ * alone is what makes taking the gestures around it reasonable. So `tap` is a
+ * fact about the keyboard rather than a request: it says the key was touched,
+ * and the only thing listening is the surface that is teaching the key, which
+ * draws it and does nothing else with it.
+ *
+ * Reported at once on the release rather than held back to see whether a second
+ * tap follows. Waiting would put {@link DOUBLE_TAP_GAP_MS} between the user's
+ * finger and any answer to it, and the pair is already reported on its own
+ * release, so a double tap is a `tap` for each half with the `doubleTap` behind
+ * the second: two touches of a key are two touches of a key however they are
+ * then read.
  *
  * A pure state machine over an injected clock, so it can be tested without
  * waiting on one.
@@ -130,6 +141,11 @@ export function createVoiceKeyGestureClassifier({
       secondOfPair = false;
       return;
     }
+    // The touch itself, before anything is made of it. A pair is still one
+    // release, so its second half is reported here and the `doubleTap` follows
+    // behind: a listener drawing the key sees both halves land, and a listener
+    // acting on the pair sees the pair.
+    onGesture({ kind: "tap" });
     if (secondOfPair) {
       secondOfPair = false;
       onGesture({ kind: "doubleTap" });

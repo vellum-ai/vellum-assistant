@@ -232,6 +232,7 @@
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "muteAssistant": "Mute assistant",
+    "muteAssistantNamed": "Mute {name}",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
     "offerCopy": "Copy",
@@ -250,6 +251,7 @@
     "talk": "Talk",
     "teach": "Teach",
     "unmuteAssistant": "Unmute assistant",
+    "unmuteAssistantNamed": "Unmute {name}",
     "unmuteMicrophone": "Unmute microphone",
     "chooseMicrophone": "Choose microphone",
     "chooseVoice": "Choose voice"
@@ -980,5 +982,10 @@
     "everyHours": "Every {count, plural, one {# hr} other {# hrs}}",
     "everyMinutes": "Every {count, plural, one {# min} other {# mins}}",
     "retrospectiveSubtitle": "After conversation activity"
+  },
+  "assistantHandleModal": {
+    "title": "Assistant handle",
+    "description": "Your assistant's public name. It is also the name its email address is built on.",
+    "helper": "Lowercase letters, numbers, hyphens, underscores."
   }
 }

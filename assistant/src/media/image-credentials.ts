@@ -37,6 +37,9 @@ export function resolveImageGenRouting(
         : svc.model;
     return { backendProvider: providerForImageModelPrefix(model), managed };
   }
+  if (svc.provider === "openrouter") {
+    return { backendProvider: "openrouter", managed: false };
+  }
   return {
     backendProvider: providerForModel(
       modelOverride,
@@ -101,5 +104,7 @@ function providerKeyHint(provider: ImageGenProvider): string {
       return "No Gemini API key configured. Please set your Gemini API key in Settings → Models & Services.";
     case "openai":
       return "No OpenAI API key configured. Please set your OpenAI API key in Settings → Models & Services.";
+    case "openrouter":
+      return "No OpenRouter API key configured. Please set your OpenRouter API key in Settings → Models & Services.";
   }
 }

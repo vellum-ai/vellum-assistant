@@ -2,6 +2,7 @@ import type {
   PlatformStatusGetResponses,
   PlatformVerifycredentialPostResponses,
 } from "@/generated/daemon/types.gen";
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import { resolveSupportsCredentialVerification } from "@/lib/backwards-compat/credential-verification";
 import {
@@ -511,16 +512,23 @@ async function ensureLocalAssistantPlatformIdentity(
   }
 
   const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
-  await injectPlatformCredentials(gateway, {
-    assistantApiKey,
-    platformBaseUrl,
-    webhookSecret: stringValue(registration.webhook_secret),
-  });
-  await persistPlatformRegistrationMetadata(assistant, {
-    platformAssistantId,
-    platformBaseUrl,
-    organizationId,
-  });
+  try {
+    await injectPlatformCredentials(gateway, {
+      assistantApiKey,
+      platformBaseUrl,
+      webhookSecret: stringValue(registration.webhook_secret),
+    });
+    await persistPlatformRegistrationMetadata(assistant, {
+      platformAssistantId,
+      platformBaseUrl,
+      organizationId,
+    });
+  } catch (error) {
+    // The registration is real even though the local side is not finished;
+    // hand its id to callers that only need the platform to know the
+    // assistant, and let the retrying bootstrap complete the injection.
+    throw new PlatformIdentityInjectionError(platformAssistantId, error);
+  }
 
   return platformAssistantId;
 }

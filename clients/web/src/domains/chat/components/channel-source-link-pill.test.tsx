@@ -47,20 +47,20 @@ describe("ChannelSourceLinkPill", () => {
     expect(link.getAttribute("rel")).toContain("noopener");
   });
 
-  test("renders an icon-only anchor with an aria-label on mobile", () => {
+  // A narrow header keeps its room for the controls that act on the
+  // conversation. The same destination stays reachable from the conversation
+  // actions sheet, which carries `channelSourceLink` as one of its items.
+  test("renders nothing on mobile", () => {
     isMobileRef.value = true;
-    const { getByRole } = render(
+    const { container, queryByRole } = render(
       <ChannelSourceLinkPill
         href="https://acme.slack.com/archives/C123/p456"
         channelId="slack"
       />,
     );
 
-    const link = getByRole("link", { name: /open in slack/i });
-    expect(link.getAttribute("href")).toBe(
-      "https://acme.slack.com/archives/C123/p456",
-    );
-    expect(link.textContent).not.toContain("Open in Slack");
+    expect(queryByRole("link")).toBeNull();
+    expect(container.innerHTML).toBe("");
   });
 
   test("routes clicks through the native URL opener on Capacitor", () => {

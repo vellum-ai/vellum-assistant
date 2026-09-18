@@ -1025,7 +1025,7 @@ function anthropicMessageSections(
         toolName: asString(block.name) ?? asString(block.tool_use_id),
         data:
           type === "web_search_tool_result"
-            ? sanitizeAnthropicWebSearchToolResultData(block)
+            ? sanitizeAnthropicStructuredValue(block)
             : undefined,
         text: collectAnthropicToolResultText(block),
       });
@@ -1395,12 +1395,6 @@ function collectAnthropicToolResultText(
     return "[Web search results]";
   }
   return collectAnthropicText(block.content);
-}
-
-function sanitizeAnthropicWebSearchToolResultData(
-  block: Record<string, unknown>,
-): unknown {
-  return sanitizeAnthropicStructuredValue(block);
 }
 
 function sanitizeAnthropicStructuredValue(value: unknown): unknown {

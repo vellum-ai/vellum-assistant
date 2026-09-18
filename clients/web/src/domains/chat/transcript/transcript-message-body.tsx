@@ -78,6 +78,7 @@ import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
@@ -91,7 +92,6 @@ import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   computeCardBackedWorkflowRunIds,
   extractBgIdFromResult,
-  isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   acpRunIdForCall,
   resolveAcpRunIds,
@@ -365,7 +365,7 @@ export function TranscriptMessageBody({
         return;
       }
       const target = e.target as Element | null;
-      if (isInteractiveClickTarget(target)) {
+      if (isInteractiveTarget(target)) {
         return;
       }
 

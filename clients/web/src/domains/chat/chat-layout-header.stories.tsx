@@ -238,15 +238,16 @@ export const AssetsPanelOpen: Story = {
 };
 
 /**
- * A chat whose documents source is down with nothing cached. The trigger stays
- * in the cluster with nothing counted, since the panel is where the user finds
- * out why.
+ * A chat whose documents source is down with nothing cached, and one app that
+ * did load. The trigger stays in the cluster for what reached the client and
+ * names the failure instead of a total it cannot know. A failure that counted
+ * nothing at all takes the trigger out of the cluster entirely.
  */
 export const TriggerUnavailable: Story = {
   args: { isMobile: false },
   parameters: {
     chatInfo: {
-      appCount: 0,
+      appCount: 1,
       documentCount: 0,
       attachments: [],
       afterSeed: failChatInfoDocuments,

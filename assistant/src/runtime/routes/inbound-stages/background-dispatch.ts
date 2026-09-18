@@ -452,10 +452,6 @@ type ChannelActivityController = {
   stop: () => void;
 };
 
-export function shouldShowActivityForText(text: string): boolean {
-  return hasDeliverableAssistantText(text);
-}
-
 /**
  * Room shapes with one other participant, in each channel's own word for it.
  *
@@ -613,7 +609,7 @@ function startChannelActivity(params: {
         return;
       }
       observedAssistantText += msg.text;
-      if (shouldShowActivityForText(observedAssistantText)) {
+      if (hasDeliverableAssistantText(observedAssistantText)) {
         show();
       }
     },

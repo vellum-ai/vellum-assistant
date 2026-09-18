@@ -56,7 +56,8 @@ type WebSearchProvider =
   | "tavily"
   | "firecrawl"
   | "keenable"
-  | "fastcrw";
+  | "fastcrw"
+  | "searxng";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -166,6 +167,22 @@ interface KeenableSearchResponse {
   query?: string;
   results?: KeenableSearchResult[];
 }
+
+interface SearxngSearchResult {
+  title?: string;
+  url?: string;
+  content?: string;
+}
+
+interface SearxngSearchResponse {
+  query?: string;
+  results?: SearxngSearchResult[];
+}
+
+const SEARXNG_MISSING_INSTANCE_MESSAGE =
+  "SearXNG needs an instance URL. Set API Base in Settings under Web Search.";
+const SEARXNG_JSON_DISABLED_MESSAGE =
+  "This SearXNG instance did not return JSON. Enable the JSON format on the instance, or point API Base at an instance that allows it.";
 
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
@@ -571,6 +588,86 @@ function buildKeenableMetadata(
     durationMs,
     results: items,
   };
+}
+
+function formatSearxngResults(
+  data: SearxngSearchResponse,
+  query: string,
+): string {
+  const results = data.results ?? [];
+  if (results.length === 0) {
+    return `No results found for "${query}".`;
+  }
+
+  const lines: string[] = [`Web search results for "${query}":\n`];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const title = r.title?.trim() || r.url?.trim() || "Untitled result";
+    lines.push(`${i + 1}. ${title}`);
+    if (r.url) {
+      lines.push(`   URL: ${r.url}`);
+    }
+    if (r.content) {
+      lines.push(`   ${r.content}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+function buildSearxngMetadata(
+  data: SearxngSearchResponse,
+  query: string,
+  durationMs: number,
+): WebSearchMetadata {
+  const results = data.results ?? [];
+  const items: WebSearchResultItem[] = results.map((r, i) => {
+    const url = r.url ?? "";
+    const domain = extractDomain(url);
+    return {
+      rank: i + 1,
+      title: r.title?.trim() || url.trim() || "Untitled result",
+      url,
+      domain,
+      faviconUrl: faviconUrlForDomain(domain),
+      snippet: r.content?.trim() || undefined,
+    };
+  });
+  return {
+    query,
+    provider: "searxng",
+    resultCount: items.length,
+    durationMs,
+    results: items,
+  };
+}
+
+/**
+ * Map the tool's `freshness` window onto SearXNG's `time_range`
+ * (`day` / `month` / `year`). SearXNG has no week filter, so `pw` is omitted.
+ */
+function searxngTimeRangeForFreshness(
+  freshness: string | undefined,
+): "day" | "month" | "year" | undefined {
+  switch (freshness) {
+    case "pd":
+      return "day";
+    case "pm":
+      return "month";
+    case "py":
+      return "year";
+    default:
+      return undefined;
+  }
+}
+
+function isNonJsonSearchBody(contentType: string, bodyText: string): boolean {
+  const type = contentType.toLowerCase();
+  if (type.includes("text/html") || type.includes("application/xhtml")) {
+    return true;
+  }
+  const trimmed = bodyText.trimStart();
+  return trimmed.startsWith("<");
 }
 
 /**
@@ -1358,6 +1455,137 @@ async function executeKeenableSearch(
   );
 }
 
+async function executeSearxngSearch(
+  query: string,
+  count: number,
+  freshness: string | undefined,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const apiBase = getConfig().services["web-search"]?.apiBase?.trim() ?? "";
+  if (apiBase.length === 0) {
+    return errorResult(
+      query,
+      "searxng",
+      startedAt,
+      SEARXNG_MISSING_INSTANCE_MESSAGE,
+    );
+  }
+
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+  });
+  const timeRange = searxngTimeRangeForFreshness(freshness);
+  if (timeRange) {
+    params.set("time_range", timeRange);
+  }
+  const url = `${resolveProviderApiUrl(apiBase, "/search", apiBase)}?${params.toString()}`;
+
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  const trimmedKey = apiKey.trim();
+  if (trimmedKey.length > 0) {
+    headers.Authorization = `Bearer ${trimmedKey}`;
+  }
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers,
+        signal,
+      });
+    } catch (err) {
+      return networkFailureResult(query, "searxng", startedAt, err, signal);
+    }
+
+    const bodyText = await response.text();
+    const contentType = response.headers.get("content-type") ?? "";
+    if (isNonJsonSearchBody(contentType, bodyText)) {
+      return errorResult(
+        query,
+        "searxng",
+        startedAt,
+        SEARXNG_JSON_DISABLED_MESSAGE,
+      );
+    }
+
+    if (response.ok) {
+      let data: SearxngSearchResponse;
+      try {
+        data = JSON.parse(bodyText) as SearxngSearchResponse;
+      } catch {
+        return errorResult(
+          query,
+          "searxng",
+          startedAt,
+          SEARXNG_JSON_DISABLED_MESSAGE,
+        );
+      }
+      if (data.results && data.results.length > count) {
+        data.results = data.results.slice(0, count);
+      }
+      const durationMs = Date.now() - startedAt;
+      return {
+        content:
+          wrapUntrustedContent(formatSearxngResults(data, query), {
+            source: "search",
+            sourceDetail: "searxng",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+        activityMetadata: {
+          webSearch: buildSearxngMetadata(data, query, durationMs),
+        },
+      };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return errorResult(
+        query,
+        "searxng",
+        startedAt,
+        "SearXNG rejected the request. Check the instance URL, optional token, and that JSON search is enabled.",
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "SearXNG Search rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn({ status: response.status }, "SearXNG Search API error");
+    return backendFailureResult(
+      query,
+      "searxng",
+      startedAt,
+      { statusCode: response.status, error: rawBodyDetail(bodyText) },
+      response.status === 429
+        ? "SearXNG Search rate limit exceeded after retries. Try again shortly."
+        : `SearXNG Search API returned status ${response.status}`,
+    );
+  }
+
+  return backendFailureResult(
+    query,
+    "searxng",
+    startedAt,
+    { statusCode: 429 },
+    "SearXNG Search rate limit exceeded after retries. Try again shortly.",
+  );
+}
+
 // ----------------------------------------------------------------------------
 // Adapter registry
 //
@@ -1424,6 +1652,15 @@ const fastcrwSearchAdapter: WebSearchAdapter = {
     executeFastcrwSearch(query, count, freshness, apiKey, signal),
 };
 
+const searxngSearchAdapter: WebSearchAdapter = {
+  id: "searxng",
+  providerKeyName: "searxng",
+  fallbackOrder: 7,
+  keyless: true,
+  execute: ({ query, count, freshness, apiKey, signal }) =>
+    executeSearxngSearch(query, count, freshness, apiKey, signal),
+};
+
 /**
  * All built-in web-search adapters keyed by provider id. The
  * `Record<WebSearchProvider, ...>` shape forces TypeScript to flag any
@@ -1436,6 +1673,7 @@ const WEB_SEARCH_ADAPTERS: Record<WebSearchProvider, WebSearchAdapter> = {
   firecrawl: firecrawlSearchAdapter,
   keenable: keenableSearchAdapter,
   fastcrw: fastcrwSearchAdapter,
+  searxng: searxngSearchAdapter,
 };
 
 /**
@@ -1467,7 +1705,7 @@ export const webSearchTool = {
       count: {
         type: "number",
         description:
-          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, and fastCRW providers.",
+          "Number of results to return (1-20, default 10). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, and SearXNG providers.",
       },
       offset: {
         type: "number",
@@ -1477,7 +1715,7 @@ export const webSearchTool = {
       freshness: {
         type: "string",
         description:
-          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, and fastCRW providers.',
+          'Filter by recency: "pd" (past day), "pw" (past week), "pm" (past month), "py" (past year). Used with Brave, Tavily, Firecrawl, Keenable, fastCRW, and SearXNG providers. SearXNG maps day/month/year and omits week.',
       },
     },
     required: ["query"],
@@ -1593,7 +1831,7 @@ export const webSearchTool = {
           query,
           provider,
           startedAt,
-          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key.",
+          "No web search API key configured. Set it via `keys set perplexity <key>`, `keys set brave <key>`, `keys set tavily <key>`, `keys set firecrawl <key>`, or `keys set fastcrw <key>`, or configure it from the Settings page under API Keys. Or switch the web-search provider to Keenable, which works without a key, or SearXNG with your instance URL.",
         );
       }
     }

@@ -222,13 +222,6 @@ function defaultPorts(env: Record<string, string | undefined>): {
   };
 }
 
-function defaultInstanceDir(
-  env: Record<string, string | undefined>,
-  assistantId: string,
-): string {
-  return resolveInstanceDir(env, assistantId);
-}
-
 function firstString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value === "string" && value.length > 0) return value;
@@ -302,7 +295,7 @@ export function resolveLockfileInstanceDir(
       ok: true,
       instanceDir:
         lockfileInstanceDir(entry, rawEntry) ??
-        defaultInstanceDir(env, assistantId),
+        resolveInstanceDir(env, assistantId),
     };
   } catch {
     return { ok: true };
@@ -320,7 +313,7 @@ function resolveStatusResources(
   const ports = defaultPorts(env);
   const instanceDir =
     lockfileInstanceDir(entry, rawEntry) ??
-    defaultInstanceDir(env, entry.assistantId);
+    resolveInstanceDir(env, entry.assistantId);
   return {
     instanceDir,
     daemonPort:

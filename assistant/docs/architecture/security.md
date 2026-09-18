@@ -176,6 +176,11 @@ sequenceDiagram
 
     Model->>Route: assistant credentials prompt --service --field --label
     Route->>Prompter: requestSecretStandalone(service, field, label, ...)
+    alt No surface can render the card (no conversation, or a channel without dynamic UI)
+        Prompter->>Route: {value: null, error: "unsupported_channel", collectionUrl?}
+        Route->>Model: "Share this one-time link ..." (pending, nothing stored yet)
+        Note over Route: The recipient submits the value on the gateway's<br/>credential entry page; the gateway stores it at redemption
+    end
     Prompter->>HTTP: secret_request {requestId, service, field, label, allowOneTimeSend}
     HTTP->>UI: Show secret prompt
     UI->>UI: User enters value in a masked field
@@ -226,11 +231,11 @@ User messages are scanned at ingress (`secret-ingress.ts`) against known credent
 
 ### Storage Layout
 
-| Component           | Location                                               | What it stores                                                                                                                                                   |
-| ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Secret values       | CES credential store or encrypted file store           | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
-| Credential records  | CES `<cesDataRoot>/metadata.json`                      | Service, field, alias, policy (`allowedTools`, `allowedDomains`, `injectionTemplates`), timestamps. Served over CES RPC/HTTP.                                    |
-| Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend, blockTokenShapedMessages (default `true` — whole-message token-shape heuristic)             |
+| Component          | Location                                     | What it stores                                                                                                                                                   |
+| ------------------ | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret values      | CES credential store or encrypted file store | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
+| Credential records | CES `<cesDataRoot>/metadata.json`            | Service, field, alias, policy (`allowedTools`, `allowedDomains`, `injectionTemplates`), timestamps. Served over CES RPC/HTTP.                                    |
+| Config             | `$VELLUM_WORKSPACE_DIR/config.*`             | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend, blockTokenShapedMessages (default `true` — whole-message token-shape heuristic)             |
 
 ### Key Files
 

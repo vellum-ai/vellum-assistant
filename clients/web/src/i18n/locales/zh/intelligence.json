@@ -448,5 +448,9 @@
     "system": "系统",
     "integrations": "集成",
     "other": "其他"
+  },
+  "assistantHandleLine": {
+    "edit": "编辑用户名 @{handle}",
+    "editTitle": "编辑用户名"
   }
 }

@@ -688,8 +688,6 @@ export async function runAgentLoopImpl(
     ctx.currentTurnOverrideProfile = currentOverrideProfile;
     return currentOverrideProfile;
   };
-  const resolveCurrentOverrideProfile = (): string | undefined =>
-    refreshCurrentProfileState();
   const resolveCurrentMaxInputTokens = (): number => {
     refreshCurrentProfileState();
     return currentEffectiveContextWindow.maxInputTokens;
@@ -715,7 +713,7 @@ export async function runAgentLoopImpl(
   };
 
   // Initial value for `createToolExecutor` to read into
-  // `ToolContext.overrideProfile`. `resolveCurrentOverrideProfile` refreshes
+  // `ToolContext.overrideProfile`. `refreshCurrentProfileState` refreshes
   // this between model calls so a confirmed profile session opened by a tool
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
@@ -1513,7 +1511,7 @@ export async function runAgentLoopImpl(
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveOverrideProfile: refreshCurrentProfileState,
           ...(onModelCallPrepared !== undefined ? { onModelCallPrepared } : {}),
           resolveContextWindow,
           compactInPlace,
@@ -1929,7 +1927,7 @@ export async function runAgentLoopImpl(
         callSite: inferenceCallSite,
         overrideProfile:
           state.exchangeInferenceProfile ??
-          resolveCurrentOverrideProfile() ??
+          refreshCurrentProfileState() ??
           null,
         ...(state.exchangeInferenceProfile !== undefined
           ? { forceOverrideProfile: true }

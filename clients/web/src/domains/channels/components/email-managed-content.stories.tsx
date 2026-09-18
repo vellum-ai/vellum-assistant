@@ -16,6 +16,11 @@ import { useLayoutEffect } from "react";
 import { EmailManagedContent } from "@/domains/channels/components/email-managed-content";
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
+import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { LS_ASSISTANT_INBOX_HIDDEN } from "@/utils/local-settings-keys";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -77,4 +82,41 @@ type Story = StoryObj<typeof EmailManagedContent>;
  */
 export const NotEntitled: Story = {
   name: "Not entitled · Upgrade",
+};
+
+const STORY_ASSISTANT_ID = "story-assistant";
+
+/**
+ * The same wall with the `assistant-inbox` flag on: the body of the Assistant
+ * Inbox's pitch, set at the start with a plain perk list and no card of its
+ * own, since the Email section around it is the card and its header carries
+ * the pitch's title (that swap lives in `EmailChannelSection`, so it is not
+ * drawn here). The rail entry is seeded as dismissed, which is what brings up
+ * the "Add it back" line under the actions; press it and the line goes.
+ */
+export const NotEntitledInboxFlagOn: Story = {
+  name: "Not entitled · Assistant Inbox flag on",
+  beforeEach: () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: STORY_ASSISTANT_ID,
+    });
+    localStorage.setItem(LS_ASSISTANT_INBOX_HIDDEN, "1");
+    // Both spellings of the key: the avatar hook appends a manifest-support
+    // flag the story cannot predict.
+    for (const supportsManifest of [true, false]) {
+      queryClient.setQueryData(
+        [...avatarQueryKey(STORY_ASSISTANT_ID), supportsManifest],
+        {
+          components: BUNDLED_COMPONENTS,
+          traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+          customImageUrl: null,
+        },
+      );
+    }
+    return () => {
+      useClientFeatureFlagStore.setState({ assistantInbox: false });
+      localStorage.removeItem(LS_ASSISTANT_INBOX_HIDDEN);
+    };
+  },
 };

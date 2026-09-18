@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { getAllDefaultPluginNames } from "../../../plugins/defaults/main.js";
 import {
   listAllPlugins,
   listInstalledPlugins,
@@ -238,10 +239,12 @@ describe("listAllPlugins", () => {
   test("includes default plugins with source=default", () => {
     const result = listAllPlugins({ workspacePluginsDir: pluginsDir });
     const defaults = result.filter((p) => p.source === "default");
-    // Every default plugin should be present. History repair is not one — it is
+    // Every default plugin should be present. History repair is not one: it is
     // daemon logic invoked directly at its agent-loop call sites (see
     // `src/agent/history-repair/`), not a registered plugin.
-    expect(defaults.length).toBe(18);
+    expect(defaults.map((p) => p.name).sort()).toEqual(
+      [...getAllDefaultPluginNames()].sort(),
+    );
     // Names should all start with "default-".
     expect(defaults.every((p) => p.name.startsWith("default-"))).toBe(true);
     // None should be disabled by default in a fresh temp dir.

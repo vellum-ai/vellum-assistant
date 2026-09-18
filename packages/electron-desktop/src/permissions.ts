@@ -19,11 +19,6 @@ type PermissionCheckName = Parameters<
   >
 >[1];
 
-const isTrustedRendererOrigin = (
-  origin: string | URL | null | undefined,
-  allowedOrigin: AllowedOrigin,
-): boolean => isAllowedOrigin(origin, allowedOrigin);
-
 /**
  * Audio and video are both capture the product asks for: the microphone for
  * voice input, and the camera for the voice room's viewfinder, which lets a
@@ -67,13 +62,13 @@ export const shouldGrantPermissionRequest = (
   const origin = details.securityOrigin ?? fallbackOrigin;
 
   if (permission === "clipboard-sanitized-write") {
-    return isTrustedRendererOrigin(origin, allowedOrigin);
+    return isAllowedOrigin(origin, allowedOrigin);
   }
 
   return (
     permission === "media" &&
     isCaptureMediaRequest(details) &&
-    isTrustedRendererOrigin(origin, allowedOrigin)
+    isAllowedOrigin(origin, allowedOrigin)
   );
 };
 
@@ -97,9 +92,9 @@ export const shouldGrantPermissionCheck = (
   allowedOrigin: AllowedOrigin,
 ): boolean => {
   const isTrusted =
-    isTrustedRendererOrigin(details.securityOrigin, allowedOrigin) ||
-    isTrustedRendererOrigin(requestingOrigin, allowedOrigin) ||
-    isTrustedRendererOrigin(details.requestingUrl, allowedOrigin);
+    isAllowedOrigin(details.securityOrigin, allowedOrigin) ||
+    isAllowedOrigin(requestingOrigin, allowedOrigin) ||
+    isAllowedOrigin(details.requestingUrl, allowedOrigin);
 
   if (permission === "clipboard-sanitized-write") {
     return isTrusted;

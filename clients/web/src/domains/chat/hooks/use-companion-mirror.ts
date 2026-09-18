@@ -43,6 +43,7 @@ import {
 } from "@/domains/chat/watch/watch-controller";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
+import { useVoiceKeyTapStore } from "@/domains/chat/voice/voice-key-tap-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
@@ -158,6 +159,11 @@ function currentContext(): CompanionContext {
     popover: currentCompanionPopover(),
     // Whether the call bar's voice chevron has a catalog to open.
     voicesPickable: useCompanionPopoverStore.getState().voicesPickable,
+    // Taps of the voice key. Published from here because the binding is this
+    // window's: raw key edges reach only the window that claimed it, and the
+    // surface that draws the key while teaching it is a different renderer
+    // entirely.
+    voiceKeyTaps: useVoiceKeyTapStore.getState().taps,
   };
 }
 
@@ -294,7 +300,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     offerApp(a.dictationOffer) === offerApp(b.dictationOffer) &&
     a.dictationOffer?.text === b.dictationOffer?.text &&
     samePopover(a.popover, b.popover) &&
-    a.voicesPickable === b.voicesPickable
+    a.voicesPickable === b.voicesPickable &&
+    a.voiceKeyTaps === b.voiceKeyTaps
   );
 }
 
@@ -422,6 +429,11 @@ export function useCompanionMirror(): void {
     const unsubscribeDictation = useVoiceRecordingStore.subscribe(
       onDictationMaybeFlipped,
     );
+    // The key being touched. Its store moves once per tap and for nothing
+    // else, so it goes straight to `sync` with no gate in front of it. One push
+    // per tap is the cost, which is a tap of one key against an integer on a
+    // payload the surface is already being sent.
+    const unsubscribeTaps = useVoiceKeyTapStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published
       // and the surface does not keep a capture indicator over a machine
@@ -443,6 +455,7 @@ export function useCompanionMirror(): void {
       unsubscribeInteraction();
       unsubscribePopover();
       unsubscribeDictation();
+      unsubscribeTaps();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record
       // of whose surface this is, and the surface is still on screen.

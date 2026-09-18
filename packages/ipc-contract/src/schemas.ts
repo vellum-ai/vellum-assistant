@@ -537,6 +537,11 @@ export const companionContextSchema = z.object({
   // must not cost the rest of the context.
   popover: companionPopoverSchema.optional().catch(undefined),
   voicesPickable: z.boolean().optional(),
+  // Taps of the voice key, counted. Bounded to a non-negative integer at the
+  // boundary for the reason `captureCount` is: the surface reads a step in it
+  // as a press having happened, and the only shape that can say that is a whole
+  // number that goes up.
+  voiceKeyTaps: z.number().int().nonnegative().default(0),
 });
 
 // ---------------------------------------------------------------------------

@@ -86,11 +86,16 @@ export function ConversationAssetsPill({
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
   }, [assistantId, conversationId]);
 
+  // The trigger stands for the assets that reached the client, so nothing
+  // reaching it is nothing to point at: a conversation that holds none, one
+  // whose sources have not settled (counting nothing yet is not the same as
+  // holding nothing), and a load that failed before anything arrived. That
+  // last one used to keep the trigger, which put a Layers glyph on chats with
+  // no assets at all whose only panel content was a failure the user never
+  // asked about. A failure that did land something keeps its trigger, under a
+  // label that does not pass the partial total off as the whole of them.
   const failedToLoad = status === "error";
-  if (
-    (status === "pending" && loadedCount === 0) ||
-    (status === "ready" && loadedCount === 0)
-  ) {
+  if (loadedCount === 0) {
     return null;
   }
 

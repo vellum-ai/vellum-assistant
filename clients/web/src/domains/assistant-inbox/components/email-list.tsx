@@ -24,8 +24,9 @@ interface EmailListRowProps {
  * sidebar draws its conversations, with hover and selection as washes
  * rather than rules between rows. Inbound rows lead with who wrote;
  * outbound rows lead with who it went to, since the sender is always the
- * assistant. No read state: the platform keeps none, so the list does not
- * pretend to.
+ * assistant. The third line is the preview, drawn only when the row has
+ * one: the platform's list carries none, so its rows are two lines. No
+ * read state: the platform keeps none, so the list does not pretend to.
  */
 function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
   const { t, i18n } = useTranslation("assistant-inbox");
@@ -35,6 +36,8 @@ function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
     email.direction === "inbound"
       ? displayName(counterpart)
       : t("emailListRow.toPrefix", { name: displayName(counterpart) });
+  const attachmentCount = email.attachments?.length ?? 0;
+  const hasThirdLine = email.snippet != null || attachmentCount > 0;
 
   return (
     <li>
@@ -64,19 +67,23 @@ function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
             </time>
           </span>
           <span className="truncate text-body-small-lighter text-[var(--content-default)]">
-            {email.subject}
+            {email.subject || t("emailListRow.noSubject")}
           </span>
-          <span className="flex items-center gap-1.5 text-body-small-lighter text-[var(--content-tertiary)]">
-            {email.attachments.length > 0 ? (
-              <Paperclip
-                className="size-3 shrink-0"
-                aria-label={t("emailListRow.attachments", {
-                  count: email.attachments.length,
-                })}
-              />
-            ) : null}
-            <span className="truncate">{email.snippet}</span>
-          </span>
+          {hasThirdLine ? (
+            <span className="flex items-center gap-1.5 text-body-small-lighter text-[var(--content-tertiary)]">
+              {attachmentCount > 0 ? (
+                <Paperclip
+                  className="size-3 shrink-0"
+                  aria-label={t("emailListRow.attachments", {
+                    count: attachmentCount,
+                  })}
+                />
+              ) : null}
+              {email.snippet != null ? (
+                <span className="truncate">{email.snippet}</span>
+              ) : null}
+            </span>
+          ) : null}
         </span>
       </button>
     </li>

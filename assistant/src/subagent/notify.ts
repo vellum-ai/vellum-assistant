@@ -8,16 +8,20 @@
  * manager out of the import graph lets tool modules import these helpers without
  * pulling in the conversation/agent-loop core.
  *
- * Delivery targets the parent's in-process `Conversation` via the conversation
- * registry: a notification is injected only when the parent is live here. A
- * stale idle parent is rebuilt through `getOrCreateConversation` first so the
- * injected turn uses the current provider, prompt, and credentials.
+ * An active live-voice session owns delivery for its conversation. Otherwise,
+ * delivery targets the parent's in-process `Conversation` via the registry.
+ * A stale idle parent is rebuilt through `getOrCreateConversation` first so
+ * the injected turn uses the current provider, prompt, and credentials.
  */
 
+import { getConfig } from "../config/loader.js";
+import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
 import {
   findConversation,
   findConversationOrSubagent,
 } from "../daemon/conversation-registry.js";
+import { startAfterTurnFinalization } from "../daemon/turn-finalization.js";
+import { deliverSubagentNotificationToLiveVoice } from "../live-voice/live-voice-manager.js";
 import { getSubagentRecordByConversationId } from "../persistence/subagent-store.js";
 import { getLogger } from "../util/logger.js";
 import { type SubagentStatus, TERMINAL_STATUSES } from "./types.js";
@@ -25,9 +29,9 @@ import { type SubagentStatus, TERMINAL_STATUSES } from "./types.js";
 const log = getLogger("subagent-notify");
 
 /**
- * Enqueue (or persist + run) `message` as a user-role turn in the parent
- * conversation. No-op with a warning when the parent conversation is not live
- * in this process.
+ * Deliver task updates through the parent's live voice session when present,
+ * otherwise enqueue a parent turn. No-op with a warning
+ * when neither the session nor the parent conversation is live here.
  *
  * Shared by the child-triggered {@link notifyParentFromChild} and the
  * manager's terminal/abort injections so every subagent → parent turn lands
@@ -37,8 +41,30 @@ export function injectMessageIntoParent(
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
-  opts?: { cronRunId?: string | null },
+  opts?: { cronRunId?: string | null; bypassLiveVoice?: boolean },
 ): void {
+  const notification = metadata?.subagentNotification;
+  // The live child's conversation ID is stable even if its cosmetic record changes.
+  if (
+    !opts?.bypassLiveVoice &&
+    notification !== null &&
+    typeof notification === "object" &&
+    "subagentId" in notification &&
+    typeof notification.subagentId === "string" &&
+    metadata !== undefined &&
+    deliverSubagentNotificationToLiveVoice(parentConversationId, {
+      taskId:
+        "conversationId" in notification &&
+        typeof notification.conversationId === "string"
+          ? notification.conversationId
+          : notification.subagentId,
+      message,
+      metadata,
+      cronRunId: opts?.cronRunId,
+    })
+  ) {
+    return;
+  }
   const existing = findConversation(parentConversationId);
   if (!existing) {
     log.warn(
@@ -76,17 +102,10 @@ function deliverToParent(
       content: string;
       metadata?: Record<string, unknown>;
       isInteractive: boolean;
+      queueWhenIdle: boolean;
       cronRunId?: string | null;
     }) => { queued: boolean; rejected?: boolean };
-    persistUserMessage: (options: {
-      content: string;
-      metadata?: Record<string, unknown>;
-    }) => Promise<{ id: string }>;
-    runAgentLoop: (
-      message: string,
-      messageId: string,
-      options: { isInteractive: boolean; cronRunId?: string | null },
-    ) => Promise<unknown>;
+    kickDrainQueue: (reason: "loop_complete", origin: string) => Promise<void>;
   },
   parentConversationId: string,
   message: string,
@@ -95,33 +114,34 @@ function deliverToParent(
 ): void {
   // The continuation this notification starts is still the scheduled firing's
   // work, so it carries the same run id as the child whose result triggered it.
-  // Both delivery paths need it: the queued one drains after the enqueuing turn
-  // has ended, so the id has to travel on the message.
+  // The queue drains after the enqueuing turn, so the id travels on the message.
   const cronRunId = opts?.cronRunId ?? null;
   // Machine-injected with no human asserted present, so the notification
   // turn runs non-interactive; it still streams to whoever is watching
   // through the parent's sink.
   const enqueueResult = parentConversation.enqueueMessage({
     content: message,
-    metadata,
+    metadata: { ...metadata, scripted: true },
     isInteractive: false,
+    queueWhenIdle: true,
     ...(cronRunId ? { cronRunId } : {}),
   });
-  if (!enqueueResult.queued && !enqueueResult.rejected) {
-    parentConversation
-      .persistUserMessage({ content: message, metadata })
-      .then(({ id: messageId }) =>
-        parentConversation.runAgentLoop(message, messageId, {
-          isInteractive: false,
-          ...(cronRunId ? { cronRunId } : {}),
-        }),
-      )
-      .catch((err) => {
-        log.error(
-          { parentConversationId, err },
-          "Failed to process subagent notification in parent",
+  if (enqueueResult.queued) {
+    startAfterTurnFinalization(
+      parentConversationId,
+      resolveTurnCommitWaitMs(getConfig().workspaceGit?.turnCommitMaxWaitMs),
+      () => {
+        void parentConversation.kickDrainQueue(
+          "loop_complete",
+          "subagent_notification",
         );
-      });
+      },
+    );
+  } else {
+    log.error(
+      { parentConversationId },
+      "Parent queue rejected subagent notification",
+    );
   }
 }
 

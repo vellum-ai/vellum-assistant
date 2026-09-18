@@ -110,6 +110,45 @@ describe("setImageGenModel — provider derived from model prefix", () => {
   });
 });
 
+describe("setImageGenModel with provider openrouter", () => {
+  test("a model change leaves provider openrouter untouched", () => {
+    writeConfig({
+      services: {
+        "image-generation": {
+          provider: "openrouter",
+          model: "google/gemini-3.1-flash-image-preview",
+        },
+      },
+    });
+
+    setImageGenModel("openai/gpt-image-2", makeCtx());
+
+    const raw = readConfig() as {
+      services: { "image-generation": { provider: string; model: string } };
+    };
+    expect(raw.services["image-generation"].model).toBe("openai/gpt-image-2");
+    expect(raw.services["image-generation"].provider).toBe("openrouter");
+  });
+
+  test("a google/ slug does not rewrite provider to gemini", () => {
+    writeConfig({
+      services: {
+        "image-generation": {
+          provider: "openrouter",
+          model: "openai/gpt-image-2",
+        },
+      },
+    });
+
+    setImageGenModel("google/gemini-3.1-flash-image-preview", makeCtx());
+
+    const raw = readConfig() as {
+      services: { "image-generation": { provider: string; model: string } };
+    };
+    expect(raw.services["image-generation"].provider).toBe("openrouter");
+  });
+});
+
 describe("setImageGenModel with provider vellum", () => {
   test("a model change leaves provider vellum untouched", () => {
     writeConfig({

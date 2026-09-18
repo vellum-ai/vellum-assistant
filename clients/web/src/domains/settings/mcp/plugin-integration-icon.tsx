@@ -1,8 +1,9 @@
 import { PluginIcon } from "@/components/plugins/plugin-icon";
 import { usePluginIconSrc } from "@/hooks/use-plugin-icon-src";
-import { publicAsset } from "@/utils/public-asset";
 
 import type { McpPluginDefinition } from "../integration-items";
+
+import { pluginLogoUrl } from "./plugin-logo";
 
 export function PluginIntegrationIcon({
   assistantId,
@@ -23,7 +24,7 @@ export function PluginIntegrationIcon({
       external
       icon={definition.installed?.icon}
       iconSrc={iconSrc}
-      iconUrl={publicAsset(`/images/integrations/${definition.logo}`)}
+      iconUrl={pluginLogoUrl(definition) ?? undefined}
       size="md"
     />
   );

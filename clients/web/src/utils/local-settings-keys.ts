@@ -12,6 +12,12 @@ export const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
 export const LS_WEB_FETCH_PROVIDER = "vellum:ai:webFetchProvider";
 export const LS_EMAIL_MODE = "vellum:ai:emailMode";
 export const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
+/**
+ * "1" once the user has dismissed the Assistant Inbox rail entry from its
+ * upgrade-required state. Only honoured while the org lacks managed email:
+ * the entry returns the moment there is an inbox to open.
+ */
+export const LS_ASSISTANT_INBOX_HIDDEN = "vellum:ui:assistantInboxHidden";
 
 export const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
 export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";

@@ -30,18 +30,23 @@
   },
   "emailListRow": {
     "toPrefix": "To {name}",
-    "attachments": "{count, plural, one {# attachment} other {# attachments}}"
+    "attachments": "{count, plural, one {# attachment} other {# attachments}}",
+    "noSubject": "(no subject)"
   },
   "emailDetail": {
     "from": "From",
     "to": "To",
     "sentBy": "Sent by {name}",
     "attachments": "Attachments",
-    "askToReply": "Ask {name} to reply"
+    "askToReply": "Ask {name} to reply",
+    "loading": "Loading the message…",
+    "loadFailed": "Couldn't load this message."
   },
   "emailAddressFields": {
     "prefixLabel": "Prefix",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "Handle (public)",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "Give {name} an inbox",
@@ -50,11 +55,29 @@
     "perkReads": "{name} reads, sorts, and replies for you",
     "perkHistory": "Every message kept here, inbox and sent",
     "upgradeButton": "Upgrade to Super",
-    "seePlans": "See plans"
+    "seePlans": "See plans",
+    "titleNoName": "Give your assistant an inbox",
+    "perkReadsNoName": "Your assistant reads, sorts, and replies for you",
+    "changeHandle": "Change handle"
   },
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
-    "getStarted": "Get started"
+    "getStarted": "Get started",
+    "subtitleChooseHandle": "Claim your unique handle and set up your assistant's email.",
+    "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
+  },
+  "assistantInboxRoute": {
+    "loading": "Opening the inbox…",
+    "setupFailed": "Couldn't set up the address.",
+    "setupSucceeded": "{address} is ready.",
+    "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
+    "mailFailed": "Couldn't load the mail.",
+    "retry": "Try again"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "Assistant Inbox is hidden from your side menu.",
+    "restoreButton": "Add it back",
+    "restoredToast": "Assistant Inbox is back in your side menu."
   }
 }

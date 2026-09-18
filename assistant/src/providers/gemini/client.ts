@@ -439,6 +439,14 @@ export class GeminiProvider implements Provider {
         )
       : undefined;
 
+    let inspectableRequest:
+      | {
+          model: string;
+          contents: unknown;
+          config: genai.GenerateContentConfig;
+        }
+      | undefined;
+
     try {
       recordProviderRequestDiagnostics({ model_id: activeModel });
       const geminiContents = await this.toGeminiContents(messages, activeModel);
@@ -475,6 +483,12 @@ export class GeminiProvider implements Provider {
       if (usageAttributionHeaders) {
         geminiConfig.httpOptions = { headers: usageAttributionHeaders };
       }
+
+      inspectableRequest = {
+        model: activeModel,
+        contents: geminiContents,
+        config: stripGeminiHttpOptions(geminiConfig),
+      };
 
       // Accumulate from streaming chunks
       let fullText = "";
@@ -583,11 +597,6 @@ export class GeminiProvider implements Provider {
         content.push(block);
       }
 
-      const rawRequest = {
-        model: activeModel,
-        contents: geminiContents,
-        config: stripGeminiHttpOptions(geminiConfig),
-      };
       const rawResponse = {
         model: responseModel,
         text: fullText || null,
@@ -609,7 +618,7 @@ export class GeminiProvider implements Provider {
           ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
         },
         stopReason: finishReason,
-        rawRequest,
+        rawRequest: inspectableRequest,
         rawResponse,
       };
     } catch (error) {
@@ -630,6 +639,7 @@ export class GeminiProvider implements Provider {
               maxTokens: overflow.maxTokens,
               statusCode: error.status,
               cause: error,
+              rawRequest: inspectableRequest,
             },
           );
         }
@@ -639,7 +649,12 @@ export class GeminiProvider implements Provider {
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent
           // and short-circuits classification/retry (mirrors the Anthropic client).
-          abortReason ? { abortReason } : { reason: deriveGeminiReason(error) },
+        abortReason
+            ? { abortReason, rawRequest: inspectableRequest }
+            : {
+                reason: deriveGeminiReason(error),
+                rawRequest: inspectableRequest,
+              },
         );
       }
       throw new ProviderError(
@@ -648,7 +663,9 @@ export class GeminiProvider implements Provider {
         }`,
         "gemini",
         undefined,
-        abortReason ? { cause: error, abortReason } : { cause: error },
+        abortReason
+          ? { cause: error, abortReason, rawRequest: inspectableRequest }
+          : { cause: error, rawRequest: inspectableRequest },
       );
     }
   }
