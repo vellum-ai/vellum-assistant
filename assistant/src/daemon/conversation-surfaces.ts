@@ -29,7 +29,7 @@ import {
   updateApp,
 } from "../apps/app-store.js";
 import { executeDesktopComputerUse } from "../desktop/desktop-computer-use.js";
-import { shouldUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
+import { canUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -59,6 +59,7 @@ import {
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import { formatDesktopAppRequired } from "../tools/capability-offer.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
+import { computerUseTarget } from "../tools/computer-use/target.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -3167,9 +3168,15 @@ export async function surfaceProxyResolver(
     const desktopContext = virtualDesktopContext(ctx, signal);
     if (
       toolName !== POINT_AT_PROXY_TOOL &&
-      !input.target_client_id &&
-      shouldUseVirtualDesktop(desktopContext)
+      computerUseTarget(input) === "assistant-desktop"
     ) {
+      if (!canUseVirtualDesktop(desktopContext)) {
+        return {
+          content:
+            "The assistant desktop requires an identified guardian and an enabled platform-hosted assistant.",
+          isError: true,
+        };
+      }
       if (!ctx.hostCuProxy) {
         ctx.setHostCuProxy(new HostCuProxy());
       }

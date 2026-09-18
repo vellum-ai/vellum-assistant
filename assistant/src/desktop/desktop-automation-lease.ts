@@ -22,6 +22,7 @@ type Owner = {
   lastActivity: number;
   desktopLost: boolean;
   humanHelp?: symbol;
+  observationId?: string;
 };
 
 export class DesktopAutomationLease {
@@ -238,10 +239,20 @@ export class DesktopAutomationLease {
       });
   }
 
+  recordObservation(): string {
+    if (!this.owner || this.owner.abort.signal.aborted) {
+      throw new Error("Desktop observation was interrupted. Observe again.");
+    }
+    const id = crypto.randomUUID();
+    this.owner.observationId = id;
+    return id;
+  }
+
   runBrowser(
     context: ToolContext,
     operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
     done = false,
+    observation?: { id: unknown },
   ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
@@ -329,8 +340,19 @@ export class DesktopAutomationLease {
       const signal = context.signal
         ? AbortSignal.any([context.signal, owner.abort.signal])
         : owner.abort.signal;
-      owner.lastActivity = Date.now();
       signal.throwIfAborted();
+      if (
+        observation &&
+        (typeof observation.id !== "string" ||
+          !owner.observationId ||
+          observation.id !== owner.observationId)
+      ) {
+        throw new Error(
+          "Desktop observation is missing or stale. Call computer_use_observe with target assistant-desktop before acting.",
+        );
+      }
+      owner.observationId = undefined;
+      owner.lastActivity = Date.now();
       try {
         this.assertAvailable();
         if (++owner.actions > MAX_ACTIONS) {

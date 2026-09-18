@@ -350,6 +350,7 @@ export async function executeDesktopComputerUse(
   input: Record<string, unknown>,
   context: ToolContext,
   proxy: HostCuProxy,
+  driver: DesktopComputerUseBackend = backend,
 ): Promise<ToolExecutionResult> {
   const done =
     toolName === "computer_use_done" || toolName === "computer_use_respond";
@@ -362,6 +363,15 @@ export async function executeDesktopComputerUse(
     };
   }
   const actions = planDesktopComputerUse(toolName, input);
+  const observe = toolName === "computer_use_observe";
+  if (
+    !observe &&
+    (typeof input.observation_id !== "string" || !input.observation_id)
+  ) {
+    throw new Error(
+      "An observation_id from computer_use_observe with target assistant-desktop is required before acting.",
+    );
+  }
   const deadline = new AbortController();
   const timer = setTimeout(
     () =>
@@ -383,8 +393,19 @@ export async function executeDesktopComputerUse(
       (signal) =>
         proxy.executeLocal(toolName, input, async () => {
           await getDesktopSessionManager().browser.release();
-          return performDesktopComputerUse(actions, signal);
+          const observation = await performDesktopComputerUse(
+            actions,
+            signal,
+            driver,
+          );
+          signal.throwIfAborted();
+          return {
+            ...observation,
+            executionResult: `Target: assistant-desktop. observation_id: ${desktopAutomationLease.recordObservation()}`,
+          };
         }),
+      false,
+      observe ? undefined : { id: input.observation_id },
     );
   } finally {
     clearTimeout(timer);

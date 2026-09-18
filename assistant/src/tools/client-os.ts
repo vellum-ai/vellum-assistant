@@ -6,7 +6,7 @@ import {
   supportsHostProxy,
 } from "../channels/types.js";
 import {
-  shouldUseVirtualDesktop,
+  canUseVirtualDesktop,
   supportsVirtualDesktopComputerUse,
 } from "../desktop/virtual-desktop-feature.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -93,7 +93,7 @@ export function supportsClientOsForSkillTool(
 ): boolean {
   if (
     supportsVirtualDesktopComputerUse(toolName) &&
-    shouldUseVirtualDesktop({
+    canUseVirtualDesktop({
       ...context,
       trustClass: context.trustClass ?? "unknown",
     })

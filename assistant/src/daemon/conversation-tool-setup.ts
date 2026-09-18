@@ -19,7 +19,7 @@ import {
   resolveSendUserMessageActive,
   SEND_USER_MESSAGE_TOOL_NAME,
 } from "../config/send-user-message-gate.js";
-import { shouldUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
+import { canUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -1210,7 +1210,7 @@ export function createResolveToolsCallback(
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
       ...(ctx.preactivatedSkillIds ?? []),
-      ...(shouldUseVirtualDesktop(virtualDesktopContext(ctx))
+      ...(canUseVirtualDesktop(virtualDesktopContext(ctx))
         ? ["computer-use"]
         : []),
     ];

@@ -3,12 +3,16 @@ import { describe, expect, mock, spyOn, test } from "bun:test";
 import { run as click } from "../config/bundled-skills/computer-use/tools/computer-use-click.js";
 import * as configLoader from "../config/loader.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
-import { desktopAutomationLease } from "./desktop-automation-lease.js";
+import {
+  DesktopAutomationLease,
+  desktopAutomationLease,
+} from "./desktop-automation-lease.js";
 import {
   executeDesktopComputerUse,
   performDesktopComputerUse,
   planDesktopComputerUse,
 } from "./desktop-computer-use.js";
+import * as sessionManager from "./desktop-session-manager.js";
 
 function driver() {
   return {
@@ -209,7 +213,7 @@ describe("virtual desktop computer use", () => {
       await expect(
         executeDesktopComputerUse(
           "computer_use_click",
-          { x: 1, y: 2 },
+          { x: 1, y: 2, observation_id: "observation-123" },
           {
             workingDir: "/tmp",
             conversationId: "conv-123",
@@ -327,4 +331,104 @@ describe("virtual desktop computer use", () => {
       (await proxy.executeLocal("computer_use_observe", {}, execute)).isError,
     ).toBe(false);
   });
+});
+
+test("native dispatch consumes observations while preserving CU history, images, and loop warnings", async () => {
+  const backend = driver();
+  const manager = {
+    browser: { release: async () => {} },
+    acquireAutomationSlot: () => ({ ok: true }),
+    releaseAutomationSlot: () => {},
+    ensureDesktopRunning: async () => {},
+  } as unknown as sessionManager.DesktopSessionManager;
+  const lease = new DesktopAutomationLease({
+    enabled: () => true,
+    ready: () => true,
+    ensureReady: async () => {},
+    manager: () => manager,
+    notify: async () => {},
+  });
+  const run = spyOn(desktopAutomationLease, "runBrowser").mockImplementation(
+    lease.runBrowser.bind(lease),
+  );
+  const record = spyOn(
+    desktopAutomationLease,
+    "recordObservation",
+  ).mockImplementation(lease.recordObservation.bind(lease));
+  const getManager = spyOn(
+    sessionManager,
+    "getDesktopSessionManager",
+  ).mockReturnValue(manager);
+  const context = {
+    workingDir: "/tmp",
+    conversationId: "conv-123",
+    sourceActorPrincipalId: "user-123",
+    trustClass: "guardian" as const,
+  };
+  const proxy = new HostCuProxy(20);
+  const call = (name: string, input: Record<string, unknown> = {}) =>
+    executeDesktopComputerUse(
+      name,
+      { target: "assistant-desktop", ...input },
+      context,
+      proxy,
+      backend,
+    );
+  const id = (result: { content: string }) =>
+    result.content.match(/observation_id: ([a-f0-9-]+)/)![1]!;
+  try {
+    await expect(call("computer_use_click", { x: 30, y: 40 })).rejects.toThrow(
+      "observation_id",
+    );
+    expect(run).not.toHaveBeenCalled();
+    expect(proxy.stepCount).toBe(0);
+    const observed = await call("computer_use_observe");
+    expect(observed.contentBlocks?.[0]).toMatchObject({ type: "image" });
+    const firstId = id(observed);
+    let result = await call("computer_use_click", {
+      x: 30,
+      y: 40,
+      observation_id: firstId,
+    });
+    expect(id(result)).not.toBe(firstId);
+    const steps = proxy.stepCount;
+    await expect(
+      call("computer_use_click", { x: 30, y: 40, observation_id: firstId }),
+    ).rejects.toThrow("stale");
+    expect(backend.input).toHaveBeenCalledTimes(1);
+    expect(proxy.stepCount).toBe(steps);
+    for (let i = 0; i < 3; i++) {
+      result = await call("computer_use_click", {
+        x: 30,
+        y: 40,
+        observation_id: id(result),
+      });
+    }
+    expect(result.content).toContain("repeated");
+    await lease.runBrowser(context, async () => ({
+      content: "browser action",
+      isError: false,
+    }));
+    await expect(
+      call("computer_use_key", { key: "Return", observation_id: id(result) }),
+    ).rejects.toThrow("stale");
+    const refreshed = await call("computer_use_observe");
+    await call("computer_use_sequence", {
+      observation_id: id(refreshed),
+      actions: [
+        { action: "key", key: "ctrl+l" },
+        { action: "type", text: "example.com" },
+      ],
+    });
+    expect(backend.input.mock.calls.at(-1)?.[0]).toContain("example.com");
+  } finally {
+    await lease.runBrowser(
+      context,
+      async () => ({ content: "", isError: false }),
+      true,
+    );
+    run.mockRestore();
+    record.mockRestore();
+    getManager.mockRestore();
+  }
 });

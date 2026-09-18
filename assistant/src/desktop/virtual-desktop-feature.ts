@@ -18,7 +18,17 @@ export function isVirtualDesktopEnabled(
   );
 }
 
-/** Web guardian turns default to the streamed desktop; native apps keep their host. */
+export function canUseVirtualDesktop(
+  context: Pick<ToolContext, "trustClass" | "sourceActorPrincipalId">,
+): boolean {
+  return (
+    context.trustClass === "guardian" &&
+    !!context.sourceActorPrincipalId &&
+    isVirtualDesktopEnabled()
+  );
+}
+
+/** Web browser turns default to the streamed desktop; native apps keep their host. */
 export function shouldUseVirtualDesktop(
   context: Pick<
     ToolContext,
@@ -30,9 +40,7 @@ export function shouldUseVirtualDesktop(
     context.clientOs !== "macos" &&
     context.clientOs !== "windows" &&
     context.clientOs !== "linux" &&
-    context.trustClass === "guardian" &&
-    !!context.sourceActorPrincipalId &&
-    isVirtualDesktopEnabled()
+    canUseVirtualDesktop(context)
   );
 }
 

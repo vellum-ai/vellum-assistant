@@ -18,23 +18,26 @@ metadata:
 This skill provides the computer_use_* action tools through the main agent
 loop and its shared computer-use history, step budget, and screenshot handling.
 
-In web conversations on enabled platform-hosted assistants, untargeted actions
-control the streamed Virtual desktop. The skill is preactivated there and for
-conversations with a connected desktop client. Native app conversations retain
-their connected desktop target. Pass `target_client_id` to explicitly control
-a connected personal computer from the web.
+Choose `target: "assistant-desktop"` on every call to control the streamed
+Virtual desktop on an enabled platform-hosted assistant. Omitted targets and
+`target: "connected-computer"` control the user's connected computer. Use
+`target_client_id` to choose among connected computers; do not combine it with
+`assistant-desktop`. Targets never fall back to a different computer.
 
 ## Virtual desktop
 
-Use `computer_use_observe` first. Every step returns a full desktop screenshot;
-there is no accessibility tree, so use screen coordinates from that screenshot.
+Use `computer_use_observe` with `target: "assistant-desktop"` first. Every step
+returns a full desktop screenshot and an `observation_id`. Pass that ID with
+the next action (or sequence); it is consumed once. Observe again after browser
+actions, user handoff, or interruption. There is no accessibility tree, so use
+screen coordinates from that screenshot.
 Click, type, key, scroll, drag, wait, and sequences share the browser automation
 session, cancellation, and user handoff. First use installs desktop components
 and starts the same desktop shown in the Virtual desktop panel.
 
 Use Linux shortcuts such as `ctrl+l`. Open apps through the dock or desktop UI;
 `open_app`, AppleScript, element IDs, and window-scoped capture are unavailable.
-Call `computer_use_done` when finished to release the session. Prefer
+Call `computer_use_done` with the same target when finished to release the session. Prefer
 `assistant browser` for browser tasks that do not need desktop interaction.
 
 ## Observations

@@ -1,11 +1,23 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 
 import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { asConversation } from "../__tests__/helpers/mock-conversation.js";
+import {
+  getBundledSkillsDir,
+  type SkillToolManifest,
+} from "../config/skills.js";
 import { surfaceProxyResolver } from "../daemon/conversation-surfaces.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
+import { resolveExecutionTarget } from "../tools/execution-target.js";
+import {
+  createSkillTool,
+  createSkillToolsFromManifest,
+} from "../tools/skills/skill-tool-factory.js";
+import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import * as computerUse from "./desktop-computer-use.js";
 import { shouldUseVirtualDesktop } from "./virtual-desktop-feature.js";
 
@@ -59,14 +71,18 @@ function conversation() {
   return { ctx, proxy };
 }
 
-test("web computer use runs on the virtual desktop without a host client", async () => {
+test("explicit computer use runs on the virtual desktop without a host client", async () => {
   const { ctx, proxy } = conversation();
   const execute = spyOn(
     computerUse,
     "executeDesktopComputerUse",
   ).mockResolvedValue({ content: "desktop", isError: false });
   spies.push(execute);
-  expect(await surfaceProxyResolver(ctx, "computer_use_observe", {})).toEqual({
+  expect(
+    await surfaceProxyResolver(ctx, "computer_use_observe", {
+      target: "assistant-desktop",
+    }),
+  ).toEqual({
     content: "desktop",
     isError: false,
   });
@@ -156,7 +172,139 @@ test("routing uses frozen turn trust even when the resting conversation is guard
   ).mockResolvedValue({ content: "desktop", isError: false });
   spies.push(execute, spyOn(proxy, "isAvailable").mockReturnValue(false));
   expect(
-    (await surfaceProxyResolver(ctx, "computer_use_observe", {})).isError,
+    (
+      await surfaceProxyResolver(ctx, "computer_use_observe", {
+        target: "assistant-desktop",
+      })
+    ).isError,
   ).toBe(true);
   expect(execute).not.toHaveBeenCalled();
+});
+
+for (const target of [undefined, "connected-computer"]) {
+  test(`target ${target} retains the connected-computer path`, async () => {
+    const { ctx, proxy } = conversation();
+    const execute = spyOn(computerUse, "executeDesktopComputerUse");
+    spies.push(execute, spyOn(proxy, "isAvailable").mockReturnValue(false));
+    expect(
+      (await surfaceProxyResolver(ctx, "computer_use_observe", { target }))
+        .isError,
+    ).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+  });
+}
+
+test("native conversations can explicitly select the assistant desktop", async () => {
+  const { ctx } = conversation();
+  ctx.currentTurnClientOs = "macos";
+  const execute = spyOn(
+    computerUse,
+    "executeDesktopComputerUse",
+  ).mockResolvedValue({ content: "desktop", isError: false });
+  spies.push(execute);
+  expect(
+    (
+      await surfaceProxyResolver(ctx, "computer_use_observe", {
+        target: "assistant-desktop",
+      })
+    ).content,
+  ).toBe("desktop");
+});
+
+for (const input of [
+  { target: "assistant-desktop", target_client_id: "client-123" },
+  { target: "connected-computer", observation_id: "stale" },
+  { target: "unknown" },
+]) {
+  test(`invalid target never dispatches: ${JSON.stringify(input)}`, async () => {
+    const { ctx, proxy } = conversation();
+    const execute = spyOn(computerUse, "executeDesktopComputerUse");
+    const host = spyOn(proxy, "request");
+    spies.push(execute, host);
+    await expect(
+      surfaceProxyResolver(ctx, "computer_use_observe", input),
+    ).rejects.toThrow();
+    expect(execute).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
+    expect(proxy.stepCount).toBe(0);
+  });
+}
+
+test("the real bundled skill uses the same desktop target for policy and dispatch", async () => {
+  const skillDir = join(getBundledSkillsDir(), "computer-use");
+  const manifest = JSON.parse(
+    readFileSync(join(skillDir, "TOOLS.json"), "utf8"),
+  ) as SkillToolManifest;
+  const tools = createSkillToolsFromManifest(
+    manifest.tools,
+    skillDir,
+    "",
+    true,
+  );
+  const click = tools.find((tool) => tool.name === "computer_use_click")!;
+  const { ctx, proxy } = conversation();
+  const local = spyOn(
+    computerUse,
+    "executeDesktopComputerUse",
+  ).mockResolvedValue({ content: "desktop", isError: false });
+  spies.push(local, spyOn(proxy, "isAvailable").mockReturnValue(false));
+  for (const target of [undefined, "connected-computer", "assistant-desktop"]) {
+    const input = {
+      target,
+      x: 30,
+      y: 40,
+      reasoning: "Focus field",
+      ...(target === "assistant-desktop"
+        ? { observation_id: "observation-123" }
+        : {}),
+    };
+    const boundary = resolveExecutionTarget(click, input);
+    expect(boundary).toBe(target === "assistant-desktop" ? "sandbox" : "host");
+    if (target !== "assistant-desktop") {
+      expect(sensitiveToolReach(click.name, boundary, input)).toBe("host");
+    } else {
+      expect(sensitiveToolReach(click.name, boundary, input)).not.toBe("host");
+    }
+    const result = await click.execute(input, {
+      ...context,
+      workingDir: "/tmp",
+      conversationId: "conv-123",
+      proxyToolResolver: (name, args) => surfaceProxyResolver(ctx, name, args),
+    });
+    expect(result.isError).toBe(target !== "assistant-desktop");
+  }
+  expect(local).toHaveBeenCalledTimes(1);
+  expect(local.mock.calls[0][1]).toMatchObject({
+    observation_id: "observation-123",
+  });
+  const rejected = await click.execute(
+    { target: "invalid", reasoning: "Focus field" },
+    { ...context, workingDir: "/tmp", conversationId: "conv-123" },
+  );
+  expect(rejected.isError).toBe(true);
+  expect(local).toHaveBeenCalledTimes(1);
+  const entry = manifest.tools.find((tool) => tool.name === click.name)!;
+  for (const tool of [
+    createSkillTool(entry, "/tmp/skills/computer-use", "", true),
+    createSkillTool(entry, skillDir, "", false),
+    createSkillTool(entry, skillDir, "", true, "plugin-123"),
+  ]) {
+    expect(resolveExecutionTarget(tool, { target: "assistant-desktop" })).toBe(
+      "host",
+    );
+  }
+});
+
+test("a disabled assistant desktop never falls back to a connected computer", async () => {
+  setOverridesForTesting({ "assistant-desktop": false });
+  const { ctx, proxy } = conversation();
+  const local = spyOn(computerUse, "executeDesktopComputerUse");
+  const host = spyOn(proxy, "request");
+  spies.push(local, host, spyOn(proxy, "isAvailable").mockReturnValue(true));
+  const result = await surfaceProxyResolver(ctx, "computer_use_observe", {
+    target: "assistant-desktop",
+  });
+  expect(result.isError).toBe(true);
+  expect(local).not.toHaveBeenCalled();
+  expect(host).not.toHaveBeenCalled();
 });
