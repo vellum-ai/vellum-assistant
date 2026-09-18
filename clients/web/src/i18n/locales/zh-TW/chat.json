@@ -1773,7 +1773,8 @@
     "copied": "已複製",
     "copy": "複製",
     "copyAria": "將表格複製為 Markdown",
-    "copyFailed": "無法複製表格。"
+    "copyFailed": "無法複製表格。",
+    "table": "表格"
   },
   "taskPreferencesSurface": {
     "continue": "繼續",

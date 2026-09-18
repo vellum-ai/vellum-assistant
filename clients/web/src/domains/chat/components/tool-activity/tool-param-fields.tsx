@@ -132,6 +132,7 @@ function FieldValue({ field }: { field: ValueField }) {
           <DataTable
             {...tableProps(field)}
             copyable={false}
+            label={field.label}
             renderCell={(text) => (
               <ClampedContent length={text.length}>
                 <ValueText as="span">{text}</ValueText>

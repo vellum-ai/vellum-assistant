@@ -1784,7 +1784,8 @@
     "copied": "Copied",
     "copy": "Copy",
     "copyAria": "Copy table as markdown",
-    "copyFailed": "Couldn't copy the table."
+    "copyFailed": "Couldn't copy the table.",
+    "table": "Table"
   },
   "taskPreferencesSurface": {
     "continue": "Continue",

@@ -117,6 +117,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
         columns={data.columns}
         rows={rows}
         caption={data.caption}
+        label={surface.title}
         selection={selection}
       />
     </SurfaceContainer>
