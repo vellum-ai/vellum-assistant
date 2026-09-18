@@ -341,15 +341,20 @@ describe("ToolDetailPanel", () => {
       result: "",
     });
 
-    /** Opens the note, given the height it draws at, and lays it out again. */
-    function openNote(height: number) {
+    /**
+     * Opens the value in `openedDetail` that folds, given the height it draws
+     * at, and lays it out again as the browser would once it has opened.
+     */
+    function openValue(openedDetail: ToolDetailPayload, height: number) {
       // Only the fold's box carries a max-height, so it is what measures.
       restoreLayout = stubContentHeight((el) =>
         el.style.maxHeight ? height : undefined,
       );
       const observer = stubResizeObserver();
       try {
-        const view = render(<ToolDetailPanel detail={detail} onClose={noop} />);
+        const view = render(
+          <ToolDetailPanel detail={openedDetail} onClose={noop} />,
+        );
         act(() => {
           fireEvent.click(view.getByText("Show more"));
         });
@@ -359,6 +364,8 @@ describe("ToolDetailPanel", () => {
         observer.restore();
       }
     }
+
+    const openNote = (height: number) => openValue(detail, height);
 
     test("stops at the expanded height and scrolls, named after its field", () => {
       const { getByRole, getByText } = openNote(1000);
@@ -374,30 +381,16 @@ describe("ToolDetailPanel", () => {
         id: `row-${index + 1}`,
         stage: "new",
       }));
-      restoreLayout = stubContentHeight((el) =>
-        el.style.maxHeight ? 1000 : undefined,
+      const { getByRole } = openValue(
+        makeDetail({
+          toolName: "acme_crm_list_contacts",
+          input: {},
+          result: JSON.stringify(rows),
+        }),
+        1000,
       );
-      const observer = stubResizeObserver();
-      try {
-        const { getByText, getByRole } = render(
-          <ToolDetailPanel
-            detail={makeDetail({
-              toolName: "acme_crm_list_contacts",
-              input: {},
-              result: JSON.stringify(rows),
-            })}
-            onClose={noop}
-          />,
-        );
-        act(() => {
-          fireEvent.click(getByText("Show more"));
-        });
-        act(observer.resize);
 
-        expect(getByRole("region", { name: "Output" })).toBeDefined();
-      } finally {
-        observer.restore();
-      }
+      expect(getByRole("region", { name: "Output" })).toBeDefined();
     });
 
     test("folds back to its start after scrolling while open", () => {
