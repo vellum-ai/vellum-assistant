@@ -1369,6 +1369,52 @@ describe("selectPool: TypeSafe System One", () => {
     expect(result.keptAll).toBe(false);
   });
 
+  test("drops the trailing current-message duplicate before trimming recent context", async () => {
+    selectorMaxInputTokens = 8_000;
+    let payload: {
+      state: {
+        current_message: string;
+        recent_context: string;
+        situation?: string;
+      };
+    } | null = null;
+    providerStub = {
+      name: "typesafe",
+      defaultModel: "jev-latest",
+      sendMessage: async (messages, options) => {
+        providerCalls.push({ messages, options });
+        payload = JSON.parse(
+          (messages[0]!.content[0] as { text: string }).text,
+        ) as typeof payload;
+        return typesafeResponse({
+          "1": noulAnswer(1),
+          "2": noulAnswer(0),
+          "3": noulAnswer(0),
+          "4": noulAnswer(0),
+        });
+      },
+    };
+    const currentMessage = `current query ${"q".repeat(2_000)}`;
+    const previousAssistant = `preceding assistant reply ${"a".repeat(2_000)}`;
+    const turn = {
+      ...makeTurn(currentMessage),
+      recentContext: `${previousAssistant}\n${currentMessage}`,
+      situationalContext: `old situation ${"s".repeat(30_000)}`,
+    };
+
+    const result = await selectPool(makePool(), turn);
+
+    expect(payload).not.toBeNull();
+    expect(payload!.state.current_message).toBe(currentMessage);
+    expect(payload!.state.recent_context).toBe(previousAssistant);
+    expect(payload!.state.recent_context).not.toContain(currentMessage);
+    expect(payload!.state.situation?.length ?? 0).toBeLessThan(
+      turn.situationalContext.length,
+    );
+    expect(result.turn.currentMessage).toBe(currentMessage);
+    expect(result.turn.recentContext).toBe(previousAssistant);
+  });
+
   test("preserves the current message and newest recent-context suffix when turn context is oversized", async () => {
     selectorMaxInputTokens = 8_000;
     let payload: {

@@ -684,6 +684,25 @@ function highestPriorityCandidates(
   };
 }
 
+function withoutTrailingCurrentMessage(
+  turn: MemoryRoutingTurn,
+): MemoryRoutingTurn {
+  if (turn.recentContext === turn.currentMessage) {
+    return { ...turn, recentContext: "" };
+  }
+  const duplicateSuffix = `\n${turn.currentMessage}`;
+  if (
+    turn.currentMessage.length === 0 ||
+    !turn.recentContext.endsWith(duplicateSuffix)
+  ) {
+    return turn;
+  }
+  return {
+    ...turn,
+    recentContext: turn.recentContext.slice(0, -duplicateSuffix.length),
+  };
+}
+
 function latestTurnContextSuffix(
   turn: MemoryRoutingTurn,
   retainedChars: number,
@@ -795,7 +814,22 @@ function budgetSelectorPool({
     };
   }
 
-  const minimumTurn = latestTurnContextSuffix(turn, turn.currentMessage.length);
+  const deduplicatedTurn = withoutTrailingCurrentMessage(turn);
+  const deduplicatedEstimatedInputTokens = estimate(pool, deduplicatedTurn);
+  if (deduplicatedEstimatedInputTokens <= budgetTokens) {
+    return {
+      pool,
+      turn: deduplicatedTurn,
+      budgetTokens,
+      estimatedInputTokens: deduplicatedEstimatedInputTokens,
+      originalEstimatedInputTokens,
+    };
+  }
+
+  const minimumTurn = latestTurnContextSuffix(
+    deduplicatedTurn,
+    deduplicatedTurn.currentMessage.length,
+  );
   const fittingPool: SelectorPool = {
     stable: pool.stable.filter(
       (candidate) =>
@@ -821,20 +855,23 @@ function budgetSelectorPool({
   }
 
   const preferredCandidatePool = highestPriorityCandidates(fittingPool, 1);
-  let budgetedTurn = turn;
+  let budgetedTurn = deduplicatedTurn;
   if (estimate(preferredCandidatePool, budgetedTurn) > budgetTokens) {
-    let low = turn.currentMessage.length;
-    let high = turnContextChars(turn);
+    let low = deduplicatedTurn.currentMessage.length;
+    let high = turnContextChars(deduplicatedTurn);
     while (low < high) {
       const retainedChars = Math.ceil((low + high) / 2);
-      const candidateTurn = latestTurnContextSuffix(turn, retainedChars);
+      const candidateTurn = latestTurnContextSuffix(
+        deduplicatedTurn,
+        retainedChars,
+      );
       if (estimate(preferredCandidatePool, candidateTurn) <= budgetTokens) {
         low = retainedChars;
       } else {
         high = retainedChars - 1;
       }
     }
-    budgetedTurn = latestTurnContextSuffix(turn, low);
+    budgetedTurn = latestTurnContextSuffix(deduplicatedTurn, low);
   }
 
   let low = 1;
