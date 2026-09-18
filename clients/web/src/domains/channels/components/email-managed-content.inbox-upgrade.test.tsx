@@ -77,15 +77,22 @@ describe("EmailManagedContent · not entitled", () => {
     expect(
       screen.getByText("Give your assistant its own email address"),
     ).toBeTruthy();
-    expect(screen.queryByText("Give your assistant an inbox")).toBeNull();
+    expect(screen.queryByText("hi@ada.example.com")).toBeNull();
   });
 
-  test("draws the inbox's upgrade card once the flag is on", () => {
+  test("draws the inbox's pitch once the flag is on, without a title of its own", () => {
     useClientFeatureFlagStore.setState({ assistantInbox: true });
     renderNotEntitled();
 
-    expect(screen.getByText("Give your assistant an inbox")).toBeTruthy();
     expect(screen.getByText("hi@ada.example.com")).toBeTruthy();
+    expect(
+      screen.getByText("Your assistant reads, sorts, and replies for you"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Upgrade to Super/ }),
+    ).toBeTruthy();
+    // The Email section's header introduces the pitch; the body repeats none of it.
+    expect(screen.queryByRole("heading")).toBeNull();
     expect(
       screen.queryByText("Give your assistant its own email address"),
     ).toBeNull();

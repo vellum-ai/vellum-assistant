@@ -87,9 +87,11 @@ export const NotEntitled: Story = {
 const STORY_ASSISTANT_ID = "story-assistant";
 
 /**
- * The same wall with the `assistant-inbox` flag on: the Assistant Inbox's own
- * upgrade card, so the pitch reads the same from the Channels page as from
- * the inbox. The rail entry is seeded as dismissed, which is what brings up
+ * The same wall with the `assistant-inbox` flag on: the body of the Assistant
+ * Inbox's pitch, set at the start with a plain perk list and no card of its
+ * own, since the Email section around it is the card and its header carries
+ * the pitch's title (that swap lives in `EmailChannelSection`, so it is not
+ * drawn here). The rail entry is seeded as dismissed, which is what brings up
  * the "Add it back" line under the actions; press it and the line goes.
  */
 export const NotEntitledInboxFlagOn: Story = {

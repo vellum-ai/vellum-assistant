@@ -4,10 +4,7 @@ import {
   type AssistantInboxUpgradeCardProps,
 } from "./assistant-inbox-upgrade-card";
 
-export type AssistantInboxUpgradeStateProps = Omit<
-  AssistantInboxUpgradeCardProps,
-  "footnote" | "className"
->;
+export type AssistantInboxUpgradeStateProps = AssistantInboxUpgradeCardProps;
 
 /**
  * The inbox on a plan without managed email: the upgrade card, centred in

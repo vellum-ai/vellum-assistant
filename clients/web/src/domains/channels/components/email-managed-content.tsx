@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { AssistantInboxUpgradeCard } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-card";
+import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
 import { InboxRailRestore } from "@/domains/assistant-inbox/components/inbox-rail-restore";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
@@ -415,20 +415,24 @@ export function EmailManagedContent({
   }
 
   if (isExplicitlyNotEntitled && inboxEnabled) {
-    /* The same card the Assistant Inbox opens onto, so the pitch reads the
-       same from either door, plus the way back for someone who took the
-       inbox entry off the side menu. Behind the inbox's flag: the card
-       promises an inbox, which only exists for people who have the flag. */
+    /* The Assistant Inbox's own pitch, so it reads the same from either
+       door, plus the way back for someone who took the inbox entry off the
+       side menu. No title here: the Email section's header carries the
+       pitch's title and line in this state (see `EmailChannelSection`), and
+       the body sits at the start under it rather than in a card of its own.
+       Behind the inbox's flag: the pitch promises an inbox, which only
+       exists for people who have the flag. */
     return (
-      <AssistantInboxUpgradeCard
+      <AssistantInboxUpgradeBody
         assistantId={activeAssistantId}
         assistantName={assistantName ?? ""}
         handle={assistantHandle ?? ""}
         rootDomain={emailRootDomain}
         onUpgrade={() => navigate(routes.plans)}
         onSeePlans={() => navigate(routes.plans)}
-        footnote={<InboxRailRestore />}
-        className="mx-auto shadow-none"
+        footnote={<InboxRailRestore align="start" />}
+        align="start"
+        plainPerks
       />
     );
   }

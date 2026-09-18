@@ -2,6 +2,9 @@
   "src/domains/assistant-inbox/assistant-inbox.stories.tsx": [
     "chat"
   ],
+  "src/domains/channels/components/email-channel-section.tsx": [
+    "assistant-inbox"
+  ],
   "src/domains/channels/components/email-managed-content.tsx": [
     "assistant-inbox"
   ],
