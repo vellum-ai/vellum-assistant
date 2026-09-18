@@ -35,8 +35,11 @@ export function AssistantHandleLineView({
       className={cn(
         /* The leading pad is the pencil's width and gap, so the handle itself
            stays on the greeting's axis whether or not the pencil shows. */
-        "group/handle inline-flex cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-1.5 pl-6",
-        "text-body-medium-lighter text-[var(--content-tertiary)]",
+        "group/handle inline-flex cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-1.5 pl-[26px]",
+        /* Sized against the headline above it, not the body scale: large
+           enough to read as the second line of the name, small enough to stay
+           its footnote. It steps down where the headline does. */
+        "text-[1.125rem] leading-snug max-sm:text-body-large-lighter text-[var(--content-tertiary)]",
         "transition-colors duration-150 hover:text-[var(--content-default)]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         hidden && "invisible",
@@ -46,7 +49,7 @@ export function AssistantHandleLineView({
       <Pencil
         aria-hidden="true"
         className={cn(
-          "size-3 shrink-0 opacity-0 transition-opacity duration-150",
+          "size-3.5 shrink-0 opacity-0 transition-opacity duration-150",
           "group-hover/handle:opacity-100 group-focus-visible/handle:opacity-100",
           "[@media(hover:none)]:opacity-100",
         )}
