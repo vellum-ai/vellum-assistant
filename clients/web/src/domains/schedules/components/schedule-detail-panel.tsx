@@ -711,11 +711,7 @@ export function ScheduleDetailPanel({
                 ) : null}
                 <Button
                   variant="primary"
-                  leftIcon={
-                    isRunning ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : undefined
-                  }
+                  loading={isRunning}
                   onClick={() => void handleRunNow()}
                   disabled={isRunning || runNowBlocked}
                 >

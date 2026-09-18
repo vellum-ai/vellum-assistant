@@ -410,13 +410,10 @@ export function OverridesDetailPanel({
       <Button
         variant="primary"
         onClick={() => void handleSave()}
+        loading={saving}
         disabled={!hasUnsavedDrafts || hasValidationError || saving}
       >
-        {saving ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          t("overridesDetailPanel.save")
-        )}
+        {t("overridesDetailPanel.save")}
       </Button>
     </div>
   );

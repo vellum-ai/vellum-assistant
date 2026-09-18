@@ -18,7 +18,6 @@ import {
   ChevronLeft,
   ChevronRight,
   GraduationCap,
-  Loader2,
   MessageSquareWarning,
 } from "lucide-react";
 import { type ComponentType, useCallback, useMemo, useState } from "react";
@@ -529,9 +528,7 @@ export function WatchRetroSurface({
             <Button
               variant="primary"
               disabled={submitting}
-              leftIcon={
-                submitting ? <Loader2 className="animate-spin" /> : undefined
-              }
+              loading={submitting}
               rightIcon={
                 onSummary || totalPages === 1 ? undefined : <ChevronRight />
               }

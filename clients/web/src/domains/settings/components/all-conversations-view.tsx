@@ -11,7 +11,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Archive, Loader2, RotateCcw, Search } from "lucide-react";
+import { Archive, RotateCcw, Search } from "lucide-react";
 import { type ChangeEvent, useCallback, useMemo, useState } from "react";
 
 import {
@@ -110,24 +110,18 @@ function ConversationRow({
       <Button
         variant="outlined"
         onClick={archived ? onUnarchive : onArchive}
+        loading={isPending}
+        leftIcon={archived ? undefined : <Archive />}
         disabled={isPending}
         className="shrink-0"
       >
-        {isPending ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {archived
-              ? t("allConversationsView.unarchiving")
-              : t("allConversationsView.archiving")}
-          </>
-        ) : archived ? (
-          t("allConversationsView.unarchive")
-        ) : (
-          <>
-            <Archive className="h-4 w-4" />
-            {t("allConversationsView.archive")}
-          </>
-        )}
+        {isPending
+          ? archived
+            ? t("allConversationsView.unarchiving")
+            : t("allConversationsView.archiving")
+          : archived
+            ? t("allConversationsView.unarchive")
+            : t("allConversationsView.archive")}
       </Button>
     </div>
   );

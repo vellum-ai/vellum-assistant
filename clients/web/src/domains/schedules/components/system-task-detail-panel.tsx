@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2, Play, Settings } from "lucide-react";
+import { Play, Settings } from "lucide-react";
 import { useNavigate } from "react-router";
 
 import { DetailShellHeader } from "@/components/detail-shell";
@@ -324,13 +324,8 @@ export function SystemTaskDetailPanel({
           {onRunNow ? (
             <Button
               variant="primary"
-              leftIcon={
-                isRunning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )
-              }
+              loading={isRunning}
+              leftIcon={<Play className="h-3.5 w-3.5" />}
               onClick={onRunNow}
               disabled={runNowDisabled}
             >

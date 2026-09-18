@@ -106,13 +106,8 @@ function HeaderDownloadButton({
     <Button
       variant="ghost"
       size="regular"
-      iconOnly={
-        isDownloading ? (
-          <Loader2 className="animate-spin" aria-hidden />
-        ) : (
-          <Download aria-hidden />
-        )
-      }
+      loading={isDownloading}
+      iconOnly={<Download aria-hidden />}
       onClick={() => void download()}
       disabled={isDownloading}
       aria-label={t("workspaceFileViewer.downloadAria", { name })}
@@ -421,13 +416,8 @@ function BinaryFileCard({
           <Button
             variant="outlined"
             size="compact"
-            leftIcon={
-              isDownloading ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Download aria-hidden />
-              )
-            }
+            loading={isDownloading}
+            leftIcon={<Download aria-hidden />}
             onClick={handleDownload}
             disabled={isDownloading}
             aria-label={t("workspaceFileViewer.downloadAria", { name })}

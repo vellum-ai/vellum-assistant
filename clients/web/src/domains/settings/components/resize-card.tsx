@@ -278,13 +278,8 @@ export function ResizeCard({
           <Button
             variant="ghost"
             size="compact"
-            iconOnly={
-              healthzFetching || healthzPolling ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <RefreshCw />
-              )
-            }
+            loading={healthzFetching || healthzPolling}
+            iconOnly={<RefreshCw />}
             tooltip={
               healthzPolling
                 ? t("resizeCard.applyingResize")
@@ -519,9 +514,7 @@ export function ResizeCard({
                   (effectiveSelectedSize == null && !canGrowStorage) ||
                   isLoading
                 }
-                leftIcon={
-                  isLoading ? <Loader2 className="animate-spin" /> : undefined
-                }
+                loading={isLoading}
                 onClick={() => {
                   setResizeError(null);
                   const body: {

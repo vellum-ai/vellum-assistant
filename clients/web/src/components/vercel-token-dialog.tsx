@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
@@ -102,9 +101,7 @@ export function VercelTokenDialog({
             variant="primary"
             onClick={handleSave}
             disabled={isSaving || !token.trim()}
-            leftIcon={
-              isSaving ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={isSaving}
           >
             {isSaving
               ? t("vercelTokenDialog.saving")

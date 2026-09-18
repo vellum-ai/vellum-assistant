@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
@@ -101,11 +101,7 @@ export function MaintenanceModeBanner({
           <Button
             variant="primary"
             size="compact"
-            leftIcon={
-              isExiting || isResolving ? (
-                <Loader2 className="animate-spin" />
-              ) : undefined
-            }
+            loading={isExiting || isResolving}
             onClick={() => void handleResumeAssistant()}
             disabled={isExiting || isResolving}
             data-testid="resume-assistant-button"

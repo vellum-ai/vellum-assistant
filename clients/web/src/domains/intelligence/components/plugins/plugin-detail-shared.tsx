@@ -281,13 +281,8 @@ export function PluginDetailActions({
               onClick={handleUpgrade}
               disabled={isUpgrading}
               title={upgradeTitle}
-              leftIcon={
-                isUpgrading ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <ArrowUpCircle aria-hidden />
-                )
-              }
+              loading={isUpgrading}
+              leftIcon={<ArrowUpCircle aria-hidden />}
             >
               {t("pluginDetailShared.upgrade")}
             </Button>
@@ -297,13 +292,8 @@ export function PluginDetailActions({
             variant="dangerOutline"
             onClick={() => setConfirmingRemove(true)}
             disabled={isRemoving}
-            leftIcon={
-              isRemoving ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Trash2 aria-hidden />
-              )
-            }
+            loading={isRemoving}
+            leftIcon={<Trash2 aria-hidden />}
           >
             {t("pluginDetailShared.remove")}
           </Button>
@@ -313,13 +303,8 @@ export function PluginDetailActions({
           type="button"
           onClick={onInstall}
           disabled={isInstalling}
-          leftIcon={
-            isInstalling ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <ArrowDownToLine aria-hidden />
-            )
-          }
+          loading={isInstalling}
+          leftIcon={<ArrowDownToLine aria-hidden />}
         >
           {t("pluginDetailShared.install")}
         </Button>

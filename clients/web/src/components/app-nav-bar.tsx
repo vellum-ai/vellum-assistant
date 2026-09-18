@@ -136,13 +136,8 @@ export function AppNavBar({
               ) : (
                 <Button
                   variant="outlined"
-                  iconOnly={
-                    isDeploying ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <Globe />
-                    )
-                  }
+                  loading={isDeploying}
+                  iconOnly={<Globe />}
                   onClick={onDeploy}
                   disabled={isDeploying}
                   tooltip={
@@ -160,9 +155,8 @@ export function AppNavBar({
             {onShare != null && (
               <Button
                 variant="outlined"
-                iconOnly={
-                  isSharing ? <Loader2 className="animate-spin" /> : <Share />
-                }
+                loading={isSharing}
+                iconOnly={<Share />}
                 onClick={onShare}
                 disabled={isSharing}
                 tooltip={

@@ -1,4 +1,4 @@
-import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
+import { AlertTriangle, File, Upload, X } from "lucide-react";
 import {
   type ChangeEvent,
   type DragEvent,
@@ -420,9 +420,8 @@ export function FileUploadSurface({
           variant="primary"
           disabled={isSubmitting || selectedFiles.length === 0}
           onClick={handleSubmit}
-          leftIcon={
-            isSubmitting ? <Loader2 className="animate-spin" /> : <Upload />
-          }
+          loading={isSubmitting}
+          leftIcon={<Upload />}
         >
           {isSubmitting ? t("fileUploadSurface.uploading") : t("fileUploadSurface.upload")}
         </Button>

@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -77,9 +76,7 @@ export function GracePeriodBanner() {
             void reactivateSubscription();
           }}
           disabled={isPending}
-          leftIcon={
-            isPending ? <Loader2 className="animate-spin" /> : undefined
-          }
+          loading={isPending}
           data-testid="grace-period-reactivate-button"
         >
           {t("gracePeriodBanner.reactivate")}

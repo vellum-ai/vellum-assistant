@@ -896,11 +896,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       <Button
         variant="outlined"
         size="compact"
-        leftIcon={
-          isWakingLocalAssistant ? (
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
-          ) : undefined
-        }
+        loading={isWakingLocalAssistant}
         disabled={!activeAssistantId || isWakingLocalAssistant}
         onClick={() => {
           void handleWakeLocalAssistant();
@@ -1019,11 +1015,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       <Button
         variant="outlined"
         size="compact"
-        leftIcon={
-          isExitingMaintenanceMode ? (
-            <LoaderCircle className="animate-spin" aria-hidden="true" />
-          ) : undefined
-        }
+        loading={isExitingMaintenanceMode}
         disabled={isExitingMaintenanceMode}
         onClick={() => {
           void handleExitMaintenanceMode();

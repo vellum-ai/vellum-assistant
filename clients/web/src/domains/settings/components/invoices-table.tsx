@@ -216,13 +216,8 @@ export function InvoicesTable() {
               {expanded && invoices.length > 0 && (
                 <Button
                   variant="outlined"
-                  leftIcon={
-                    isDownloadingAll ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )
-                  }
+                  loading={isDownloadingAll}
+                  leftIcon={<Download className="h-4 w-4" />}
                   onClick={downloadAllInvoices}
                   disabled={isDownloadingAll}
                   data-testid="invoices-download-all"
@@ -393,11 +388,7 @@ export function InvoicesTable() {
                     variant="link"
                     onClick={loadMore}
                     disabled={invoicesQuery.isFetchingNextPage}
-                    leftIcon={
-                      invoicesQuery.isFetchingNextPage && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )
-                    }
+                    loading={invoicesQuery.isFetchingNextPage}
                     className={FOOTER_LINK_CLASS}
                     data-testid="invoices-load-more"
                   >
@@ -420,11 +411,7 @@ export function InvoicesTable() {
                       variant="link"
                       onClick={retryLoadMore}
                       disabled={retryInFlight}
-                      leftIcon={
-                        retryInFlight && (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        )
-                      }
+                      loading={retryInFlight}
                       className={FOOTER_LINK_CLASS}
                       data-testid="invoices-load-more-retry"
                     >

@@ -1,4 +1,4 @@
-import { Loader2, MoreHorizontal, Settings, Trash2 } from "lucide-react";
+import { MoreHorizontal, Settings, Trash2 } from "lucide-react";
 
 import { ActionMenu } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
@@ -75,11 +75,7 @@ export function McpServerCard({
         ) : (
           <Button
             variant={needsAuth ? "primary" : "outlined"}
-            leftIcon={
-              isAuthenticating ? (
-                <Loader2 className="animate-spin" />
-              ) : undefined
-            }
+            loading={isAuthenticating}
             onClick={() => {
               if (pluginOwned) {
                 onManagePlugin(server.pluginName);
