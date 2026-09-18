@@ -17,21 +17,10 @@ const ALL_SCENARIOS: ApprovalMessageScenario[] = [
   "standard_prompt",
   "guardian_prompt",
   "reminder_prompt",
-  "guardian_delivery_failed",
-  "guardian_request_forwarded",
-  "guardian_disambiguation",
   "guardian_identity_mismatch",
   "request_pending_guardian",
-  "guardian_decision_outcome",
-  "guardian_expired_requester",
-  "guardian_expired_guardian",
-  "guardian_verify_success",
   "guardian_verify_failed",
   "guardian_verify_challenge_setup",
-  "guardian_verify_status_bound",
-  "guardian_verify_status_unbound",
-  "guardian_deny_no_identity",
-  "guardian_deny_no_binding",
 ];
 
 describe("approval-message-composer", () => {
@@ -66,59 +55,6 @@ describe("approval-message-composer", () => {
       expect(msg).toContain("write_file");
     });
 
-    test("guardian_delivery_failed includes toolName when provided", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_delivery_failed",
-        toolName: "execute_shell",
-      });
-      expect(msg).toContain("execute_shell");
-    });
-
-    test("guardian_request_forwarded includes toolName", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_request_forwarded",
-        toolName: "execute_shell",
-      });
-      expect(msg).toContain("execute_shell");
-    });
-
-    test("guardian_disambiguation includes pendingCount", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_disambiguation",
-        pendingCount: 3,
-      });
-      expect(msg).toContain("3");
-    });
-
-    test("guardian_decision_outcome includes decision and toolName", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_decision_outcome",
-        decision: "approved",
-        toolName: "read_file",
-      });
-      expect(msg).toContain("approved");
-      expect(msg).toContain("read_file");
-    });
-
-    test("guardian_expired_requester includes toolName", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_expired_requester",
-        toolName: "deploy",
-      });
-      expect(msg).toContain("deploy");
-      expect(msg).toContain("expired");
-    });
-
-    test("guardian_expired_guardian includes requester and toolName", () => {
-      const msg = getFallbackMessage({
-        scenario: "guardian_expired_guardian",
-        requesterIdentifier: "bob",
-        toolName: "delete_file",
-      });
-      expect(msg).toContain("bob");
-      expect(msg).toContain("delete_file");
-    });
-
     test("guardian_verify_failed includes failureReason", () => {
       const msg = getFallbackMessage({
         scenario: "guardian_verify_failed",
@@ -141,36 +77,7 @@ describe("approval-message-composer", () => {
   // -----------------------------------------------------------------------
 
   describe("composeApprovalMessage", () => {
-    test("returns assistantPreface when provided (primary source)", () => {
-      const preface = "The assistant already said something helpful.";
-      const msg = composeApprovalMessage({
-        scenario: "standard_prompt",
-        toolName: "execute_shell",
-        assistantPreface: preface,
-      });
-      expect(msg).toBe(preface);
-    });
-
-    test("ignores empty assistantPreface and falls back to template", () => {
-      const msg = composeApprovalMessage({
-        scenario: "standard_prompt",
-        toolName: "execute_shell",
-        assistantPreface: "",
-      });
-      expect(msg).toContain("execute_shell");
-      expect(msg).not.toBe("");
-    });
-
-    test("ignores whitespace-only assistantPreface", () => {
-      const msg = composeApprovalMessage({
-        scenario: "standard_prompt",
-        toolName: "execute_shell",
-        assistantPreface: "   ",
-      });
-      expect(msg).toContain("execute_shell");
-    });
-
-    test("falls back to deterministic template when no assistantPreface", () => {
+    test("returns the deterministic template", () => {
       const msg = composeApprovalMessage({
         scenario: "guardian_prompt",
         toolName: "write_file",
@@ -221,30 +128,6 @@ describe("approval-message-composer", () => {
       expect(typeof msg).toBe("string");
       expect(msg.length).toBeGreaterThan(0);
       expect(msg).toContain("invalid or has expired");
-    });
-
-    test("guardian_verify_success produces a non-empty success message", () => {
-      const msg = composeApprovalMessage({
-        scenario: "guardian_verify_success",
-      });
-      expect(typeof msg).toBe("string");
-      expect(msg.length).toBeGreaterThan(0);
-    });
-
-    test("guardian_verify_status_bound produces a non-empty message", () => {
-      const msg = composeApprovalMessage({
-        scenario: "guardian_verify_status_bound",
-      });
-      expect(typeof msg).toBe("string");
-      expect(msg.length).toBeGreaterThan(0);
-    });
-
-    test("guardian_verify_status_unbound produces a non-empty message", () => {
-      const msg = composeApprovalMessage({
-        scenario: "guardian_verify_status_unbound",
-      });
-      expect(typeof msg).toBe("string");
-      expect(msg.length).toBeGreaterThan(0);
     });
   });
 });
