@@ -255,6 +255,7 @@ describe("buildConnectPlan", () => {
         name: "Ashby",
         description: "The Ashby MCP server.",
         configured: false,
+        category: "recruiting",
         method: pluginMethod({
           pluginName: "ashby-mcp",
           oauthProvider: undefined,
@@ -280,6 +281,7 @@ describe("buildConnectPlan", () => {
         name: "Ramp",
         description: "The Ramp MCP server.",
         configured: false,
+        category: "finance",
         method: pluginMethod({ pluginName: "ramp-mcp", logo: "" }),
       },
       { platformGate: "full", ownOAuthAvailable: false, mcpServersLoaded: true },

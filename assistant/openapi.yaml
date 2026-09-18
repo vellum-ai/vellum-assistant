@@ -27691,19 +27691,10 @@ paths:
                             oauthProvider:
                               type: string
                             category:
-                              description: Where the integrations catalog files the entry.
+                              description:
+                                "Where the integrations catalog files the entry: a slug from the shared integration-category vocabulary,
+                                passed through as the catalog declares it."
                               type: string
-                              enum:
-                                - productivity
-                                - communication
-                                - meetings
-                                - sales
-                                - marketing
-                                - finance
-                                - commerce
-                                - engineering
-                                - knowledge
-                                - recruiting
                           required:
                             - kind
                             - displayName
