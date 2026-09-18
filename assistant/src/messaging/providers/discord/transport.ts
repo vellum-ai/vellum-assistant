@@ -1,4 +1,5 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
+import { classifyReactionEmojiSpelling } from "@vellumai/service-contracts/reactions";
 
 import { getLogger } from "../../../util/logger.js";
 import { directDeliveryContext } from "../callback-routing.js";
@@ -10,7 +11,6 @@ import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
-  describeDiscordReactionEmoji,
   editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReaction,
@@ -95,7 +95,7 @@ export const discordTransport: ChannelTransport = {
     return { ok: true };
   },
 
-  describeReactionEmoji: describeDiscordReactionEmoji,
+  describeReactionEmoji: classifyReactionEmojiSpelling,
 
   async react(target) {
     return sendDiscordReaction(

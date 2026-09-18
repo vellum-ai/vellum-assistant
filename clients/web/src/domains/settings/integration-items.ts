@@ -1,4 +1,8 @@
 import { isChannelUserIntegration } from "@vellumai/service-contracts/channels";
+import {
+  type IntegrationCategory,
+  isIntegrationCategory,
+} from "@vellumai/service-contracts/integration-categories";
 
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { OauthProvidersGetResponse } from "@/generated/daemon/types.gen";
@@ -14,6 +18,7 @@ export interface McpPluginDefinition {
   documentationUrl: string;
   logo: string;
   oauthProvider?: string;
+  category?: IntegrationCategory;
   setup: {
     mode: "oauth" | "manual";
     instructions: string;
@@ -44,6 +49,8 @@ export type IntegrationItem = {
   name: string;
   description: string;
   configured: boolean;
+  /** Where the catalog files the integration; a custom server has no place. */
+  category: IntegrationCategory | null;
 } & (
   | {
       kind: "oauth";
@@ -54,6 +61,15 @@ export type IntegrationItem = {
   | { kind: "plugin"; method: McpPluginMethod }
   | { kind: "mcp"; server: McpServerEntry }
 );
+
+/**
+ * The category a catalog entry names, or `null` when this build does not know
+ * it: a newer assistant can file an integration under a category the client
+ * has no chip for, and that integration must still list.
+ */
+export function integrationCategory(value: unknown): IntegrationCategory | null {
+  return isIntegrationCategory(value) ? value : null;
+}
 
 export function summarizeOAuthConnections(connections: OAuthConnection[]) {
   const { connectedCount, needsAttention } = summarizeIntegrationConnections(
@@ -157,6 +173,7 @@ export function buildIntegrationItems(
             .join(" "),
           configured: summarizeIntegrationConnections(accounts, alternatives)
             .configured,
+          category: integrationCategory(provider.category),
           provider,
           connections: accounts,
           methods: alternatives,
@@ -177,6 +194,7 @@ export function buildIntegrationItems(
           configured: Boolean(
             method.definition.installed || method.servers.length > 0,
           ),
+          category: method.definition.category ?? null,
           method,
         }),
       ),
@@ -191,6 +209,7 @@ export function buildIntegrationItems(
             .filter(Boolean)
             .join(" "),
           configured: true,
+          category: null,
           server,
         }),
       ),
@@ -200,9 +219,11 @@ export function buildIntegrationItems(
 export function filterIntegrationItems(
   items: IntegrationItem[],
   searchText: string,
+  category: IntegrationCategory | null = null,
 ): IntegrationItem[] {
   const needle = searchText.trim().toLocaleLowerCase();
   return items
+    .filter((item) => !category || item.category === category)
     .filter(
       (item) =>
         !needle ||

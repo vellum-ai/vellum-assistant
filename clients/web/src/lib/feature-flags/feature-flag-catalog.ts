@@ -21,12 +21,12 @@ const flags = registry.flags as FlagDefinition[];
 
 const STORE_KEY_OVERRIDES: Record<string, string> = {};
 
-function kebabToStoreKey(kebabKey: string): string {
-  const override = STORE_KEY_OVERRIDES[kebabKey];
+export function flagKeyToStoreKey(flagKey: string): string {
+  const override = STORE_KEY_OVERRIDES[flagKey];
   if (override) {
     return override;
   }
-  const parts = kebabKey.split("-");
+  const parts = flagKey.split("-");
   return parts
     .map((part, i) => {
       if (part === "ui") {
@@ -47,7 +47,7 @@ function buildScopeDefaults(scope: SingleScope): Record<string, boolean> {
       continue;
     }
     if (scopeIncludes(flag.scope, scope)) {
-      defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
+      defaults[flagKeyToStoreKey(flag.key)] = flag.defaultEnabled;
     }
   }
   return defaults;
@@ -60,7 +60,7 @@ function buildStringScopeDefaults(scope: SingleScope): Record<string, string> {
       continue;
     }
     if (scopeIncludes(flag.scope, scope)) {
-      defaults[kebabToStoreKey(flag.key)] = flag.defaultEnabled;
+      defaults[flagKeyToStoreKey(flag.key)] = flag.defaultEnabled;
     }
   }
   return defaults;
@@ -77,16 +77,12 @@ export type AssistantFeatureFlags = Record<string, boolean>;
 
 const STORE_KEY_TO_FLAG = new Map<string, FlagDefinition>();
 for (const flag of flags) {
-  STORE_KEY_TO_FLAG.set(kebabToStoreKey(flag.key), flag);
+  STORE_KEY_TO_FLAG.set(flagKeyToStoreKey(flag.key), flag);
 }
 
 const STORE_KEY_TO_FLAG_KEY = new Map<string, string>();
 for (const flag of flags) {
-  STORE_KEY_TO_FLAG_KEY.set(kebabToStoreKey(flag.key), flag.key);
-}
-
-export function flagKeyToStoreKey(flagKey: string): string {
-  return kebabToStoreKey(flagKey);
+  STORE_KEY_TO_FLAG_KEY.set(flagKeyToStoreKey(flag.key), flag.key);
 }
 
 export function storeKeyToFlagKey(storeKey: string): string | undefined {

@@ -45,6 +45,9 @@ export function retagDelegateError(
       maxTokens: error.maxTokens,
       statusCode: error.statusCode,
       cause: error,
+      ...(error.rawRequest !== undefined
+        ? { rawRequest: error.rawRequest }
+        : {}),
     });
   }
   if (error instanceof ProviderError && error.provider !== providerName) {
@@ -57,6 +60,9 @@ export function retagDelegateError(
       apiErrorCode: error.apiErrorCode,
       apiErrorParam: error.apiErrorParam,
       rawBody: error.rawBody,
+      ...(error.rawRequest !== undefined
+        ? { rawRequest: error.rawRequest }
+        : {}),
     });
   }
   throw error;

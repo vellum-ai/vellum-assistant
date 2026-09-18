@@ -6,7 +6,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   type PTTActivator,
-  eventActivatesPTT,
   parseActivator,
   serializeActivator,
 } from "@/utils/ptt-activator";
@@ -105,16 +104,4 @@ export function readVoiceModeActivator(): VoiceModeActivator {
 
 export function writeVoiceModeActivator(activator: VoiceModeActivator): void {
   setLocalSetting(LS_VOICE_MODE_ACTIVATION_KEY, serializeActivator(activator));
-}
-
-/**
- * Whether this keyboard event satisfies the binding. Shares push to talk's
- * matcher: the difference between the two is what happens next, not what
- * counts as a match.
- */
-export function eventMatchesVoiceModeActivator(
-  event: KeyboardEvent,
-  activator: VoiceModeActivator,
-): boolean {
-  return eventActivatesPTT(event, activator);
 }

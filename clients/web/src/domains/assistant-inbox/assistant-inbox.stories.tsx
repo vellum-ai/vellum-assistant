@@ -194,6 +194,7 @@ export const UpgradeRequired: Story = {
       assistantName={MOCK_ASSISTANT_NAME}
       handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
+      onEditHandle={fn().mockName("onEditHandle")}
       onUpgrade={fn().mockName("onUpgrade")}
       onSeePlans={fn().mockName("onSeePlans")}
     />
@@ -208,6 +209,29 @@ export const SetUpEmail: Story = {
       assistantId={ASSISTANT_ID}
       handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
+      onConfirm={fn().mockName("onConfirm")}
+    />
+  ),
+};
+
+/**
+ * Entitled, no address, and no domain either: the handle is still open, so
+ * it is a field with the permanence warning. The story's probe refuses the
+ * handle `taken`, to show the inline refusal and the held action.
+ */
+export const SetUpEmailChooseHandle: Story = {
+  name: "2b · Set up email, choosing a handle",
+  render: () => (
+    <AssistantInboxSetupCard
+      assistantId={ASSISTANT_ID}
+      handle="bright-vole-02a64h"
+      rootDomain={MOCK_ROOT_DOMAIN}
+      handleEditable
+      checkHandle={async (handle) =>
+        handle === "taken"
+          ? { available: false, message: "That handle is already taken." }
+          : { available: true }
+      }
       onConfirm={fn().mockName("onConfirm")}
     />
   ),
@@ -262,6 +286,41 @@ export const SentFolder: Story = {
       now={MOCK_NOW}
       initialFolder="sent"
       initialSelectedId="out-3"
+    />
+  ),
+};
+
+/**
+ * Rows as the platform lists them, with no preview, body, or attachments,
+ * and a loader that takes a moment to answer: the shape production runs on.
+ * Open a message to see the pane load the body in.
+ */
+export const InboxFetchedBodies: Story = {
+  name: "3e · Bodies fetched on open",
+  render: () => (
+    <AssistantInboxPage
+      assistantId={ASSISTANT_ID}
+      assistantName={MOCK_ASSISTANT_NAME}
+      address={MOCK_ADDRESS}
+      inbox={MOCK_INBOX.map(
+        ({ snippet: _snippet, body: _body, attachments: _a, ...row }) => row,
+      )}
+      sent={MOCK_SENT.map(
+        ({ snippet: _snippet, body: _body, attachments: _a, ...row }) => row,
+      )}
+      usage={MOCK_USAGE}
+      now={MOCK_NOW}
+      loadDetail={async (email) => {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const full = [...MOCK_INBOX, ...MOCK_SENT].find(
+          (candidate) => candidate.id === email.id,
+        );
+        return {
+          body: full?.body ?? "",
+          attachments: full?.attachments ?? [],
+        };
+      }}
+      onAskToReply={fn().mockName("onAskToReply")}
     />
   ),
 };

@@ -3,7 +3,10 @@ import type {
   PluginsSearchGetResponse,
 } from "@/generated/daemon/types.gen";
 
-import type { McpPluginDefinition } from "../integration-items";
+import {
+  integrationCategory,
+  type McpPluginDefinition,
+} from "../integration-items";
 
 type CatalogMatch = PluginsSearchGetResponse["matches"][number];
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
@@ -30,6 +33,7 @@ export function buildMcpPluginDefinitions(
         documentationUrl: integration.documentationUrl,
         logo: integration.logo,
         oauthProvider: integration.oauthProvider,
+        category: integrationCategory(integration.category) ?? undefined,
         setup: integration.setup,
         installed: installed
           ? {

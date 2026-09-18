@@ -55,6 +55,58 @@ export function resolveImageModel(model: string): ImageModelEntry | undefined {
   return IMAGE_MODELS.find((m) => m.alias === model || m.id === model);
 }
 
+const OPENROUTER_VENDOR_PREFIX: Record<ImageModelProvider, string> = {
+  gemini: "google",
+  openai: "openai",
+};
+
+export const DEFAULT_OPENROUTER_IMAGE_MODEL =
+  "google/gemini-3.1-flash-image-preview";
+
+/**
+ * Qualify a built-in alias or concrete ID for OpenRouter's Images API.
+ * Unknown values are returned trimmed so live catalog slugs pass through.
+ */
+export function qualifyImageModelForOpenRouter(model: string): string {
+  const trimmed = model.trim();
+  const entry = resolveImageModel(trimmed);
+  if (!entry) {
+    return trimmed;
+  }
+  return `${OPENROUTER_VENDOR_PREFIX[entry.provider]}/${entry.id}`;
+}
+
+/**
+ * Resolve a caller-supplied image model against the configured provider.
+ *
+ * OpenRouter accepts any trimmed slug from its live catalog. Built-in
+ * aliases and bare IDs are qualified (`fast` ->
+ * `google/gemini-3.1-flash-image-preview`). Gemini, OpenAI, and Vellum
+ * still require a registry match.
+ */
+export function resolveRequestedImageModel(
+  model: unknown,
+  configuredProvider: string,
+): { model?: string; error?: string } {
+  if (typeof model !== "string" || !model) {
+    return {};
+  }
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return {};
+  }
+  if (configuredProvider === "openrouter") {
+    return { model: qualifyImageModelForOpenRouter(trimmed) };
+  }
+  const entry = resolveImageModel(trimmed);
+  if (!entry) {
+    return {
+      error: `Unknown model "${trimmed}". Available models and aliases:\n${describeImageModels()}`,
+    };
+  }
+  return { model: entry.id };
+}
+
 /**
  * One line per model: "alias -> id (label)". Used in CLI help text and in
  * unknown-model error messages so the available set is always current.

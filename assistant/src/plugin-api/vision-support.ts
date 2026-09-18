@@ -37,15 +37,24 @@ import {
 } from "../providers/model-catalog.js";
 import type { ModelProfileInfo } from "./types.js";
 
+/** A fully resolved provider target plus the winning profile's policy. */
+export interface ResolvedVisionTarget {
+  readonly provider?: string;
+  readonly model: string;
+  readonly inputModalities?: InputModalities | null;
+}
+
 /**
  * Whether the given model or profile can process image input.
  *
- * `modelOrProfile` may be a concrete model id, a profile key, or a
- * {@link ModelProfileInfo}. A bare string is resolved as a model id first and,
- * failing that, as a profile key. Returns `false` when nothing resolves.
+ * `modelOrProfile` may be a concrete model id, a profile key, a
+ * {@link ModelProfileInfo}, or a fully resolved target. A resolved target
+ * combines the final provider/model with the winning profile's modality
+ * policy. A bare string is resolved as a model id first and, failing that, as
+ * a profile key. Returns `false` when nothing resolves.
  */
 export function doesSupportVision(
-  modelOrProfile: ModelProfileInfo | string,
+  modelOrProfile: ModelProfileInfo | ResolvedVisionTarget | string,
 ): boolean {
   if (typeof modelOrProfile === "string") {
     // Concrete catalog model id first, then a profile key, then any profile
@@ -58,7 +67,10 @@ export function doesSupportVision(
       false
     );
   }
-  return profileVision(modelOrProfile.key) ?? false;
+  if ("key" in modelOrProfile) {
+    return profileVision(modelOrProfile.key) ?? false;
+  }
+  return resolveEntryVision(modelOrProfile) ?? false;
 }
 
 /**

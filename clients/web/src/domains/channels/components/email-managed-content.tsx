@@ -5,6 +5,9 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
+import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
+import { InboxRailRestore } from "@/domains/assistant-inbox/components/inbox-rail-restore";
 import { DomainField } from "@/domains/channels/components/domain-field";
 import {
   assistantsDomainsCreateMutation,
@@ -30,6 +33,8 @@ import {
   channelsReadinessRefreshPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -54,7 +59,11 @@ export const DOMAIN_VERIFICATION_POLL_MS = 10_000;
 export function domainVerificationRefetchInterval(
   status: DomainVerificationStatusStatusEnum | undefined,
 ): number | false {
-  if (status === "verified" || status === "failed" || status === "not_started") {
+  if (
+    status === "verified" ||
+    status === "failed" ||
+    status === "not_started"
+  ) {
     return false;
   }
   return DOMAIN_VERIFICATION_POLL_MS;
@@ -214,6 +223,9 @@ export function EmailManagedContent({
   // daemon readiness query in `useAssistantChannels` is cached under the
   // active id (a local slug on self-hosted assistants).
   const activeAssistantId = useActiveAssistantId();
+  const assistantName = useAssistantIdentityStore.use.name();
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const handleModal = useAssistantHandleModal(activeAssistantId);
   const refreshReadinessMutateAsync = refreshReadiness.mutateAsync;
   const refreshChannelReadiness = useCallback(() => {
     void refreshReadinessMutateAsync({
@@ -401,6 +413,32 @@ export function EmailManagedContent({
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("emailManagedContent.checkingSubscription")}
       </div>
+    );
+  }
+
+  if (isExplicitlyNotEntitled && inboxEnabled) {
+    /* The Assistant Inbox's own pitch, so it reads the same from either
+       door, plus the way back for someone who took the inbox entry off the
+       side menu. No title here: the Email section's header carries the
+       pitch's title and line in this state (see `EmailChannelSection`), and
+       the body sits at the start under it rather than in a card of its own.
+       Behind the inbox's flag: the pitch promises an inbox, which only
+       exists for people who have the flag. */
+    return (
+      <>
+        <AssistantInboxUpgradeBody
+          assistantId={activeAssistantId}
+          assistantName={assistantName ?? ""}
+          handle={assistantHandle ?? ""}
+          rootDomain={emailRootDomain}
+          onEditHandle={handleModal.openModal ?? undefined}
+          onUpgrade={() => navigate(routes.plans)}
+          onSeePlans={() => navigate(routes.plans)}
+          footnote={<InboxRailRestore align="start" />}
+          align="start"
+        />
+        {handleModal.modal}
+      </>
     );
   }
 

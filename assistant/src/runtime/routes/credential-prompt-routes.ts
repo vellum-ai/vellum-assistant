@@ -177,13 +177,14 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
           expiresAt: result.collectionExpiresAt,
           service: validated.service,
           field: validated.field,
-          message: `This channel does not support secure input. The credential has NOT been stored yet. Share this one-time link with the user to collect it securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
+          message: `${validated.conversationId ? "This channel does not support secure input." : "No conversation is attached to this invocation, so no secure prompt can be shown."} The credential has NOT been stored yet. Share this one-time link with the user to collect it securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
         };
       }
       return {
         ok: false,
-        error:
-          "This conversation's channel does not support secure credential entry",
+        error: validated.conversationId
+          ? "This conversation's channel does not support secure credential entry"
+          : "No conversation is attached to this invocation, so no secure prompt can be shown, and a one-time collection link could not be created. Ask the user to add the credential in the app under Settings > Credentials. Never ask them to paste it into chat.",
       };
     }
     // An explicit user cancel is a valid flow, not a failure. Keep it distinct

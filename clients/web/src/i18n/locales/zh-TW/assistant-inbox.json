@@ -30,18 +30,23 @@
   },
   "emailListRow": {
     "toPrefix": "寄給 {name}",
-    "attachments": "{count, plural, other {# 個附件}}"
+    "attachments": "{count, plural, other {# 個附件}}",
+    "noSubject": "（無主旨）"
   },
   "emailDetail": {
     "from": "寄件者",
     "to": "收件者",
     "sentBy": "由 {name} 寄出",
     "attachments": "附件",
-    "askToReply": "請 {name} 回覆"
+    "askToReply": "請 {name} 回覆",
+    "loading": "正在載入郵件…",
+    "loadFailed": "無法載入這封郵件。"
   },
   "emailAddressFields": {
     "prefixLabel": "前綴",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "使用者名稱（公開）",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "給 {name} 一個收件匣",
@@ -50,11 +55,29 @@
     "perkReads": "{name} 為你閱讀、整理並回覆",
     "perkHistory": "每封郵件都保存在這裡，包括收件和寄件",
     "upgradeButton": "升級到 Super",
-    "seePlans": "查看方案"
+    "seePlans": "查看方案",
+    "titleNoName": "給你的助理一個收件匣",
+    "perkReadsNoName": "你的助理為你閱讀、整理並回覆",
+    "changeHandle": "變更使用者名稱"
   },
   "assistantInboxSetupCard": {
     "title": "助理電子郵件",
     "subtitle": "為你的助理設定一個電子郵件。",
-    "getStarted": "開始使用"
+    "getStarted": "開始使用",
+    "subtitleChooseHandle": "領取你的專屬使用者名稱，並設定助理的電子郵件。",
+    "immutableNotice": "該使用者名稱將成為你的助理的公開使用者名稱，設定後將無法更改。"
+  },
+  "assistantInboxRoute": {
+    "loading": "正在開啟收件匣…",
+    "setupFailed": "無法設定該地址。",
+    "setupSucceeded": "{address} 已就緒。",
+    "replyPrompt": "回覆你收件匣中 id 為 {id} 的郵件（來自 {sender}，主旨為「{subject}」）。請先用 `assistant email download {id}` 讀取它，然後草擬回覆並在寄出前給我看。",
+    "mailFailed": "無法載入郵件。",
+    "retry": "重試"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "助理收件匣已從側邊選單隱藏。",
+    "restoreButton": "重新加入",
+    "restoredToast": "助理收件匣已回到側邊選單。"
   }
 }

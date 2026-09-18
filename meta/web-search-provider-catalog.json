@@ -74,6 +74,17 @@
       "privacyPolicyUrl": "https://fastcrw.com/privacy",
       "supportsApiBase": true,
       "defaultApiBase": "https://api.fastcrw.com"
+    },
+    {
+      "id": "searxng",
+      "displayName": "SearXNG",
+      "kind": "byok",
+      "apiKeyPrefix": "token (optional)",
+      "envVar": "SEARXNG_API_KEY",
+      "secretKey": "searxng",
+      "fallbackOrder": 7,
+      "privacyPolicyUrl": "https://docs.searxng.org/own-instance.html",
+      "supportsApiBase": true
     }
   ]
 }

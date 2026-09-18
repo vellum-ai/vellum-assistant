@@ -1,14 +1,21 @@
 import { Inbox, Search, Send } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { useQuery } from "@tanstack/react-query";
+
 import { Card, cn, Input, SegmentControl } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
-import type { InboxEmail, InboxFolder, InboxUsage } from "../types";
+import type {
+  EmailDetailLoader,
+  InboxEmail,
+  InboxFolder,
+  InboxUsage,
+} from "../types";
 import { AssistantInboxHeader } from "./assistant-inbox-header";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
-import { EmailDetail } from "./email-detail";
+import { EmailDetail, type EmailDetailState } from "./email-detail";
 import { EmailList } from "./email-list";
 
 /** The same rounded, unbordered surface the sidebar's section cards use. */
@@ -61,7 +68,7 @@ function FolderEmptyState({
 function matchesQuery(email: InboxEmail, query: string): boolean {
   const haystack = [
     email.subject,
-    email.snippet,
+    email.snippet ?? "",
     email.from.name ?? "",
     email.from.address,
     ...email.to.flatMap((to) => [to.name ?? "", to.address]),
@@ -84,6 +91,12 @@ export interface AssistantInboxPageProps {
   initialFolder?: InboxFolder;
   /** A message to open on, for a deep link or a story. Must be in `initialFolder`. */
   initialSelectedId?: string | null;
+  /**
+   * Fetches a message's body and attachments when it is opened, for rows
+   * that came without them. A row that already carries a body (a fixture,
+   * a prefetched message) is drawn from what it has and never fetched.
+   */
+  loadDetail?: EmailDetailLoader;
   onAskToReply?: (email: InboxEmail) => void;
 }
 
@@ -107,6 +120,7 @@ export function AssistantInboxPage({
   now,
   initialFolder = "inbox",
   initialSelectedId = null,
+  loadDetail,
   onAskToReply,
 }: AssistantInboxPageProps) {
   const { t } = useTranslation("assistant-inbox");
@@ -127,6 +141,31 @@ export function AssistantInboxPage({
     [folderEmails, trimmedQuery],
   );
   const selected = emails.find((email) => email.id === selectedId) ?? null;
+
+  /* The body arrives with the row or with a fetch, never both: a row that
+     carries one is drawn as is, and only a row without one asks the loader.
+     Keyed on the message so switching messages never shows the last body
+     under the next subject. */
+  const needsFetch = !!selected && selected.body === undefined && !!loadDetail;
+  const detailQuery = useQuery({
+    queryKey: ["assistant-inbox", "detail", selected?.id ?? ""],
+    queryFn: () => loadDetail!(selected!),
+    enabled: needsFetch,
+    staleTime: 5 * 60_000,
+  });
+  const detail: EmailDetailState | null = !selected
+    ? null
+    : selected.body !== undefined
+      ? {
+          status: "ready",
+          body: selected.body,
+          attachments: selected.attachments ?? [],
+        }
+      : detailQuery.data
+        ? { status: "ready", ...detailQuery.data }
+        : detailQuery.isError
+          ? { status: "error" }
+          : { status: "loading" };
 
   const handleFolderChange = useCallback((next: InboxFolder) => {
     setFolder(next);
@@ -210,10 +249,11 @@ export function AssistantInboxPage({
           noPadding
           className={cn(CARD_CLASSES, !selected && "max-md:hidden")}
         >
-          {selected ? (
+          {selected && detail ? (
             <EmailDetail
               key={selected.id}
               email={selected}
+              detail={detail}
               assistantName={assistantName}
               onBack={() => setSelectedId(null)}
               onAskToReply={onAskToReply}

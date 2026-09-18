@@ -97,16 +97,10 @@ export function openOAuthUrlInPopup(href: string | undefined): boolean {
   return true;
 }
 
-export function openMarkdownOAuthLinkInPopup(
-  href: string | undefined,
-): boolean {
-  return openOAuthUrlInPopup(href);
-}
-
 /**
  * Open an external http(s) URL in the browser: OAuth-shaped URLs get the
  * sized popup, everything else a new tab. Returns false when the browser
- * blocked the open — automatic opens (e.g. driven by an SSE event) carry
+ * blocked the open. Automatic opens (e.g. driven by an SSE event) carry
  * no user activation, so callers should surface a clickable fallback that
  * re-invokes this from a real click.
  */

@@ -7,7 +7,6 @@ import {
   attachGoogleThoughtSignature,
   attachGoogleThoughtSignatureIfNeeded,
   backfillGoogleThoughtSignatures,
-  backfillUnsignedGoogleThoughtSignatures,
   geminiThoughtSignaturesByToolCallId,
   googleThoughtSignatureFromUnknown,
   type GoogleToolCallExtraContent,
@@ -177,7 +176,7 @@ describe("thought signature params helpers", () => {
 
   test("backfills the dummy signature onto unsigned tool_calls", () => {
     const params = structuredClone(unsignedParams);
-    expect(backfillUnsignedGoogleThoughtSignatures(params)).toBe(true);
+    expect(backfillGoogleThoughtSignatures(params)).toBe(true);
     expect(messagesCarryGoogleThoughtSignature(params)).toBe(true);
     expect(
       params.messages[0].tool_calls[0].extra_content?.google?.thought_signature,

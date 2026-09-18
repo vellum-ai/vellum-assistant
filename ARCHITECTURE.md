@@ -773,9 +773,12 @@ graph TB
 
 Subagent updates for a conversation with an active live-voice call are claimed by
 the session manager before generic parent-turn injection. The voice session queues
-updates per task and delivers them through hidden voice turns once user speech,
-the current response and queued playback have yielded the floor. Interrupted
-announcements stay pending; hang-up returns undelivered outcomes to the conversation.
+both explicit worker updates and completed interrupted-turn continuations per task.
+Hidden voice turns deliver them once user speech, the current response and queued
+playback have yielded the floor. Reading a result as user-turn context does not
+acknowledge it. Interrupted announcements stay pending across replacement updates;
+prompts use completed-playback receipts to distinguish heard replies from generated
+history. Hang-up returns undelivered outcomes to the conversation.
 See [live voice task outcomes](assistant/docs/live-voice-task-outcomes.md) for routing,
 attribution and playback semantics.
 
@@ -784,9 +787,12 @@ flowchart LR
     Worker[Subagent update] --> Router[Parent notification router]
     Router -->|Matching live call| Queue[Per-task voice queue]
     Router -->|No matching call| Parent[Parent conversation queue]
+    Continuation[Interrupted-turn result] --> Queue
     Queue -->|Floor available| Voice[Hidden voice turn]
     Voice -->|Useful new outcome| Speech[Paced TTS]
-    Voice -->|Silent acknowledgement| Done[Update consumed]
+    Speech -->|Playback completes| Done[Update consumed]
+    Speech -->|Interrupted| Queue
+    Voice -->|Silent acknowledgement| Done
     Queue -->|Hang-up after teardown| Parent
 ```
 
@@ -796,7 +802,7 @@ Hands-free voice records applied browser microphone settings and playback transi
 
 See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
 
-With Flux turn detection enabled, the transcription stream receives quiet microphone frames through pauses and idle periods. Confirmed playback echo becomes equal-duration silence; local VAD continues to own barge-in independently. Submission cadence and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
+With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses, and local VAD continues to own barge-in independently. Gate transitions, submission cadence, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
 ## Watch Sessions
 

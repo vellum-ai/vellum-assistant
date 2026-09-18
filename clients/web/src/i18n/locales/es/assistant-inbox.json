@@ -30,18 +30,23 @@
   },
   "emailListRow": {
     "toPrefix": "Para {name}",
-    "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}"
+    "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}",
+    "noSubject": "(sin asunto)"
   },
   "emailDetail": {
     "from": "De",
     "to": "Para",
     "sentBy": "Enviado por {name}",
     "attachments": "Adjuntos",
-    "askToReply": "Pedir a {name} que responda"
+    "askToReply": "Pedir a {name} que responda",
+    "loading": "Cargando el mensaje…",
+    "loadFailed": "No se pudo cargar este mensaje."
   },
   "emailAddressFields": {
     "prefixLabel": "Prefijo",
-    "prefixPlaceholder": "hola"
+    "prefixPlaceholder": "hola",
+    "handleLabel": "Identificador (público)",
+    "handlePlaceholder": "mi-asistente"
   },
   "assistantInboxUpgradeState": {
     "title": "Dale una bandeja de entrada a {name}",
@@ -50,11 +55,29 @@
     "perkReads": "{name} lee, ordena y responde por ti",
     "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
     "upgradeButton": "Mejorar a Super",
-    "seePlans": "Ver planes"
+    "seePlans": "Ver planes",
+    "titleNoName": "Dale una bandeja de entrada a tu asistente",
+    "perkReadsNoName": "Tu asistente lee, ordena y responde por ti",
+    "changeHandle": "Cambiar identificador"
   },
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
-    "getStarted": "Empezar"
+    "getStarted": "Empezar",
+    "subtitleChooseHandle": "Reclama tu identificador único y configura el correo de tu asistente.",
+    "immutableNotice": "El identificador pasa a ser el identificador público de tu asistente. No podrás cambiarlo una vez establecido."
+  },
+  "assistantInboxRoute": {
+    "loading": "Abriendo la bandeja…",
+    "setupFailed": "No se pudo configurar la dirección.",
+    "setupSucceeded": "{address} está lista.",
+    "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
+    "mailFailed": "No se pudo cargar el correo.",
+    "retry": "Reintentar"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
+    "restoreButton": "Volver a añadirla",
+    "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
   }
 }

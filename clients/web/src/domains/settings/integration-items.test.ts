@@ -25,6 +25,7 @@ function provider(overrides: Partial<OAuthProvider> = {}): OAuthProvider {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    category: "productivity",
     tenant_host: null,
     acts_as: "user",
     ...overrides,
@@ -267,6 +268,37 @@ describe("integration items", () => {
     expect(filterIntegrationItems(items, "mcp.example").map((item) => item.id)).toEqual([
       "mcp:example-server",
     ]);
+  });
+
+  test("narrows to one category when a chip is chosen", () => {
+    const items = buildIntegrationItems(
+      [provider(), provider({ provider_key: "hubspot", category: "sales" })],
+      [],
+      [server()],
+    );
+
+    expect(
+      filterIntegrationItems(items, "", "sales").map((item) => item.id),
+    ).toEqual(["oauth:hubspot"]);
+    // A custom server has no category, so only the unfiltered list has it.
+    expect(
+      filterIntegrationItems(items, "", "productivity").map((item) => item.id),
+    ).toEqual(["oauth:notion"]);
+    expect(filterIntegrationItems(items, "", null).map((item) => item.id)).toEqual([
+      "mcp:example-server",
+      "oauth:hubspot",
+      "oauth:notion",
+    ]);
+  });
+
+  test("files an integration under no category when its slug is unknown here", () => {
+    const [item] = buildIntegrationItems(
+      [provider({ category: "future" as never })],
+      [],
+      [],
+    );
+
+    expect(item.category).toBeNull();
   });
 
   test("searches the visible plugin name when its server also has a URL", () => {

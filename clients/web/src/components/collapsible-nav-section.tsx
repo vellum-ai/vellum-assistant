@@ -20,7 +20,9 @@ import {
   SIDEBAR_MOBILE_CHIP_CLASSES,
   SIDEBAR_MOBILE_GLYPH_CLASSES,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_CONTENT_PADDING_TOP,
   SIDEBAR_SECTION_INDENT,
+  SIDEBAR_SECTION_TITLE_GAP,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
@@ -557,18 +559,22 @@ function CollapsibleNavSectionSection({
       {/*
        * The card carries no padding of its own (the header row above is
        * already a self-contained pill), so the content picks up the same
-       * 12px horizontal inset directly, plus a little vertical breathing
-       * room from the header above it and the card's bottom edge below.
+       * 12px horizontal inset directly, plus the card's bottom edge below.
        * Defined here rather than at each call site so no section can nest
        * differently from the rest.
+       *
+       * The top inset is the one part that is not the same number in both
+       * branches, and deliberately so: it is whatever is left of
+       * {@link SIDEBAR_SECTION_TITLE_GAP} after the header row above has
+       * spent its own surplus height on the same gap, so a title stands the
+       * same distance from its first row whichever surface draws it. See
+       * that constant for why the gap is measured from the title's text.
        */}
       {collapsible ? (
         <Collapsible.Content
           className={cn(
             "sidebar-section-list",
-            card
-              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
-              : "pt-2 pb-2",
+            card ? "[&_[data-slot=side-menu-sub-list]]:gap-0" : "pb-2",
             !unbounded &&
               isLast &&
               "flex min-h-0 flex-col has-[[data-slot=conversation-list-windowed]]:flex-1",
@@ -579,6 +585,9 @@ function CollapsibleNavSectionSection({
               ? 0
               : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+            paddingTop: card
+              ? SIDEBAR_SECTION_TITLE_GAP
+              : SIDEBAR_SECTION_CONTENT_PADDING_TOP,
           }}
         >
           {children}
@@ -589,9 +598,7 @@ function CollapsibleNavSectionSection({
         // in the root's open list.
         <div
           className={cn(
-            card
-              ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
-              : "pt-2 pb-2",
+            card ? "[&_[data-slot=side-menu-sub-list]]:gap-0" : "pb-2",
             contentClassName,
           )}
           style={{
@@ -599,6 +606,9 @@ function CollapsibleNavSectionSection({
               ? 0
               : SIDEBAR_ROW_PADDING_X + SIDEBAR_SECTION_INDENT,
             paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
+            paddingTop: card
+              ? SIDEBAR_SECTION_TITLE_GAP
+              : SIDEBAR_SECTION_CONTENT_PADDING_TOP,
           }}
         >
           {children}

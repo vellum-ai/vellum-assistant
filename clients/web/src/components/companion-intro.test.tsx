@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -138,6 +138,110 @@ describe("the companion introduction's clearance", () => {
         (beat) => introSpotlight(beat) !== undefined,
       ).map(stepFor),
     ).toEqual([84, 84, 84]);
+  });
+});
+
+/**
+ * The drawn keycap answers the key on the keyboard.
+ *
+ * The beat asks for a real key that this window never sees pressed, so the only
+ * thing it has to go on is the count published from the window that owns the
+ * binding. Green is that count moving and nothing else: a cap lit by a
+ * permission the user granted months ago is a cap that is green before anybody
+ * has pressed anything.
+ */
+describe("the introduction's keycap", () => {
+  /** The cap, which is the one control on these beats labelled as the key. */
+  const keycapOf = (container: HTMLElement): HTMLElement => {
+    const found = container.querySelector<HTMLElement>("[aria-label='fn']");
+    if (!found) {
+      throw new Error("Expected the beat to draw the key");
+    }
+    return found;
+  };
+
+  /**
+   * The cap's look after `taps` presses arrive on a beat that opened with
+   * `before` already on the count.
+   */
+  const lookAfter = (taps: number, before = 0): string => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={before} />,
+    );
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={before + taps} />);
+    return keycapOf(container).className;
+  };
+
+  test("is dark until the key is pressed", () => {
+    expect(lookAfter(0)).toContain("bg-white/10");
+    expect(lookAfter(0)).not.toContain("emerald");
+  });
+
+  test("lights on the first press and fills on the second", () => {
+    const lit = lookAfter(1);
+    const filled = lookAfter(2);
+
+    expect(lit).toContain("emerald");
+    expect(filled).toContain("emerald");
+    expect(filled).not.toBe(lit);
+  });
+
+  /**
+   * The count is a total for the life of the window that publishes it, so a
+   * user who tapped the key before this beat came up has not answered this
+   * card.
+   */
+  test("counts presses from the beat rather than from the window", () => {
+    expect(lookAfter(0, 7)).toBe(lookAfter(0));
+    expect(lookAfter(1, 7)).toBe(lookAfter(1));
+  });
+
+  /**
+   * The count belongs to the app's window, which can reload while the beat is
+   * still up: the run is main's and the surface holds it across that. The count
+   * starts again at zero when it does, and the press after it has to land on
+   * something rather than wait for the new count to climb past the old total.
+   */
+  test("follows the count back down when its window restarts", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={9} />,
+    );
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={0} />);
+    expect(keycapOf(container).className).not.toContain("emerald");
+
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={1} />);
+    expect(keycapOf(container).className).toContain("emerald");
+  });
+
+  /** Walking on to the next beat asks again, so the cap starts again dark. */
+  test("starts the next beat dark however many presses came before it", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={0} />,
+    );
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={2} />);
+    expect(keycapOf(container).className).toContain("emerald");
+
+    rerender(<CompanionIntro beat="try" voiceKeyTaps={2} />);
+    expect(keycapOf(container).className).not.toContain("emerald");
+  });
+
+  /**
+   * The pointer's press is the one that is declined, and the words answer it.
+   * A press of the real key afterwards is the user doing what was asked, so the
+   * cap stops leaning away from a press it is lighting up for.
+   */
+  test("takes the scold down when the real key answers", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={0} />,
+    );
+    act(() => {
+      keycapOf(container).click();
+    });
+    expect(keycapOf(container).className).toContain("scale-90");
+
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={1} />);
+    expect(keycapOf(container).className).not.toContain("scale-90");
+    expect(keycapOf(container).className).toContain("emerald");
   });
 });
 

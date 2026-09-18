@@ -2264,7 +2264,7 @@ export async function handleSendMessage(
           publishConversationMessagesChanged(conversationId, originClientId);
         },
         afterRelease: () => {
-          conversation.warmPromptCache();
+          void conversation.warmPromptCache();
         },
       });
 

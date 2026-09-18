@@ -3574,7 +3574,7 @@ function handleProviderError(
   try {
     recordRequestLog(
       deps.ctx.conversationId,
-      JSON.stringify(event.rawRequest),
+      JSON.stringify(event.rawRequest ?? null),
       JSON.stringify(buildProviderErrorResponsePayload(event.error)),
       undefined,
       event.actualProvider,

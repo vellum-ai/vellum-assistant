@@ -15,6 +15,7 @@ import type {
   AgentEvent,
   AgentLoopExitReason,
   CheckpointDecision,
+  PreparedModelCall,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -477,12 +478,16 @@ export async function runAgentLoopImpl(
      */
     replyDeliveredInAppOnly?: boolean;
     /**
-     * LLM call-site identifier threaded into the per-call provider config.
-     * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
-     * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
-     * the agent loop defaults to `'mainAgent'` for user-initiated turns.
+     * Semantic call-site identifier for the turn. It also selects provider
+     * configuration unless `inferenceCallSite` is set. When unset, the agent
+     * loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
+    /**
+     * Provider configuration source when it differs from the turn's semantic
+     * call site. The semantic call site still controls tools and UI behavior.
+     */
+    inferenceCallSite?: LLMCallSite;
     /**
      * Optional ad-hoc inference-profile override applied to every LLM call
      * the loop issues. When set, the agent loop sets
@@ -498,6 +503,8 @@ export async function runAgentLoopImpl(
      * sites. Used when a caller explicitly pins a background run to a profile.
      */
     forceOverrideProfile?: boolean;
+    /** Observe the first finalized model request without delaying it. */
+    onFirstModelCallPrepared?: (prepared: PreparedModelCall) => void;
     /**
      * Origin tag of this turn (the conversation's `TitleOrigin`, e.g.
      * "memory_consolidation"), threaded from `runBackgroundJob`. Exposed on
@@ -557,12 +564,12 @@ export async function runAgentLoopImpl(
   ctx.currentTurnIsNonInteractive = isNonInteractive;
 
   // Default user-initiated turns to the `mainAgent` call site; other invocation
-  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
-  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
-  // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
-  // conversations on `subagentSpawn` when no call site is supplied.
+  // contexts pass their own semantic `callSite`. Provider configuration uses
+  // that site unless a caller supplies `inferenceCallSite` separately.
+  // `resolveTurnCallSite` keeps subagent conversations on `subagentSpawn` when
+  // no semantic call site is supplied.
   const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
+  const inferenceCallSite = options?.inferenceCallSite ?? turnCallSite;
   // Expose the turn's call site on the live conversation so the runtime
   // injection assembly self-resolves it for the turn's plugin contexts. Set
   // before the prompt sync below: the tool-gated reply section and the tool
@@ -667,7 +674,11 @@ export async function runAgentLoopImpl(
         isResolvableProvider: dispatchProviderResolvable,
       };
       const { config: resolved, profileName } =
-        resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
+        resolveCallSiteConfigWithProfile(
+          inferenceCallSite,
+          config.llm,
+          resolveOpts,
+        );
       let connectionName = resolved.provider_connection;
       try {
         connectionName =
@@ -702,7 +713,7 @@ export async function runAgentLoopImpl(
 
   const effectiveContextWindow = resolveEffectiveContextWindow({
     llm: config.llm,
-    callSite: turnCallSite,
+    callSite: inferenceCallSite,
     overrideProfile: turnOverrideProfile ?? undefined,
     forceOverrideProfile,
     selectionSeed: ctx.conversationId,
@@ -721,7 +732,7 @@ export async function runAgentLoopImpl(
   };
 
   let currentContextWindowConfig = contextWindowConfigFromEffective(
-    resolveCallSiteConfig(turnCallSite, config.llm, {
+    resolveCallSiteConfig(inferenceCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
       forceOverrideProfile,
       selectionSeed: ctx.conversationId,
@@ -737,13 +748,13 @@ export async function runAgentLoopImpl(
     if (currentOverrideProfile !== appliedOverrideProfile) {
       currentEffectiveContextWindow = resolveEffectiveContextWindow({
         llm: config.llm,
-        callSite: turnCallSite,
+        callSite: inferenceCallSite,
         overrideProfile: currentOverrideProfile,
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
       });
       currentContextWindowConfig = contextWindowConfigFromEffective(
-        resolveCallSiteConfig(turnCallSite, config.llm, {
+        resolveCallSiteConfig(inferenceCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
           forceOverrideProfile,
           onResolutionFallback: logResolutionFallback,
@@ -762,8 +773,6 @@ export async function runAgentLoopImpl(
     ctx.currentTurnOverrideProfile = currentOverrideProfile;
     return currentOverrideProfile;
   };
-  const resolveCurrentOverrideProfile = (): string | undefined =>
-    refreshCurrentProfileState();
   const resolveCurrentMaxInputTokens = (): number => {
     refreshCurrentProfileState();
     return currentEffectiveContextWindow.maxInputTokens;
@@ -789,7 +798,7 @@ export async function runAgentLoopImpl(
   };
 
   // Initial value for `createToolExecutor` to read into
-  // `ToolContext.overrideProfile`. `resolveCurrentOverrideProfile` refreshes
+  // `ToolContext.overrideProfile`. `refreshCurrentProfileState` refreshes
   // this between model calls so a confirmed profile session opened by a tool
   // applies to later tool executions and nested subagents in the same turn.
   ctx.currentTurnOverrideProfile = turnOverrideProfile;
@@ -1397,13 +1406,13 @@ export async function runAgentLoopImpl(
     // a hand-rolled chain would credit profiles the resolver never consulted
     // (e.g. activeProfile on a non-mainAgent turn).
     const effectiveProfileKey =
-      selectWinningProfile(turnCallSite, config.llm, {
+      selectWinningProfile(inferenceCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
           : {}),
         selectionSeed: ctx.conversationId,
       }).profileName ??
-      resolveProfilelessModelKey(turnCallSite, config.llm, {
+      resolveProfilelessModelKey(inferenceCallSite, config.llm, {
         ...(turnOverrideProfile != null
           ? { overrideProfile: turnOverrideProfile }
           : {}),
@@ -1542,7 +1551,10 @@ export async function runAgentLoopImpl(
 
     turnStarted = true;
 
-    rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
+    rlog.info(
+      { callSite: turnCallSite, inferenceCallSite },
+      "Starting agent loop run",
+    );
 
     // Trust snapshot the loop forwards to its mid-loop in-place compaction
     // (scoping the compactor's image manifest) and the post-compaction
@@ -1551,6 +1563,18 @@ export async function runAgentLoopImpl(
     // assembly resolves for the same turn. The loop's other turn-identity
     // fields self-resolve from its own conversation id.
     const loopTrust = ctx.getTurnOrRestingTrust() ?? FALLBACK_TURN_TRUST;
+
+    const notifyFirstModelCallPrepared = options?.onFirstModelCallPrepared;
+    let firstModelCallPrepared = false;
+    const onModelCallPrepared = notifyFirstModelCallPrepared
+      ? (prepared: PreparedModelCall): void => {
+          if (firstModelCallPrepared) {
+            return;
+          }
+          firstModelCallPrepared = true;
+          notifyFirstModelCallPrepared(prepared);
+        }
+      : undefined;
 
     /**
      * Shared closure: runs the agent loop with the wrapper's turn context and
@@ -1574,12 +1598,14 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
+          inferenceCallSite,
           suppressAssistantText: sendUserMessageActive,
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
-          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveOverrideProfile: refreshCurrentProfileState,
+          ...(onModelCallPrepared !== undefined ? { onModelCallPrepared } : {}),
           resolveContextWindow,
           compactInPlace,
           isNonInteractive,
@@ -2027,10 +2053,10 @@ export async function runAgentLoopImpl(
       // contradicts itself. `forceOverrideProfile` floats it above the
       // call-site profile exactly as the fallback dispatch did.
       {
-        callSite: turnCallSite,
+        callSite: inferenceCallSite,
         overrideProfile:
           state.exchangeInferenceProfile ??
-          resolveCurrentOverrideProfile() ??
+          refreshCurrentProfileState() ??
           null,
         ...(state.exchangeInferenceProfile !== undefined
           ? { forceOverrideProfile: true }

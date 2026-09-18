@@ -25,12 +25,11 @@ import { useTranslation } from "@/i18n";
 import { AudioLines } from "lucide-react";
 
 import {
-  ACCENT_FILL_CLASS,
   MOBILE_CONTROL_CLASS,
   MOBILE_GLYPH_CLASS,
   preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import { Button, cn, Tooltip } from "@vellumai/design-library";
+import { Button, Tooltip } from "@vellumai/design-library";
 
 interface LiveVoiceButtonProps {
   /**
@@ -68,19 +67,18 @@ export function LiveVoiceButton({
   const { t } = useTranslation("chat");
   const button = (
     <Button
-      // Filled `primary`, in the assistant's accent, so the voice entry point
-      // carries the same prominence and the same colour as the send button it
-      // shares the composer's send slot with (both `Button variant="primary"`
-      // icon-only, so identical footprint + fill) rather than a low-emphasis
-      // ghost that reads as secondary.
-      variant="primary"
+      // Filled in the assistant's accent, so the voice entry point carries the
+      // same prominence and the same colour as the send button it shares the
+      // composer's send slot with (both `Button variant="accent"` icon-only,
+      // so identical footprint + fill) rather than a low-emphasis ghost that
+      // reads as secondary.
+      variant="accent"
       iconOnly={<AudioLines strokeWidth={2} />}
       // The row's own signal sizes the circle, so the primitive's mobile growth
-      // steps aside; the fill is the `primary` token the design's light circle
-      // resolves to.
+      // steps aside.
       iconOnlyGlyphClassName={mobileRow ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!mobileRow}
-      className={cn(ACCENT_FILL_CLASS, mobileRow && MOBILE_CONTROL_CLASS)}
+      className={mobileRow ? MOBILE_CONTROL_CLASS : undefined}
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"

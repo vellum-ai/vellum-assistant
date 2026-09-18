@@ -84,6 +84,7 @@ mock.module("react-router", () => ({
   ),
 }));
 
+import { pressBackdrop } from "@/lib/overlay-test-helpers";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 // Imported after the mocks so the card resolves against the stubs.
@@ -240,7 +241,7 @@ describe("VoiceFirstRunCard", () => {
 
     const overlay = baseElement.querySelector('[data-slot="modal-overlay"]');
     expect(overlay).toBeTruthy();
-    fireEvent.click(overlay!);
+    pressBackdrop(overlay!);
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onStart).not.toHaveBeenCalled();
@@ -262,7 +263,7 @@ describe("VoiceFirstRunCard", () => {
     fireEvent.click(getByText(SETTINGS_LINK));
     expect(dialogTitle()).toBe("Voice settings");
 
-    fireEvent.click(baseElement.querySelector('[data-slot="modal-overlay"]')!);
+    pressBackdrop(baseElement.querySelector('[data-slot="modal-overlay"]')!);
 
     expect(getByText("Start talking")).toBeTruthy();
     expect(onDismiss).not.toHaveBeenCalled();

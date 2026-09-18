@@ -22,7 +22,7 @@ import { NoResponseRow } from "@/domains/chat/transcript/no-response-row";
 import { ReactionLineRow } from "@/domains/chat/transcript/reaction-line-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { isInteractiveTarget } from "@/utils/interactive-target";
 import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { getMessageRenderKind } from "@/domains/chat/transcript/message-render-kind";
@@ -140,7 +140,7 @@ function SubstitutedMessageShell({
 }) {
   const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
   const handleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (isInteractiveClickTarget(e.target as Element | null)) {
+    if (isInteractiveTarget(e.target as Element | null)) {
       return;
     }
     if (!isPointerCoarse()) {

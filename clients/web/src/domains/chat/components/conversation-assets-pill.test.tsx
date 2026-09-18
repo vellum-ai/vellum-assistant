@@ -40,6 +40,7 @@ import {
   clearTranscriptMessages,
   holdOrgHeaderUnresolved,
   installChatInfoDomStubs,
+  makeAppSummary,
   makeChatInfoQueryClient,
   makeDocumentSummary,
   makePendingChatInfoQueryClient,
@@ -49,6 +50,7 @@ import {
 } from "@/domains/chat/components/chat-info.test-helper";
 import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { ApiError } from "@/utils/api-errors";
 
@@ -157,18 +159,30 @@ const DOCUMENTS_KEY = documentsGetQueryKey({
 /**
  * A client whose documents source failed with nothing cached under it, apps
  * answered: the trigger names a failure only once every source has settled.
+ * `apps` is what did reach the client despite the failure, and a failure that
+ * counted nothing at all renders no trigger, so a case asserting one seeds it.
  */
-function failedDocumentsClient(): QueryClient {
+function failedDocumentsClient(apps: AppSummary[] = []): QueryClient {
   const client = makePendingChatInfoQueryClient();
-  seedConversation(client, [], CONVERSATION_ID);
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId: CONVERSATION_ID,
+    apps,
+    documents: [],
+  });
   client.removeQueries({ queryKey: DOCUMENTS_KEY });
   seedQueryFailure(client, DOCUMENTS_KEY);
   return client;
 }
 
+/** The same failure with an app that did load: a partial total, not nothing. */
+function partiallyLoadedClient(): QueryClient {
+  return failedDocumentsClient([makeAppSummary()]);
+}
+
 /** The same failure, carrying the status a restarting assistant answers with. */
 function unavailableDocumentsClient(): QueryClient {
-  const client = failedDocumentsClient();
+  const client = partiallyLoadedClient();
   client
     .getQueryCache()
     .find({ queryKey: DOCUMENTS_KEY })!
@@ -499,11 +513,20 @@ describe("empty asset list", () => {
     expect(screen.getByRole("button", { name: SEEN_LABEL })).toBeTruthy();
   });
 
-  // A first load that failed also counts nothing, and hiding the trigger there
-  // would leave the user no way to reach the panel that reports the failure.
-  // It names the failure rather than a count it cannot know.
-  test("keeps the trigger when a source could not be loaded", () => {
+  // A first load that failed with nothing counted has nothing to show either,
+  // and a trigger whose only content is a failure the user never asked about
+  // is one more control in a header that has better uses for the room.
+  test("renders nothing when a source could not be loaded and counted nothing", () => {
     renderPillWith(failedDocumentsClient());
+
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  // What did reach the client is still worth a trigger. It names the failure
+  // rather than a count it cannot know, since the total it holds is a fraction
+  // of the conversation's.
+  test("keeps the trigger when a failed load still counted something", () => {
+    renderPillWith(partiallyLoadedClient());
 
     expect(
       screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
@@ -524,7 +547,7 @@ describe("empty asset list", () => {
   // the name beside it no longer mentions them.
   test("drops the unseen dot when a source could not be loaded", () => {
     markUnseen();
-    renderPillWith(failedDocumentsClient());
+    renderPillWith(partiallyLoadedClient());
 
     expect(
       screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
@@ -549,7 +572,7 @@ describe("desktop tooltip", () => {
   });
 
   test("names the failure instead of a count it cannot know", async () => {
-    renderPillWith(failedDocumentsClient());
+    renderPillWith(partiallyLoadedClient());
 
     act(() => {
       screen.getByRole("button", { name: UNAVAILABLE_LABEL }).focus();

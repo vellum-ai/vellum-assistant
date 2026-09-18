@@ -994,7 +994,8 @@
     "muted": "Silenciado",
     "reconnecting": "Reconectando…",
     "speaking": "Hablando…",
-    "thinking": "Pensando…"
+    "thinking": "Pensando…",
+    "working": "Trabajando en ello…"
   },
   "llmCallErrorCard": {
     "chipCode": "Código",

@@ -14,10 +14,16 @@
  * to render, because the surface that asks is not always the surface that
  * shows the answer. A shortcut pressed on the settings page is answered by a
  * card in the chat window it navigates to.
+ *
+ * Both are also synchronous up to the point they decide, because the press
+ * they decide about carries the microphone and playback permissions the
+ * session needs, and those are spent from the gesture rather than from a
+ * callback the gesture eventually reaches.
  */
 
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 /** Fallback when a `not-ready` verdict carries no `userMessage`. */
@@ -28,14 +34,50 @@ const DEFAULT_CONFIG_NOTICE =
  * Whether the first-run preferences card takes this entry.
  *
  * The first ever voice entry opens the card instead of a session, so the user
- * chooses their transcript preferences before anything starts listening. The
- * card commits the choice and starts; a plain dismiss cancels without
- * consuming the first run, so it returns on the next entry.
+ * meets the room before it starts listening. The card commits and starts; a
+ * plain dismiss cancels without consuming the first run, so it returns on the
+ * next entry.
+ *
+ * **Except during the companion's introduction, which is already saying this.**
+ * The run's eight cards end on an offer of a real conversation, taken either by
+ * pressing the creature or by double tapping the voice key, and its `talk` and
+ * `mute` beats have just taught the two things this card's bullets teach. Drawn
+ * on top of that, the card is a third gate on the one press the whole run was
+ * building to, repeating the run in the run's own window. The introduction is
+ * the more specific surface and it is the one the user is looking at, so it
+ * wins and the entry goes straight through.
+ *
+ * Standing down still spends the first run. The user is about to have the
+ * conversation the card exists to precede, so a card waiting for them on the
+ * next entry would be an introduction to something already done. Nothing is
+ * decided on their behalf by skipping it: the card writes no preference of its
+ * own (transcripts stay off, which is where they rest for everyone), and the
+ * two settings reachable from it, the assistant's voice and the listening
+ * language, are untouched defaults that live on in Settings and in the room's
+ * own in-session settings.
+ *
+ * Spent on the press rather than on the session that follows it, which is what
+ * the card's own Start already does: the composer marks the run seen and then
+ * runs readiness, so a `not-ready` verdict has always spent it. The first run
+ * is about whether the user has been introduced, not about whether a session
+ * managed to open.
+ *
+ * `duringCompanionIntro` defaults to asking now, which is what a press decided
+ * on the spot wants. A caller that decides later passes the answer it read at
+ * press time instead: the last beat's `try` ends the run in the same breath as
+ * it asks for the session, so "is a run on" stops being true within the gap,
+ * and the press still came out of one. See {@link drainPendingVoiceStart}.
  *
  * Returns `true` when the caller should stop, having handed the entry over.
  */
-export function firstRunCardIntercepts(): boolean {
+export function firstRunCardIntercepts(
+  duringCompanionIntro: boolean = companionIntroStaged(),
+): boolean {
   if (useVoicePrefsStore.getState().firstRunSeen) {
+    return false;
+  }
+  if (duringCompanionIntro) {
+    useVoicePrefsStore.getState().markFirstRunSeen();
     return false;
   }
   useLiveVoiceStore.getState().setFirstRunCardOpen(true);

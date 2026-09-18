@@ -176,9 +176,9 @@ export function buildRecallAgentPromptBundle(
 ): RecallAgentPromptBundle {
   const availableSources = normalizeRecallSources(options.availableSources);
   const maxSearchCalls = options.maxSearchCalls ?? DEFAULT_MAX_SEARCH_CALLS;
-  const evidence = prepareRecallAgentPromptEvidence(
+  const evidence = truncateRecallEvidenceToBudget(
     options.evidence,
-    options.evidenceBudgetChars,
+    options.evidenceBudgetChars ?? DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
   );
   const citationIds = evidence.map((item) => item.id);
 
@@ -214,13 +214,6 @@ export function buildRecallAgentPromptBundle(
   ].join("\n");
 
   return { prompt, evidence };
-}
-
-function prepareRecallAgentPromptEvidence(
-  evidence: readonly RecallEvidence[],
-  evidenceBudgetChars = DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
-): RecallEvidence[] {
-  return truncateRecallEvidenceToBudget(evidence, evidenceBudgetChars);
 }
 
 export function truncateRecallEvidenceToBudget(

@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ArrowUp, Ellipsis, Link2, Pin, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useArgs } from "storybook/preview-api";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import {
+  expect,
+  fireEvent,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 
 import {
   ActionMenu,
@@ -10,6 +17,7 @@ import {
   type ActionMenuRootProps,
 } from "./action-menu";
 import { Button } from "./button";
+import { Modal } from "./modal";
 
 /**
  * Every `Root` prop is an arg, so a prop added to the component reaches Controls
@@ -326,4 +334,68 @@ export const AnchoredSelection: Story = {
 
 export const SheetSelection: Story = {
   ...selectionClosesTheSurface("sheet"),
+};
+
+/**
+ * A menu opened from inside a modal leaves the modal alone.
+ *
+ * While the menu is open its own layer sets the dialog's content to
+ * `pointer-events: none`, so the press that opened the menu comes up on the
+ * backdrop showing through and the browser dispatches one click there, on the
+ * two elements' nearest common ancestor. Only a press and release on the
+ * backdrop dismiss a dialog (`useOverlayDismiss`), and this is neither. The
+ * play function drives that sequence: the press lands on the trigger, the
+ * click on the backdrop.
+ */
+export const InsideModal: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <Modal.Root defaultOpen>
+      <Modal.Content size="sm">
+        <Modal.Header>
+          <Modal.Title>Notes</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="text-body-medium-default">
+            The commands for this note live behind the menu below.
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <ActionMenu.Root presentation="anchored">
+            <ActionMenu.Trigger asChild>
+              <Button variant="outlined">Options</Button>
+            </ActionMenu.Trigger>
+            <ActionMenu.Content title="Options for Notes">
+              <ActionMenu.Item icon={Pin} label="Pin" />
+              <ActionMenu.Item
+                icon={Trash2}
+                tone="destructive"
+                label="Delete"
+              />
+            </ActionMenu.Content>
+          </ActionMenu.Root>
+        </Modal.Footer>
+      </Modal.Content>
+    </Modal.Root>
+  ),
+  play: async () => {
+    const dialog = await screen.findByRole("dialog");
+    const overlay = document.querySelector('[data-slot="modal-overlay"]');
+    expect(overlay).not.toBeNull();
+
+    fireEvent.pointerDown(
+      await screen.findByRole("button", { name: "Options" }),
+      { button: 0, ctrlKey: false },
+    );
+    await within(await screen.findByRole("menu")).findByRole("menuitem", {
+      name: "Pin",
+    });
+
+    fireEvent.click(overlay!);
+
+    expect(dialog.isConnected).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByRole("menu")).toBeVisible();
+    });
+  },
 };

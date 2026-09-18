@@ -3,6 +3,10 @@ import {
   mapGeminiError,
 } from "./gemini-image-service.js";
 import { generateImageOpenAI, mapOpenAIError } from "./openai-image-service.js";
+import {
+  generateImageOpenRouter,
+  mapOpenRouterError,
+} from "./openrouter-image-service.js";
 import type {
   ImageGenCredentials,
   ImageGenerationRequest,
@@ -23,6 +27,8 @@ export function generateImage(
       return generateImageOpenAI(credentials, request);
     case "gemini":
       return generateImageGemini(credentials, request);
+    case "openrouter":
+      return generateImageOpenRouter(credentials, request);
     default: {
       const _exhaustive: never = provider;
       throw new Error(`Unknown image generation provider: ${_exhaustive}`);
@@ -42,6 +48,8 @@ export function mapImageGenError(
       return mapOpenAIError(error);
     case "gemini":
       return mapGeminiError(error);
+    case "openrouter":
+      return mapOpenRouterError(error);
     default: {
       const _exhaustive: never = provider;
       throw new Error(`Unknown image generation provider: ${_exhaustive}`);

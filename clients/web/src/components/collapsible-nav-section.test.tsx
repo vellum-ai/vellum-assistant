@@ -12,6 +12,14 @@ import { Clock } from "lucide-react";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
+
+import {
+  SIDEBAR_SECTION_CONTENT_PADDING_TOP,
+  SIDEBAR_SECTION_TITLE_GAP,
+  SIDEBAR_SECTION_TITLE_LINE_HEIGHT,
+} from "@/components/sidebar-nav-geometry";
+
 import { CollapsibleNavSection } from "./collapsible-nav-section";
 
 function renderSingleSection(opts: {
@@ -344,5 +352,56 @@ describe("CollapsibleNavSection icon", () => {
       ),
     );
     expect(html).not.toContain('data-slot="collapsible-nav-section-icon"');
+  });
+});
+
+/**
+ * The distance from a section's title to its first row is a sum of two
+ * parts kept in different places — the header row's surplus height above
+ * and below the title's line box, and the content's own top inset — so
+ * each surface is asserted against the shared
+ * {@link SIDEBAR_SECTION_TITLE_GAP} rather than against the inset it
+ * happens to render. Without this either half can drift on its own and the
+ * sections stop agreeing on where their first row sits, which is invisible
+ * at each call site because every one of them passes the same props.
+ */
+describe("CollapsibleNavSection title gap", () => {
+  const contentStyle = (html: string) => {
+    const content = html.slice(html.indexOf('data-slot="collapsible-content"'));
+    return /style="([^"]*)"/.exec(content)?.[1] ?? "";
+  };
+
+  test("the rail's content adds only what its tile header does not", () => {
+    const style = contentStyle(
+      renderSingleSection({
+        value: "s",
+        label: "Scheduled",
+        defaultValue: ["s"],
+      }),
+    );
+    expect(style).toContain(
+      `padding-top:${SIDEBAR_SECTION_CONTENT_PADDING_TOP}px`,
+    );
+    expect(
+      SIDEBAR_SECTION_CONTENT_PADDING_TOP +
+        (SIDE_MENU_TILE_SIZE - SIDEBAR_SECTION_TITLE_LINE_HEIGHT) / 2,
+    ).toBe(SIDEBAR_SECTION_TITLE_GAP);
+  });
+
+  test("a card's header row is the title's line box, so it insets the gap whole", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        CollapsibleNavSection.Root,
+        { type: "multiple", defaultValue: ["s"] },
+        createElement(
+          CollapsibleNavSection.Section,
+          { value: "s", label: "Scheduled", icon: Clock, card: true },
+          createElement("div", null, "child-content"),
+        ),
+      ),
+    );
+    expect(contentStyle(html)).toContain(
+      `padding-top:${SIDEBAR_SECTION_TITLE_GAP}px`,
+    );
   });
 });

@@ -30,18 +30,23 @@
   },
   "emailListRow": {
     "toPrefix": "Кому: {name}",
-    "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}"
+    "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}",
+    "noSubject": "(без темы)"
   },
   "emailDetail": {
     "from": "От",
     "to": "Кому",
     "sentBy": "Отправлено: {name}",
     "attachments": "Вложения",
-    "askToReply": "Попросить {name} ответить"
+    "askToReply": "Попросить {name} ответить",
+    "loading": "Загружаем письмо…",
+    "loadFailed": "Не удалось загрузить это письмо."
   },
   "emailAddressFields": {
     "prefixLabel": "Префикс",
-    "prefixPlaceholder": "hi"
+    "prefixPlaceholder": "hi",
+    "handleLabel": "Имя (публичное)",
+    "handlePlaceholder": "my-assistant"
   },
   "assistantInboxUpgradeState": {
     "title": "Дайте {name} почтовый ящик",
@@ -50,11 +55,29 @@
     "perkReads": "{name} читает, сортирует и отвечает за вас",
     "perkHistory": "Каждое письмо хранится здесь: входящие и отправленные",
     "upgradeButton": "Перейти на Super",
-    "seePlans": "Посмотреть тарифы"
+    "seePlans": "Посмотреть тарифы",
+    "titleNoName": "Дайте ассистенту почтовый ящик",
+    "perkReadsNoName": "Ассистент читает, сортирует и отвечает за вас",
+    "changeHandle": "Изменить имя"
   },
   "assistantInboxSetupCard": {
     "title": "Почта ассистента",
     "subtitle": "Настройте почту для вашего ассистента.",
-    "getStarted": "Начать"
+    "getStarted": "Начать",
+    "subtitleChooseHandle": "Займите уникальное имя и настройте почту ассистента.",
+    "immutableNotice": "Это имя станет публичным именем ассистента. После установки изменить его нельзя."
+  },
+  "assistantInboxRoute": {
+    "loading": "Открываем почту…",
+    "setupFailed": "Не удалось настроить адрес.",
+    "setupSucceeded": "Адрес {address} готов.",
+    "replyPrompt": "Ответь на письмо с id {id} из твоей почты (от {sender}, тема \"{subject}\"). Сначала прочитай его командой `assistant email download {id}`, затем подготовь ответ и покажи мне перед отправкой.",
+    "mailFailed": "Не удалось загрузить почту.",
+    "retry": "Повторить"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "Почта ассистента скрыта из бокового меню.",
+    "restoreButton": "Вернуть",
+    "restoredToast": "Почта ассистента снова в боковом меню."
   }
 }

@@ -29,14 +29,32 @@ export interface InboxEmail {
   from: EmailParticipant;
   to: EmailParticipant[];
   subject: string;
-  /** The first line or so of the body, for the list row. */
-  snippet: string;
-  /** Plain-text body; paragraphs separated by blank lines. */
-  body: string;
+  /**
+   * The first line or so of the body, for the list row. Absent on a row from
+   * the platform's list, which carries no preview; the row then shows two
+   * lines instead of three.
+   */
+  snippet?: string;
+  /**
+   * Plain-text body; paragraphs separated by blank lines. Absent on a row
+   * from the platform's list; the reading pane fetches it through
+   * {@link EmailDetailLoader} when the row is opened.
+   */
+  body?: string;
   /** ISO 8601. */
   createdAt: string;
+  /** Absent until the detail fetch, like {@link InboxEmail.body}. */
+  attachments?: EmailAttachment[];
+}
+
+/** What the detail fetch adds to a list row. */
+export interface EmailDetailData {
+  body: string;
   attachments: EmailAttachment[];
 }
+
+/** Fetches the body and attachments of one message on demand. */
+export type EmailDetailLoader = (email: InboxEmail) => Promise<EmailDetailData>;
 
 /** The platform's `EmailAddressUsage`, trimmed to what the header shows. */
 export interface InboxUsage {
@@ -47,3 +65,8 @@ export interface InboxUsage {
 
 /** The mailbox folder the list is showing. */
 export type InboxFolder = "inbox" | "sent";
+
+/** What a probe of a handle came back with. */
+export type HandleCheckResult =
+  | { available: true }
+  | { available: false; message: string };
