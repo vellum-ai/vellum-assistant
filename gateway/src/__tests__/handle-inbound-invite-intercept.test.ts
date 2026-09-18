@@ -126,8 +126,8 @@ const { bustGuardianIntegrityCache } =
 const CHANNEL = "telegram";
 const CODE = "123456";
 const TOKEN = "tok_raw_abc123";
-// The path the gateway's Telegram webhook builds, on a reserved host so a
-// regression back to fetching the URL can never reach a live service.
+// The path the gateway's Telegram webhook builds, on a reserved host: a fetch
+// of this URL cannot reach a live service.
 const REPLY_URL = "http://gateway.invalid/deliver/telegram";
 
 function seedContact(id: string, role = "contact"): void {

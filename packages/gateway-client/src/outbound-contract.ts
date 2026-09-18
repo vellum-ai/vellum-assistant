@@ -4,8 +4,8 @@
  * Zod schemas for a reply to a channel chat. The daemon constructs these
  * payloads in `deliverChannelReply()` and `deliverApprovalPrompt()` and hands
  * them to the channel transport its callback URL names
- * (`messaging/providers`). `/deliver/{channel}` survives only as that
- * callback URL's addressing form: no service serves it. A callback URL no
+ * (`messaging/providers`). `/deliver/{channel}` is only that callback URL's
+ * addressing form: no service serves it. A callback URL no
  * transport owns (a managed callback carrying a `callback_token`) is POSTed
  * over HTTP by `http-delivery.ts` instead.
  *
