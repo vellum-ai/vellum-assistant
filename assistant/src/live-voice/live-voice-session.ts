@@ -4001,9 +4001,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Publish whatever the turn's activity line should be right now: the
-   * decision it is waiting on if it is waiting, and its newest running tool if
-   * it is not.
+   * Publish whatever the turn's activity should be right now: the decision it
+   * is waiting on, its newest running tool, or the structured escalation state
+   * underneath those temporary overlays.
    *
    * The single entry point for every caller that would otherwise reach for
    * `currentActivityLabel` directly. A turn can start and finish other ops
@@ -4021,7 +4021,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       return;
     }
-    this.publishActivity(turn, this.currentActivityLabel(turn));
+    const label = this.currentActivityLabel(turn);
+    if (
+      label.length === 0 &&
+      turn.escalationTarget !== null &&
+      !turn.assistantCompleted
+    ) {
+      if (turn.publishedActivityKind !== "escalation") {
+        this.publishEscalationActivity(turn, turn.escalationTarget);
+      }
+      return;
+    }
+    this.publishActivity(turn, label);
   }
 
   /**

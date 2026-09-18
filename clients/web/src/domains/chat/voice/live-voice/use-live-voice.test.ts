@@ -406,6 +406,32 @@ describe("structured response activity", () => {
     });
     expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
   });
+
+  test("a manual final clears the prior response escalation", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 2,
+        turnId: "t1",
+        label: "",
+        kind: "escalation",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      });
+      useLiveVoiceStore.getState().controls?.release();
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "Next question",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
+    expect(useLiveVoiceStore.getState().state).toBe("thinking");
+  });
 });
 
 // ---------------------------------------------------------------------------

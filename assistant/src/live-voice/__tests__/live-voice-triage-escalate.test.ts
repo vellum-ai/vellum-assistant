@@ -321,6 +321,18 @@ describe("live-voice triage-and-escalate routing", () => {
     );
     expect(latestActivity).not.toHaveProperty("kind");
 
+    starter.mock.calls[1]?.[0]?.callbacks?.tool_result?.({
+      toolName: "web_search",
+      toolUseId: "tool-1",
+      resultPreview: "",
+    });
+    await waitFor(() => {
+      const activity = frames
+        .filter((frame) => frame.type === "activity")
+        .at(-1);
+      return activity?.kind === "escalation";
+    });
+
     await session.handleClientFrame({ type: "interrupt" });
   });
 
