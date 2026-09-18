@@ -39,18 +39,19 @@ export function ToolOutputSection({
 }: ToolOutputSectionProps) {
   const { t } = useTranslation("chat");
   const settled = !isRunning && !isDenied && !isError;
-  // A result can run to 400,000 characters, so it is parsed once per result
-  // rather than on every render of a panel that re-renders as the turn does.
-  const structured = useMemo(
-    () => (settled && result ? parseStructuredResult(result) : null),
-    [settled, result],
-  );
+  // A result can run to 400,000 characters, so it is parsed and laid out once
+  // per result rather than on every render of a panel that re-renders as the
+  // turn does.
+  const list = useMemo(() => {
+    const structured = settled && result ? parseStructuredResult(result) : null;
+    return structured ? layoutResult(structured) : null;
+  }, [settled, result]);
 
-  if (structured && result) {
+  if (list && result) {
     return (
       <ValueSection
         label={t("toolDetailPanel.output")}
-        list={layoutResult(structured)}
+        list={list}
         moreLabel={(count) => t("toolOutputSection.moreCount", { count })}
         rawLabel={t("toolOutputSection.rawOutput")}
         rawText={() => result}
