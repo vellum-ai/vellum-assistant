@@ -18,7 +18,8 @@ def call(bus, ref, interface, method, *args):
     return obj.get_dbus_method(method, interface)(*args, timeout=min(0.2, remaining))
 
 def read(bus, ref, depth=0):
-    props = call(bus, ref, PROPERTIES, "GetAll", ACCESSIBLE)
+    name = call(bus, ref, PROPERTIES, "Get", ACCESSIBLE, "Name")
+    child_count = call(bus, ref, PROPERTIES, "Get", ACCESSIBLE, "ChildCount")
     role = str(call(bus, ref, ACCESSIBLE, "GetRoleName"))
     states = call(bus, ref, ACCESSIBLE, "GetState")
     bits = sum(int(word) << (32 * i) for i, word in enumerate(states))
@@ -31,16 +32,16 @@ def read(bus, ref, depth=0):
             pass
     return {
         "bus": str(ref[0]), "path": str(ref[1]), "depth": depth,
-        "name": str(props.get("Name", ""))[:200], "role": role[:80],
+        "name": str(name)[:200], "role": role[:80],
         "bounds": bounds,
         "states": [label for bit, label in [(4, "checked"), (8, "enabled"), (12, "focused"), (23, "selected")] if bits & (1 << bit)],
-    }, int(props.get("ChildCount", 0))
+    }, int(child_count)
 
 def main():
     request = json.loads(sys.argv[1])
     session = dbus.bus.BusConnection(os.environ["DBUS_SESSION_BUS_ADDRESS"])
     service = ("org.a11y.Bus", "/org/a11y/bus")
-    call(session, service, PROPERTIES, "Set", "org.a11y.Status", "IsEnabled", dbus.Boolean(True))
+    call(session, service, PROPERTIES, "Set", "org.a11y.Status", "IsEnabled", dbus.Boolean(True, variant_level=1))
     address = str(call(session, service, "org.a11y.Bus", "GetAddress"))
     bus = dbus.bus.BusConnection(address)
     bus_id = str(call(bus, ("org.freedesktop.DBus", "/org/freedesktop/DBus"), "org.freedesktop.DBus", "GetId"))
