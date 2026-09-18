@@ -250,6 +250,7 @@ function SessionSegment({
   clockConnected = true,
   clockNow,
   continuationId,
+  spaceBefore,
 }: {
   segment?: SessionGroupSegment;
   descriptor?: ModeSessionDescriptor;
@@ -259,6 +260,7 @@ function SessionSegment({
   clockConnected?: boolean;
   clockNow?: number;
   continuationId?: string;
+  spaceBefore?: boolean;
 }) {
   const open = segment
     ? disclosure.isSessionOpen(segment.modeSession.id)
@@ -293,6 +295,7 @@ function SessionSegment({
       }}
       headerVisible={Boolean(segment && descriptor)}
       continuationId={continuationId}
+      spaceBefore={spaceBefore}
     >
       {children}
     </SessionGroupRow>
@@ -520,6 +523,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const anchorVisible =
       partition.anchorMessage &&
       (!anchorGroup || disclosure.isSessionOpen(anchorGroup.modeSession.id));
+    const avatarFollowsSession =
+      sessionGroupsOn &&
+      (grouped.latest.length > 0 ? grouped.latest : grouped.history).findLast(
+        (item) => item.kind !== "thinking" || item.active,
+      )?.kind === "sessionGroup";
     useEffect(() => {
       const segments = sessionGroupsOn
         ? [...grouped.history, ...grouped.latest]
@@ -743,7 +751,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           isLatestMessage={item === latestHistoryMessage}
         />
       ));
-    const renderGroupedHistoryItem = (item: SessionGroupedTranscriptItem) => {
+    const renderGroupedHistoryItem = (
+      item: SessionGroupedTranscriptItem,
+      index: number,
+    ) => {
       if (item.kind === "sessionGroup") {
         const descriptor = descriptorsById.get(item.modeSession.id);
         if (descriptor) {
@@ -751,6 +762,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             <TranscriptColumn key={item.key}>
               <SessionSegment
                 segment={item}
+                spaceBefore={
+                  grouped.history[index - 1]?.kind !== "sessionGroup"
+                }
                 descriptor={descriptor}
                 disclosure={disclosure}
                 onBeforeToggle={rest.onBeforeSessionDisclosureToggle}
@@ -832,7 +846,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           </>
         );
       }
-      return grouped.latest.map((item) => {
+      return grouped.latest.map((item, index) => {
         if (item.kind === "sessionGroup") {
           if (item === anchorGroup) {
             return (
@@ -860,6 +874,10 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   preservesLatestResponse ? "latest-session-shell" : item.key
                 }
                 segment={item}
+                spaceBefore={
+                  (grouped.latest[index - 1] ?? grouped.history.at(-1))
+                    ?.kind !== "sessionGroup"
+                }
                 descriptor={descriptor}
                 disclosure={disclosure}
                 onBeforeToggle={rest.onBeforeSessionDisclosureToggle}
@@ -936,7 +954,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  the flag skips past them. With an anchor present the latest
            *  turn owns the flag instead (see `LatestTurnRow`). */}
           {grouped.history.map(renderGroupedHistoryItem)}
-          {anchorGroup ? renderGroupedHistoryItem(anchorGroup) : null}
+          {anchorGroup
+            ? renderGroupedHistoryItem(anchorGroup, grouped.history.length)
+            : null}
           {/* Latest-edge region: contains the latest-turn cluster and the
            *  assistant avatar. Two layout modes:
            *
@@ -987,7 +1007,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 <div
                   data-latest-assistant-avatar="true"
                   data-copy-exclude
-                  className="flex justify-start pl-1 pt-3 pb-2"
+                  className={`flex justify-start pl-1 pb-2 ${avatarFollowsSession ? "pt-0" : "pt-3"} ${
+                    sessionGroupsOn
+                      ? "transition-[padding-top] duration-300 ease-out motion-reduce:transition-none"
+                      : ""
+                  }`}
                 >
                   {rest.renderAvatar()}
                 </div>

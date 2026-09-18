@@ -329,6 +329,24 @@ const SESSION_ITEMS: TranscriptItem[] = [
     { mode: "browser", id: COMPLETED_SESSION_ID },
     SESSION_NOW - 240_000,
   ),
+  {
+    kind: "surface",
+    key: "session-learned-skill",
+    surface: {
+      surfaceId: "session-learned-skill",
+      surfaceType: "skill_card",
+      display: "inline",
+      data: {
+        skills: [
+          {
+            skillId: "release-status-check",
+            name: "Release Status Check",
+            description: "Check the latest workflow on the release dashboard.",
+          },
+        ],
+      },
+    },
+  },
   user("session-latest-request", "Please capture the final artifact details."),
   withSession(
     assistant(
@@ -338,6 +356,22 @@ const SESSION_ITEMS: TranscriptItem[] = [
     { mode: "computer_use", id: ACTIVE_SESSION_ID },
     SESSION_NOW - 30_000,
   ),
+  {
+    kind: "surface",
+    key: "session-artifact-choice",
+    surface: {
+      surfaceId: "session-artifact-choice",
+      surfaceType: "choice",
+      title: "Which package should I inspect?",
+      display: "inline",
+      data: {
+        options: [
+          { id: "desktop", title: "Desktop package" },
+          { id: "mobile", title: "Mobile package" },
+        ],
+      },
+    },
+  },
 ];
 
 const SESSION_DESCRIPTORS: ModeSessionDescriptor[] = [
@@ -420,6 +454,30 @@ export const SessionGroupingFlagOff: Story = {
   beforeEach: () => setSessionGroupsStoryFlag(false),
   parameters: { controls: { disable: true } },
   render: () => <SessionGroupingStory />,
+};
+
+const ADJACENT_SESSION_ITEMS = SESSION_ITEMS.filter(
+  (item) => item.kind === "message" && item.key !== "session-latest-request",
+);
+
+export const AdjacentSessionGroups: Story = {
+  args: {
+    items: ADJACENT_SESSION_ITEMS,
+    conversationId: "session-story",
+    modeSessionDescriptors: SESSION_DESCRIPTORS,
+    sessionGroupsEnabled: true,
+    sessionClockNow: SESSION_NOW,
+  },
+};
+
+export const AdjacentSessionGroupsInHistory: Story = {
+  args: {
+    ...AdjacentSessionGroups.args,
+    items: [
+      ...ADJACENT_SESSION_ITEMS,
+      user("next-request", "Thanks. What should I check next?"),
+    ],
+  },
 };
 
 /** The composed session transcript fits the real mobile viewport width. */

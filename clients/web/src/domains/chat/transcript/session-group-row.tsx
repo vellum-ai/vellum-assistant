@@ -62,6 +62,7 @@ export interface SessionGroupRowProps {
   onOpenChange: (open: boolean) => void;
   /** Keeps the reply subtree mounted while its grouping header arrives. */
   headerVisible?: boolean;
+  spaceBefore?: boolean;
   continuationId?: string;
   children: ReactNode;
 }
@@ -100,7 +101,7 @@ export function SessionGroupContinuation({
           focused.current = false;
         }
       }}
-      className={cn("flex flex-col pb-1", SESSION_RAIL_CLASS)}
+      className={cn("mb-3 flex flex-col pb-1", SESSION_RAIL_CLASS)}
     >
       {open ? children : null}
     </div>
@@ -219,6 +220,7 @@ export function SessionGroupRow({
   open,
   onOpenChange,
   headerVisible = true,
+  spaceBefore = true,
   continuationId,
   children,
 }: SessionGroupRowProps) {
@@ -267,6 +269,10 @@ export function SessionGroupRow({
       onValueChange={handleValueChange}
       data-session-mode={mode}
       data-header-visible={headerVisible}
+      className={cn(
+        headerVisible && spaceBefore && "pt-3",
+        headerVisible && (!continuationId || !open) && "pb-3",
+      )}
     >
       <Collapsible.Item value={SESSION_VALUE}>
         <Collapsible.Trigger
