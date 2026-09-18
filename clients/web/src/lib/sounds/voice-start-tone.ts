@@ -14,7 +14,7 @@ import {
   type ToneRecipe,
 } from "@/lib/sounds/tone-synth";
 
-export const DEFAULT_VOICE_START_TONE: ToneRecipe = TONE_PRESETS.rise;
+export const DEFAULT_VOICE_START_TONE: ToneRecipe = TONE_PRESETS.bloom;
 
 export const VOICE_START_TONE_OVERRIDE_KEY = "device:voiceStartToneOverride";
 

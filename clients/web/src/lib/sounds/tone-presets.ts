@@ -1,6 +1,6 @@
 /**
  * Prebuilt tones for the Debug tone lab. Each is a starting point to audition
- * or remix; `rise` is what a voice conversation plays when it connects (see
+ * or remix; `bloom` is what a voice conversation plays when it connects (see
  * `voice-start-tone.ts`).
  *
  * To promote a tone mixed in the lab, use its Copy button and paste the JSON
