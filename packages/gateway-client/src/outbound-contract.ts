@@ -1,13 +1,17 @@
 /**
- * Daemon → gateway outbound delivery contract.
+ * Outbound channel delivery contract.
  *
- * Zod schemas defining the wire format for channel replies delivered from
- * the daemon to the gateway via `POST /deliver/{channel}`. Both services
- * import from here so the contract is enforced at compile time.
+ * Zod schemas for a reply to a channel chat. The daemon constructs these
+ * payloads in `deliverChannelReply()` and `deliverApprovalPrompt()` and hands
+ * them to the channel transport its callback URL names
+ * (`messaging/providers`). `/deliver/{channel}` is only that callback URL's
+ * addressing form: no service serves it. A callback URL no
+ * transport owns (a managed callback carrying a `callback_token`) is POSTed
+ * over HTTP by `http-delivery.ts` instead.
  *
- * The daemon constructs these payloads in `deliverChannelReply()` and
- * `deliverApprovalPrompt()`; the gateway validates and dispatches them
- * to the target channel provider.
+ * The gateway sends through the same transports, never to a provider itself:
+ * a reply it composes for a message it answered at ingress goes to the daemon
+ * as a {@link GatewayReplyRequest}.
  */
 
 import type { KnownBlock } from "@slack/types";
@@ -278,6 +282,33 @@ export const ChannelReplyPayloadSchema = z.object({
 });
 
 export type ChannelReplyPayload = z.infer<typeof ChannelReplyPayloadSchema>;
+
+// ---------------------------------------------------------------------------
+// Gateway reply: gateway to daemon
+// ---------------------------------------------------------------------------
+
+/**
+ * Daemon IPC method that delivers a {@link GatewayReplyRequest}. IPC-only:
+ * it has no HTTP route.
+ */
+export const DELIVER_GATEWAY_REPLY_IPC_METHOD = "deliver_gateway_reply";
+
+/**
+ * A text reply the gateway composed for an inbound message it answered
+ * itself (a verification code, an invite redemption), which the daemon
+ * delivers through the channel transport `callbackUrl` names. The callback
+ * URL is the one the inbound message carried, so the reply lands in the chat
+ * and thread the person wrote from.
+ */
+export const GatewayReplyRequestSchema = ChannelReplyPayloadSchema.pick({
+  chatId: true,
+  assistantId: true,
+}).extend({
+  callbackUrl: z.string().min(1),
+  text: z.string().min(1),
+});
+
+export type GatewayReplyRequest = z.infer<typeof GatewayReplyRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Channel delivery result — gateway response

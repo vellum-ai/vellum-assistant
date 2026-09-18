@@ -31,7 +31,9 @@ const TELEGRAM_MAX_MESSAGE_LEN = 4000;
 /** Telegram Bot API enforces a 1-64 byte limit on InlineKeyboardButton callback_data. */
 const TELEGRAM_MAX_CALLBACK_DATA_BYTES = 64;
 
-// Telegram Bot API sendDocument upload limit is 50 MB
+// Bot API limits for a multipart upload: 10 MB for a photo, 50 MB for any
+// other file (https://core.telegram.org/bots/api#sending-files).
+const TELEGRAM_MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const TELEGRAM_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 const TELEGRAM_IMAGE_MIME_PREFIXES = [
@@ -296,8 +298,9 @@ export type TelegramAttachmentResult = {
 };
 
 /**
- * Send attachments to a Telegram chat, using sendPhoto for images and
- * sendDocument for everything else.
+ * Send attachments to a Telegram chat, using sendPhoto for an image within
+ * the photo limit and sendDocument for everything else, so an image over it
+ * still arrives as a file.
  */
 export async function sendTelegramAttachments(
   chatId: string,
@@ -351,10 +354,10 @@ export async function sendTelegramAttachments(
         form.set("message_thread_id", String(threadFields.message_thread_id));
       }
 
-      const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
-        mimeType.startsWith(p),
-      );
-      if (isImage) {
+      const sendsAsPhoto =
+        TELEGRAM_IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p)) &&
+        content.length <= TELEGRAM_MAX_PHOTO_BYTES;
+      if (sendsAsPhoto) {
         form.set("photo", blob, filename);
         await callTelegramBotApiMultipart("sendPhoto", form);
       } else {

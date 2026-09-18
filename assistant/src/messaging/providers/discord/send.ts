@@ -41,8 +41,9 @@ const DISCORD_ALLOWED_MENTIONS = { parse: ["users"] } as const;
 
 /**
  * Upper bound on an outbound attachment. Discord's real limit is the guild's
- * boost tier (10 MiB with no boosts, more above that), which the API does not
- * expose here, so the client-side guard is only the ceiling no tier exceeds:
+ * boost tier (20 MiB per file by default, more above that; see
+ * https://discord.com/developers/docs/reference#uploading-files), which the
+ * API does not expose here, so the client-side guard is only the ceiling no tier exceeds:
  * past it the upload is provably futile and not worth the bandwidth. Anything
  * under it is attempted and, if the guild's own tier rejects it, reported
  * through the same failure notice as any other attachment error.

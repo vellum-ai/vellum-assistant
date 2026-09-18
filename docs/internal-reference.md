@@ -352,7 +352,7 @@ GET /v1/assistants/:assistantId/attachments/:attachmentId
 
 #### Telegram
 
-The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/send.ts`) reads each attachment from the attachment store and uploads it with Telegram's `sendPhoto` (images) or `sendDocument` (other files). Oversized attachments (over the 50 MB `sendDocument` limit) are skipped. Partial failures send a user-visible notice listing undelivered files.
+The assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/send.ts`) reads each attachment from the attachment store and uploads it with Telegram's `sendPhoto` (images within the 10 MB photo upload limit) or `sendDocument` (larger images and other files). Oversized attachments (over the 50 MB `sendDocument` limit) are skipped. Partial failures send a user-visible notice listing undelivered files.
 
 #### Attachment Sources
 

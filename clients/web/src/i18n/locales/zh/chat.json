@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "计算机操作会话",
+      "computerUse": "计算机会话",
       "browser": "浏览器会话",
       "liveVision": "实时视觉会话",
       "ambient": "环境会话"
@@ -1827,10 +1827,14 @@
   },
   "toolInputParameters": {
     "parameters": "参数",
-    "rawInput": "原始输入"
+    "rawInput": "原始输入",
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}",
+    "rawOutput": "原始输出"
+  },
+  "valueFields": {
     "copyValue": "复制 {label}"
   },
   "toolStepPill": {

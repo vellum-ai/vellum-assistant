@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "電腦操作工作階段",
+      "computerUse": "電腦工作階段",
       "browser": "瀏覽器工作階段",
       "liveVision": "即時視覺工作階段",
       "ambient": "環境工作階段"
@@ -1827,10 +1827,14 @@
   },
   "toolInputParameters": {
     "parameters": "參數",
-    "rawInput": "原始輸入"
+    "rawInput": "原始輸入",
+    "moreCount": "{count, plural, other {另有 # 項，見「原始輸入」}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, other {另有 # 項，見「原始輸入」}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}",
+    "rawOutput": "原始輸出"
+  },
+  "valueFields": {
     "copyValue": "複製 {label}"
   },
   "toolStepPill": {

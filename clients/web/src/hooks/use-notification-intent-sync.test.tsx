@@ -23,6 +23,7 @@ import { MemoryRouter } from "react-router";
 import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { resolveAssistantAvatarOwnerScopeId } from "@/hooks/use-assistant-avatar";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -175,6 +176,7 @@ function publishNotificationIntent(overrides: {
   remotePushDispatched?: boolean;
   remotePushPlatforms?: ("ios" | "android")[];
   deepLinkMetadata?: Record<string, unknown>;
+  targetGuardianPrincipalId?: string;
 }) {
   act(() => {
     publish("sse.event", {
@@ -468,6 +470,50 @@ describe("useNotificationIntentSync", () => {
     expect(originA?.scopeId).not.toContain("a.example.com");
     expect(postedArgs[0]?.assistantId).toBe(assistantA.id);
     expect(postedArgs[0]?.assistantName).toBe("Origin A");
+  });
+});
+
+describe("useNotificationIntentSync guardian-scoped intents", () => {
+  const guardianIntent = {
+    sourceEventName: "guardian.question",
+    title: "Approval needed",
+    targetGuardianPrincipalId: "principal-guardian",
+  };
+
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  test("shows one from an assistant that targets the guardian's connections", () => {
+    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.3", "assistant-1");
+    mountAt(routes.assistant);
+
+    publishNotificationIntent(guardianIntent);
+
+    expect(postedArgs).toEqual([
+      expect.objectContaining({
+        title: "Approval needed",
+        sourceEventName: "guardian.question",
+      }),
+    ]);
+  });
+
+  test("skips and acks one from an assistant that broadcasts it to everyone", () => {
+    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.2", "assistant-1");
+    mountAt(routes.assistant);
+
+    publishNotificationIntent(guardianIntent);
+
+    expect(postedArgs).toHaveLength(0);
+    expect(sendAckMock).toHaveBeenCalledWith("assistant-1", "delivery-1", true);
+  });
+
+  test("skips one while the assistant's version is unknown", () => {
+    mountAt(routes.assistant);
+
+    publishNotificationIntent(guardianIntent);
+
+    expect(postedArgs).toHaveLength(0);
   });
 });
 

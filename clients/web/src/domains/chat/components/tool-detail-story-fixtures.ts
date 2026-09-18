@@ -485,6 +485,39 @@ export const longTextParameterDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * A query whose result is a list of thirty records with ten keys each: wider
+ * than the drawer and taller than a screen. The columns take the width of
+ * their values on one line and the table scrolls sideways; the long `website`
+ * column wraps once it reaches the width cap.
+ */
+export const wideTableOutputDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-accounts-query-1",
+  toolName: "mcp__warehouse__query",
+  title: "Working",
+  activity: "Listing the accounts on the team and enterprise plans",
+  input: {
+    activity: "Listing the accounts on the team and enterprise plans",
+    query:
+      "select * from accounts where plan in ('team', 'enterprise') limit 30",
+  },
+  result: JSON.stringify(
+    Array.from({ length: 30 }, (_, index) => ({
+      id: `acct_${1000 + index}`,
+      name: `Example Account ${index + 1}`,
+      email: `user${index + 1}@example.com`,
+      plan: index % 3 === 0 ? "enterprise" : "team",
+      seats: 10 + index,
+      region: "us-east-1",
+      created_at: "2026-08-03T12:00:00Z",
+      owner: "growth",
+      status: index % 4 === 0 ? "churn_risk" : "active",
+      website: `https://example.com/accounts/${1000 + index}/overview`,
+    })),
+  ),
+  riskLevel: "low",
+});
+
+/**
  * Output of many short lines: forty file paths, far under the length that
  * reads as "long" in characters but taller than the fold, so it folds by the
  * height it is drawn at.

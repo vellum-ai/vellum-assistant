@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "Computer use session",
+      "computerUse": "Computer session",
       "browser": "Browser session",
       "liveVision": "Live vision session",
       "ambient": "Ambient session"
@@ -1838,10 +1838,14 @@
   },
   "toolInputParameters": {
     "parameters": "Parameters",
-    "rawInput": "Raw input"
+    "rawInput": "Raw input",
+    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}",
+    "rawOutput": "Raw output"
+  },
+  "valueFields": {
     "copyValue": "Copy {label}"
   },
   "toolStepPill": {

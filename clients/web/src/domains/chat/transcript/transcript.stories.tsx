@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
@@ -491,6 +492,116 @@ export const SessionHistoryAndLatestTurnMobile: Story = {
   render: () => <SessionGroupingStory />,
 };
 
+const REPEATED_SESSION_RUNS = [
+  {
+    mode: "browser",
+    request: "Find a lightweight laptop under $1,200.",
+    thinking: "I will compare price and weight across the available models.",
+    activity: "Checking laptop specifications",
+    response:
+      "I found two options under budget: a 13-inch model at $999 and a 14-inch model at $1,149.",
+    duration: 42_000,
+  },
+  {
+    mode: "browser",
+    request: "Compare the two best options.",
+    thinking: "I will check battery life and ports before recommending one.",
+    activity: "Comparing battery life and ports",
+    response:
+      "The 13-inch model is lighter. The 14-inch model has more ports and a larger battery.",
+    duration: 60_000,
+  },
+  {
+    mode: "computer_use",
+    request: "Put the comparison in a spreadsheet.",
+    thinking:
+      "I will enter price, weight, battery life, and ports in separate columns.",
+    activity: "Entering the laptop comparison",
+    response:
+      "The comparison is in the spreadsheet, with one row for each laptop.",
+    duration: 18_000,
+  },
+] as const;
+
+const REPEATED_SESSION_ITEMS: TranscriptItem[] = [];
+const REPEATED_SESSION_DESCRIPTORS: ModeSessionDescriptor[] = [];
+for (const [index, run] of REPEATED_SESSION_RUNS.entries()) {
+  const id = `compact-session-${index}`;
+  const responseId = `${id}-response`;
+  const startedAt = SESSION_NOW - (3 - index) * 120_000;
+  const endedAt = startedAt + run.duration;
+  const toolCall: ChatMessageToolCall = {
+    id: `${id}-tool`,
+    name: run.mode === "browser" ? "bash" : "computer_use_type_text",
+    input:
+      run.mode === "browser"
+        ? { command: "assistant browser snapshot", activity: run.activity }
+        : {
+            text: "Model\tPrice\tWeight\tBattery life\tPorts",
+            reasoning: run.activity,
+          },
+    startedAt,
+    completedAt: endedAt,
+  };
+  const response: TranscriptItem = {
+    kind: "message",
+    key: responseId,
+    message: {
+      id: responseId,
+      role: "assistant",
+      contentBlocks: [
+        { type: "thinking", thinking: run.thinking },
+        { type: "tool_use", toolCall },
+        { type: "text", text: run.response },
+      ],
+      toolCalls: [toolCall],
+    },
+  };
+  const request = user(`${id}-request`, run.request);
+  request.message.timestamp = startedAt - 1_000;
+  REPEATED_SESSION_ITEMS.push(
+    request,
+    withSession(response, { mode: run.mode, id }, startedAt),
+  );
+  REPEATED_SESSION_DESCRIPTORS.push({
+    summary: {
+      id,
+      conversationId: "compact-session-story",
+      mode: run.mode,
+      sourceStartedAt: startedAt,
+      firstIncludedAt: startedAt,
+      firstIncludedMessageId: responseId,
+      lastActivityAt: endedAt,
+      lastOwnedMessageId: responseId,
+      revision: 2,
+      status: "completed",
+      endedAt,
+      endReason: "completed",
+    },
+  });
+}
+
+export const RepeatedBrowserAndComputerSessions: Story = {
+  globals: { theme: "dark" },
+  beforeEach: () => setSessionGroupsStoryFlag(true),
+  args: {
+    items: REPEATED_SESSION_ITEMS,
+    conversationId: "compact-session-story",
+    modeSessionDescriptors: REPEATED_SESSION_DESCRIPTORS,
+    sessionGroupsEnabled: true,
+    sessionClockNow: SESSION_NOW,
+  },
+};
+
+export const RepeatedBrowserAndComputerSessionsMobile: Story = {
+  ...RepeatedBrowserAndComputerSessions,
+  globals: {
+    theme: "dark",
+    viewport: { value: "sbMobile", isRotated: false },
+  },
+  parameters: { transcriptWidth: "100%" },
+};
+
 const LIVE_ITEMS: TranscriptItem[] = [
   withSession(
     {
@@ -565,4 +676,13 @@ export const LiveSessionLatestTurn: Story = {
   beforeEach: () => setSessionGroupsStoryFlag(true),
   parameters: { controls: { disable: true } },
   render: () => <LiveSessionStory />,
+};
+
+export const LiveSessionLatestTurnMobile: Story = {
+  ...LiveSessionLatestTurn,
+  globals: {
+    theme: "dark",
+    viewport: { value: "sbMobile", isRotated: false },
+  },
+  parameters: { controls: { disable: true }, transcriptWidth: "100%" },
 };
