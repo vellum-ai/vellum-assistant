@@ -317,7 +317,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_a2a_invite_accept_post",
     endpoint: "integrations/a2a/invite/accept",
     method: "POST",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Accept A2A invite (self-hosted broker)",
     description:
       "Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete, then creates a local contact via invite/redeem.",
