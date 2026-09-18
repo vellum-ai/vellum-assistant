@@ -33,6 +33,9 @@ import type { LiveVoiceServerFramePayload } from "./protocol.js";
 
 const log = getLogger("live-activity-reporter");
 
+/** A stale phase is preferable to letting one request pin every later phase. */
+const LIVE_ACTIVITY_DISPATCH_TIMEOUT_MS = 5_000;
+
 /** The phases an iOS Live Activity can render. Mirrors the client's union. */
 export type LiveActivityPhase =
   | "connecting"
@@ -116,6 +119,8 @@ export class LiveActivityReporter {
   private lastDetail = "";
   private ended = false;
   private dispatchTail: Promise<void> = Promise.resolve();
+  protected readonly dispatchTimeoutMs: number =
+    LIVE_ACTIVITY_DISPATCH_TIMEOUT_MS;
 
   constructor(private readonly conversationId: string) {}
 
@@ -189,7 +194,14 @@ export class LiveActivityReporter {
     detail: string,
   ): void {
     this.dispatchTail = this.dispatchTail
-      .then(() => this.dispatch(phase, event, detail))
+      .then(() =>
+        this.dispatch(
+          phase,
+          event,
+          detail,
+          AbortSignal.timeout(this.dispatchTimeoutMs),
+        ),
+      )
       .catch((err: unknown) => {
         // `dispatch` contains its own best-effort error boundary. Keep this
         // guard for subclasses and future implementations so one rejection
@@ -208,6 +220,7 @@ export class LiveActivityReporter {
     phase: LiveActivityPhase,
     event: "update" | "end",
     detail: string,
+    signal: AbortSignal,
   ): Promise<void> {
     try {
       const client = await VellumPlatformClient.create();
@@ -226,6 +239,7 @@ export class LiveActivityReporter {
           event,
           detail,
         }),
+        signal,
       });
       if (!response.ok) {
         log.debug(

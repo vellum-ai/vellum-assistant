@@ -73,6 +73,35 @@ class BlockingReporter extends LiveActivityReporter {
   }
 }
 
+class TimeoutReporter extends LiveActivityReporter {
+  readonly dispatched: string[] = [];
+  protected override readonly dispatchTimeoutMs = 1;
+
+  waitForDispatches(): Promise<void> {
+    return this.waitForPendingDispatches();
+  }
+
+  protected override async dispatch(
+    phase: string,
+    _event: "update" | "end",
+    _detail: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    this.dispatched.push(phase);
+    if (this.dispatched.length > 1) {
+      return;
+    }
+    await new Promise<void>((_resolve, reject) => {
+      const rejectOnAbort = () => reject(signal.reason);
+      if (signal.aborted) {
+        rejectOnAbort();
+        return;
+      }
+      signal.addEventListener("abort", rejectOnAbort, { once: true });
+    });
+  }
+}
+
 function activity(
   label: string,
   kind?: "escalation",
@@ -184,6 +213,16 @@ describe("LiveActivityReporter", () => {
 
     reporter.releaseFirst();
     await reporter.waitForDispatches();
+    expect(reporter.dispatched).toEqual(["speaking", "thinking"]);
+  });
+
+  test("a timed-out dispatch does not pin later phases", async () => {
+    const reporter = new TimeoutReporter("conv-1");
+
+    reporter.report(frame("tts_audio"));
+    reporter.report(activity("", "escalation"));
+    await reporter.waitForDispatches();
+
     expect(reporter.dispatched).toEqual(["speaking", "thinking"]);
   });
 
