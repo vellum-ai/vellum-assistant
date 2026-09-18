@@ -10,6 +10,8 @@ const LIVE_VOICE_CLIENT_FRAME_TYPES = [
   "update_config",
   "attach_image",
   "attach_frame",
+  "sight_start",
+  "sight_end",
   "sight_frame",
   "text",
 ] as const;
@@ -67,6 +69,20 @@ export interface LiveVoiceProtocolError {
 type LiveVoiceParseResult<T> =
   | { ok: true; frame: T }
   | { ok: false; error: LiveVoiceProtocolError };
+
+type LiveVoiceParseFailure = Extract<
+  LiveVoiceParseResult<never>,
+  { ok: false }
+>;
+
+function liveVoiceParseFailure(
+  code: LiveVoiceProtocolErrorCode,
+  message: string,
+  field: string,
+  frameType: string,
+): LiveVoiceParseFailure {
+  return { ok: false, error: { code, message, field, frameType } };
+}
 
 export interface LiveVoiceAudioConfig {
   readonly mimeType: "audio/pcm";
@@ -364,6 +380,8 @@ export interface LiveVoiceClientAttachFrameFrame {
 export interface LiveVoiceClientSightFrameFrame {
   readonly type: "sight_frame";
   readonly attachmentId: string;
+  readonly cameraEpoch?: number;
+  readonly source?: LiveVoiceSightSource;
   /**
    * How long the client's half of the frame took, for the daemon's log. The
    * daemon adds its own half and the distance from the speech onset it
@@ -371,6 +389,19 @@ export interface LiveVoiceClientSightFrameFrame {
    * legible after the fact. Optional: an older client sends none.
    */
   readonly timing?: LiveVoiceSightFrameTiming;
+}
+
+export type LiveVoiceSightSource = "live" | "ambient";
+
+export interface LiveVoiceClientSightStartFrame {
+  readonly type: "sight_start";
+  readonly cameraEpoch: number;
+  readonly source?: LiveVoiceSightSource;
+}
+
+export interface LiveVoiceClientSightEndFrame {
+  readonly type: "sight_end";
+  readonly cameraEpoch: number;
 }
 
 /**
@@ -452,6 +483,8 @@ export type LiveVoiceClientFrame =
   | LiveVoiceClientUpdateConfigFrame
   | LiveVoiceClientAttachImageFrame
   | LiveVoiceClientAttachFrameFrame
+  | LiveVoiceClientSightStartFrame
+  | LiveVoiceClientSightEndFrame
   | LiveVoiceClientSightFrameFrame
   | LiveVoiceClientTextTurnFrame;
 
@@ -482,6 +515,8 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
    * every typed turn with an `unknown_type` error.
    */
   readonly textInput?: boolean;
+  /** Whether this session accepts camera lifecycle epochs. */
+  readonly sightSessions?: boolean;
   /**
    * Whether the session's speech-to-text leg is live. Absent means yes, which
    * is the only thing an older daemon can have meant: it rejects a session it
@@ -904,6 +939,10 @@ export function validateLiveVoiceClientFrame(
       return validateAttachImageFrame(value);
     case "attach_frame":
       return validateAttachFrameFrame(value);
+    case "sight_start":
+      return validateSightStartFrame(value);
+    case "sight_end":
+      return validateSightEndFrame(value);
     case "sight_frame":
       return validateSightFrameFrame(value);
     case "text":
@@ -1052,10 +1091,19 @@ function validateSightFrameFrame(
     );
   }
 
+  const lifecycle = validateOptionalSightLifecycle(value, "sight_frame");
+  if (!lifecycle.ok) {
+    return lifecycle;
+  }
+
   if (!("timing" in value) || value.timing === undefined) {
     return {
       ok: true,
-      frame: { type: "sight_frame", attachmentId: value.attachmentId },
+      frame: {
+        type: "sight_frame",
+        attachmentId: value.attachmentId,
+        ...lifecycle.fields,
+      },
     };
   }
 
@@ -1071,8 +1119,119 @@ function validateSightFrameFrame(
 
   return {
     ok: true,
-    frame: { type: "sight_frame", attachmentId: value.attachmentId, timing },
+    frame: {
+      type: "sight_frame",
+      attachmentId: value.attachmentId,
+      ...lifecycle.fields,
+      timing,
+    },
   };
+}
+
+function validateSightStartFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightStartFrame> {
+  const lifecycle = validateRequiredSightLifecycle(value, "sight_start");
+  if (!lifecycle.ok) {
+    return lifecycle;
+  }
+  return {
+    ok: true,
+    frame: { type: "sight_start", ...lifecycle.fields },
+  };
+}
+
+function validateSightEndFrame(
+  value: Record<string, unknown>,
+): LiveVoiceParseResult<LiveVoiceClientSightEndFrame> {
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return protocolError(
+      "invalid_field",
+      "sight_end frame field cameraEpoch must be a positive safe integer",
+      "cameraEpoch",
+      "sight_end",
+    );
+  }
+  return {
+    ok: true,
+    frame: { type: "sight_end", cameraEpoch: value.cameraEpoch },
+  };
+}
+
+function validateRequiredSightLifecycle(
+  value: Record<string, unknown>,
+  frameType: "sight_start",
+):
+  | { ok: true; fields: { cameraEpoch: number; source?: LiveVoiceSightSource } }
+  | LiveVoiceParseFailure {
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field cameraEpoch must be a positive safe integer`,
+      "cameraEpoch",
+      frameType,
+    );
+  }
+  if (value.source !== undefined && !isLiveVoiceSightSource(value.source)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field source must be live or ambient`,
+      "source",
+      frameType,
+    );
+  }
+  return {
+    ok: true,
+    fields: {
+      cameraEpoch: value.cameraEpoch,
+      ...(value.source ? { source: value.source } : {}),
+    },
+  };
+}
+
+function validateOptionalSightLifecycle(
+  value: Record<string, unknown>,
+  frameType: "sight_frame",
+):
+  | {
+      ok: true;
+      fields: { cameraEpoch?: number; source?: LiveVoiceSightSource };
+    }
+  | LiveVoiceParseFailure {
+  if (value.cameraEpoch === undefined && value.source === undefined) {
+    return { ok: true, fields: {} };
+  }
+  if (!isPositiveSafeInteger(value.cameraEpoch)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field cameraEpoch must be a positive safe integer when lifecycle fields are present`,
+      "cameraEpoch",
+      frameType,
+    );
+  }
+  if (value.source !== undefined && !isLiveVoiceSightSource(value.source)) {
+    return liveVoiceParseFailure(
+      "invalid_field",
+      `${frameType} frame field source must be live or ambient`,
+      "source",
+      frameType,
+    );
+  }
+  return {
+    ok: true,
+    fields: {
+      cameraEpoch: value.cameraEpoch,
+      ...(value.source ? { source: value.source } : {}),
+    },
+  };
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value > 0;
+}
+
+function isLiveVoiceSightSource(value: unknown): value is LiveVoiceSightSource {
+  return value === "live" || value === "ambient";
 }
 
 /**

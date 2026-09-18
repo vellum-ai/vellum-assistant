@@ -334,11 +334,10 @@ const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 const { resolveCallSiteConfig } = await import("../config/llm-resolver.js");
 const { LLMSchema } = await import("../config/schemas/llm.js");
 
-// Capture broadcastMessage so tests can observe the alerts and
-// conversation-created events the heartbeat service emits directly.
+// Capture broadcastMessage so tests can observe the conversation-created
+// events the heartbeat service emits directly.
 type BroadcastedMessage = { type: string; [key: string]: unknown };
 const broadcastedMessages: BroadcastedMessage[] = [];
-let onBroadcast: ((msg: BroadcastedMessage) => void) | null = null;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -347,7 +346,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
   broadcastMessage: (msg: BroadcastedMessage) => {
     broadcastedMessages.push(msg);
-    onBroadcast?.(msg);
   },
 }));
 
@@ -357,7 +355,6 @@ describe("HeartbeatService", () => {
     content: string;
     options?: { callSite?: string };
   }>;
-  let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
   afterEach(() => {
     // Clean up workspace files between tests so file-existence tests don't leak
@@ -368,13 +365,7 @@ describe("HeartbeatService", () => {
 
   beforeEach(() => {
     processMessageCalls = [];
-    alerterCalls = [];
     broadcastedMessages.length = 0;
-    onBroadcast = (msg) => {
-      if (msg.type === "heartbeat_alert") {
-        alerterCalls.push(msg as { type: string; title: string; body: string });
-      }
-    };
     createdConversations.length = 0;
     conversationIdCounter = 0;
     mockStoredMessages.length = 0;
@@ -693,21 +684,6 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(1);
   });
 
-  test("alerts on processMessage failure", async () => {
-    const service = createService({
-      processMessage: async () => {
-        throw new Error("LLM timeout");
-      },
-    });
-
-    await service.runOnce();
-
-    expect(alerterCalls).toHaveLength(1);
-    expect(alerterCalls[0].type).toBe("heartbeat_alert");
-    expect(alerterCalls[0].title).toBe("Heartbeat Failed");
-    expect(alerterCalls[0].body).toBe("LLM timeout");
-  });
-
   test("successful run updates lastRunAt and nextRunAt", async () => {
     const service = createService();
     expect(service.lastRunAt).toBeNull();
@@ -722,24 +698,6 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt!).toBeGreaterThanOrEqual(
       before + heartbeatConfig.intervalMs,
     );
-  });
-
-  test("alerts on conversation creation failure", async () => {
-    // Override createConversation to throw via a fresh import trick:
-    // Since createConversation is mocked at module level, we simulate
-    // this by having processMessage throw before it's called — but the
-    // real fix is that executeRun wraps createConversation in the try/catch.
-    // We verify by checking that any error in executeRun triggers the alert.
-    const service = createService({
-      processMessage: async () => {
-        throw new Error("DB locked");
-      },
-    });
-
-    await service.runOnce();
-
-    expect(alerterCalls).toHaveLength(1);
-    expect(alerterCalls[0].body).toBe("DB locked");
   });
 
   test("resetTimer() pushes nextRunAt forward", () => {
@@ -1465,21 +1423,6 @@ describe("HeartbeatService", () => {
         conversationId: "conv-1",
         error: "LLM timeout",
       });
-    });
-
-    test("CAS false suppresses failure alerter and feed event", async () => {
-      mockCompleteHeartbeatRun.mockImplementation(() => false);
-
-      const service = createService({
-        processMessage: async () => {
-          throw new Error("LLM timeout");
-        },
-      });
-
-      await service.runOnce();
-
-      // completeHeartbeatRun returned false, so alerter should NOT be called
-      expect(alerterCalls).toHaveLength(0);
     });
 
     test("active-hours skip calls skipHeartbeatRun", async () => {

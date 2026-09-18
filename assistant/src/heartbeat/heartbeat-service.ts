@@ -3,7 +3,6 @@ import { join } from "node:path";
 
 import { channelForBotProvider } from "@vellumai/service-contracts/channels";
 
-import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
 import { warmGuardianBindings } from "../contacts/guardian-delivery-reader.js";
@@ -737,17 +736,6 @@ export class HeartbeatService {
       }
     } catch (err) {
       log.error({ err }, "Credential health check failed");
-      try {
-        broadcastMessage({
-          type: "heartbeat_alert",
-          title: "Credential Health Check Failed",
-          body:
-            "Could not verify OAuth credential health. " +
-            (err instanceof Error ? err.message : String(err)),
-        } satisfies HeartbeatAlertEvent);
-      } catch {
-        // Last resort — alerter itself failed. Already logged above.
-      }
     }
     return [];
   }
@@ -912,32 +900,16 @@ export class HeartbeatService {
       "Heartbeat failed",
     );
 
-    // The runner has already emitted `activity.failed` for the failure;
-    // we still record the run-level error and broadcast the in-app
-    // heartbeat alert so the existing surfacing keeps working.
-    // Map the runner's error classification onto the run-store's status
-    // enum so the run history preserves the timeout / error distinction.
+    // The runner has already emitted `activity.failed` for the failure, so
+    // this only records the run-level error. Map the runner's error
+    // classification onto the run-store's status enum so the run history
+    // preserves the timeout / error distinction.
     const runStatus = result.errorKind === "timeout" ? "timeout" : "error";
-    const transitioned = completeHeartbeatRun(runId, {
+    completeHeartbeatRun(runId, {
       status: runStatus,
       conversationId: conversationId ?? result.conversationId,
       error: result.error?.message ?? "Unknown error",
     });
-
-    // Only fire the in-app alerter when our completion is the one that
-    // actually wrote — otherwise a parallel finalizer (e.g. a startup
-    // recovery sweep) already alerted for this run.
-    if (transitioned) {
-      try {
-        broadcastMessage({
-          type: "heartbeat_alert",
-          title: "Heartbeat Failed",
-          body: result.error?.message ?? "Unknown error",
-        } satisfies HeartbeatAlertEvent);
-      } catch (alertErr) {
-        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
-      }
-    }
   }
 
   private readChecklist(): string {

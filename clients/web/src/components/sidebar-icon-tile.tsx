@@ -1,6 +1,6 @@
 /**
  * A round icon-only button on the sidebar's panel wash: the tile the rail
- * draws for an action that carries the assistant's colour (New Chat, the
+ * draws for an action that carries the assistant's colour (the
  * Assistant Inbox). The surface reads `PanelItem`'s tint properties
  * (`--panel-item-bg`, `--panel-item-hover`), so a caller that washes an
  * expanded pill washes this with the same declaration, and the glyph reads

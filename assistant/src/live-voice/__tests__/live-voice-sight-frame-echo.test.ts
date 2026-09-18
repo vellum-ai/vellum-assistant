@@ -102,6 +102,7 @@ function createHarness() {
   });
 
   return {
+    conversation,
     conversationId: row.id,
     session,
     startVoiceTurn,
@@ -151,6 +152,46 @@ async function expectAnnouncement(
 }
 
 describe("standalone image echoes", () => {
+  test("a grouped keep echoes the same durable camera owner", async () => {
+    const harness = createHarness();
+    try {
+      const attachmentId = await uploadFrame();
+      const source = harness.conversation.modeSessions.activateSource({
+        sourceId: "camera:test",
+        generation: 1,
+        mode: "live_vision",
+        sourceStartedAt: Date.now(),
+        lifetime: "source",
+      });
+      expect(source).toBeDefined();
+      const modeSession = { id: source!.id, mode: source!.mode };
+      expect(
+        (
+          await persistAmbientSightFrame(
+            harness.conversationId,
+            attachmentId,
+            "voice",
+            undefined,
+            undefined,
+            source,
+          )
+        ).ok,
+      ).toBe(true);
+
+      await waitFor(() => harness.published.length >= 2);
+      const echo = UserMessageEchoEventSchema.parse(
+        harness.published[0]!.event.message,
+      );
+      expect(echo.modeSession).toEqual(modeSession);
+      const [row] = conversationCrud.getMessages(harness.conversationId);
+      expect(JSON.parse(row!.metadata ?? "{}").modeSession).toEqual(
+        modeSession,
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
   test.each(["sight_frame", "attach_image"] as const)(
     "%s emits one committed row before the history invalidation",
     async (type) => {

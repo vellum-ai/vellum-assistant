@@ -102,6 +102,7 @@ import {
   handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ function makeDeps(): EventHandlerDeps {
         sourceChannel: "vellum",
         trustClass: "guardian",
       },
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: () => {},
     reqId: "test-req",

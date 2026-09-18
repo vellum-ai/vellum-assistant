@@ -16,6 +16,8 @@ import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import { startsNewTurn } from "./summarize-boundary.js";
 
 const log = getLogger("conversation-history");
@@ -360,6 +362,10 @@ export function consolidateAssistantMessages(
 export interface HistoryConversationContext {
   readonly conversationId: string;
   messages: Message[];
+  modeSessions: Pick<
+    ConversationModeSessionCoordinator,
+    "invalidateAllStructuralWaits"
+  >;
   isProcessing(): boolean;
 }
 
@@ -376,6 +382,10 @@ export function undo(conversation: HistoryConversationContext): number {
   if (lastUserIdx === -1) {
     return 0;
   }
+
+  bestEffortModeSessionTracking("conversation wait invalidation", () =>
+    conversation.modeSessions.invalidateAllStructuralWaits(),
+  );
 
   const removed = conversation.messages.length - lastUserIdx;
   conversation.messages = conversation.messages.slice(0, lastUserIdx);

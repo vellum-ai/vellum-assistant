@@ -20,6 +20,15 @@ import { Tooltip } from "./tooltip";
  * button inherits app light/dark theming automatically.
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
+ * - `variant="accent"` is a filled button in a colour the consumer supplies
+ *   through custom properties, the way `PanelItem` takes its tint, so the
+ *   library stays unaware of where the colour comes from:
+ *   - `--vbtn-accent`: the fill.
+ *   - `--vbtn-accent-fg`: the ink for a label on that fill.
+ *   - `--vbtn-accent-glyph`: the ink for an icon-only button's glyph, which
+ *     needs no small-text contrast floor; falls back to `--vbtn-accent-fg`.
+ *   Undeclared, it is the `primary` button. Hover and press deepen the fill
+ *   a step, and disabled takes `primary`'s disabled fill.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
  * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
  *   square icon-only button (the icon is centered at the correct size for the
@@ -52,6 +61,15 @@ const buttonVariants = cva(
           "bg-[var(--primary-base)]",
           "hover:bg-[var(--primary-hover)]",
           "active:bg-[var(--primary-active)]",
+          "border-transparent",
+          "disabled:bg-[var(--primary-disabled)]",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
+        accent: [
+          "[--vbtn-fg:var(--vbtn-accent-fg,var(--content-inset))]",
+          "bg-[var(--vbtn-accent,var(--primary-base))]",
+          "hover:bg-[color-mix(in_srgb,#000_10%,var(--vbtn-accent,var(--primary-hover)))]",
+          "active:bg-[color-mix(in_srgb,#000_16%,var(--vbtn-accent,var(--primary-active)))]",
           "border-transparent",
           "disabled:bg-[var(--primary-disabled)]",
           "disabled:[--vbtn-fg:var(--content-disabled)]",
@@ -222,6 +240,12 @@ const buttonVariants = cva(
         ].join(" "),
       },
       {
+        variant: "accent",
+        iconOnly: true,
+        class:
+          "[--vbtn-fg:var(--vbtn-accent-glyph,var(--vbtn-accent-fg,var(--content-inset)))]",
+      },
+      {
         variant: "link",
         class: "h-auto p-0 rounded-none text-[length:inherit] leading-[inherit]",
       },
@@ -375,6 +399,7 @@ export function Button({
       aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
       data-disabled={isSlotDisabled ? "" : undefined}
       data-slot="button"
+      data-variant={variant}
       tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
       title={title}

@@ -10,6 +10,7 @@ import type {
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
+import type { ModeSessionDescriptor } from "@vellumai/assistant-api";
 
 export type TranscriptItemKind =
   | "message"
@@ -171,6 +172,8 @@ export interface PaginatedHistoryResult
    *  completion); it is optional so other constructors (snapshot spreads, tests)
    *  need not restate it. */
   backgroundToolCompletions?: BackgroundTaskEntry[];
+  /** Batched lifecycle descriptors for session ids represented by this page. */
+  modeSessions?: ModeSessionDescriptor[];
   /** Client-stamped seq generation captured when this page's `/messages`
    *  request was ISSUED (see `reconnect-cursor.ts`). Lets the snapshot-anchor
    *  frontier be tagged with the generation its watermark belongs to, so a

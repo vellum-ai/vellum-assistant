@@ -13,7 +13,7 @@
  * without bringing up the full daemon stack.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
@@ -70,6 +70,7 @@ mock.module("../runtime/services/auto-analysis-guard.js", () => ({
 
 import { Conversation } from "../daemon/conversation.js";
 import type { HostAppControlProxy } from "../daemon/host-app-control-proxy.js";
+import { HostCuProxy } from "../daemon/host-cu-proxy.js";
 
 /**
  * Minimal stand-in for HostAppControlProxy that records dispose() calls.
@@ -110,6 +111,57 @@ function makeConversation(): Conversation {
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
   return conv;
 }
+
+describe("Conversation HostCuProxy lifecycle", () => {
+  test.each(["replace", "remove"] as const)(
+    "%s disposes the prior proxy even when mode-session retirement fails",
+    async (operation) => {
+      const conversation = makeConversation();
+      const previous = new HostCuProxy();
+      const replacement =
+        operation === "replace" ? new HostCuProxy() : undefined;
+      conversation.setHostCuProxy(previous);
+      const dispose = spyOn(previous, "dispose");
+      const endTask = spyOn(
+        conversation.computerUseModeSessions,
+        "endTask",
+      ).mockImplementation(() => {
+        throw new Error("session retirement unavailable");
+      });
+      const pending = previous
+        .request(
+          "computer_use_click",
+          { element_id: 1 },
+          conversation.conversationId,
+          1,
+          "Clicking the button",
+        )
+        .catch((error: unknown) => error);
+      try {
+        expect(() => conversation.setHostCuProxy(previous)).not.toThrow();
+        expect(endTask).not.toHaveBeenCalled();
+        expect(() => conversation.setHostCuProxy(replacement)).not.toThrow();
+        expect(await pending).toMatchObject({
+          message: "Host CU proxy disposed",
+        });
+        expect(endTask).toHaveBeenCalledWith({
+          turnId: conversation.currentRequestId,
+          source: {
+            sourceId: previous.sourceId,
+            generation: previous.resetGeneration,
+          },
+        });
+        expect(dispose).toHaveBeenCalledTimes(1);
+        expect(conversation.hostCuProxy).toBe(replacement);
+      } finally {
+        endTask.mockRestore();
+        dispose.mockRestore();
+        previous.dispose();
+        replacement?.dispose();
+      }
+    },
+  );
+});
 
 describe("Conversation — HostAppControlProxy lifecycle", () => {
   test("setHostAppControlProxy stores the proxy", () => {

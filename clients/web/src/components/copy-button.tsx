@@ -6,7 +6,11 @@ import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 interface CopyButtonProps {
-  text: string;
+  /**
+   * What to copy, or a function that produces it, for text that is costly to
+   * build and only needed if the button is pressed.
+   */
+  text: string | (() => string);
   ariaLabel: string;
   className?: string;
 }
@@ -34,7 +38,7 @@ export function CopyButton({
       tintColor={copied ? "var(--system-positive-strong)" : undefined}
       aria-label={copied ? t("copyButton.copied") : ariaLabel}
       className={className}
-      onClick={() => copy(text)}
+      onClick={() => copy(typeof text === "function" ? text() : text)}
     />
   );
 }

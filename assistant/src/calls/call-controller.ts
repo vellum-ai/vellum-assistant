@@ -1208,6 +1208,13 @@ export class CallController {
                   flushSafeText(fullResponseText);
                 },
                 abortLeg: () => legHandle?.abort(),
+                overruleLeg: () => {
+                  if (legHandle?.overrule) {
+                    legHandle.overrule();
+                  } else {
+                    legHandle?.abort();
+                  }
+                },
                 speakBridge: speakEscalationBridge,
                 startEscalatedLeg: (escalated) => {
                   const started = runVoiceLeg(escalated);
@@ -1259,6 +1266,15 @@ export class CallController {
           // A held "[..." tail that never completed a marker is real text,
           // released to both consumers before the leg settles.
           ingest(reasoningFilter.flush());
+          // An answer held for the escalation judge is spoken or overruled
+          // before the leg settles, so the turn awaits the right leg.
+          if (coordinator?.awaitingJudge === true) {
+            void coordinator.settled().then(() => {
+              coordinator.complete();
+              resolve();
+            });
+            return;
+          }
           coordinator?.complete();
           resolve();
         };
@@ -1306,6 +1322,9 @@ export class CallController {
             legHandle = handle;
             if (this.isCurrentRun(runVersion) && !coordinator?.handedOff) {
               this.currentTurnHandle = handle;
+              if (coordinator !== null && handle.escalationJudgement) {
+                coordinator.attachEscalationJudge(handle.escalationJudgement);
+              }
             } else {
               // Superseded, or the front-door leg handed off before its
               // handle arrived: abort immediately.

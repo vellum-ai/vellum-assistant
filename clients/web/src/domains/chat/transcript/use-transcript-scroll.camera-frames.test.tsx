@@ -48,6 +48,7 @@ function createHarness(
   initialMessages = frames.slice(2),
   initialHeight = 1800,
 ) {
+  let renderedMessages = initialMessages;
   const scrollElement = document.createElement("div");
   const contentElement = document.createElement("div");
   scrollElement.append(contentElement);
@@ -72,6 +73,7 @@ function createHarness(
     getScrollElement: () => scrollElement,
     getContentElement: () => contentElement,
     getViewportHeight: () => 800,
+    getRenderedMessageIds: () => renderedMessages.map((message) => message.id),
     getScrollState: () => ({
       distanceFromBottom: 0,
       isPinned: false,
@@ -114,6 +116,7 @@ function createHarness(
       scrollHeight = 2300,
       hasMore = false,
     ) {
+      renderedMessages = messages;
       Object.defineProperty(scrollElement, "scrollHeight", {
         configurable: true,
         value: scrollHeight,

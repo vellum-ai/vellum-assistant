@@ -97,6 +97,17 @@ describe("text-segment cleaning", () => {
 });
 
 describe("mapRuntimeToDisplayMessage", () => {
+  test("preserves canonical session membership and folded activity bounds", () => {
+    const modeSession = { mode: "browser" as const, id: "session-1" };
+    const modeSessionActivity = { firstAt: 1_000, lastAt: 2_000 };
+    const display = mapRuntimeToDisplayMessage(
+      makeMessage({ modeSession, modeSessionActivity }),
+    );
+
+    expect(display.modeSession).toEqual(modeSession);
+    expect(display.modeSessionActivity).toEqual(modeSessionActivity);
+  });
+
   test("preserves screenshot provenance in flat and structured attachments", () => {
     const automatic = {
       id: "shot-1",

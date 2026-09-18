@@ -38,6 +38,7 @@ export interface UseMessageLifecycleParams {
   latestPageOldestTimestamp: number | null;
   reachability: UseAssistantReachabilityResult;
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
+  observeLiveModeSession?: (sessionId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ export function useMessageLifecycle({
   latestPageOldestTimestamp,
   reachability,
   setAssetsRefreshKey,
+  observeLiveModeSession,
 }: UseMessageLifecycleParams): UseMessageLifecycleReturn {
   const navigate = useNavigate();
   const isNative = useIsNativePlatform();
@@ -95,6 +97,7 @@ export function useMessageLifecycle({
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
+    observeLiveModeSession,
   });
 
   // 3. SSE subscription lifecycle — subscribes, filters, and tears down

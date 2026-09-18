@@ -4,8 +4,9 @@
  * Server → client broadcast emitted when an incoming notification
  * creates a new vellum conversation. Clients use it to place the
  * conversation in the sidebar (`groupId`, `source`) and decide whether
- * to raise a fallback OS banner (`silent`). `targetGuardianPrincipalId`
- * scopes guardian-sensitive conversations to a bound identity.
+ * to raise a fallback OS banner (`silent`). A guardian-sensitive
+ * conversation is announced only to connections authenticated as the
+ * guardian named in `targetGuardianPrincipalId`.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -21,8 +22,9 @@ export const NotificationConversationCreatedEventSchema = z.object({
   sourceEventName: z.string(),
   /**
    * When set, this conversation was created for a guardian-sensitive
-   * notification and should only be surfaced by clients bound to this
-   * guardian identity.
+   * notification. The daemon delivers the event only to connections whose
+   * verified principal is this guardian, so every client that receives it
+   * is one it was meant for.
    */
   targetGuardianPrincipalId: z.string().optional(),
   /**

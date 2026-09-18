@@ -135,6 +135,7 @@ mock.module("../ipc/gateway-client.js", () => ({
 import { getEffectiveEnabledPluginSet } from "../daemon/conversation-tool-setup.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 function makeConversation() {
   const runAgentLoop = mock(async () => undefined);
@@ -156,6 +157,7 @@ function makeConversation() {
     },
     abortController: null,
     currentRequestId: undefined,
+    modeSessions: mockUnownedModeSessions(),
     queue: { length: 0 },
     setTrustContext: () => {},
     replayActivityState: () => {},
