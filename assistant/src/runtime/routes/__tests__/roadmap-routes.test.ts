@@ -351,6 +351,20 @@ describe("roadmap writes", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("update names an unknown field as unknown, not as staff-only", async () => {
+    stubFetch(UPSTREAM_ITEM);
+
+    await expect(
+      update({
+        pathParams: { slug: "dark-mode" },
+        body: { titel: "Dark mode", status: "planned" },
+      }),
+    ).rejects.toThrow(
+      "An assistant can change only an item's title and description; status is set by Vellum staff; titel is not a roadmap update field.",
+    );
+    expect(calls).toHaveLength(0);
+  });
+
   test("create rejects a blank title before calling out", async () => {
     stubFetch(UPSTREAM_ITEM);
 

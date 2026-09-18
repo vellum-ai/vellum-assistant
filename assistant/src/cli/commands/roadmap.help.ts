@@ -79,10 +79,13 @@ Examples:
       options: [
         {
           flags: "--title <title>",
-          description: "Item title (required)",
+          description: "Item title, 1 to 200 characters (required)",
           required: true,
         },
-        { flags: "--description <desc>", description: "Item description" },
+        {
+          flags: "--description <desc>",
+          description: "Item description, up to 5000 characters",
+        },
         {
           flags: "--tag <slug>",
           description:
@@ -105,8 +108,14 @@ Examples:
       description:
         "Edit the title or description of an item the assistant filed",
       options: [
-        { flags: "--title <title>", description: "New title" },
-        { flags: "--description <desc>", description: "New description" },
+        {
+          flags: "--title <title>",
+          description: "New title, 1 to 200 characters",
+        },
+        {
+          flags: "--description <desc>",
+          description: "New description, up to 5000 characters",
+        },
       ],
       helpText: `
 Arguments:

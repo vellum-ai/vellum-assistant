@@ -379,12 +379,38 @@ const createRequestSchema = z.object({
   tags: z.array(z.string()).optional().describe("Tag slugs"),
 });
 
+/** Item fields the roadmap service reserves for staff on an update. */
+const STAFF_ONLY_UPDATE_FIELDS = new Set(["status", "tags"]);
+
+function listFields(fields: string[]): string {
+  return `${fields.join(", ")} ${fields.length === 1 ? "is" : "are"}`;
+}
+
+/**
+ * Why an update carrying fields other than title and description is refused.
+ * A staff-only field and an unknown one need different remedies, so each is
+ * named for what it is.
+ */
+function unsupportedUpdateFieldsMessage(keys: string[]): string {
+  const staffOnly = keys.filter((k) => STAFF_ONLY_UPDATE_FIELDS.has(k));
+  const unknown = keys.filter((k) => !STAFF_ONLY_UPDATE_FIELDS.has(k));
+  const reasons = [
+    ...(staffOnly.length > 0
+      ? [`${listFields(staffOnly)} set by Vellum staff`]
+      : []),
+    ...(unknown.length > 0
+      ? [`${listFields(unknown)} not a roadmap update field`]
+      : []),
+  ];
+  return `An assistant can change only an item's title and description; ${reasons.join("; ")}.`;
+}
+
 /**
  * Only the fields the roadmap service lets this assistant change. An
  * assistant is always the author tier there, never staff, and an author may
  * edit only an open item's title and description; status and tags are staff
- * triage and answer 403. Strict, so a caller that sends them learns why here
- * instead of from the upstream refusal.
+ * triage and answer 403. Strict, so a caller that sends anything else learns
+ * why here instead of from the upstream refusal.
  */
 const updateRequestSchema = z
   .strictObject(
@@ -395,7 +421,7 @@ const updateRequestSchema = z
     {
       error: (issue) =>
         issue.code === "unrecognized_keys"
-          ? `An assistant can change only an item's title and description; ${issue.keys.join(", ")} ${issue.keys.length === 1 ? "is" : "are"} set by Vellum staff.`
+          ? unsupportedUpdateFieldsMessage(issue.keys)
           : undefined,
     },
   )
