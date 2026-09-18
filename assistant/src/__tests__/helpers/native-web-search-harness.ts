@@ -20,6 +20,7 @@ import type {
   EventHandlerState,
 } from "../../daemon/conversation-agent-loop-handlers.js";
 import { dispatchAgentEvent } from "../../daemon/conversation-agent-loop-handlers.js";
+import { mockUnownedModeSessions } from "./mock-conversation.js";
 
 /** A `tool_result` `AssistantEvent` emitted by the handler. */
 export type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
@@ -59,6 +60,7 @@ export function createHandlerDeps(reqId = "req-web-search"): HandlerHarness {
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId,

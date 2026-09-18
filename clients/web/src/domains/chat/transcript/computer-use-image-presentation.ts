@@ -2,6 +2,7 @@ import { isComputerUseToolCall } from "@vellumai/assistant-api";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
+  hasToolResultImages,
   projectToolResultImages,
   resolveToolResultImages,
   type ToolResultImage,
@@ -25,9 +26,9 @@ export function deriveTranscriptImagePresentation(
   orderedToolCalls: readonly ChatMessageToolCall[],
   messageAttachments: readonly DisplayAttachment[] | undefined,
   embeddedImageNames: ReadonlySet<string> = EMPTY_IMAGE_NAMES,
+  projectImages = projectToolResultImages,
 ): TranscriptImagePresentation {
   const toolCalls = [...orderedToolCalls];
-  const rawImages = projectToolResultImages(toolCalls);
   const computerUseToolCallIds = new Set(
     toolCalls
       .filter((toolCall) =>
@@ -36,32 +37,26 @@ export function deriveTranscriptImagePresentation(
       .map((toolCall) => toolCall.id),
   );
 
-  const rawImagesByToolCallId = new Map<string, ToolResultImage[]>();
-  for (const image of rawImages) {
-    const images = rawImagesByToolCallId.get(image.toolCallId);
-    if (images) {
-      images.push(image);
-    } else {
-      rawImagesByToolCallId.set(image.toolCallId, [image]);
-    }
-  }
-
-  let selectedComputerUseImage: ToolResultImage | undefined;
-  for (const toolCall of toolCalls) {
-    if (!computerUseToolCallIds.has(toolCall.id)) {
-      continue;
-    }
-    const images = rawImagesByToolCallId.get(toolCall.id);
-    if (images?.length) {
-      selectedComputerUseImage = images.at(-1);
-    }
-  }
+  const selectedToolCall = toolCalls.findLast(
+    (toolCall) =>
+      computerUseToolCallIds.has(toolCall.id) && hasToolResultImages([toolCall]),
+  );
+  const rawImages = projectImages(
+    toolCalls,
+    (toolCall, index, total) =>
+      !computerUseToolCallIds.has(toolCall.id) ||
+      (toolCall === selectedToolCall && index === total),
+  );
+  const selectedComputerUseImage = rawImages.find(
+    (image) => image.toolCallId === selectedToolCall?.id,
+  );
 
   const ordinaryImagesByToolCallId = new Map<string, ToolResultImage[]>();
   for (const image of resolveToolResultImages(
     toolCalls,
     messageAttachments,
     embeddedImageNames,
+    rawImages,
   )) {
     if (computerUseToolCallIds.has(image.toolCallId)) {
       continue;

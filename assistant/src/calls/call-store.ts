@@ -1,6 +1,10 @@
-import { and, desc, eq, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, like, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import {
+  recordPhoneCallEnded,
+  recordPhoneCallStarted,
+} from "../onboarding/onboarding-events-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { rawChanges, rawRun } from "../persistence/raw-query.js";
 import {
@@ -8,10 +12,16 @@ import {
   callPendingQuestions,
   callSessions,
 } from "../persistence/schema/index.js";
+import {
+  type PhoneCallDirection,
+  phoneCallEndScreen,
+  phoneCallSilenceReason,
+  phoneCallStartScreen,
+} from "../telemetry/phone-call-funnel.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
 import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";
-import { validateTransition } from "./call-state-machine.js";
+import { isTerminalState, validateTransition } from "./call-state-machine.js";
 import type {
   CallEvent,
   CallEventType,
@@ -85,6 +95,12 @@ export function createCallSession(opts: {
   provider: string;
   fromNumber: string;
   toNumber: string;
+  /**
+   * Which way the call is being placed, for the funnel stamp. Stated rather
+   * than derived: a verification or invite call carries no task and is still
+   * outbound, so task presence is not a direction.
+   */
+  direction: PhoneCallDirection;
   task?: string;
   callMode?: string;
   verificationSessionId?: string;
@@ -122,6 +138,14 @@ export function createCallSession(opts: {
     updatedAt: now,
   };
   db.insert(callSessions).values(row).run();
+  // The call is attempted the moment its row exists, which is before the
+  // provider dials: a call that never connects is exactly the one the funnel
+  // needs to count. An outbound attempt the ingress preflight rejects never
+  // reaches here; see `telemetry/phone-call-funnel.ts`.
+  recordPhoneCallStarted({
+    callSessionId: row.id,
+    screen: phoneCallStartScreen(opts.direction, row.callMode),
+  });
   return { ...row, skipDisclosure };
 }
 
@@ -224,6 +248,13 @@ export function updateCallSession(
     .where(eq(callSessions.id, id))
     .run();
 
+  // Terminal states are immutable and the validator above rejects any write
+  // that follows one, so the first terminal transition to get here is the only
+  // one: the ended event needs no separate once-only latch.
+  if (updates.status && isTerminalState(updates.status)) {
+    recordCallEndedEvent(id, updates.status);
+  }
+
   opts?.beforeLeaseSync?.();
 
   if (shouldSyncActiveLease) {
@@ -239,6 +270,60 @@ export function updateCallSession(
 }
 
 // ── Recovery queries ─────────────────────────────────────────────────
+
+/**
+ * Whether the call's own event log holds an event of this type. Existence
+ * only: the row itself is never read.
+ */
+function hasCallEvent(
+  id: string,
+  eventType: CallEventType,
+  payloadContains?: string,
+): boolean {
+  const db = getDb();
+  const row = db
+    .select({ id: callEvents.id })
+    .from(callEvents)
+    .where(
+      and(
+        eq(callEvents.callSessionId, id),
+        eq(callEvents.eventType, eventType),
+        ...(payloadContains
+          ? [like(callEvents.payloadJson, `%${payloadContains}%`)]
+          : []),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
+/**
+ * Emit the call's funnel end event, classifying a call that never took a
+ * caller turn by how far it got. Both signals come from the call's own event
+ * log: `call_connected` is written when the media stream opens, and
+ * `caller_spoke` when the caller is heard.
+ *
+ * `caller_spoke` carries two senses, though: a transcribed utterance
+ * (`transcript`) and a single DTMF digit (`dtmfDigit`). Only the first is a
+ * conversational turn, so the payload discriminates them. Splitting DTMF into
+ * an event type of its own would be the real fix, but that vocabulary is read
+ * by other consumers and is not this change's to alter.
+ */
+function recordCallEndedEvent(id: string, status: CallStatus): void {
+  const spoke = hasCallEvent(id, "caller_spoke", '"transcript"');
+  const silence = spoke
+    ? null
+    : phoneCallSilenceReason({
+        connected: hasCallEvent(id, "call_connected"),
+      });
+
+  recordPhoneCallEnded({
+    callSessionId: id,
+    screen: phoneCallEndScreen(status, silence),
+    outcome: status === "failed" ? "failed" : "completed",
+  });
+}
 
 /**
  * Returns all call sessions that are in a non-terminal state

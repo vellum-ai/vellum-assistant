@@ -1,4 +1,5 @@
-import { Download, Plus, Settings, X } from "lucide-react";
+import { ArrowUp, Download, Plus, Settings, X } from "lucide-react";
+import type { CSSProperties } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "./button";
@@ -9,7 +10,7 @@ const meta: Meta<typeof Button> = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["primary", "outlined", "ghost", "link", "danger", "dangerOutline", "dangerGhost"],
+      options: ["primary", "accent", "outlined", "ghost", "link", "danger", "dangerOutline", "dangerGhost"],
     },
     size: {
       control: "select",
@@ -25,8 +26,41 @@ export default meta;
 
 type Story = StoryObj<typeof Button>;
 
+/**
+ * A colour for the `accent` variant, declared the way a consumer declares it:
+ * on an ancestor (or the button itself), never inside the library.
+ */
+const ACCENT_COLOUR = {
+  "--vbtn-accent": "#E9642F",
+  "--vbtn-accent-fg": "#1A1A1A",
+  "--vbtn-accent-glyph": "#FFFFFF",
+} as CSSProperties;
+
 export const Primary: Story = {
   args: { variant: "primary", children: "Primary" },
+};
+
+/**
+ * A filled button in a colour the consumer supplies through
+ * `--vbtn-accent` / `--vbtn-accent-fg` / `--vbtn-accent-glyph`. Without
+ * them it is the primary button (the last one in the row).
+ */
+export const Accent: Story = {
+  args: { variant: "accent", children: "Accent" },
+  render: (args) => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} />
+      </span>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} iconOnly={<ArrowUp />} aria-label="Send" />
+      </span>
+      <span style={ACCENT_COLOUR}>
+        <Button {...args} disabled />
+      </span>
+      <Button {...args} iconOnly={<ArrowUp />} aria-label="Send, no colour" />
+    </div>
+  ),
 };
 
 export const Outlined: Story = {
@@ -93,6 +127,9 @@ export const AllVariants: Story = {
   render: () => (
     <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
       <Button variant="primary">Primary</Button>
+      <span style={ACCENT_COLOUR}>
+        <Button variant="accent">Accent</Button>
+      </span>
       <Button variant="outlined">Outlined</Button>
       <Button variant="ghost">Ghost</Button>
       <Button variant="danger">Danger</Button>

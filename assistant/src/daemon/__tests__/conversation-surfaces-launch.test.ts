@@ -440,7 +440,12 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // claimed to eliminate that round-trip; this test enforces it.
     nextKeyStoreResult = { conversationId: "conv-pending-set" };
 
-    const ctx = makeContext();
+    const settleStructuralWait = mock(() => true);
+    const ctx = makeContext({
+      modeSessions: {
+        settleStructuralWait,
+      } as unknown as Conversation["modeSessions"],
+    });
     registerCardSurface(ctx, "surface-pending");
     // Simulate `ui_show` having stamped a pending entry for this surface
     // (which it does for any interactive card, including persistent ones).
@@ -473,6 +478,10 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     // Pending entry was deleted so subsequent sibling clicks on the same
     // persistent card aren't blocked behind a stale "owes-an-answer" flag.
     expect(ctx.pendingSurfaceActions.has("surface-pending")).toBe(false);
+    expect(settleStructuralWait).toHaveBeenCalledWith(
+      { kind: "surface", responseId: "surface-pending" },
+      { status: "completed", endReason: "surface_launch_settled" },
+    );
 
     await processStartedPromise;
     resolveProcess();

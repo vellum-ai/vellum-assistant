@@ -2358,7 +2358,8 @@
       "terminal": "終端機",
       "doctor": "診斷",
       "database": "資料庫",
-      "conversations": "對話"
+      "conversations": "對話",
+      "tones": "音效實驗室"
     }
   },
   "debugDatabasePanel": {
@@ -2410,5 +2411,64 @@
     "title": "預覽版介面",
     "unavailableHint": "目前未提供預覽版本，因此此瀏覽器仍在使用穩定版本。可在開發者工具中刪除 vellum_preview Cookie 以重設。",
     "versionUnknown": "未知"
+  },
+  "toneLab": {
+    "title": "音效實驗室",
+    "subtitle": "調製語音對話接通時播放的提示音。對話結束時播放其反向音。",
+    "voiceToneDefault": "語音開始時播放預設提示音",
+    "voiceToneOverride": "語音開始時在此裝置上播放你的混音",
+    "playVoiceTone": "播放",
+    "resetVoiceTone": "恢復預設",
+    "presets": "預設提示音",
+    "presetNames": {
+      "rise": "上揚",
+      "glass": "玻璃",
+      "bloom": "綻放",
+      "wood": "木琴",
+      "tuneIn": "調頻",
+      "doubleBlip": "雙響",
+      "warm": "溫暖"
+    },
+    "waveformLabel": "目前提示音的波形",
+    "play": "播放",
+    "copy": "複製",
+    "paste": "貼上",
+    "autoPlay": "變更時播放",
+    "useForVoice": "用作語音開始提示音",
+    "usedForVoiceToast": "此裝置上的語音對話將播放此提示音",
+    "resetVoiceToast": "語音開始提示音已恢復預設",
+    "copiedToast": "提示音已複製為 JSON",
+    "clipboardFailedToast": "無法存取剪貼簿",
+    "pasteInvalidToast": "剪貼簿中沒有提示音",
+    "mix": "混音",
+    "volume": "音量",
+    "brightness": "亮度",
+    "echoTime": "回聲時間",
+    "echoFeedback": "回聲重複",
+    "echoMix": "回聲電平",
+    "addLayer": "新增音層",
+    "layerTitle": "音層 {number}",
+    "duplicateLayer": "複製音層",
+    "removeLayer": "移除音層",
+    "waveform": "波形",
+    "waveforms": {
+      "sine": "正弦波",
+      "triangle": "三角波",
+      "square": "方波",
+      "sawtooth": "鋸齒波"
+    },
+    "pitch": "音高",
+    "glideTo": "滑音至",
+    "start": "起始",
+    "level": "電平",
+    "attack": "起音",
+    "decay": "衰減",
+    "detune": "失諧",
+    "hzValue": "{hz} Hz · {note}",
+    "hzPlainValue": "{hz} Hz",
+    "msValue": "{ms} ms",
+    "percentValue": "{percent}%",
+    "centsValue": "{cents} ¢",
+    "playEnd": "播放結束提示音"
   }
 }

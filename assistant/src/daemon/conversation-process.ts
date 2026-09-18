@@ -1089,6 +1089,7 @@ async function drainSingleMessage(
       content: resolvedContent,
       attachments: next.attachments,
       requestId: next.requestId,
+      activeSurfaceId: next.activeSurfaceId,
       metadata: { ...next.metadata, sentAt: next.sentAt },
       displayContent: next.displayContent,
       clientMessageId: next.clientMessageId,
@@ -1155,6 +1156,7 @@ async function drainSingleMessage(
       messageId: userMessageId,
       requestId: next.requestId,
       clientMessageId: next.clientMessageId,
+      modeSession: conversation.modeSessions.getTurnOwner(next.requestId),
     });
     // The row this echo announces is already durably persisted, so advance
     // the snapshot↔stream anchor to the echo's seq (stamped inline by the
@@ -1464,6 +1466,7 @@ async function drainBatch(
         content: qmContent,
         attachments: qm.attachments,
         requestId: qm.requestId,
+        activeSurfaceId: qm.activeSurfaceId,
         metadata: { ...qm.metadata, sentAt: qm.sentAt },
         displayContent: qm.displayContent,
         clientMessageId: qm.clientMessageId,
@@ -1574,6 +1577,7 @@ async function drainBatch(
         messageId: lastUserMessageId,
         requestId: qm.requestId,
         clientMessageId: qm.clientMessageId,
+        modeSession: conversation.modeSessions.getTurnOwner(qm.requestId),
       });
       // Advance the snapshot↔stream anchor to this echo's seq — the batched
       // row persisted just above and the agent loop for the batch has not
@@ -2298,6 +2302,7 @@ export async function processMessage(
       content: resolvedContent,
       attachments,
       requestId,
+      activeSurfaceId,
       displayContent,
       scripted,
       ...(callerMetadata ? { metadata: callerMetadata } : {}),

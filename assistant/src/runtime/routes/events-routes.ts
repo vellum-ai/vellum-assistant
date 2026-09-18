@@ -22,7 +22,7 @@ import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 
 import { z } from "zod";
 
-import type { HostProxyCapability } from "../../channels/types.js";
+import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
@@ -521,20 +521,9 @@ export function handleSubscribeAssistantEvents(
         // The client detects the gap from the seq jump on its first
         // live event and refetches via the existing messages API.
         if (lastSeenSeq != null) {
-          const replaySubscriber: ReplaySubscriber =
-            clientId && interfaceId
-              ? {
-                  type: "client",
-                  clientId,
-                  interfaceId,
-                  capabilities: ALL_CAPABILITIES.filter((cap) =>
-                    supportsHostProxy(interfaceId, cap),
-                  ),
-                }
-              : { type: "process" };
           const window = getReplayWindow(
             lastSeenSeq,
-            replaySubscriber,
+            replaySubscriberFor(clientId, interfaceId, actorPrincipalId),
             filter.conversationId,
           );
           if (window !== null) {
@@ -588,6 +577,31 @@ export function handleSubscribeAssistantEvents(
   );
 
   return stream;
+}
+
+/**
+ * The identity a replay filter checks targeted events against: the client a
+ * live SSE subscription with these headers would register, or a process
+ * subscriber when the caller names no client. Shared by the reconnect replay
+ * and the tail route so both deliver exactly what live fanout would have.
+ */
+function replaySubscriberFor(
+  clientId: string | null,
+  interfaceId: InterfaceId | null,
+  actorPrincipalId: string | undefined,
+): ReplaySubscriber {
+  if (!clientId || !interfaceId) {
+    return { type: "process" };
+  }
+  return {
+    type: "client",
+    clientId,
+    interfaceId,
+    capabilities: ALL_CAPABILITIES.filter((cap) =>
+      supportsHostProxy(interfaceId, cap),
+    ),
+    actorPrincipalId,
+  };
 }
 
 /**
@@ -648,19 +662,15 @@ function handleEventsTail({
   const interfaceId = clientId
     ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
     : null;
-  const subscriber: ReplaySubscriber | undefined =
-    clientId && interfaceId
-      ? {
-          type: "client",
-          clientId,
-          interfaceId,
-          capabilities: ALL_CAPABILITIES.filter((cap) =>
-            supportsHostProxy(interfaceId, cap),
-          ),
-        }
-      : undefined;
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
 
-  const window = getReplayWindow(fromSeq, subscriber, conversationId);
+  const window = getReplayWindow(
+    fromSeq,
+    replaySubscriberFor(clientId, interfaceId, actorPrincipalId),
+    conversationId,
+  );
   if (window === null) {
     return { events: [], complete: false, frontier: null };
   }

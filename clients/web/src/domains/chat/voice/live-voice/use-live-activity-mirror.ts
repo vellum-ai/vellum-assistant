@@ -99,14 +99,20 @@ function toActivityContent(
   if (!isLiveVoiceSessionActive(session.state)) {
     return null;
   }
+  const phase =
+    session.responsePhase === "escalated" &&
+    session.state === "speaking" &&
+    !session.assistantAudioActive
+      ? "thinking"
+      : session.state;
   const labelKey = liveVoiceSurfaceLabelKey(
-    session.state,
+    phase,
     session.reconnecting,
     session.assistantAudioActive,
     session.muted,
   );
   return {
-    phase: session.state,
+    phase,
     // The room's label: the same `liveVoiceSurfaceLabelKey` call the room
     // makes, resolved through the same catalog, including its "Reconnecting…"
     // relabel, its silent-`speaking` to "Thinking…" remap, and its
@@ -125,10 +131,9 @@ function toActivityContent(
     // push registration, which has no `outputMuted` in it. See the field's
     // docs in `native-live-activity.ts`.
     outputMuted: session.outputMuted,
-    // The daemon's wording, verbatim, for the same reason the phase label is
-    // the room's wording verbatim: the island has a second driver (the APNs
-    // push the daemon dispatches while this layer is suspended) and the two
-    // must render the same thing.
+    // Escalation frames carry an empty activity label. Tool and approval
+    // frames can temporarily overlay that response phase, so preserve their
+    // server-owned detail until the matching empty frame clears it.
     detail: session.activityLabel,
     // Arrives on the same frame as the line above and is the other half of the
     // same fact: `detail` says the turn is waiting, this says which decision

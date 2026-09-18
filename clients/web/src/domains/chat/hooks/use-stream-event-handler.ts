@@ -118,6 +118,7 @@ export interface UseStreamEventHandlerParams {
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
+  observeLiveModeSession?: (sessionId: string) => void;
 }
 
 interface UseStreamEventHandlerReturn {
@@ -155,6 +156,7 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
+    observeLiveModeSession,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
@@ -217,6 +219,10 @@ export function useStreamEventHandler(
           });
           return;
         }
+      }
+
+      if ("modeSession" in event && event.modeSession) {
+        observeLiveModeSession?.(event.modeSession.id);
       }
 
       // Snapshot store state once per event for the context object.
@@ -616,6 +622,7 @@ export function useStreamEventHandler(
       startReconciliationLoop,
       queryClient,
       setAssetsRefreshKey,
+      observeLiveModeSession,
     ],
   );
 

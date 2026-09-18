@@ -67,6 +67,7 @@ import { Button, cn } from "@vellumai/design-library";
 import {
   isLiveVoiceMicLive,
   liveVoiceSurfaceLabelKey,
+  type LiveVoiceResponsePhase,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
@@ -102,6 +103,8 @@ const BAR_HEIGHT_CLASS = "h-10 touch-mobile:h-11";
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
+  assistantAudioActive?: boolean;
+  responsePhase?: LiveVoiceResponsePhase | null;
   /** Mic level, polled ~30 Hz by the band's draw loop. No re-render per sample. */
   getAmplitude: () => number;
   /**
@@ -142,6 +145,8 @@ export interface VoiceComposerBarProps {
 
 export function VoiceComposerBar({
   state,
+  assistantAudioActive = state === "speaking",
+  responsePhase = null,
   getAmplitude,
   getOutputAmplitude,
   muted,
@@ -178,11 +183,17 @@ export function VoiceComposerBar({
     "--vbtn-fg": voiceSurfaceMutedInk(paint),
   } as CSSProperties;
   // The session's own word, taken as a catalog key so the live region reads in
-  // the user's language. The bar is handed a phase and a mute flag and nothing
-  // else, so the reconnect and assistant-audio remaps are handed the values
-  // that leave them unfired. Mute keeps the branch at the region below: this
-  // bar says "Muted" in every phase, not only the one the session relabels.
-  const stateKey = liveVoiceSurfaceLabelKey(state, false, true, false);
+  // the user's language. The bar has no reconnect state, while actual playback
+  // distinguishes silent handoff work from active speech. Mute stays in the
+  // region below: this bar says "Muted" in every phase, not only the one the
+  // session relabels.
+  const stateKey = liveVoiceSurfaceLabelKey(
+    state,
+    false,
+    assistantAudioActive,
+    false,
+    responsePhase,
+  );
   return (
     <div
       role="group"
@@ -226,9 +237,17 @@ export function VoiceComposerBar({
           }
           expandOnMobile
           onClick={onToggleMute}
-          aria-label={muted ? t("voiceComposerBar.unmuteMicrophone") : t("voiceComposerBar.muteMicrophone")}
+          aria-label={
+            muted
+              ? t("voiceComposerBar.unmuteMicrophone")
+              : t("voiceComposerBar.muteMicrophone")
+          }
           aria-pressed={muted}
-          tooltip={muted ? t("voiceComposerBar.unmuteMicrophone") : t("voiceComposerBar.muteMicrophone")}
+          tooltip={
+            muted
+              ? t("voiceComposerBar.unmuteMicrophone")
+              : t("voiceComposerBar.muteMicrophone")
+          }
           className={VOICE_SURFACE_CONTROL_CLASS}
           style={muted ? mutedInk : undefined}
         />
@@ -279,9 +298,17 @@ export function VoiceComposerBar({
           }
           expandOnMobile
           onClick={onToggleOutputMute}
-          aria-label={outputMuted ? t("voiceComposerBar.unmuteAssistant") : t("voiceComposerBar.muteAssistant")}
+          aria-label={
+            outputMuted
+              ? t("voiceComposerBar.unmuteAssistant")
+              : t("voiceComposerBar.muteAssistant")
+          }
           aria-pressed={outputMuted}
-          tooltip={outputMuted ? t("voiceComposerBar.unmuteAssistant") : t("voiceComposerBar.muteAssistant")}
+          tooltip={
+            outputMuted
+              ? t("voiceComposerBar.unmuteAssistant")
+              : t("voiceComposerBar.muteAssistant")
+          }
           className={VOICE_SURFACE_CONTROL_CLASS}
           style={outputMuted ? mutedInk : undefined}
         />

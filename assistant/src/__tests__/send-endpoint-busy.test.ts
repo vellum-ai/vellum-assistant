@@ -13,6 +13,11 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import {
+  type MessagingConversationContext,
+  persistUserMessage,
+} from "../daemon/conversation-messaging.js";
+import { ConversationModeSessionCoordinator } from "../daemon/conversation-mode-session.js";
+import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../persistence/conversation-key-store.js";
@@ -91,6 +96,7 @@ import {
   bridgeState,
   gatewayGuardianRequestsStoreBridge,
 } from "./helpers/gateway-guardian-requests-store-bridge.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 mock.module(
   "../channels/gateway-guardian-requests.js",
@@ -99,7 +105,7 @@ mock.module(
 
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
@@ -116,6 +122,7 @@ function makeCompletingConversation(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
   return {
+    modeSessions: mockUnownedModeSessions(),
     isProcessing: () => processing,
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
@@ -166,6 +173,7 @@ function makeHangingConversation(): Conversation {
     requestId?: string;
   }> = [];
   return {
+    modeSessions: mockUnownedModeSessions(),
     isProcessing: () => processing,
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
@@ -244,6 +252,7 @@ function makePendingApprovalConversation(
   });
 
   const conversation = {
+    modeSessions: mockUnownedModeSessions(),
     isProcessing: () => processing,
     persistUserMessage: (options: { requestId?: string }) => ({
       id: options.requestId ?? "msg-1",
@@ -345,6 +354,159 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   }
 
   // ── Idle conversation: immediate processing ─────────────────────────
+
+  test.each([
+    { failure: "acceptTurn", surface: false },
+    { failure: "trackPersistedRow", surface: false },
+    { failure: "acceptTurn", surface: true },
+    { failure: "trackPersistedRow", surface: true },
+  ] as const)(
+    "dispatches committed content once despite $failure failure (surface=$surface)",
+    async ({ failure, surface }) => {
+      const conversationKey = "conv-tracking-failure";
+      const { conversationId } = getOrCreateConversation(conversationKey);
+      const modeSessions = new ConversationModeSessionCoordinator(
+        conversationId,
+      );
+      const source = surface
+        ? modeSessions.activateSource({
+            sourceId: "browser-source",
+            generation: 1,
+            mode: "browser",
+            sourceStartedAt: 100,
+          })!
+        : undefined;
+      if (source) {
+        modeSessions.claimTurn("turn-origin", source, 110);
+        modeSessions.recordStructuralWait("turn-origin", {
+          kind: "surface",
+          responseId: "surface-123",
+        });
+        modeSessions.releaseTurn("turn-origin");
+      }
+
+      const persistedRows = () =>
+        getSqlite()
+          .query<
+            { id: string; content: string },
+            [string]
+          >("SELECT id, content FROM messages WHERE conversation_id = ? AND role = 'user'")
+          .all(conversationId);
+      const acceptTurn = modeSessions.acceptTurn.bind(modeSessions);
+      const trackPersistedRow =
+        modeSessions.trackPersistedRow.bind(modeSessions);
+      const committedCounts: number[] = [];
+      const trackingFailure = mock(() => {
+        committedCounts.push(persistedRows().length);
+        throw new Error("optional session tracking failed");
+      });
+      modeSessions.acceptTurn = (...args) => {
+        const owner = acceptTurn(...args);
+        if (failure === "acceptTurn") {
+          trackingFailure();
+        }
+        return owner;
+      };
+      modeSessions.trackPersistedRow = (...args) => {
+        trackPersistedRow(...args);
+        if (failure === "trackPersistedRow") {
+          trackingFailure();
+        }
+      };
+
+      let processing = false;
+      let processingOwner = 0;
+      const releases: number[] = [];
+      const ctx = Object.assign(makeCompletingConversation(), {
+        conversationId,
+        modeSessions,
+        messages: [],
+        abortController: null as AbortController | null,
+        currentRequestId: undefined as string | undefined,
+        currentTurnClientMessageId: undefined as string | undefined,
+        currentActiveSurfaceId: surface ? "surface-123" : undefined,
+        inFlightSendRequestIds: new Map<string, string>(),
+        isProcessing: () => processing,
+        acquireProcessingFenced: async () => {
+          processing = true;
+          return ++processingOwner;
+        },
+        releaseProcessing: (owner: number) => {
+          releases.push(owner);
+          processing = false;
+          return true;
+        },
+        getTurnChannelContext: () => null,
+        getTurnInterfaceContext: () => null,
+      });
+      ctx.persistUserMessage = (options) =>
+        persistUserMessage(
+          ctx as unknown as MessagingConversationContext,
+          options,
+        );
+      const runAgentLoop = mock(async (_content: string, messageId: string) => {
+        expect(ctx.isProcessing()).toBe(true);
+        expect(ctx.messages).toHaveLength(1);
+        expect(modeSessions.getTurnOwner(messageId)?.id).toBe(source?.id);
+        modeSessions.releaseTurn(messageId, {
+          status: "completed",
+          endReason: "turn_complete",
+        });
+        ctx.releaseProcessing(processingOwner);
+        ctx.currentRequestId = undefined;
+        ctx.currentTurnClientMessageId = undefined;
+        ctx.abortController = null;
+      });
+      ctx.runAgentLoop = runAgentLoop;
+      await startServer(() => ctx);
+
+      const send = () =>
+        fetch(messagesUrl(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+          body: JSON.stringify({
+            conversationKey,
+            content: "Continue the task",
+            clientMessageId: "client-message-123",
+            sourceChannel: "vellum",
+            interface: "macos",
+          }),
+        });
+      const first = await send();
+      const firstBody = (await first.json()) as {
+        accepted: boolean;
+        messageId: string;
+      };
+      expect(first.status).toBe(202);
+      expect(firstBody.accepted).toBe(true);
+      expect(runAgentLoop).toHaveBeenCalledTimes(1);
+      await runAgentLoop.mock.results[0]!.value;
+      expect(trackingFailure).toHaveBeenCalledTimes(1);
+      expect(committedCounts).toEqual([1]);
+
+      const retry = await send();
+      expect(retry.status).toBe(202);
+      expect(await retry.json()).toMatchObject(firstBody);
+      expect(runAgentLoop).toHaveBeenCalledTimes(1);
+      expect(trackingFailure).toHaveBeenCalledTimes(1);
+      expect(persistedRows()).toEqual([
+        {
+          id: firstBody.messageId,
+          content: JSON.stringify([
+            { type: "text", text: "Continue the task" },
+          ]),
+        },
+      ]);
+      expect(ctx.messages).toHaveLength(1);
+      expect(ctx.isProcessing()).toBe(false);
+      expect(ctx.abortController).toBeNull();
+      expect(ctx.currentRequestId).toBeUndefined();
+      expect(ctx.currentTurnClientMessageId).toBeUndefined();
+      expect(releases).toEqual([1, 2]);
+      expect(modeSessions.getTurnOwner(firstBody.messageId)).toBeUndefined();
+      expect(modeSessions.hasResidentWork()).toBe(false);
+    },
+  );
 
   test("returns 202 with accepted: true and messageId when conversation is idle", async () => {
     await startServer(() => makeCompletingConversation());

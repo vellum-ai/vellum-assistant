@@ -19,6 +19,7 @@ import {
   deriveStepLabel,
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import type { ActionDisplayKey } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { isSubagentSpawnCall } from "@/domains/chat/transcript/message-content";
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
 import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
@@ -140,6 +141,7 @@ export type ToolCallCardStep =
        * fallback used when no activity sentence is present.
        */
       activity: string;
+      actionDisplayKey?: ActionDisplayKey;
       /** Daemon-assigned risk level for the call (e.g. `"low"`), when present. */
       riskLevel?: string;
       iconName: IconName;
@@ -172,6 +174,7 @@ export interface ToolCallCardData {
    * per-kind table in `deriveCurrentStepInfo`.
    */
   currentStepInfo: string;
+  currentStepActionDisplayKey?: ActionDisplayKey;
   /**
    * Kind of the latest step driving the header. `"thinking"` when the run's
    * last built step is a thinking segment (so the card can render a brain
@@ -583,7 +586,8 @@ export function toolDetailPayloadFromToolCall(
 }
 
 function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
-  const { title, info, activity, iconName } = deriveStepLabel(tc);
+  const { title, info, activity, actionDisplayKey, iconName } =
+    deriveStepLabel(tc);
   return {
     kind: "tool",
     durationLabel: computeToolDurationLabel(tc),
@@ -591,11 +595,21 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
     title,
     info,
     activity,
+    actionDisplayKey,
     riskLevel: tc.riskLevel,
     iconName,
     toolCallId: tc.id,
     status: deriveToolStepStatus(tc),
   };
+}
+
+function deriveActionDisplayLabel(
+  toolCall: ChatMessageToolCall | undefined,
+): ReturnType<typeof deriveStepLabel> | undefined {
+  if (!toolCall || isWebTool(toolCall)) {
+    return undefined;
+  }
+  return deriveStepLabel(toolCall);
 }
 
 // ---------------------------------------------------------------------------
@@ -936,6 +950,7 @@ export function computeToolCallCardDataFromItems(
   // synthetic web placeholders are preserved.
   let currentStepTitle: string;
   let currentStepInfo: string;
+  let currentStepActionDisplayKey: ActionDisplayKey | undefined;
   let currentStepKind: "thinking" | "tool";
   if (trailingThinkingText !== null) {
     currentStepTitle = "Thinking";
@@ -951,6 +966,10 @@ export function computeToolCallCardDataFromItems(
       renderableToolCalls,
       liveWebActivity,
     );
+    const latestLabel = deriveActionDisplayLabel(renderableToolCalls.at(-1));
+    currentStepActionDisplayKey = latestLabel?.activity
+      ? undefined
+      : latestLabel?.actionDisplayKey;
     currentStepKind = "tool";
   }
 
@@ -964,6 +983,7 @@ export function computeToolCallCardDataFromItems(
   return {
     currentStepTitle,
     currentStepInfo,
+    currentStepActionDisplayKey,
     currentStepKind,
     stepCount,
     totalDurationLabel,

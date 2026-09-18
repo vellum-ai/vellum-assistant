@@ -401,6 +401,8 @@ export function createFrontDoorVerdictMachine(
 export interface FrontDoorStreamGate {
   push(deltaText: string): string;
   finish(): string;
+  /** Whether the leg's verdict classified its output as the answer. */
+  readonly answering: boolean;
 }
 
 /**
@@ -424,11 +426,13 @@ export function createFrontDoorStreamGate(
   holdEnabled: boolean,
 ): FrontDoorStreamGate {
   const machine = createFrontDoorVerdictMachine(holdEnabled);
+  let answering = false;
   const releasable = (bridge: string): string =>
     bridge.length < MIN_SPOKEN_BRIDGE_CHARS ? "" : bridge;
   const release = (step: FrontDoorStep): string => {
     switch (step.kind) {
       case "answer":
+        answering = true;
         return step.text;
       case "escalate":
         return step.bridge === null ? "" : releasable(step.bridge);
@@ -441,6 +445,9 @@ export function createFrontDoorStreamGate(
   return {
     push: (deltaText) => release(machine.push(deltaText)),
     finish: () => release(machine.finish()),
+    get answering() {
+      return answering;
+    },
   };
 }
 

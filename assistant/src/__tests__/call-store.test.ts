@@ -53,9 +53,14 @@ function resetTables() {
 }
 
 /** Wrapper that ensures the FK conversation row exists before creating a session. */
-function createTestCallSession(opts: Parameters<typeof createCallSession>[0]) {
+function createTestCallSession(
+  opts: Omit<Parameters<typeof createCallSession>[0], "direction"> & {
+    direction?: Parameters<typeof createCallSession>[0]["direction"];
+  },
+) {
   ensureConversation(opts.conversationId);
-  return createCallSession(opts);
+  // Direction only shapes the funnel stamp; these suites test other things.
+  return createCallSession({ direction: "inbound", ...opts });
 }
 
 describe("call-store", () => {

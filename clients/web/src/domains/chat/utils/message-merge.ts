@@ -195,6 +195,17 @@ function canFoldAdjacentAssistant(
   if (survivor.isOptimistic || donor.isOptimistic) {
     return false;
   }
+  const survivorSession = survivor.modeSession;
+  const donorSession = donor.modeSession;
+  if (
+    (survivorSession === undefined) !== (donorSession === undefined) ||
+    (survivorSession !== undefined &&
+      donorSession !== undefined &&
+      (survivorSession.id !== donorSession.id ||
+        survivorSession.mode !== donorSession.mode))
+  ) {
+    return false;
+  }
   // Subagent / ACP notification rows are state-reconstruction metadata that
   // `build-items.ts` filters out of the rendered transcript — folding
   // them into a real assistant turn would either lose the flag or
@@ -288,6 +299,25 @@ function foldAdjacentAssistant(
   const merged: DisplayMessage = {
     ...survivor,
   };
+  if (survivor.modeSession && donor.modeSession) {
+    const survivorActivity = survivor.modeSessionActivity;
+    const donorActivity = donor.modeSessionActivity;
+    const firstAt = Math.min(
+      survivorActivity?.firstAt ??
+        survivor.timestamp ??
+        Number.POSITIVE_INFINITY,
+      donorActivity?.firstAt ?? donor.timestamp ?? Number.POSITIVE_INFINITY,
+    );
+    const lastAt = Math.max(
+      survivorActivity?.lastAt ??
+        survivor.timestamp ??
+        Number.NEGATIVE_INFINITY,
+      donorActivity?.lastAt ?? donor.timestamp ?? Number.NEGATIVE_INFINITY,
+    );
+    if (Number.isFinite(firstAt) && Number.isFinite(lastAt)) {
+      merged.modeSessionActivity = { firstAt, lastAt };
+    }
+  }
   if (textSegments) {
     merged.textSegments = textSegments;
   }

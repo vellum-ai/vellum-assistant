@@ -87,6 +87,7 @@ import {
   type QueuedMessage,
 } from "../daemon/conversation-queue-manager.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
@@ -117,6 +118,7 @@ function makeFakeContext(opts: {
     abortController: null,
     queue: opts.queue,
     surfaceActionRequestIds: new Set<string>(),
+    modeSessions: mockUnownedModeSessions(),
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     get preactivatedSkillIds(): string[] | undefined {
       return preactivatedSkillIds;

@@ -20,6 +20,7 @@
 
 import type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
 import type { QuestionEntry } from "../api/events/question-request.js";
+import { findConversationOrSubagent } from "../daemon/conversation-registry.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { broadcastMessage } from "./assistant-event-hub.js";
@@ -135,6 +136,33 @@ export interface PendingInteraction {
 
 const pending = new Map<string, PendingInteraction>();
 
+function invalidateModeSessionStructuralWait(
+  requestId: string,
+  interaction: PendingInteraction,
+): void {
+  const kind =
+    interaction.kind === "acp_confirmation"
+      ? "confirmation"
+      : interaction.kind === "confirmation" ||
+          interaction.kind === "question" ||
+          interaction.kind === "secret"
+        ? interaction.kind
+        : undefined;
+  if (!kind) {
+    return;
+  }
+  try {
+    findConversationOrSubagent(
+      interaction.conversationId,
+    )?.modeSessions.invalidateStructuralWait({ kind, responseId: requestId });
+  } catch (err) {
+    log.warn(
+      { err, requestId, conversationId: interaction.conversationId, kind },
+      "Could not invalidate mode session structural wait",
+    );
+  }
+}
+
 export function register(
   requestId: string,
   interaction: PendingInteraction,
@@ -162,6 +190,7 @@ export function resolve(
     return undefined;
   }
   pending.delete(requestId);
+  invalidateModeSessionStructuralWait(requestId, interaction);
   if (interaction.timer != null) {
     clearTimeout(interaction.timer);
   }

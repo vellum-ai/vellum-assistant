@@ -99,6 +99,7 @@ import {
   _resetRevealSuccessRegistryForTest,
   recordRevealSuccess,
 } from "../runtime/reveal-success-registry.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import {
   SYNTHETIC_OPAQUE_CREDENTIAL,
   SYNTHETIC_OPENAI_PROJECT_KEY,
@@ -122,6 +123,7 @@ function createMockDeps(collected: AssistantEvent[]): EventHandlerDeps {
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (msg: AssistantEvent) => {
       collected.push(msg);

@@ -11,6 +11,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { LiveActivityReporter } from "../live-activity-reporter.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -61,11 +62,29 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+class RecordingLiveActivityReporter extends LiveActivityReporter {
+  readonly dispatched: Array<{ phase: string; event: string; detail: string }> =
+    [];
+
+  waitForDispatches(): Promise<void> {
+    return this.waitForPendingDispatches();
+  }
+
+  protected override async dispatch(
+    phase: string,
+    event: "update" | "end",
+    detail: string,
+  ): Promise<void> {
+    this.dispatched.push({ phase, event, detail });
+  }
+}
+
 function createHarness(
   startVoiceTurn: LiveVoiceTurnStarter,
   opts: {
     transcriber?: MockStreamingTranscriber;
     streamTtsAudio?: LiveVoiceTtsStreamer;
+    liveActivityReporter?: LiveActivityReporter;
   } = {},
 ) {
   const sequencer = createLiveVoiceServerFrameSequencer();
@@ -84,6 +103,9 @@ function createHarness(
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn,
     ...(opts.streamTtsAudio ? { streamTtsAudio: opts.streamTtsAudio } : {}),
+    ...(opts.liveActivityReporter
+      ? { liveActivityReporter: opts.liveActivityReporter }
+      : {}),
     createTurnId: () => "live-turn-1",
     emitMetrics: false,
   });
@@ -102,11 +124,20 @@ function scriptedStartVoiceTurn(script: {
   // Leave the escalated leg in flight (no deltas, no completion) so a barge-in
   // has a live turn to abort mid-hand-off.
   holdEscalated?: boolean;
+  // The escalation judge's verdict, carried on the front-door handle.
+  judgeVerdict?: Promise<boolean>;
 }) {
   const frontDoorAbort = mock();
+  const frontDoorOverrule = mock();
   const escalatedAbort = mock();
   const starter = mock(async (options: VoiceTurnOptions) => {
     const isEscalated = options.content === ESCALATION_CONTINUATION_CONTENT;
+    if (isEscalated) {
+      options.onEscalationTargetResolved?.({
+        profile: "quality-optimized",
+        source: "conversation",
+      });
+    }
     if (isEscalated && script.holdEscalated) {
       return { turnId: "bridge-escalated", abort: escalatedAbort };
     }
@@ -130,9 +161,15 @@ function scriptedStartVoiceTurn(script: {
     return {
       turnId: isEscalated ? "bridge-escalated" : "bridge-front-door",
       abort: isEscalated ? escalatedAbort : frontDoorAbort,
+      ...(!isEscalated && script.judgeVerdict
+        ? {
+            escalationJudgement: script.judgeVerdict,
+            overrule: frontDoorOverrule,
+          }
+        : {}),
     };
   });
-  return { starter, frontDoorAbort, escalatedAbort };
+  return { starter, frontDoorAbort, frontDoorOverrule, escalatedAbort };
 }
 
 async function driveTurn(session: LiveVoiceSession): Promise<void> {
@@ -200,6 +237,150 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
+    expect(frames).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        kind: "escalation",
+        label: "",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      }),
+    );
+  });
+
+  test("restores the waiting activity after late bridge audio", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      holdEscalated: true,
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk({
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: "AA==",
+      });
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: 1,
+      };
+    });
+    const { frames, session } = createHarness(starter, { streamTtsAudio });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(
+      () =>
+        frames.filter(
+          (frame) => frame.type === "activity" && frame.kind === "escalation",
+        ).length >= 2,
+    );
+
+    const bridgeAudioIndex = frames.findIndex(
+      (frame) => frame.type === "tts_audio",
+    );
+    const restoredActivityIndex = frames.findIndex(
+      (frame, index) =>
+        index > bridgeAudioIndex &&
+        frame.type === "activity" &&
+        frame.kind === "escalation",
+    );
+    expect(bridgeAudioIndex).toBeGreaterThanOrEqual(0);
+    expect(restoredActivityIndex).toBeGreaterThan(bridgeAudioIndex);
+
+    await session.handleClientFrame({ type: "interrupt" });
+  });
+
+  test("does not replace newer tool activity when bridge audio drains", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      holdEscalated: true,
+    });
+    let releaseBridge = (): void => {};
+    const bridgePending = new Promise<void>((resolve) => {
+      releaseBridge = resolve;
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk({
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: "AA==",
+      });
+      await bridgePending;
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: 1,
+      };
+    });
+    const liveActivityReporter = new RecordingLiveActivityReporter(
+      "conversation-123",
+    );
+    const { frames, session } = createHarness(starter, {
+      streamTtsAudio,
+      liveActivityReporter,
+    });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    starter.mock.calls[1]?.[0]?.callbacks?.tool_use_start?.("web_search", {
+      toolUseId: "tool-1",
+    });
+    await waitFor(() => {
+      const activity = frames
+        .filter((frame) => frame.type === "activity")
+        .at(-1);
+      return activity?.label !== "" && activity?.kind === undefined;
+    });
+
+    const escalationFramesBeforeDrain = frames.filter(
+      (frame) => frame.type === "activity" && frame.kind === "escalation",
+    ).length;
+    const overlayBeforeDrain = frames
+      .filter((frame) => frame.type === "activity")
+      .at(-1);
+    releaseBridge();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await liveActivityReporter.waitForDispatches();
+
+    expect(
+      frames.filter(
+        (frame) => frame.type === "activity" && frame.kind === "escalation",
+      ),
+    ).toHaveLength(escalationFramesBeforeDrain);
+    const latestActivity = frames
+      .filter((frame) => frame.type === "activity")
+      .at(-1);
+    expect(latestActivity).toEqual(
+      expect.objectContaining({ label: expect.not.stringMatching(/^$/) }),
+    );
+    expect(latestActivity).not.toHaveProperty("kind");
+    expect(liveActivityReporter.dispatched.at(-1)).toEqual({
+      phase: "thinking",
+      event: "update",
+      detail:
+        overlayBeforeDrain?.type === "activity" ? overlayBeforeDrain.label : "",
+    });
+
+    starter.mock.calls[1]?.[0]?.callbacks?.tool_result?.({
+      toolName: "web_search",
+      toolUseId: "tool-1",
+      resultPreview: "",
+    });
+    await waitFor(() => {
+      const activity = frames
+        .filter((frame) => frame.type === "activity")
+        .at(-1);
+      return activity?.kind === "escalation";
+    });
+
+    await session.handleClientFrame({ type: "interrupt" });
   });
 
   test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {
@@ -460,5 +641,47 @@ describe("live-voice triage-and-escalate routing", () => {
 
     expect(escalatedSignal?.aborted).toBe(true);
     expect(escalatedAbort).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("live-voice escalation judge", () => {
+  function lateVerdict(escalate: boolean, delayMs = 30): Promise<boolean> {
+    return new Promise((resolve) =>
+      setTimeout(() => resolve(escalate), delayMs),
+    );
+  }
+
+  test("a judge escalation overrules an answer the front door already finished", async () => {
+    const { starter, frontDoorOverrule } = scriptedStartVoiceTurn({
+      frontDoor: ["Yeah okay, ", "I'll do it."],
+      escalated: ["Done, the blurb is in the draft."],
+      judgeVerdict: lateVerdict(true),
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.routingLeg).toBe("escalated");
+    expect(frontDoorOverrule).toHaveBeenCalledTimes(1);
+    // The overruled answer is never heard; the escalated leg answers.
+    expect(spokenText(frames)).not.toContain("I'll do it.");
+    expect(spokenText(frames)).toContain("Done, the blurb is in the draft.");
+  });
+
+  test("a judge that clears late releases the held answer", async () => {
+    const { starter, frontDoorOverrule } = scriptedStartVoiceTurn({
+      frontDoor: ["Sure, ", "it's Tuesday."],
+      judgeVerdict: lateVerdict(false),
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(frontDoorOverrule).not.toHaveBeenCalled();
+    expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
 });

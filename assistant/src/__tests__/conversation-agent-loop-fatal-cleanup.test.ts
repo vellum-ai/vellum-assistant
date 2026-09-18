@@ -20,6 +20,7 @@ import type { AgentLoop } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Short turn-boundary commit wait and no second-pass retitling keep the loop
@@ -109,6 +110,7 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     pendingSurfaceActions: new Map(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    modeSessions: mockUnownedModeSessions(),
     workingDir: "/tmp",
     channelCapabilities: undefined,
     commandIntent: undefined,

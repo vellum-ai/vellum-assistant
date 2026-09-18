@@ -138,14 +138,20 @@ export function VoiceSessionPillHost({
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
   const muted = useLiveVoiceStore.use.muted();
   const outputMuted = useLiveVoiceStore.use.outputMuted();
+  const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
+  const responsePhase = useLiveVoiceStore.use.responsePhase();
 
   // The session's own word, taken as a catalog key so the pill reads in the
-  // user's language. This host observes neither the reconnect flag nor whether
-  // assistant audio is flowing, so those two remaps are handed the values that
-  // leave them unfired and what comes back is the phase's own word. Mute keeps
-  // the branch below rather than being passed in: the pill says "Muted" in
-  // every phase, not only the one the session relabels for it.
-  const stateKey = liveVoiceSurfaceLabelKey(state, false, true, false);
+  // user's language. Reconnect is left unfired, while actual playback keeps a
+  // silent handoff distinct from active speech. Mute stays in the branch below:
+  // the pill says "Muted" in every phase, not only the one the session relabels.
+  const stateKey = liveVoiceSurfaceLabelKey(
+    state,
+    false,
+    assistantAudioActive,
+    false,
+    responsePhase,
+  );
   const stateLabel = stateKey ? t(stateKey) : "";
 
   const navigate = useNavigate();

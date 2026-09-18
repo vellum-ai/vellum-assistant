@@ -185,6 +185,7 @@ import {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -216,6 +217,7 @@ function makeDeps(
         sourceThreadId: overrides.sourceThreadId,
       },
       clientTimezone: overrides.clientTimezone,
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: (_msg: AssistantEvent) => {},
     reqId: "test-req-id",

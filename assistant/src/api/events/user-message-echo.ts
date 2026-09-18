@@ -26,6 +26,8 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
+
 export const UserMessageEchoEventSchema = z
   .object({
     type: z.literal("user_message_echo"),
@@ -35,6 +37,7 @@ export const UserMessageEchoEventSchema = z
     requestId: z.string().optional(),
     clientMessageId: z.string().optional(),
     cameraFrame: z.literal(true).optional(),
+    modeSession: ModeSessionSchema.optional(),
   })
   .strict();
 

@@ -8,6 +8,7 @@ import { AssistantTerminalPanel } from "@/domains/settings/components/panels/ass
 import { DatabaseDebugPanel } from "@/domains/settings/components/panels/database-debug-panel";
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
+import { ToneLabPanel } from "@/domains/settings/components/tone-lab/tone-lab-panel";
 import { resolveDebugTabParam } from "@/domains/settings/pages/debug-page.helpers";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
@@ -20,6 +21,7 @@ const ALL_TABS = [
   { id: "doctor", labelKey: "debugPage.tabs.doctor", defaultLabel: "Doctor" },
   { id: "database", labelKey: "debugPage.tabs.database", defaultLabel: "Database" },
   { id: "conversations", labelKey: "debugPage.tabs.conversations", defaultLabel: "Conversations" },
+  { id: "tones", labelKey: "debugPage.tabs.tones", defaultLabel: "Tone lab" },
 ] as const;
 
 type DebugTabId = (typeof ALL_TABS)[number]["id"];
@@ -134,6 +136,9 @@ export function DebugPage() {
             initialFilter={conversationsFilter}
             onOpenConversation={handleOpenConversation}
           />
+        </Tabs.Panel>
+        <Tabs.Panel value="tones" className="pt-4">
+          <ToneLabPanel />
         </Tabs.Panel>
       </Tabs.Root>
     </div>

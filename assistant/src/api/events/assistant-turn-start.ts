@@ -20,10 +20,13 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
+
 export const AssistantTurnStartEventSchema = z.object({
   type: z.literal("assistant_turn_start"),
   messageId: z.string(),
   conversationId: z.string().optional(),
+  modeSession: ModeSessionSchema.optional(),
 });
 
 export type AssistantTurnStartEvent = z.infer<

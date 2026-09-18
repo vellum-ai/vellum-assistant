@@ -18,6 +18,8 @@
 
 import { z } from "zod";
 
+import { ModeSessionSchema } from "../mode-session.js";
+
 export const ToolUseStartEventSchema = z.object({
   type: z.literal("tool_use_start"),
   toolName: z.string(),
@@ -25,6 +27,7 @@ export const ToolUseStartEventSchema = z.object({
   toolUseId: z.string().optional(),
   messageId: z.string().optional(),
   conversationId: z.string().optional(),
+  modeSession: ModeSessionSchema.optional(),
   /**
    * Unix ms when the daemon began executing the tool. Lets clients anchor a
    * live elapsed-time counter to the server clock instead of the moment the

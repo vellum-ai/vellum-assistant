@@ -126,6 +126,7 @@ import {
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 const CONV_ID = "conv-hidden-queue";
 
@@ -159,6 +160,7 @@ function makeConversationWithPendingConfirmation(
       },
     },
     currentRequestId: undefined,
+    modeSessions: mockUnownedModeSessions(),
     queue: {
       length: 0,
       promoteToHead: (requestId: string) => ({ requestId }),

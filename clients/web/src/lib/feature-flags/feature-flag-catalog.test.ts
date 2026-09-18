@@ -34,6 +34,13 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.sendUserMessage).toBe(false);
   });
 
+  test("exposes session grouping to both flag stores defaulting off", () => {
+    expect(CLIENT_FLAG_DEFAULTS.sessionGroups).toBe(false);
+    expect(ASSISTANT_FLAG_DEFAULTS.sessionGroups).toBe(false);
+    expect("sessionGroups" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("sessionGroups" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,
