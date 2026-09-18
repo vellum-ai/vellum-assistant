@@ -172,6 +172,7 @@ describe("WebSearchCard — provider-only configuration", () => {
       "Keenable",
       "fastCRW",
       "SearXNG",
+      "TinyFish",
     ]);
   });
 
@@ -267,9 +268,7 @@ describe("WebSearchCard — provider-only configuration", () => {
     }) as HTMLButtonElement;
     expect(saveButton.disabled).toBe(true);
 
-    const apiBaseInput = screen.getByPlaceholderText(
-      "https://api.fastcrw.com",
-    );
+    const apiBaseInput = screen.getByPlaceholderText("https://api.fastcrw.com");
     fireEvent.change(apiBaseInput, {
       target: { value: "http://localhost:3000" },
     });
@@ -321,6 +320,29 @@ describe("WebSearchCard — provider-only configuration", () => {
         },
       },
     });
+  });
+
+  test("TinyFish still requires a key when API Base is custom", () => {
+    renderCard();
+
+    fireEvent.click(providerTrigger());
+    selectOption("TinyFish");
+
+    const saveButton = screen.getByRole("button", {
+      name: "Save",
+    }) as HTMLButtonElement;
+    const apiBaseInput = screen.getByPlaceholderText(
+      "https://api.search.tinyfish.ai",
+    );
+    fireEvent.change(apiBaseInput, {
+      target: { value: "https://search.example.com/api" },
+    });
+
+    expect(saveButton.disabled).toBe(true);
+
+    const keyInput = screen.getByPlaceholderText("TinyFish API key...");
+    fireEvent.change(keyInput, { target: { value: "tinyfish-secret" } });
+    expect(saveButton.disabled).toBe(false);
   });
 
   test("a daemon predating the vellum provider gets the legacy managed write", async () => {

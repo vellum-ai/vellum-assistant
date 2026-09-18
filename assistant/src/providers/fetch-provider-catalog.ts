@@ -84,6 +84,17 @@ export const FETCH_PROVIDER_CATALOG: readonly FetchProviderCatalogEntry[] = [
     supportsApiBase: true,
     defaultApiBase: "https://api.fastcrw.com",
   },
+  {
+    id: "tinyfish",
+    displayName: "TinyFish",
+    kind: "byok",
+    apiKeyPrefix: "TinyFish API key...",
+    envVar: "TINYFISH_API_KEY",
+    secretKey: "tinyfish",
+    privacyPolicyUrl: "https://www.tinyfish.ai/privacy-policy",
+    supportsApiBase: true,
+    defaultApiBase: "https://api.fetch.tinyfish.ai",
+  },
 ];
 
 /** Provider ids accepted by the web-fetch config schema. */

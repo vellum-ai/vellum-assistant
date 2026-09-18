@@ -51,6 +51,7 @@ const log = getLogger("web-fetch");
 
 const FIRECRAWL_SCRAPE_API_URL = "https://api.firecrawl.dev/v2/scrape";
 const FASTCRW_SCRAPE_PATH = "/v1/scrape";
+const TINYFISH_DEFAULT_FETCH_API_BASE = "https://api.fetch.tinyfish.ai";
 
 const DEFAULT_TIMEOUT_SECONDS = 20;
 const MAX_TIMEOUT_SECONDS = 60;
@@ -1117,9 +1118,34 @@ interface FirecrawlScrapeResponse {
   error?: string;
 }
 
+interface TinyfishFetchResult {
+  url?: string;
+  final_url?: string;
+  title?: string | null;
+  description?: string | null;
+  text?: string | Record<string, unknown> | null;
+  format?: string;
+  latency_ms?: number | null;
+}
+
+interface TinyfishFetchError {
+  url?: string;
+  error?: string;
+  status?: number;
+}
+
+interface TinyfishFetchResponse {
+  results?: TinyfishFetchResult[];
+  errors?: TinyfishFetchError[];
+}
+
 function getWebFetchProvider(): WebFetchProviderId {
   const configured = getConfig().services["web-fetch"]?.provider ?? "default";
-  if (configured === "firecrawl" || configured === "fastcrw") {
+  if (
+    configured === "firecrawl" ||
+    configured === "fastcrw" ||
+    configured === "tinyfish"
+  ) {
     return configured;
   }
   return "default";
@@ -1127,7 +1153,7 @@ function getWebFetchProvider(): WebFetchProviderId {
 
 /**
  * Decide whether a request may be routed to a hosted scrape provider
- * (Firecrawl / fastCRW).
+ * (Firecrawl / fastCRW / TinyFish).
  *
  * Posting a URL to a hosted scraper sends its path + query (which can hold
  * secrets) to a third party, so we apply the SAME safety gate as the built-in
@@ -1176,7 +1202,7 @@ function hostedScrapeErrorResult(
   requestedUrl: string,
   startedAt: number,
   errorMessage: string,
-  provider: "firecrawl" | "fastcrw",
+  provider: "firecrawl" | "fastcrw" | "tinyfish",
   status = 0,
 ): ToolExecutionResult {
   const domain = extractDomain(requestedUrl);
@@ -1501,6 +1527,239 @@ export async function executeFastcrwScrape(
   });
 }
 
+export async function executeTinyfishFetch(
+  input: Record<string, unknown>,
+  options: { apiKey: string; signal?: AbortSignal },
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const parsedUrl = parseUrl(input.url);
+  const targetUrl =
+    parsedUrl?.href ?? (typeof input.url === "string" ? input.url : "");
+  const safeRequestedUrl = parsedUrl
+    ? sanitizeUrlForOutput(parsedUrl)
+    : sanitizeUrlStringForOutput(targetUrl);
+
+  if (!targetUrl) {
+    return hostedScrapeErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      "url is required and must be a valid HTTP(S) URL",
+      "tinyfish",
+    );
+  }
+  if (parsedUrl?.username || parsedUrl?.password) {
+    return hostedScrapeErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      "URLs with embedded credentials are not supported by the TinyFish provider. Remove the user:password@ portion of the URL.",
+      "tinyfish",
+    );
+  }
+
+  const maxChars = clampInteger(
+    input.max_chars,
+    DEFAULT_MAX_CHARS,
+    1,
+    MAX_MAX_CHARS,
+  );
+  const startIndex = clampInteger(input.start_index, 0, 0, 10_000_000);
+  const timeoutSeconds = clampInteger(
+    input.timeout_seconds,
+    DEFAULT_TIMEOUT_SECONDS,
+    1,
+    MAX_TIMEOUT_SECONDS,
+  );
+  const apiBase = getConfig().services["web-fetch"]?.apiBase;
+  const endpoint = resolveProviderApiUrl(
+    apiBase,
+    "/",
+    TINYFISH_DEFAULT_FETCH_API_BASE,
+  );
+  const requestBody = {
+    urls: [targetUrl],
+    format: "markdown",
+    per_url_timeout_ms: timeoutSeconds * 1000,
+  };
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "X-API-Key": options.apiKey.trim(),
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(requestBody),
+        signal: options.signal,
+      });
+    } catch (err) {
+      if (
+        options.signal?.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return hostedScrapeErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          "web fetch was cancelled",
+          "tinyfish",
+        );
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return hostedScrapeErrorResult(
+        safeRequestedUrl,
+        startedAt,
+        `TinyFish fetch failed: ${message}`,
+        "tinyfish",
+      );
+    }
+
+    const bodyText = await response.text();
+    if (response.ok) {
+      let payload: TinyfishFetchResponse;
+      try {
+        payload = JSON.parse(bodyText) as TinyfishFetchResponse;
+      } catch {
+        return hostedScrapeErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          "TinyFish fetch returned an invalid JSON payload.",
+          "tinyfish",
+          response.status,
+        );
+      }
+
+      const page = payload.results?.[0];
+      if (!page) {
+        const failure = payload.errors?.[0];
+        const detail = failure?.error ?? "unknown_error";
+        const statusDetail =
+          failure?.status !== undefined ? ` (HTTP ${failure.status})` : "";
+        return hostedScrapeErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          `TinyFish fetch failed: ${detail}${statusDetail}`,
+          "tinyfish",
+          failure?.status ?? response.status,
+        );
+      }
+
+      const pageText =
+        typeof page.text === "string"
+          ? page.text
+          : page.text == null
+            ? ""
+            : JSON.stringify(page.text, null, 2);
+      const processed = normalizeMarkdown(pageText.replace(/\0/g, ""));
+      const safeStart = Math.min(startIndex, processed.length);
+      const safeEnd = Math.min(processed.length, safeStart + maxChars);
+      const sliced = safeStringSlice(processed, safeStart, safeEnd);
+      const bytesRead = Buffer.byteLength(processed, "utf8");
+      const finalUrl = sanitizeUrlStringForOutput(
+        page.final_url ?? page.url ?? targetUrl,
+      );
+      const notices: string[] = [];
+      if (safeEnd < processed.length) {
+        notices.push(`Output truncated by max_chars=${maxChars}.`);
+      }
+      if (startIndex > processed.length) {
+        notices.push(
+          `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
+        );
+      }
+
+      const content = formatWebFetchOutput({
+        requestedUrl: safeRequestedUrl,
+        finalUrl,
+        status: 200,
+        statusText: "",
+        contentType: "text/markdown",
+        bytesRead,
+        totalChars: processed.length,
+        startIndex: safeStart,
+        endIndex: safeEnd,
+        content: sliced,
+        title: page.title ?? undefined,
+        description: page.description ?? undefined,
+        notices,
+        raw: false,
+        markdown: true,
+      });
+      const finalDomain = extractDomain(finalUrl);
+      const metadata: WebFetchMetadata = {
+        url: safeRequestedUrl,
+        finalUrl,
+        provider: "tinyfish",
+        status: 200,
+        contentType: "text/markdown",
+        byteCount: bytesRead,
+        charCount: sliced.length,
+        truncated: safeEnd < processed.length,
+        title: page.title ?? undefined,
+        domain: finalDomain,
+        faviconUrl: faviconUrlForDomain(finalDomain),
+        redirectCount: finalUrl === safeRequestedUrl ? 0 : 1,
+        durationMs: Date.now() - startedAt,
+      };
+      return {
+        content,
+        isError: false,
+        status: notices.length > 0 ? notices.join("\n") : undefined,
+        activityMetadata: { webFetch: metadata },
+      };
+    }
+
+    if (response.status === 401) {
+      return hostedScrapeErrorResult(
+        safeRequestedUrl,
+        startedAt,
+        "Invalid or expired TinyFish API key",
+        "tinyfish",
+        response.status,
+      );
+    }
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "TinyFish fetch rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn(
+      { status: response.status, body: safeStringSlice(bodyText, 0, 200) },
+      "TinyFish fetch API error",
+    );
+    const errorMessage =
+      response.status === 429
+        ? "TinyFish fetch rate limit exceeded after retries. Try again shortly."
+        : `TinyFish fetch API returned status ${response.status}`;
+    return hostedScrapeErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      errorMessage,
+      "tinyfish",
+      response.status,
+    );
+  }
+
+  return hostedScrapeErrorResult(
+    safeRequestedUrl,
+    startedAt,
+    "TinyFish fetch rate limit exceeded after retries. Try again shortly.",
+    "tinyfish",
+    429,
+  );
+}
+
 export const webFetchTool = {
   name: "web_fetch",
   description:
@@ -1550,7 +1809,9 @@ export const webFetchTool = {
   ): Promise<ToolExecutionResult> {
     const fetchProvider = getWebFetchProvider();
     if (
-      (fetchProvider === "firecrawl" || fetchProvider === "fastcrw") &&
+      (fetchProvider === "firecrawl" ||
+        fetchProvider === "fastcrw" ||
+        fetchProvider === "tinyfish") &&
       (await canRouteToHostedScraper(input))
     ) {
       const apiKey = (await getProviderKeyAsync(fetchProvider)) ?? "";
@@ -1567,7 +1828,13 @@ export const webFetchTool = {
             signal: context.signal,
           });
         }
-        return executeFastcrwScrape(input, {
+        if (fetchProvider === "fastcrw") {
+          return executeFastcrwScrape(input, {
+            apiKey,
+            signal: context.signal,
+          });
+        }
+        return executeTinyfishFetch(input, {
           apiKey,
           signal: context.signal,
         });
