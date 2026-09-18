@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, type Ref, useCallback } from "react";
+import { type CSSProperties, type ReactNode, type Ref, useMemo } from "react";
 
 import {
   type ScrollAxis,
@@ -6,7 +6,7 @@ import {
   scrollEdgeMask,
   useScrollEdges,
 } from "../hooks/use-scroll-edges";
-import { assignRef } from "../utils/assign-ref";
+import { mergeRefs } from "../utils/merge-refs";
 import { cn } from "../utils/cn";
 
 export type ScrollShadowOrientation = ScrollAxis;
@@ -55,11 +55,8 @@ export function ScrollShadow({
     { offset, enabled: isEnabled },
   );
 
-  const setRefs = useCallback(
-    (node: HTMLDivElement | null) => {
-      measureRef(node);
-      assignRef(ref, node);
-    },
+  const setRefs = useMemo(
+    () => mergeRefs(measureRef, ref),
     [measureRef, ref],
   );
 

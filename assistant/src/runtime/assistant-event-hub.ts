@@ -53,6 +53,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
+import { matchesTargeting } from "./assistant-event-targeting.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
 import { isMainDaemonProcess } from "./process-role.js";
 
@@ -323,24 +324,14 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
-   * - if `excludeClientId` is set, the subscriber with that clientId is
-   *   skipped regardless of every other rule (self-echo suppression — the
-   *   client that originated the mutation does not receive its own
-   *   invalidation back through the hub).
-   * - if `targetClientId` is set, deliver only to the subscriber with that
-   *   clientId, bypassing the conversation-id filter entirely (the web-origin
-   *   event's conversationId differs from the macOS client's subscribed
-   *   conversation).
-   * - if `filter.conversationId` is set (and `targetClientId` is not), the
-   *   `event.conversationId` must equal it
-   * - if `targetCapability` is set, only subscribers whose capabilities include
-   *   it receive the event; untargeted events go to all
-   * - if `targetInterfaceId` is set, only client subscribers whose
-   *   `interfaceId` matches receive the event; process subscribers and
-   *   non-matching clients are skipped.
-   * - if `targetActorPrincipalId` is set, only client subscribers whose
-   *   verified `actorPrincipalId` equals it receive the event; process
-   *   subscribers and clients without a principal are skipped.
+   * - the event's targeting (`excludeClientId`, `targetInterfaceId`,
+   *   `targetActorPrincipalId`, `targetClientId`, `targetCapability`) must
+   *   admit the subscriber, per {@link matchesTargeting}, the same check
+   *   replay applies
+   * - a subscriber's `filter.conversationId` must equal `event.conversationId`,
+   *   unless the event names a client with `targetClientId` (a web-origin
+   *   event's conversationId can differ from the conversation the targeted
+   *   macOS client subscribed to)
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
@@ -365,11 +356,6 @@ export class AssistantEventHub {
       }
     }
 
-    const targetCapability = options?.targetCapability;
-    const targetClientId = options?.targetClientId;
-    const targetInterfaceId = options?.targetInterfaceId;
-    const targetActorPrincipalId = options?.targetActorPrincipalId;
-    const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
@@ -377,72 +363,16 @@ export class AssistantEventHub {
       if (!entry.active) {
         continue;
       }
-
-      // Self-echo suppression: the originating client never receives the
-      // event back. Checked before every other rule so it composes with
-      // both targeted and untargeted broadcasts.
-      if (
-        excludeClientId != null &&
-        entry.type === "client" &&
-        entry.clientId === excludeClientId
-      ) {
+      if (!matchesTargeting(options, entry)) {
         continue;
       }
-
-      // Interface targeting: skip any subscriber that is not a client of
-      // the requested interface. Composes with `targetClientId` and
-      // `targetCapability` below.
-      if (targetInterfaceId != null) {
-        if (
-          entry.type !== "client" ||
-          entry.interfaceId !== targetInterfaceId
-        ) {
-          continue;
-        }
-      }
-
-      // Principal targeting: an event scoped to one person reaches only that
-      // person's own connections. Composes with every other rule.
-      if (targetActorPrincipalId != null) {
-        if (
-          entry.type !== "client" ||
-          entry.actorPrincipalId !== targetActorPrincipalId
-        ) {
-          continue;
-        }
-      }
-
-      if (targetClientId != null) {
-        // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId) {
-          continue;
-        }
-        if (
-          targetCapability != null &&
-          !entry.capabilities.includes(targetCapability)
-        ) {
-          continue;
-        }
-      } else {
-        // Untargeted: existing conversation-scoped + capability logic.
-        if (
-          event.conversationId != null &&
-          entry.filter.conversationId != null &&
-          entry.filter.conversationId !== event.conversationId
-        ) {
-          continue;
-        }
-
-        // Capability targeting: targeted events only go to subscribers that
-        // declare the required capability.
-        if (targetCapability != null) {
-          if (
-            entry.type !== "client" ||
-            !entry.capabilities.includes(targetCapability)
-          ) {
-            continue;
-          }
-        }
+      if (
+        options?.targetClientId == null &&
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
+      ) {
+        continue;
       }
 
       try {

@@ -1,12 +1,7 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  type ComponentProps,
-} from "react";
+import { createContext, useContext, useMemo, type ComponentProps } from "react";
 
 import { scrollEdgeMask, useScrollEdges } from "../hooks/use-scroll-edges";
-import { assignRef } from "../utils/assign-ref";
+import { mergeRefs } from "../utils/merge-refs";
 import { cn } from "../utils/cn";
 
 /**
@@ -95,11 +90,8 @@ export function Table({
   const { ref: measureRef, edges } =
     useScrollEdges<HTMLDivElement>("horizontal");
   const containerRef = containerProps?.ref;
-  const setContainer = useCallback(
-    (node: HTMLDivElement | null) => {
-      measureRef(node);
-      assignRef(containerRef, node);
-    },
+  const setContainer = useMemo(
+    () => mergeRefs(measureRef, containerRef),
     [measureRef, containerRef],
   );
   const scrolls = edges.start || edges.end;
