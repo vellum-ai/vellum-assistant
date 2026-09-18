@@ -64,5 +64,4 @@ export type GuardianActionMessageScenario = "guardian_stale_expired";
 
 export interface GuardianActionMessageContext {
   scenario: GuardianActionMessageScenario;
-  channel?: string;
 }

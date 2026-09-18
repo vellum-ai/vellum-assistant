@@ -54,7 +54,6 @@ export async function sendGuardianExpiryNotices(
     try {
       const expiryText = composeGuardianActionMessage({
         scenario: "guardian_stale_expired",
-        channel: delivery.destinationChannel,
       });
 
       if (
