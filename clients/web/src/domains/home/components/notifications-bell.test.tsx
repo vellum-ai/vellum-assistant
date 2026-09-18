@@ -768,19 +768,16 @@ describe("NotificationsBell panel", () => {
     );
   });
 
-  test("uses the active assistant accent with a white knob for the enabled unread switch", async () => {
+  test("uses the design-system small toggle for the unread filter", async () => {
     feedRef.items = [bellItem({ status: "new" })];
 
     await openBell();
 
     const filter = screen.getByRole("switch", { name: "Unread" });
-    expect(filter.parentElement?.className).toContain("--avatar-accent");
-    expect(filter.parentElement?.className).toContain(
-      "--system-positive-strong",
-    );
-    expect(filter.parentElement?.className).not.toContain(
-      "--avatar-accent-glyph",
-    );
+    expect(filter.parentElement?.className).toContain("flex items-center");
+    expect(filter.parentElement?.className).not.toContain("--avatar-accent");
+    expect(filter.className).toContain("--system-positive-strong");
+    expect(filter.className).toContain("h-4 w-6");
     expect(filter.querySelector("span")?.className).toContain("--aux-white");
   });
 
@@ -790,8 +787,8 @@ describe("NotificationsBell panel", () => {
     await openBell();
 
     const count = screen.getByTestId("notifications-bell-count");
-    expect(count.parentElement?.className).toContain("--system-positive-weak");
-    expect(count.className).toContain("--system-positive-on-weak");
+    expect(count.parentElement?.className).toContain("--surface-active");
+    expect(count.className).toContain("--content-secondary");
     expect(count.parentElement?.className).not.toContain("--avatar-accent");
     expect(count.className).not.toContain("--avatar-accent");
   });
