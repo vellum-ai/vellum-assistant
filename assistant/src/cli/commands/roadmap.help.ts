@@ -130,7 +130,6 @@ assistant does not own.
 
 Examples:
   $ assistant roadmap update dark-mode --description "Follow the OS setting"
-  $ assistant roadmap update dark-mode --tag area-interface --tag area-macos
   $ assistant roadmap update dark-mode --clear-tags`,
     },
     {
