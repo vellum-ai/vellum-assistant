@@ -203,6 +203,7 @@ describe("DesktopSessionManager process tree", () => {
     // The dock waits on the Chromium path its launcher points at, so it comes
     // up alongside the browser rather than with the rest of the tree.
     expect(h.roles()).toEqual([
+      "session-bus",
       "x-server",
       "window-manager",
       "compositor",
@@ -228,6 +229,9 @@ describe("DesktopSessionManager process tree", () => {
         HOME: "/data",
         LANG: "C.UTF-8",
         DISPLAY: ":99",
+        DBUS_SESSION_BUS_ADDRESS: h.manager.accessibilityBusAddress,
+        NO_AT_BRIDGE: "0",
+        GTK_A11Y: "atspi",
       });
     }
     expect(h.child("window-manager").request.cmd[0]).toBe("/usr/bin/python3");
@@ -239,11 +243,7 @@ describe("DesktopSessionManager process tree", () => {
     ]);
     // The compositor precedes the dock so it has an ARGB visual.
     expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
-    expect(h.child("panel").request.cmd).toEqual([
-      "/usr/bin/dbus-run-session",
-      "--",
-      "/usr/bin/plank",
-    ]);
+    expect(h.child("panel").request.cmd).toEqual(["/usr/bin/plank"]);
     expect(h.child("panel").request.env).toEqual({
       ...h.child("browser").request.env,
       XDG_CONFIG_HOME: panelConfigDir,
@@ -324,7 +324,10 @@ describe("DesktopSessionManager process tree", () => {
     h.setVncReady(false);
 
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(/not ready/);
-    expect(h.terminated()).toEqual([h.child("x-server")]);
+    expect(h.terminated()).toEqual([
+      h.child("session-bus"),
+      h.child("x-server"),
+    ]);
 
     h.setVncReady(true);
     await h.manager.ensureDesktopRunning();
@@ -341,7 +344,9 @@ describe("DesktopSessionManager process tree", () => {
     // The viewer hears about it before the kill grace, not after.
     expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
     const first = h.child("x-server");
-    expect(h.killed).toEqual([{ child: first, signal: "SIGTERM" }]);
+    expect(h.killed.filter((k) => k.child === first)).toEqual([
+      { child: first, signal: "SIGTERM" },
+    ]);
 
     // Reconnect while the first X server is still ignoring its SIGTERM.
     h.setVncReady(true);
@@ -350,8 +355,11 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("x-server")).toBe(1);
 
     // The SIGKILL alone does not free the display and port; the exit does.
-    await waitFor(() => h.killed.length === 2, { intervalMs: 1 });
-    expect(h.killed[1]).toEqual({ child: first, signal: "SIGKILL" });
+    await waitFor(
+      () => h.killed.some((k) => k.child === first && k.signal === "SIGKILL"),
+      { intervalMs: 1 },
+    );
+    expect(h.killed).toContainEqual({ child: first, signal: "SIGKILL" });
     expect(h.count("x-server")).toBe(1);
 
     first.exit(0);
@@ -368,7 +376,12 @@ describe("DesktopSessionManager process tree", () => {
     const started = Date.now();
     await h.manager.ensureDesktopRunning();
     expect(Date.now() - started).toBeGreaterThanOrEqual(KILL_GRACE_MS * 2 - 4);
-    expect(h.killed.map((k) => k.signal)).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(h.killed.map((k) => k.signal)).toEqual([
+      "SIGTERM",
+      "SIGTERM",
+      "SIGKILL",
+      "SIGKILL",
+    ]);
     expect(h.count("x-server")).toBe(2);
   });
 
@@ -386,13 +399,14 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["compositor", "window-manager", "x-server"]);
+    ).toEqual(["compositor", "session-bus", "window-manager", "x-server"]);
     expect(lost).toEqual([{ code: 4011, reason: "Desktop failed to start" }]);
 
     failSpawn.length = 0;
     await h.manager.ensureDesktopRunning();
     await settle();
-    expect(h.roles().slice(3)).toEqual([
+    expect(h.roles().slice(4)).toEqual([
+      "session-bus",
       "x-server",
       "window-manager",
       "compositor",
@@ -400,7 +414,7 @@ describe("DesktopSessionManager process tree", () => {
       "panel",
       "browser",
     ]);
-    expect(h.terminated()).toHaveLength(3);
+    expect(h.terminated()).toHaveLength(4);
   });
 
   test("a dock or compositor that will not spawn leaves the desktop up", async () => {
@@ -414,6 +428,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(lost).toEqual([]);
     expect(h.killed).toEqual([]);
     expect(h.roles()).toEqual([
+      "session-bus",
       "x-server",
       "window-manager",
       "clipboard",
@@ -444,6 +459,7 @@ describe("DesktopSessionManager process tree", () => {
       "clipboard",
       "compositor",
       "panel",
+      "session-bus",
       "window-manager",
     ]);
     // The slot is free and the next start builds a fresh tree.
@@ -647,7 +663,13 @@ describe("DesktopSessionManager process tree", () => {
         .terminated()
         .map((c) => c.role)
         .sort(),
-    ).toEqual(["clipboard", "compositor", "window-manager", "x-server"]);
+    ).toEqual([
+      "clipboard",
+      "compositor",
+      "session-bus",
+      "window-manager",
+      "x-server",
+    ]);
   });
 
   test("destroy terminates, hard-kills stragglers after the grace, and refuses what comes after", async () => {
@@ -665,8 +687,8 @@ describe("DesktopSessionManager process tree", () => {
       { code: 1001, reason: "The assistant is shutting down" },
     ]);
     expect(h.killed.map((k) => k.signal)).toEqual([
-      ...Array(6).fill("SIGTERM"),
-      ...Array(6).fill("SIGKILL"),
+      ...Array(7).fill("SIGTERM"),
+      ...Array(7).fill("SIGKILL"),
     ]);
     expect(h.manager.acquireViewerSlot(newViewer().viewer)).toEqual(
       SHUTTING_DOWN,
@@ -682,8 +704,9 @@ describe("DesktopSessionManager process tree", () => {
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.filter((k) => k.signal === "SIGTERM")).toHaveLength(6);
+    expect(h.killed.filter((k) => k.signal === "SIGTERM")).toHaveLength(7);
     expect(h.killed.filter((k) => k.signal === "SIGKILL")).toEqual([
+      { child: h.child("session-bus"), signal: "SIGKILL" },
       { child: h.child("panel"), signal: "SIGKILL" },
     ]);
   });
@@ -716,7 +739,7 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.killed).toEqual([]);
 
     await sleep(LINGER_MS * 2);
-    expect(h.terminated()).toHaveLength(6);
+    expect(h.terminated()).toHaveLength(7);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(2);
   });
@@ -811,3 +834,25 @@ test.each([undefined, 4321])(
     }
   },
 );
+
+test("losing the accessibility session bus tears down apps and the next desktop gets a new bus", async () => {
+  const h = newManager({ exitOnTerm: true });
+  const { viewer, lost } = newViewer();
+  h.manager.acquireViewerSlot(viewer);
+  await h.manager.ensureDesktopRunning();
+  await settle();
+  const firstAddress = h.manager.accessibilityBusAddress;
+  for (const role of ["window-manager", "panel", "browser"] as const) {
+    expect(h.child(role).request.env.DBUS_SESSION_BUS_ADDRESS).toBe(
+      firstAddress,
+    );
+  }
+  h.child("session-bus").exit(1);
+  await settle();
+  expect(lost).toEqual([
+    { code: 4011, reason: "Desktop stopped: session-bus exited" },
+  ]);
+  expect(h.terminated()).toContain(h.child("browser"));
+  await h.manager.ensureDesktopRunning();
+  expect(h.manager.accessibilityBusAddress).not.toBe(firstAddress);
+});

@@ -25,6 +25,7 @@ import {
   beforeEach,
   describe,
   expect,
+  jest,
   mock,
   spyOn,
   test,
@@ -361,14 +362,18 @@ describe("activation progress store", () => {
       });
       publishedTags.length = 0;
 
-      for (let i = 0; i < 5; i++) {
-        await bumpActivationStepCount("conv-1");
-      }
+      jest.useFakeTimers();
+      try {
+        for (let i = 0; i < 5; i++) {
+          await bumpActivationStepCount("conv-1");
+        }
 
-      // The leading bump lands immediately; the rest coalesce behind the
-      // throttle window.
-      expect(readActivationProgress().tasks["draft-email"].stepCount).toBe(1);
-      expect(syncPublishCount()).toBe(1);
+        expect(readActivationProgress().tasks["draft-email"].stepCount).toBe(1);
+        expect(syncPublishCount()).toBe(1);
+        jest.advanceTimersByTime(THROTTLE_MS);
+      } finally {
+        jest.useRealTimers();
+      }
 
       await waitFor(
         () => readActivationProgress().tasks["draft-email"].stepCount === 5,

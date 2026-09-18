@@ -34,14 +34,15 @@ returns an error rather than falling back to a different computer.
 Use `computer_use_observe` with `target: "assistant-desktop"` first. Every successful step
 returns a full desktop screenshot and an `observation_id`. Pass that ID with
 the next action (or sequence); it is consumed once. Observe again after browser
-actions, user handoff, errors, or interruption. There is no accessibility tree, so use
-screen coordinates from that screenshot.
+actions, user handoff, errors, or interruption. Use element IDs from the latest
+accessibility tree for clicks, scrolling, and dragging. Use screenshot coordinates
+when an app does not expose the desired element. IDs expire with their observation.
 Click, type, key, scroll, drag, wait, and sequences share the browser automation
 session, cancellation, and user handoff. First use installs desktop components
 and starts the same desktop shown in the Virtual desktop panel.
 
 Use Linux shortcuts such as `ctrl+l`. Open apps through the dock or desktop UI;
-`open_app`, AppleScript, element IDs, and window-scoped capture are unavailable.
+`open_app`, AppleScript, and window-scoped capture are unavailable.
 Call `computer_use_done` with the same target when finished to release the session. Prefer
 `assistant browser` for browser tasks that do not need desktop interaction.
 

@@ -30,7 +30,7 @@ const DESKTOP_BINARIES = {
   python: ["python3"],
   compositor: ["xcompmgr"],
   panel: ["plank"],
-  panelSession: ["dbus-run-session"],
+  sessionBus: ["dbus-daemon"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
   wallpaper: ["feh"],
@@ -39,11 +39,13 @@ const DESKTOP_BINARIES = {
 } as const;
 
 const DESKTOP_PACKAGES = [
+  "at-spi2-core",
   "dbus-x11",
   "feh",
   "gnome-mines",
   "openbox",
   "python3",
+  "python3-dbus",
   "tigervnc-standalone-server",
   "tigervnc-common",
   "plank",
@@ -114,7 +116,9 @@ export class DesktopDependencyInstaller {
             existsSync(desktopChromePath()) &&
             existsSync("/usr/games/gnome-mines") &&
             existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
-            existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service")
+            existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service") &&
+            existsSync("/usr/share/dbus-1/services/org.a11y.Bus.service") &&
+            existsSync("/usr/lib/python3/dist-packages/dbus/__init__.py")
           );
         } catch {
           return false;
