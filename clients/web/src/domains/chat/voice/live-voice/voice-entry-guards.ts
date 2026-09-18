@@ -56,6 +56,12 @@ const DEFAULT_CONFIG_NOTICE =
  * language, are untouched defaults that live on in Settings and in the room's
  * own in-session settings.
  *
+ * Spent on the press rather than on the session that follows it, which is what
+ * the card's own Start already does: the composer marks the run seen and then
+ * runs readiness, so a `not-ready` verdict has always spent it. The first run
+ * is about whether the user has been introduced, not about whether a session
+ * managed to open.
+ *
  * `duringCompanionIntro` defaults to asking now, which is what a press decided
  * on the spot wants. A caller that decides later passes the answer it read at
  * press time instead: the last beat's `try` ends the run in the same breath as
