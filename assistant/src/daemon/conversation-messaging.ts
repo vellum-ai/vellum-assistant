@@ -63,7 +63,10 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
-import { SIGHT_FRAME_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
+import {
+  isHiddenMessageMetadata,
+  SIGHT_FRAME_ATTACHMENT_IDS_KEY,
+} from "../persistence/conversation-types.js";
 import {
   attachmentIdFragment,
   type ContentBlock,
@@ -76,6 +79,7 @@ import type { ConversationModeSessionCoordinator } from "./conversation-mode-ses
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
+import { actorAuthorProvenance } from "./message-provenance.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import {
@@ -1213,12 +1217,11 @@ export async function persistQueuedMessageBody(
       extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
-    const provenance = provenanceFromTrustContext(
-      // Callers that own a turn pass the sender's trust; the fallback serves
-      // ingress paths that persist before any per-turn stamp exists, where
-      // the slot their own resolution just wrote is the right actor.
-      options.trustContext ?? restingTrust(ctx),
-    );
+    // Callers that own a turn pass the sender's trust; the fallback serves
+    // ingress paths that persist before any per-turn stamp exists, where the
+    // slot their own resolution just wrote is the right actor.
+    const senderTrust = options.trustContext ?? restingTrust(ctx);
+    const provenance = provenanceFromTrustContext(senderTrust);
     const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted
@@ -1320,6 +1323,12 @@ export async function persistQueuedMessageBody(
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
+      // A scripted or hidden row speaks in the person's voice without being
+      // their words, so only a message they sent names them as its author.
+      ...(resolvedScripted ||
+      isHiddenMessageMetadata(metadataWithoutSlackInbound)
+        ? {}
+        : actorAuthorProvenance(senderTrust)),
       ...(turnCtx
         ? {
             userMessageChannel: turnCtx.userMessageChannel,

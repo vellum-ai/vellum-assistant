@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { actorAuthorProvenance } from "../daemon/message-provenance.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   addMessage,
@@ -13,13 +14,19 @@ import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 
-async function persistUnder(
-  trustContext: TrustContext | undefined,
+const ALICE: TrustContext = {
+  sourceChannel: "slack",
+  trustClass: "trusted_contact",
+  requesterIdentifier: "@alice",
+  requesterContactId: "contact-alice",
+};
+
+async function persistWith(
+  role: "user" | "assistant",
+  metadata: Record<string, unknown>,
 ): Promise<ReturnType<typeof parseMessageMetadata>> {
   const conversation = createConversation("provenance-contact-id");
-  const row = await addMessage(conversation.id, "user", "hello", {
-    metadata: provenanceFromTrustContext(trustContext),
-  });
+  const row = await addMessage(conversation.id, role, "hello", { metadata });
   const stored = getMessageById(row.id, conversation.id);
   return parseMessageMetadata(stored?.metadata ?? null);
 }
@@ -31,32 +38,32 @@ describe("message provenance contact id", () => {
     db.run(`DELETE FROM conversations`);
   });
 
-  test("a row records the contact its turn's actor resolved to", async () => {
-    const metadata = await persistUnder({
-      sourceChannel: "slack",
-      trustClass: "trusted_contact",
-      requesterIdentifier: "@alice",
-      requesterContactId: "contact-alice",
+  test("a person's own row names them as its author", async () => {
+    const metadata = await persistWith("user", {
+      ...provenanceFromTrustContext(ALICE),
+      ...actorAuthorProvenance(ALICE),
     });
 
     expect(metadata?.provenanceTrustClass).toBe("trusted_contact");
     expect(metadata?.provenanceContactId).toBe("contact-alice");
   });
 
-  test("an actor with no resolved contact leaves the field absent", async () => {
-    const metadata = await persistUnder({
-      sourceChannel: "slack",
-      trustClass: "unknown",
-    });
+  test("a row written during their turn carries the turn's trust but no author", async () => {
+    // The assistant's replies, tool results, and notices are stamped with the
+    // turn's provenance alone.
+    const metadata = await persistWith(
+      "assistant",
+      provenanceFromTrustContext(ALICE),
+    );
 
-    expect(metadata?.provenanceTrustClass).toBe("unknown");
+    expect(metadata?.provenanceTrustClass).toBe("trusted_contact");
     expect(metadata?.provenanceContactId).toBeUndefined();
   });
 
-  test("a row with no trust context names no contact", async () => {
-    const metadata = await persistUnder(undefined);
-
-    expect(metadata?.provenanceTrustClass).toBe("unknown");
-    expect(metadata?.provenanceContactId).toBeUndefined();
+  test("an actor with no resolved contact names no author", () => {
+    expect(
+      actorAuthorProvenance({ sourceChannel: "slack", trustClass: "unknown" }),
+    ).toEqual({});
+    expect(actorAuthorProvenance(undefined)).toEqual({});
   });
 });

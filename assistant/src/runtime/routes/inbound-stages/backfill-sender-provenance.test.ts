@@ -136,7 +136,7 @@ describe("createBackfilledSenderProvenanceResolver", () => {
     expect(readInboundTrustMock).not.toHaveBeenCalled();
   });
 
-  test("reads every person's sender up front and together, skipping bot rows", () => {
+  test("starts every sender's read up front and together, bots included", () => {
     const message = (id: string, senderId: string, isBot = false) =>
       ({
         id,
@@ -150,14 +150,15 @@ describe("createBackfilledSenderProvenanceResolver", () => {
 
     createBackfilledSenderProvenanceResolver(GUARDIAN_ID, [
       message("1", "U_ALICE"),
-      message("2", "U_BOB"),
+      message("2", "B_THIRD_PARTY", true),
       message("3", "U_ALICE"),
-      message("4", "U_BOT", true),
+      message("4", "U_BOB"),
     ]);
 
-    // Both reads are in flight before any of them has settled.
+    // Every read is in flight before any of them has settled.
     expect(readInboundTrustMock.mock.calls.map(([input]) => input)).toEqual([
       { channelType: "slack", actorExternalId: "U_ALICE" },
+      { channelType: "slack", actorExternalId: "B_THIRD_PARTY" },
       { channelType: "slack", actorExternalId: "U_BOB" },
     ]);
   });

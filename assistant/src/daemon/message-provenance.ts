@@ -13,9 +13,13 @@
  * context compactor (image manifest) can apply the identical filter without
  * creating an import cycle through `conversation-lifecycle` ↔
  * `window-manager` ↔ `compactor`.
+ *
+ * It also owns the author field (`actorAuthorProvenance`), which says who
+ * wrote a row rather than whose turn wrote it.
  */
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { type TrustClass, trustClassSchema } from "../runtime/trust-class.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export function parseProvenanceTrustClass(
   metadata: string | null,
@@ -55,4 +59,23 @@ export function filterMessagesForUntrustedActor(
   messages: MessageRow[],
 ): MessageRow[] {
   return messages.filter((m) => isRowVisibleToUntrustedActor(m.metadata));
+}
+
+/** The persisted author field: the contact who wrote the row. */
+export interface ActorAuthorProvenance {
+  provenanceContactId?: string;
+}
+
+/**
+ * Author fields for a row the trust context's actor wrote themselves: their
+ * own message or reaction. `provenanceFromTrustContext` describes the turn and
+ * is also stamped on the assistant's replies, tool results, and notices, so
+ * those rows must never carry these.
+ */
+export function actorAuthorProvenance(
+  trustContext: TrustContext | undefined,
+): ActorAuthorProvenance {
+  return trustContext?.requesterContactId
+    ? { provenanceContactId: trustContext.requesterContactId }
+    : {};
 }

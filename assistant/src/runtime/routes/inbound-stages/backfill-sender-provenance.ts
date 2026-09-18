@@ -13,6 +13,7 @@
  */
 
 import { readInboundTrust } from "../../../calls/inbound-trust-reader.js";
+import type { ActorAuthorProvenance } from "../../../daemon/message-provenance.js";
 import type { Message as ProviderMessage } from "../../../messaging/provider-types.js";
 import { inboundIdentitiesMatch } from "../../../util/canonicalize-identity.js";
 import type { TrustClass } from "../../trust-class.js";
@@ -21,9 +22,8 @@ import {
   verdictUsability,
 } from "../../trust-verdict-consumer.js";
 
-export interface BackfilledSenderProvenance {
+export interface BackfilledSenderProvenance extends ActorAuthorProvenance {
   provenanceTrustClass: TrustClass;
-  provenanceContactId?: string;
 }
 
 /**
@@ -51,14 +51,12 @@ export function createBackfilledSenderProvenanceResolver(
     }
     return pending;
   };
-  // Reads for people's rows start together, so the pass waits on the slowest
-  // read rather than on their sum. A row Slack does not flag as a bot is
-  // always a person's row. A read reports failure as a result, never a
-  // rejection, so nothing here goes unhandled.
+  // Every sender's read starts now, so the pass waits on the slowest read
+  // rather than their sum. Bots included: a third-party bot's post is a user
+  // row, and singling out this assistant's own posts needs an async lookup.
+  // A read reports failure as a result, never a rejection.
   for (const message of messages) {
-    if (message.metadata?.isBot !== true) {
-      void resolve(message.sender?.id);
-    }
+    void resolve(message.sender?.id);
   }
   return resolve;
 }

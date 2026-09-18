@@ -29,6 +29,8 @@ Do not read `trustContext` or `currentTurnTrustContext` directly. Call sites han
 
 **Use `getTurnOrRestingTrust()`** for provenance stamped onto persisted rows (see `provenanceFromTrustContext`). Provenance is read back by the memory indexer, which runs extraction only for guardian rows, and by the transcript assembly, which wraps non-guardian user content before it reaches the model. The turn's actor is correct when a turn is running; rows persisted with no turn in flight (wake notices) must keep the owner's class, because stamping `"unknown"` there silently stops memory extraction for the owner's own flows.
 
+That provenance describes the turn, so it is stamped on every row the turn writes, the assistant's replies and tool results included. Who wrote a row is a separate fact: `provenanceContactId` names the author's contact and is added only where the actor's own words or actions are persisted (`actorAuthorProvenance`: a sent message that is neither scripted nor hidden, and a reaction). Rows the assistant writes during someone's turn never carry it. Slack backfill imports other people's messages, so the turn's actor says nothing about them; each backfilled sender is classified by the same gateway verdict live ingress uses (`resolve_inbound_trust`, see `inbound-stages/backfill-sender-provenance.ts`), which supplies both its trust class and its contact id.
+
 **Use `getTrustContext()`** when there is no turn: HTTP routes reporting conversation state, hydration, and persistence of conversation-level options. Also when a caller deliberately wants the conversation's owner rather than whoever is currently acting; that intent should be obvious from the call site, and if it is not, it is probably the wrong accessor.
 
 ## When the acting actor is unknown

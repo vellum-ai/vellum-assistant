@@ -73,6 +73,7 @@ import type {
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 function createContext(): MessagingConversationContext {
   const channel: TurnChannelContext = {
@@ -222,4 +223,44 @@ describe("scripted-turn metadata persistence", () => {
 
     expect(lastUserMetadata().scripted).toBe(false);
   });
+});
+
+describe("author contact id on a persisted user message", () => {
+  const sender: TrustContext = {
+    sourceChannel: "slack",
+    trustClass: "trusted_contact",
+    requesterContactId: "contact-alice",
+  };
+
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+  });
+
+  test("a message the sender typed names them as its author", async () => {
+    await persistQueuedMessageBody(createContext(), {
+      content: "the export endpoint needs a scoped token",
+      requestId: "req-author-typed",
+      trustContext: sender,
+    });
+
+    expect(lastUserMetadata().provenanceContactId).toBe("contact-alice");
+  });
+
+  test.each([
+    ["scripted", { scripted: true }],
+    ["automated", { metadata: { automated: true } }],
+    ["hidden", { metadata: { hidden: true } }],
+  ] as const)(
+    "a %s row speaks in their voice without naming them",
+    async (_kind, extra) => {
+      await persistQueuedMessageBody(createContext(), {
+        content: "sent on the sender's behalf",
+        requestId: `req-author-${_kind}`,
+        trustContext: sender,
+        ...extra,
+      });
+
+      expect(lastUserMetadata().provenanceContactId).toBeUndefined();
+    },
+  );
 });

@@ -601,11 +601,8 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     const ownPost = rows.find((r) => r.role === "assistant");
     expect(ownPost?.provenanceTrustClass).toBe("unknown");
     expect(ownPost?.provenanceContactId).toBeUndefined();
-    expect(readInboundTrustMock).toHaveBeenCalledTimes(1);
-    expect(readInboundTrustMock).toHaveBeenCalledWith({
-      channelType: "slack",
-      actorExternalId: SLACK_DM_USER_ID,
-    });
+    // One read per distinct sender, the member's rows sharing theirs.
+    expect(readInboundTrustMock).toHaveBeenCalledTimes(2);
   });
 
   test("skips Slack assistant new-thread placeholder during DM backfill", async () => {

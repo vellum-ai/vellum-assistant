@@ -403,10 +403,11 @@ export const messageMetadataSchema = z
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     /**
-     * Contact id of the actor who produced this message, from the gateway
-     * trust verdict at persist time. Absent when no verdict resolved the
-     * actor to a contact. Unlike `provenanceRequesterIdentifier` (a mutable
-     * handle), this is the stable key that says who wrote the row.
+     * Contact id of the person who wrote this row, from the gateway trust
+     * verdict at persist time. Stamped only on a person's own message or
+     * reaction (`actorAuthorProvenance`), never on rows the assistant writes
+     * during their turn: the other `provenance*` fields describe the turn,
+     * this one the author. Absent when the author resolved to no contact.
      */
     provenanceContactId: z.string().optional(),
     automated: z.boolean().optional(),
@@ -716,7 +717,6 @@ export function provenanceFromTrustContext(
     provenanceSourceChannel: ctx.sourceChannel,
     provenanceGuardianExternalUserId: ctx.guardianExternalUserId,
     provenanceRequesterIdentifier: ctx.requesterIdentifier,
-    provenanceContactId: ctx.requesterContactId,
   };
 }
 
