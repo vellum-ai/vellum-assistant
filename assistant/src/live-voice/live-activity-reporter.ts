@@ -45,6 +45,12 @@ export type LiveActivityPhase =
   | "speaking"
   | "ending";
 
+interface PendingDispatch {
+  phase: LiveActivityPhase;
+  event: "update" | "end";
+  detail: string;
+}
+
 /**
  * The phase a frame puts the session into, or `null` for frames that do not
  * move it.
@@ -118,7 +124,9 @@ export class LiveActivityReporter {
   private lastPhase: LiveActivityPhase | null = null;
   private lastDetail = "";
   private ended = false;
-  private dispatchTail: Promise<void> = Promise.resolve();
+  private dispatchInFlight = false;
+  private pendingDispatch: PendingDispatch | null = null;
+  private dispatchIdleWaiters: Array<() => void> = [];
   protected readonly dispatchTimeoutMs: number =
     LIVE_ACTIVITY_DISPATCH_TIMEOUT_MS;
 
@@ -193,26 +201,58 @@ export class LiveActivityReporter {
     event: "update" | "end",
     detail: string,
   ): void {
-    this.dispatchTail = this.dispatchTail
-      .then(() =>
-        this.dispatch(
-          phase,
-          event,
-          detail,
-          AbortSignal.timeout(this.dispatchTimeoutMs),
-        ),
-      )
+    const pending = { phase, event, detail } satisfies PendingDispatch;
+    if (this.dispatchInFlight) {
+      // ActivityKit renders snapshots, so only the newest state behind the
+      // current request matters. In particular, `end` replaces every queued
+      // update and is always the next request sent.
+      this.pendingDispatch = pending;
+      return;
+    }
+    this.startDispatch(pending);
+  }
+
+  private startDispatch(pending: PendingDispatch): void {
+    this.dispatchInFlight = true;
+    void this.dispatch(
+      pending.phase,
+      pending.event,
+      pending.detail,
+      AbortSignal.timeout(this.dispatchTimeoutMs),
+    )
       .catch((err: unknown) => {
         // `dispatch` contains its own best-effort error boundary. Keep this
         // guard for subclasses and future implementations so one rejection
         // cannot poison every later phase in the queue.
-        log.debug({ err, phase, event }, "Live Activity dispatch queue failed");
+        log.debug(
+          { err, phase: pending.phase, event: pending.event },
+          "Live Activity dispatch queue failed",
+        );
+      })
+      .finally(() => {
+        const next = this.pendingDispatch;
+        this.pendingDispatch = null;
+        if (next !== null) {
+          this.startDispatch(next);
+          return;
+        }
+        this.dispatchInFlight = false;
+        const waiters = this.dispatchIdleWaiters;
+        this.dispatchIdleWaiters = [];
+        for (const resolve of waiters) {
+          resolve();
+        }
       });
   }
 
   /** Resolve after every queued dispatch has settled. */
   protected waitForPendingDispatches(): Promise<void> {
-    return this.dispatchTail;
+    if (!this.dispatchInFlight) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.dispatchIdleWaiters.push(resolve);
+    });
   }
 
   /** `protected` so a test can observe what would be sent without sending it. */

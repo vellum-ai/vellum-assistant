@@ -188,9 +188,12 @@ describe("LiveActivityReporter", () => {
     const reporter = new RecordingReporter("conv-1");
 
     reporter.report(frame("utterance_end"));
+    await reporter.waitForDispatches();
     reporter.report(sttFinal("hello there"));
+    await reporter.waitForDispatches();
     reporter.report(frame("tts_audio"));
     reporter.report(frame("tts_audio"));
+    await reporter.waitForDispatches();
     reporter.report(frame("tts_done"));
     await reporter.waitForDispatches();
 
@@ -224,6 +227,23 @@ describe("LiveActivityReporter", () => {
     await reporter.waitForDispatches();
 
     expect(reporter.dispatched).toEqual(["speaking", "thinking"]);
+  });
+
+  test("coalesces a queued backlog and keeps end next", async () => {
+    const reporter = new BlockingReporter("conv-1");
+
+    reporter.report(frame("utterance_end"));
+    reporter.report(frame("thinking"));
+    reporter.report(activity("Running a command"));
+    reporter.report(frame("tts_audio"));
+    reporter.end();
+    await Promise.resolve();
+
+    expect(reporter.dispatched).toEqual(["transcribing"]);
+
+    reporter.releaseFirst();
+    await reporter.waitForDispatches();
+    expect(reporter.dispatched).toEqual(["transcribing", "ending"]);
   });
 
   test("frames that do not move the phase are ignored", async () => {
