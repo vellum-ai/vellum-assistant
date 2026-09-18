@@ -998,6 +998,11 @@ function noulAnswer(noul: number): { type: "noul"; noul: number } {
 }
 
 describe("selectPool: TypeSafe System One", () => {
+  test.todo(
+    "keeps selector requests within 80% of the resolved context window while preserving the newest candidates",
+    () => {},
+  );
+
   test("sends one noul per candidate and no select_pages tool", async () => {
     providerStub = makeTypesafeProvider(
       typesafeResponse({
