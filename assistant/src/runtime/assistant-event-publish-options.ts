@@ -16,6 +16,13 @@ export const AssistantEventPublishOptionsSchema = z.object({
   targetClientId: z.string().optional(),
   targetInterfaceId: z.enum(INTERFACE_IDS).optional(),
   /**
+   * Deliver only to client subscribers whose verified `actorPrincipalId`
+   * equals this value. Subscribers without a principal never match, so an
+   * event scoped to one person fails closed rather than reaching a connection
+   * whose identity is unknown.
+   */
+  targetActorPrincipalId: z.string().optional(),
+  /**
    * Skip the subscriber with this `clientId`. Used for self-echo suppression on
    * `sync_changed`: the route handler echoes the originating tab's
    * `X-Vellum-Client-Id` back on the event, and the hub uses it here to avoid

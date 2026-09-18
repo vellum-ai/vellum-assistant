@@ -105,6 +105,7 @@ export interface EventTargeting {
   targetCapability?: string;
   targetClientId?: string;
   targetInterfaceId?: string;
+  targetActorPrincipalId?: string;
   excludeClientId?: string;
 }
 
@@ -118,6 +119,7 @@ export interface ReplaySubscriber {
   clientId?: string;
   interfaceId?: string;
   capabilities?: readonly string[];
+  actorPrincipalId?: string;
 }
 
 interface RingEntry {
@@ -547,6 +549,16 @@ function matchesSubscriber(
     if (
       subscriber.type !== "client" ||
       subscriber.interfaceId !== t.targetInterfaceId
+    ) {
+      return false;
+    }
+  }
+
+  // Principal targeting: only the named person's own connections.
+  if (t.targetActorPrincipalId != null) {
+    if (
+      subscriber.type !== "client" ||
+      subscriber.actorPrincipalId !== t.targetActorPrincipalId
     ) {
       return false;
     }

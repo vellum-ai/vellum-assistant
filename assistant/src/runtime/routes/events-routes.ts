@@ -530,6 +530,7 @@ export function handleSubscribeAssistantEvents(
                   capabilities: ALL_CAPABILITIES.filter((cap) =>
                     supportsHostProxy(interfaceId, cap),
                   ),
+                  actorPrincipalId,
                 }
               : { type: "process" };
           const window = getReplayWindow(

@@ -491,6 +491,28 @@ describe("assistant-stream-state", () => {
       expect(procReplay).toEqual([]);
     });
 
+    test("principal-targeted events only replay to that principal's clients", () => {
+      stampAndBuffer(mkEvent(), {
+        targeting: { targetActorPrincipalId: "principal-g" },
+      });
+
+      const guardian = getReplayWindow(0, {
+        ...WEB_CLIENT,
+        actorPrincipalId: "principal-g",
+      });
+      const other = getReplayWindow(0, {
+        ...WEB_CLIENT,
+        actorPrincipalId: "principal-x",
+      });
+      const noPrincipal = getReplayWindow(0, WEB_CLIENT);
+      const proc = getReplayWindow(0, PROCESS_SUB);
+
+      expect(guardian!.map((e) => e.seq)).toEqual([1]);
+      expect(other).toEqual([]);
+      expect(noPrincipal).toEqual([]);
+      expect(proc).toEqual([]);
+    });
+
     test("mixed targeting across events filters per-entry", () => {
       /**
        * A ring with untargeted, capability-targeted, and excluded events
