@@ -75,6 +75,10 @@ export function AccessConsentSetting() {
   // again: the server restarts the clock from now. The owner can instead keep
   // it on until they turn it off.
   const isOn = data?.access_consented === true;
+  // A platform from before the override omits this field. Then the button
+  // to keep access on is hidden, since that platform could not honor it.
+  const canKeepOn =
+    isOn && typeof data.access_consent_never_expires === "boolean";
   const neverExpires = isOn && data.access_consent_never_expires === true;
   const expiresAt =
     isOn && !neverExpires ? data.access_consent_expires_at : null;
@@ -195,22 +199,24 @@ export function AccessConsentSetting() {
               >
                 {t("accessConsentSetting.extend")}
               </Button>
-              <Button
-                variant="outlined"
-                size="compact"
-                disabled={disabled}
-                onClick={() => {
-                  if (assistantId) {
-                    updateConsent.mutate({
-                      assistantId,
-                      next: true,
-                      mode: "keepOn",
-                    });
-                  }
-                }}
-              >
-                {t("accessConsentSetting.keepOn")}
-              </Button>
+              {canKeepOn && (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (assistantId) {
+                      updateConsent.mutate({
+                        assistantId,
+                        next: true,
+                        mode: "keepOn",
+                      });
+                    }
+                  }}
+                >
+                  {t("accessConsentSetting.keepOn")}
+                </Button>
+              )}
             </div>
           )}
           {neverExpires && (
