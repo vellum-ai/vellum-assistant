@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  getLiveVoiceMetricsAggregateFields,
-  LiveVoiceMetricsCollector,
-  type LiveVoiceMetricsFrame,
-} from "../live-voice-metrics.js";
+  getVoiceMetricsAggregateFields,
+  VoiceMetricsCollector,
+  type VoiceMetricsFrame,
+} from "../voice-metrics.js";
 
 function makeClock(startMs = 0): {
   now: () => number;
@@ -20,11 +20,11 @@ function makeClock(startMs = 0): {
   };
 }
 
-describe("LiveVoiceMetricsCollector", () => {
+describe("VoiceMetricsCollector", () => {
   test("tracks session readiness and full turn latency phases", () => {
     const clock = makeClock(1_000);
-    const frames: LiveVoiceMetricsFrame[] = [];
-    const collector = new LiveVoiceMetricsCollector({
+    const frames: VoiceMetricsFrame[] = [];
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-1",
       conversationId: "conversation-1",
       clock: clock.now,
@@ -98,7 +98,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("derives roundTripMs from utterance_end to first TTS audio and aggregates it", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-round-trip",
       clock: clock.now,
     });
@@ -120,7 +120,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.durations.roundTripMs).toBe(190);
 
     const snapshot = collector.getSnapshot();
-    expect(getLiveVoiceMetricsAggregateFields(snapshot, "turn-vad")).toEqual({
+    expect(getVoiceMetricsAggregateFields(snapshot, "turn-vad")).toEqual({
       sttMs: 50,
       llmFirstDeltaMs: 25,
       // No assistant-dispatch mark in this scripted turn.
@@ -139,7 +139,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("roundTripMs is null when the end-of-speech or first TTS mark is missing", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-round-trip-null",
       clock: clock.now,
     });
@@ -157,14 +157,14 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(collector.completeTurn().durations.roundTripMs).toBeNull();
 
     expect(
-      getLiveVoiceMetricsAggregateFields(collector.getSnapshot()).roundTripMs,
+      getVoiceMetricsAggregateFields(collector.getSnapshot()).roundTripMs,
     ).toBeNull();
   });
 
   test("keeps missing phases nullable when a turn is cancelled", () => {
     const clock = makeClock(5_000);
-    const frames: LiveVoiceMetricsFrame[] = [];
-    const collector = new LiveVoiceMetricsCollector({
+    const frames: VoiceMetricsFrame[] = [];
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-2",
       clock: clock.now,
       emit: (frame) => frames.push(frame),
@@ -203,7 +203,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("normalizes a regressing injected clock so durations are monotonic", () => {
     const times = [1_000, 900, 800, 700, 1_200, 1_100, 1_350];
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-3",
       clock: () => times.shift() ?? 1_350,
     });
@@ -227,7 +227,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("startTurn seeds stashed marks and backdates the turn start", () => {
     const clock = makeClock(1_000);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-5",
       clock: clock.now,
     });
@@ -261,7 +261,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("seed marks ahead of the turn start are clamped to it", () => {
     const clock = makeClock(2_000);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-6",
       clock: clock.now,
     });
@@ -276,7 +276,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("accumulates endpoint decisions", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-ep",
       conversationId: "conversation-ep",
       clock: clock.now,
@@ -303,7 +303,7 @@ describe("LiveVoiceMetricsCollector", () => {
       endpointDecisionMaxLatencyMs: 210,
     });
     expect(
-      getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-ep"),
+      getVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-ep"),
     ).toMatchObject({
       endpointHoldCount: 2,
       endpointDecisionMaxLatencyMs: 210,
@@ -312,7 +312,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("release-only decisions report zero holds with the observed latency", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-rel",
       conversationId: "conversation-rel",
       clock: clock.now,
@@ -333,7 +333,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("decisions without a source are attributed to the front door", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-src-default",
       clock: clock.now,
     });
@@ -351,7 +351,7 @@ describe("LiveVoiceMetricsCollector", () => {
       endpointDecisionSource: "front-door",
     });
     expect(
-      getLiveVoiceMetricsAggregateFields(
+      getVoiceMetricsAggregateFields(
         collector.getSnapshot(),
         "turn-src-default",
       ),
@@ -360,7 +360,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("flux decisions report their source with unchanged latency accounting", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-src-flux",
       clock: clock.now,
     });
@@ -384,10 +384,7 @@ describe("LiveVoiceMetricsCollector", () => {
       endpointDecisionSource: "provider",
     });
     expect(
-      getLiveVoiceMetricsAggregateFields(
-        collector.getSnapshot(),
-        "turn-src-flux",
-      ),
+      getVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-src-flux"),
     ).toMatchObject({
       endpointHoldCount: 1,
       endpointDecisionMaxLatencyMs: 120,
@@ -397,7 +394,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("accumulates spoken progress updates on the turn and aggregate fields", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-prog",
       conversationId: "conversation-prog",
       clock: clock.now,
@@ -414,13 +411,13 @@ describe("LiveVoiceMetricsCollector", () => {
       progressUpdatesSpoken: 2,
     });
     expect(
-      getLiveVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-prog"),
+      getVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-prog"),
     ).toMatchObject({ progressUpdatesSpoken: 2 });
   });
 
   test("omits endpoint and progress fields for turns that never touch the features", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-off",
       conversationId: "conversation-off",
       clock: clock.now,
@@ -436,7 +433,7 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("endpointDecisionSource");
     expect(completed).not.toHaveProperty("progressUpdatesSpoken");
 
-    const aggregateFields = getLiveVoiceMetricsAggregateFields(
+    const aggregateFields = getVoiceMetricsAggregateFields(
       collector.getSnapshot(),
       "turn-off",
     );
@@ -449,7 +446,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("markEndpointCommit records the commit latency independently of the decision fields", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-commit",
       conversationId: "conversation-commit",
       clock: clock.now,
@@ -464,16 +461,13 @@ describe("LiveVoiceMetricsCollector", () => {
     // comparable number does not depend on the decider having been consulted.
     expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(
-      getLiveVoiceMetricsAggregateFields(
-        collector.getSnapshot(),
-        "turn-commit",
-      ),
+      getVoiceMetricsAggregateFields(collector.getSnapshot(), "turn-commit"),
     ).toMatchObject({ endpointCommitLatencyMs: 1_340 });
   });
 
   test("the first commit latency wins and a non-finite one records zero", () => {
     const clock = makeClock(0);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-commit-first",
       clock: clock.now,
     });
@@ -494,7 +488,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("markBargeIn records a first-wins timestamp on the active turn", () => {
     const clock = makeClock(3_000);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-7",
       clock: clock.now,
     });
@@ -519,7 +513,7 @@ describe("LiveVoiceMetricsCollector", () => {
 
   test("records only the first timestamp for first-phase metrics", () => {
     const clock = makeClock(10_000);
-    const collector = new LiveVoiceMetricsCollector({
+    const collector = new VoiceMetricsCollector({
       sessionId: "session-4",
       clock: clock.now,
     });

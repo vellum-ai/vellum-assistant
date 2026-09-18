@@ -73,6 +73,7 @@ function renderController(
     reconnectBackoffMs?: number[];
     heldPlaybackTimeoutMs?: number;
     endAfterSeedReplyQuietMs?: number;
+    playEndTone?: () => void;
     /**
      * Configure each FakeCapture at creation — before the controller calls
      * `capture.start()`, which happens synchronously at connect time (so
@@ -4507,5 +4508,135 @@ describe("reversible barge-in", () => {
       await sleep(40);
     });
     expect(h.view.result.current.state).toBe("idle");
+  });
+});
+
+describe("start and end tones", () => {
+  function renderWithEndTone(options: { reconnectBackoffMs?: number[] } = {}) {
+    const ended = { count: 0 };
+    const h = renderController({
+      ...options,
+      playEndTone: () => {
+        ended.count += 1;
+      },
+    });
+    return { h, ended };
+  }
+
+  test("the start tone plays on the session's own output bus once the mic is live", async () => {
+    const { h } = renderWithEndTone();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+    expect(h.player.tones).toHaveLength(0);
+
+    await startListening(h);
+    // The session player, not the default output: on iOS only its route gives
+    // the echo canceller a reference, so the open mic does not hear the cue.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.player.tones).toHaveLength(1);
+  });
+
+  test("a reconnect neither replays the start tone nor plays the end tone", async () => {
+    const { h, ended } = renderWithEndTone({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.player.tones).toHaveLength(1);
+    expect(ended.count).toBe(0);
+  });
+
+  test("ending a live session plays the end tone once", async () => {
+    const { h, ended } = renderWithEndTone();
+    await startListening(h, { handsFree: true });
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    expect(h.view.result.current.state).toBe("idle");
+    expect(ended.count).toBe(1);
+  });
+
+  test("the server closing a live session plays the end tone", async () => {
+    const { h, ended } = renderWithEndTone();
+    await startListening(h);
+
+    await act(async () => {
+      h.client.emit("closed", { code: 1000, reason: "done" });
+    });
+
+    expect(h.view.result.current.state).toBe("idle");
+    expect(ended.count).toBe(1);
+  });
+
+  test("a session that never went live ends silently", async () => {
+    const { h, ended } = renderWithEndTone();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    expect(ended.count).toBe(0);
+  });
+
+  test("an error ends the session without the end tone", async () => {
+    const { h, ended } = renderWithEndTone();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "transient blip",
+        recoverable: false,
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(ended.count).toBe(0);
+  });
+
+  test("unmounting mid-session is not the call ending", async () => {
+    const { h, ended } = renderWithEndTone();
+    await startListening(h, { handsFree: true });
+
+    h.view.unmount();
+
+    expect(ended.count).toBe(0);
+  });
+
+  test("a muted assistant ends silently", async () => {
+    const { h, ended } = renderWithEndTone();
+    await startListening(h, { handsFree: true });
+    act(() => useLiveVoiceStore.getState().controls?.setOutputMuted(true));
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    expect(ended.count).toBe(0);
   });
 });

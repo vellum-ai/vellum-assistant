@@ -2358,7 +2358,8 @@
       "terminal": "终端",
       "doctor": "诊断",
       "database": "数据库",
-      "conversations": "会话"
+      "conversations": "会话",
+      "tones": "音效实验室"
     }
   },
   "debugDatabasePanel": {
@@ -2410,5 +2411,64 @@
     "title": "预览版界面",
     "unavailableHint": "当前未提供预览版本，因此本浏览器仍在使用稳定版本。可在开发者工具中删除 vellum_preview Cookie 以重置。",
     "versionUnknown": "未知"
+  },
+  "toneLab": {
+    "title": "音效实验室",
+    "subtitle": "调制语音对话接通时播放的提示音。对话结束时播放其反向音。",
+    "voiceToneDefault": "语音开始时播放默认提示音",
+    "voiceToneOverride": "语音开始时在此设备上播放你的混音",
+    "playVoiceTone": "播放",
+    "resetVoiceTone": "恢复默认",
+    "presets": "预设提示音",
+    "presetNames": {
+      "rise": "上扬",
+      "glass": "玻璃",
+      "bloom": "绽放",
+      "wood": "木琴",
+      "tuneIn": "调频",
+      "doubleBlip": "双响",
+      "warm": "温暖"
+    },
+    "waveformLabel": "当前提示音的波形",
+    "play": "播放",
+    "copy": "复制",
+    "paste": "粘贴",
+    "autoPlay": "更改时播放",
+    "useForVoice": "用作语音开始提示音",
+    "usedForVoiceToast": "此设备上的语音对话将播放此提示音",
+    "resetVoiceToast": "语音开始提示音已恢复默认",
+    "copiedToast": "提示音已复制为 JSON",
+    "clipboardFailedToast": "无法访问剪贴板",
+    "pasteInvalidToast": "剪贴板中没有提示音",
+    "mix": "混音",
+    "volume": "音量",
+    "brightness": "亮度",
+    "echoTime": "回声时间",
+    "echoFeedback": "回声重复",
+    "echoMix": "回声电平",
+    "addLayer": "添加音层",
+    "layerTitle": "音层 {number}",
+    "duplicateLayer": "复制音层",
+    "removeLayer": "移除音层",
+    "waveform": "波形",
+    "waveforms": {
+      "sine": "正弦波",
+      "triangle": "三角波",
+      "square": "方波",
+      "sawtooth": "锯齿波"
+    },
+    "pitch": "音高",
+    "glideTo": "滑音至",
+    "start": "起始",
+    "level": "电平",
+    "attack": "起音",
+    "decay": "衰减",
+    "detune": "失谐",
+    "hzValue": "{hz} Hz · {note}",
+    "hzPlainValue": "{hz} Hz",
+    "msValue": "{ms} ms",
+    "percentValue": "{percent}%",
+    "centsValue": "{cents} ¢",
+    "playEnd": "播放结束提示音"
   }
 }

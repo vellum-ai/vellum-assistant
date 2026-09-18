@@ -36,6 +36,15 @@ import {
   type SpokenEscalationBridge,
 } from "../calls/voice-leg-coordinator.js";
 import {
+  getVoiceMetricsAggregateFields,
+  type VoiceEndpointAction,
+  type VoiceEndpointSource,
+  type VoiceMetricsClock,
+  VoiceMetricsCollector,
+  type VoiceMetricsEvent,
+  type VoiceTurnSeedMarks,
+} from "../calls/voice-metrics.js";
+import {
   createProgressCadence,
   type ProgressCadence,
 } from "../calls/voice-progress-cadence.js";
@@ -131,15 +140,6 @@ import type {
   LiveVoiceAudioArchiveRole,
 } from "./live-voice-archive.js";
 import type { LiveVoiceCredentialReadiness } from "./live-voice-credential-preflight.js";
-import {
-  getLiveVoiceMetricsAggregateFields,
-  type LiveVoiceMetricsClock,
-  LiveVoiceMetricsCollector,
-  type LiveVoiceMetricsEvent,
-  type LiveVoiceTurnSeedMarks,
-  type VoiceEndpointAction,
-  type VoiceEndpointSource,
-} from "./live-voice-metrics.js";
 import {
   persistAmbientSightFrame,
   persistLiveVoicePhoto,
@@ -367,7 +367,7 @@ export interface LiveVoiceSessionOptions {
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
-  metricsClock?: LiveVoiceMetricsClock;
+  metricsClock?: VoiceMetricsClock;
   /**
    * Mirrors phase changes to the iOS Live Activity. Injectable so tests can
    * assert what a session reports without reaching the platform.
@@ -1146,7 +1146,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // continuation completing (before OR after it) can't surface a stale answer.
   private detachSequence = 0;
   private readonly emitMetrics: boolean;
-  private readonly metrics: LiveVoiceMetricsCollector;
+  private readonly metrics: VoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
   /**
@@ -1329,7 +1329,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Detector turn-end that fired while its speech sat parked in the ring;
   // replayed once the parked speech flushes into the next armed utterance.
   private vadPendingTurnEnd: "silence" | "max-duration" | null = null;
-  private readonly metricsClock: LiveVoiceMetricsClock;
+  private readonly metricsClock: VoiceMetricsClock;
   // Persistent mode: a server-VAD session keeps one streaming transcriber for
   // the whole session when the stream can be sealed per utterance without
   // closing it. Either the provider is finalize-capable (release flushes via
@@ -1456,7 +1456,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.liveActivityReporter ??
       new LiveActivityReporter(this.conversationId);
     this.metricsClock = options.metricsClock ?? Date.now;
-    this.metrics = new LiveVoiceMetricsCollector({
+    this.metrics = new VoiceMetricsCollector({
       sessionId: context.sessionId,
       conversationId: this.conversationId,
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
@@ -7437,7 +7437,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async emitMetricsFrame(
-    event: LiveVoiceMetricsEvent,
+    event: VoiceMetricsEvent,
     turnId = this.currentUtterance?.turnId ?? this.context.sessionId,
   ): Promise<void> {
     const metrics = this.metrics.getSnapshot();
@@ -7448,7 +7448,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       conversationId: this.conversationId,
       turnId,
       metrics,
-      ...getLiveVoiceMetricsAggregateFields(metrics, turnId),
+      ...getVoiceMetricsAggregateFields(metrics, turnId),
     });
   }
 
@@ -7909,7 +7909,7 @@ async function defaultArchiveLiveVoiceAudio(
     : linkLiveVoiceAssistantResponseAudioToMessage(input);
 }
 
-function toSeedMarks(stashed: StashedMetricsMarks): LiveVoiceTurnSeedMarks {
+function toSeedMarks(stashed: StashedMetricsMarks): VoiceTurnSeedMarks {
   return {
     ...(stashed.firstAudioAtMs !== null
       ? { firstAudioAtMs: stashed.firstAudioAtMs }

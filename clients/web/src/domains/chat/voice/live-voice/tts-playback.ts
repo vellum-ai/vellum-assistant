@@ -50,6 +50,7 @@
 
 import { createAudioContext } from "@/domains/chat/voice/audio-context";
 import { captureError } from "@/lib/sentry/capture-error";
+import { scheduleTone, type ToneRecipe } from "@/lib/sounds/tone-synth";
 import { isNativeIOS } from "@/runtime/platform-detection";
 
 /** A single TTS audio frame as delivered by the live-voice channel. */
@@ -432,6 +433,9 @@ export class LiveVoiceAudioPlayer {
    * fresh graph, and the user's mute has to come back with it.
    */
   private outputMuted = false;
+
+  /** The latest {@link restartOutputRoute}, so a cue can wait out the rebind. */
+  private outputRouteSettled: Promise<void> = Promise.resolve();
 
   /** Reusable time-domain sample buffer for {@link getOutputAmplitude}. */
   private analyserSamples: Float32Array<ArrayBuffer> | null = null;
@@ -987,6 +991,43 @@ export class LiveVoiceAudioPlayer {
   }
 
   /**
+   * Play a UI cue (the call's start tone) on this session's output bus.
+   *
+   * On Capacitor iOS only audio rendered through the MediaStream route reaches
+   * WebKit's voice-processing unit as the echo-cancellation reference, so a cue
+   * played straight to the default output would be captured by the open mic
+   * and sent as the user's audio. The cue also borrows this context's prewarm
+   * from the entry gesture. It joins after the metering tap, so it does not
+   * read as the assistant speaking, and before the mute stage, so a muted
+   * assistant stays silent.
+   *
+   * Waits for a pending route restart, so the cue is not lost to the pause
+   * that rebinding the route involves. Never throws.
+   */
+  playTone(recipe: ToneRecipe): void {
+    const context = this.context;
+    if (!context) {
+      return;
+    }
+    void this.outputRouteSettled.then(() => {
+      // The session was torn down (or rebuilt) while the route settled.
+      if (this.context !== context) {
+        return;
+      }
+      try {
+        const audio = context as unknown as BaseAudioContext;
+        const bus =
+          this.outputGain ??
+          this.mediaStreamOutput?.destination ??
+          context.destination;
+        scheduleTone(audio, bus, recipe, context.currentTime + 0.01);
+      } catch {
+        // A context without oscillators (a test double) has no cue to play.
+      }
+    });
+  }
+
+  /**
    * Re-render the MediaStream track now that microphone capture is running.
    *
    * WebKit renders a MediaStream track through whichever capture unit is active
@@ -1016,6 +1057,12 @@ export class LiveVoiceAudioPlayer {
    * observe a route that the pending rejection is about to tear down.
    */
   restartOutputRoute(): Promise<void> {
+    const settled = this.restartOutputRouteNow();
+    this.outputRouteSettled = settled;
+    return settled;
+  }
+
+  private restartOutputRouteNow(): Promise<void> {
     const context = this.context;
     if (!context) {
       return Promise.resolve();
