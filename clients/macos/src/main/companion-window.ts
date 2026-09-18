@@ -3821,7 +3821,15 @@ export const installCompanionWindow = (): void => {
       // closed the hand-off has to build a renderer first, and that renderer
       // pulls the staging as it mounts. A run ended while it was loading is
       // one it pulls as already over.
-      void dispatchWithoutRaising({ kind: "startVoice" }).then(advance);
+      //
+      // Ended whether the hand-off succeeded or not. A window that could not
+      // be built is a press nothing can serve, and a run left staged on it
+      // would leave the app dimmed for a run that is over with nothing on
+      // screen over it, which is the one state the staging must never reach.
+      void dispatchWithoutRaising({ kind: "startVoice" }).then(
+        advance,
+        advance,
+      );
     },
   );
 

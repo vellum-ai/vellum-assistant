@@ -70,6 +70,13 @@ const mainTimeline: string[] = [];
 /** How many times a press had to build a window before it could land. */
 let windowsRaised = 0;
 
+/**
+ * Whether building one fails, which a press made with the app's window closed
+ * has to survive: nothing can serve it, and whatever it was holding open has
+ * to be let go anyway.
+ */
+let windowBuildFails = false;
+
 /** Whether the app's window exists, which is what decides between those two. */
 let mainWindowOpen = true;
 
@@ -433,7 +440,9 @@ mock.module("./main-window", () => ({
   },
   ensureVisible: () => {
     windowsRaised += 1;
-    return Promise.resolve();
+    return windowBuildFails
+      ? Promise.reject(new Error("no window"))
+      : Promise.resolve();
   },
   onMainWindowVisibilityChange: (listener: () => void) => {
     visibilityListeners.push(listener);
@@ -755,6 +764,7 @@ beforeEach(() => {
   mainWindowVisible = true;
   companionOpen = true;
   introSeenVersion = Number.MAX_SAFE_INTEGER;
+  windowBuildFails = false;
   mainTimeline.length = 0;
   fireAppEvent("did-resign-active");
   surface.visible = true;
@@ -2526,6 +2536,26 @@ describe("taking the introduction's last offer", () => {
     expect(windowsRaised).toBeGreaterThan(0);
     expect(mainTimeline).toEqual(["command:startVoice"]);
     expect(introStage()).toBe(false);
+  });
+
+  /**
+   * The other end of holding it open. A run kept staged for a window that
+   * never arrives would dim the app for a run that is over with nothing on
+   * screen over it, which is the one state the staging must never reach.
+   */
+  test("lets the run go even when no renderer could be built", async () => {
+    runToLastBeat();
+    mainWindowOpen = false;
+    windowBuildFails = true;
+
+    send("vellum:companion:advanceIntro", "try");
+    await settle();
+
+    // Nothing was dispatched, and nothing could be pushed either: there is no
+    // window to push to. The pull is what a window built later would read.
+    expect(mainTimeline).toEqual([]);
+    expect(introStage()).toBe(false);
+    expect(state().intro).toBe(null);
   });
 
   test("and the run is over, so no card waits for the call to end", async () => {
