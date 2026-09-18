@@ -53,6 +53,16 @@ export const rememberTool = {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const typedInput = input as unknown as RememberInput;
+    const yieldOnFinish =
+      typedInput.finish_turn === true ? { yieldToUser: true } : {};
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
+      return {
+        content:
+          "remember is only available to the guardian because it writes the guardian's long-term memory.",
+        isError: true,
+        ...yieldOnFinish,
+      };
+    }
     // The append below writes the memory buffer, so a cancelled turn stops here.
     throwIfCancelled(context);
     const result = handleRemember(
@@ -63,7 +73,7 @@ export const rememberTool = {
     return {
       content: result.message,
       isError: !result.success,
-      ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
+      ...yieldOnFinish,
     };
   },
 } satisfies ToolDefinition;

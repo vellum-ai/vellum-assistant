@@ -21,7 +21,7 @@ Conversational guardian verification control-plane invocation is guardian-only. 
 
 ## Memory Provenance Invariant
 
-All memory retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not receive memory recall results. This invariant is enforced in `indexer.ts` (write gate) and the memory plugin's `injectors.ts` (read gate), which admits personal-memory content only for a turn whose trust context passes `isPersonalMemoryAllowed`.
+Memory access follows the acting actor's capabilities: `resolveCapabilities(trustClass).canAccessMemory`, which only `guardian` holds. An actor without it neither reads nor writes the guardian's memory. The memory plugin's `injectors.ts` admits personal-memory content only for a turn whose trust context passes `isPersonalMemoryAllowed`; the `recall`, `remember`, and `delete_memory_page` tools refuse such a turn (`plugins/defaults/memory/tools.ts`); and extraction from conversation messages runs only for guardian-provenance rows, or legacy rows with none (`plugins/defaults/memory/indexer.ts`).
 
 ## Guardian Privilege Isolation Invariant
 
