@@ -89,4 +89,25 @@ describe("firstRunCardIntercepts", () => {
     expect(firstRunCardIntercepts()).toBe(true);
     expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(true);
   });
+
+  /**
+   * The last beat's offer ends the run the moment it is taken, so a caller
+   * that decides after a round trip finds no run on and has to say what the
+   * press was made against. Main sends the `startVoice` ahead of the finish
+   * for the same reason; this is the half that survives the awaits after it.
+   */
+  test("takes the caller's answer over the live one", () => {
+    introStaged = false;
+
+    expect(firstRunCardIntercepts(true)).toBe(false);
+    expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(false);
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+  });
+
+  test("and the other way, so a run on now cannot rescue a stale press", () => {
+    introStaged = true;
+
+    expect(firstRunCardIntercepts(false)).toBe(true);
+    expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(true);
+  });
 });

@@ -56,13 +56,21 @@ const DEFAULT_CONFIG_NOTICE =
  * language, are untouched defaults that live on in Settings and in the room's
  * own in-session settings.
  *
+ * `duringCompanionIntro` defaults to asking now, which is what a press decided
+ * on the spot wants. A caller that decides later passes the answer it read at
+ * press time instead: the last beat's `try` ends the run in the same breath as
+ * it asks for the session, so "is a run on" stops being true within the gap,
+ * and the press still came out of one. See {@link drainPendingVoiceStart}.
+ *
  * Returns `true` when the caller should stop, having handed the entry over.
  */
-export function firstRunCardIntercepts(): boolean {
+export function firstRunCardIntercepts(
+  duringCompanionIntro: boolean = companionIntroStaged(),
+): boolean {
   if (useVoicePrefsStore.getState().firstRunSeen) {
     return false;
   }
-  if (companionIntroStaged()) {
+  if (duringCompanionIntro) {
     useVoicePrefsStore.getState().markFirstRunSeen();
     return false;
   }

@@ -3772,6 +3772,24 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
+      // **A `try` is a press on Talk, made from the card.** Started here the
+      // same way the creature's own press starts one, so the dial is drawn in
+      // this beat rather than after a round trip, and the card withdraws
+      // itself for as long as the session lasts.
+      //
+      // **Ahead of the advance below, because on the last beat a `try` is what
+      // ends the run**, and ending it clears the staging the app reads
+      // (`getIntroStage`). The app's first-run voice card stands down while a
+      // run is on, so that the offer this beat makes reaches a session rather
+      // than a third card (see `voice-entry-guards.ts`). Told the run was over
+      // first, it would put itself in front of the one press the whole run was
+      // building to.
+      if (action === "try") {
+        if (dialOnTalk(call)) {
+          setDialing(true);
+        }
+        dispatchWithoutRaising({ kind: "startVoice" });
+      }
       const next = introOnAdvance(intro, action);
       if (next === null) {
         finishIntro();
@@ -3779,16 +3797,6 @@ export const installCompanionWindow = (): void => {
         intro = next;
       }
       pushState();
-      // **A `try` is a press on Talk, made from the card.** Started here the
-      // same way the creature's own press starts one, so the dial is drawn in
-      // this beat rather than after a round trip, and the card withdraws
-      // itself for as long as the session lasts.
-      if (action === "try") {
-        if (dialOnTalk(call)) {
-          setDialing(true);
-        }
-        dispatchWithoutRaising({ kind: "startVoice" });
-      }
     },
   );
 

@@ -32,6 +32,17 @@ mock.module("@/runtime/main-window", () => ({
 }));
 
 /**
+ * The companion's introduction, which only main can start. Held as a flag a
+ * case can flip mid-drain, because when it stops being true is the whole
+ * question: taking the run's last offer is what ends the run.
+ */
+let introStaged = false;
+mock.module("@/runtime/companion-intro-stage", () => ({
+  companionIntroStaged: () => introStaged,
+  useCompanionIntroStaged: () => introStaged,
+}));
+
+/**
  * The companion's dial, which a refusal has to close: with no session running,
  * `end` is the surface being told that none is coming.
  */
@@ -221,6 +232,7 @@ beforeEach(() => {
   // has never opened voice gets the preferences card instead of a session, and
   // that interception has its own tests below.
   useVoicePrefsStore.setState({ firstRunSeen: true });
+  introStaged = false;
 });
 
 afterEach(() => {
@@ -788,6 +800,50 @@ describe("entry guards", () => {
     expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(true);
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
+  });
+
+  /**
+   * The companion's introduction ends on an offer of a real conversation, and
+   * the card drawn on top of that offer is a third gate on the one press the
+   * eight-card run was building to, repeating two beats it has just finished
+   * teaching. The run is the more specific surface, so it wins.
+   */
+  test("a run in progress sends the first-ever entry straight to a session", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    introStaged = true;
+
+    requestVoiceStart(navigate, { entry: "companion" });
+    await flushDrain();
+
+    expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(false);
+    expectStartedOnFreshDraft("companion");
+    // Spent: the user is having the conversation the card exists to precede,
+    // so it has nothing left to introduce on the next entry.
+    expect(useVoicePrefsStore.getState().firstRunSeen).toBe(true);
+  });
+
+  /**
+   * **The run ends as the offer is taken.** Main finishes it in the same
+   * breath as it sends the `startVoice` this drain is serving, so the push
+   * saying "no run" lands while the drain is still in its preflight. The
+   * answer the press was made against is the one that decides, which is why
+   * the drain reads it before its awaits rather than at the guard.
+   */
+  test("a run that ends mid-drain still stands the card down", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+    introStaged = true;
+
+    requestVoiceStart(navigate, { entry: "companion" });
+    // Main's push, landing after the drain has started and before it decides.
+    introStaged = false;
+    await flushDrain();
+
+    expect(useLiveVoiceStore.getState().firstRunCardOpen).toBe(false);
+    expectStartedOnFreshDraft("companion");
   });
 
   /**
