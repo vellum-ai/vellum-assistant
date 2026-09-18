@@ -4,6 +4,7 @@ import { Button, Notice } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
+import type { HandleCheckResult } from "../types";
 import { AddressPill } from "./address-pill";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
@@ -11,11 +12,6 @@ import { InboxCard } from "./inbox-card";
 
 /** Long enough that a probe is not fired per keystroke. */
 const HANDLE_CHECK_DELAY_MS = 400;
-
-/** What a probe of a handle came back with. */
-export type HandleCheckResult =
-  | { available: true }
-  | { available: false; message: string };
 
 export interface AssistantInboxSetupCardProps {
   /** Whose address this creates; the preview pill shows their avatar. */

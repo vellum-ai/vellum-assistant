@@ -6,7 +6,8 @@ import { Button, cn, panelItemWashStyle } from "@vellumai/design-library";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
 
-import { AddressPill } from "./address-pill";
+import type { HandleClaimIo } from "../types";
+import { HandleClaim } from "./handle-claim";
 
 export interface AssistantInboxUpgradeBodyProps {
   /** Whose inbox this would be; the pitch wears their accent. */
@@ -20,6 +21,11 @@ export interface AssistantInboxUpgradeBodyProps {
    */
   handle: string;
   rootDomain: string;
+  /**
+   * The handle calls, which put "claim your handle" beside the example
+   * address. Left out, the address is an example and nothing more.
+   */
+  claim?: HandleClaimIo | null;
   onUpgrade: () => void;
   onSeePlans?: () => void;
   /** Sits under the actions: the Channels page's "add it back" control. */
@@ -55,6 +61,7 @@ export function AssistantInboxUpgradeBody({
   assistantName,
   handle,
   rootDomain,
+  claim,
   onUpgrade,
   onSeePlans,
   footnote,
@@ -94,11 +101,15 @@ export function AssistantInboxUpgradeBody({
       )}
     >
       {/* The address the upgrade would create, drawn as the assistant so
-          the pitch shows the thing itself rather than describing it. */}
-      {handle ? (
-        <AddressPill
+          the pitch shows the thing itself rather than describing it, with
+          the way to claim the handle it is built on. */}
+      {handle || claim ? (
+        <HandleClaim
           assistantId={assistantId}
-          address={`${t("emailAddressFields.prefixPlaceholder")}@${handle}.${rootDomain}`}
+          handle={handle}
+          rootDomain={rootDomain}
+          claim={claim}
+          align={align}
         />
       ) : null}
       {/* Shrink-wrapped, so the panel sits on the same axis as the rest

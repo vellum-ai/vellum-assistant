@@ -63,7 +63,7 @@
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
     "getStarted": "Empezar",
-    "subtitleChooseHandle": "Elige el identificador y el correo de tu asistente.",
+    "subtitleChooseHandle": "Reclama tu identificador único y configura el correo de tu asistente.",
     "immutableNotice": "El identificador pasa a ser el identificador público de tu asistente. No podrás cambiarlo una vez establecido."
   },
   "assistantInboxRoute": {
@@ -78,5 +78,13 @@
     "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
     "restoreButton": "Volver a añadirla",
     "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
+  },
+  "handleClaim": {
+    "claimButton": "Reclama tu identificador único",
+    "changeButton": "Cambiar identificador",
+    "saveButton": "Reclamar",
+    "cancelButton": "Cancelar",
+    "claimedToast": "{handle} es tuyo.",
+    "saveFailed": "No se pudo guardar el identificador. Inténtalo de nuevo."
   }
 }

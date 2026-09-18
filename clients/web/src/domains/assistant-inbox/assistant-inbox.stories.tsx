@@ -14,6 +14,7 @@
  * Nothing here talks to a platform. The mail, usage, and avatar are fixtures,
  * and the handlers log to the Actions panel.
  */
+import { useState } from "react";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fn } from "storybook/test";
@@ -198,6 +199,42 @@ export const UpgradeRequired: Story = {
       onSeePlans={fn().mockName("onSeePlans")}
     />
   ),
+};
+
+/** Holds the claimed handle, as the assistant listing does in the app. */
+function UpgradeWithClaim() {
+  const [handle, setHandle] = useState("bright-vole-02a64h");
+  return (
+    <AssistantInboxUpgradeState
+      assistantId={ASSISTANT_ID}
+      assistantName={MOCK_ASSISTANT_NAME}
+      handle={handle}
+      rootDomain={MOCK_ROOT_DOMAIN}
+      claim={{
+        check: async (value) =>
+          value === "taken"
+            ? { available: false, message: "That handle is already taken." }
+            : { available: true },
+        save: async (value) => {
+          setHandle(value);
+          return { ok: true };
+        },
+      }}
+      onUpgrade={fn().mockName("onUpgrade")}
+      onSeePlans={fn().mockName("onSeePlans")}
+    />
+  );
+}
+
+/**
+ * The upgrade pitch for an assistant still on its generated handle: the
+ * example address carries an invitation to claim a real one, which needs no
+ * plan. The story's probe refuses the handle `taken`.
+ */
+export const UpgradeRequiredClaimHandle: Story = {
+  name: "1b · Upgrade required, claiming a handle",
+  parameters: { inboxDismissible: true },
+  render: () => <UpgradeWithClaim />,
 };
 
 /** Entitled, no address yet. The email onboarding card, inline. */

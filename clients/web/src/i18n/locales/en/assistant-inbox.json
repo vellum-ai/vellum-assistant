@@ -63,7 +63,7 @@
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
     "getStarted": "Get started",
-    "subtitleChooseHandle": "Choose your assistant's handle and email address.",
+    "subtitleChooseHandle": "Claim your unique handle and set up your assistant's email.",
     "immutableNotice": "The handle becomes your assistant's public handle. You won't be able to change it once set."
   },
   "assistantInboxRoute": {
@@ -78,5 +78,13 @@
     "hiddenNote": "Assistant Inbox is hidden from your side menu.",
     "restoreButton": "Add it back",
     "restoredToast": "Assistant Inbox is back in your side menu."
+  },
+  "handleClaim": {
+    "claimButton": "Claim your unique handle",
+    "changeButton": "Change handle",
+    "saveButton": "Claim",
+    "cancelButton": "Cancel",
+    "claimedToast": "{handle} is yours.",
+    "saveFailed": "Couldn't save the handle. Try again."
   }
 }

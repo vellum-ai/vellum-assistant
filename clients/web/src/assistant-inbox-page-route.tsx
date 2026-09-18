@@ -10,19 +10,13 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxPage } from "@/domains/assistant-inbox/components/assistant-inbox-page";
-import {
-  AssistantInboxSetupCard,
-  type HandleCheckResult,
-} from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
+import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
 import { useAssistantInboxState } from "@/domains/assistant-inbox/hooks/use-assistant-inbox-state";
+import { useHandleClaim } from "@/domains/assistant-inbox/hooks/use-handle-claim";
 import { useInboxMail } from "@/domains/assistant-inbox/hooks/use-inbox-mail";
 import type { InboxEmail } from "@/domains/assistant-inbox/types";
-import {
-  checkAssistantHandleAvailable,
-  HANDLE_ERROR_COPY,
-} from "@/domains/account/handle";
 import {
   assistantsDomainsCreateMutation,
   assistantsEmailAddressesCreateMutation,
@@ -174,32 +168,9 @@ export function AssistantInboxPageRoute() {
       });
   }, [assistantId, queryClient, refreshReadinessMutateAsync]);
 
-  /* An advisory probe of a handle typed into the setup card, through the
-     same endpoint the profile card's handle editor uses. */
-  const platformAssistantId = state.platformAssistantId;
-  const checkHandle = useCallback(
-    async (handle: string, signal: AbortSignal): Promise<HandleCheckResult> => {
-      if (!platformAssistantId) {
-        return { available: true };
-      }
-      const result = await checkAssistantHandleAvailable(
-        platformAssistantId,
-        handle,
-        signal,
-      );
-      if (result.available) {
-        return { available: true };
-      }
-      return {
-        available: false,
-        message:
-          result.message ??
-          (result.code ? HANDLE_ERROR_COPY[result.code] : null) ??
-          t("assistantInboxRoute.setupFailed"),
-      };
-    },
-    [platformAssistantId, t],
-  );
+  /* The handle calls: the upgrade pitch's claim control, and the setup
+     card's probe of a handle being typed. */
+  const handleClaim = useHandleClaim(state.platformAssistantId);
 
   const confirmSetup = useCallback(
     async ({ prefix, handle }: { prefix: string; handle: string }) => {
@@ -280,6 +251,7 @@ export function AssistantInboxPageRoute() {
           assistantName={state.assistantName}
           handle={state.handle}
           rootDomain={state.rootDomain}
+          claim={handleClaim}
           onUpgrade={() => navigate(routes.plans)}
           onSeePlans={() => navigate(routes.plans)}
         />
@@ -291,7 +263,7 @@ export function AssistantInboxPageRoute() {
           handle={state.handle}
           rootDomain={state.rootDomain}
           handleEditable={!state.hasDomain}
-          checkHandle={checkHandle}
+          checkHandle={handleClaim?.check}
           error={setupError}
           onDraftChange={() => setSetupError(null)}
           onConfirm={(draft) => void confirmSetup(draft)}
