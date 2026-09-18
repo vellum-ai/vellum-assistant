@@ -19,6 +19,7 @@ type StubWindow = {
   isFocused: () => boolean;
   on: ReturnType<typeof mock>;
   once: (event: string, handler: () => void) => StubWindow;
+  off: (event: string, handler: () => void) => StubWindow;
   isResizable: () => boolean;
   setResizable: ReturnType<typeof mock>;
   setMaximizable: ReturnType<typeof mock>;
@@ -121,6 +122,13 @@ const makeWindow = (opts: Record<string, unknown> = {}): StubWindow => {
       const arr = listeners.get(event) ?? [];
       arr.push(handler);
       listeners.set(event, arr);
+      return stub;
+    },
+    off: (event, handler) => {
+      listeners.set(
+        event,
+        (listeners.get(event) ?? []).filter((h) => h !== handler),
+      );
       return stub;
     },
     webContents: ((): StubWebContents => {
@@ -835,6 +843,20 @@ describe("close button", () => {
 
     stub.emit("leave-full-screen");
     expect(stub.hide).toHaveBeenCalledTimes(1);
+  });
+
+  test("a reopen during the fullscreen exit keeps the window up", () => {
+    restoredBounds = { width: 1280, height: 800, fullscreen: true };
+    installMainWindow();
+    const { stub } = constructed[0]!;
+    stub.emit("ready-to-show");
+    pressClose(stub);
+
+    void ensureVisible();
+    stub.emit("leave-full-screen");
+
+    expect(stub.hide).not.toHaveBeenCalled();
+    expect(stub.isVisible()).toBe(true);
   });
 
   test("lets the close through once the app is quitting", () => {

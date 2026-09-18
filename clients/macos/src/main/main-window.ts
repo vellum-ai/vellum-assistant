@@ -133,6 +133,11 @@ const readiness = createWindowReadiness<BrowserWindow>();
 // `createMainWindow`.
 let quitting = false;
 
+// A close waiting for the window to come out of fullscreen before it hides.
+// Withdrawn by `ensureVisible`, so a press that brings the app back during
+// the exit animation is not undone by the hide landing after it.
+let cancelPendingHide: (() => void) | null = null;
+
 const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
   const allowedOrigin = resolveAllowedOrigin();
 
@@ -254,9 +259,16 @@ const createMainWindow = (): BrowserWindow => {
     // A fullscreen window hidden in place leaves its Space behind, empty and
     // black, so it comes out of fullscreen first and hides on arrival.
     if (win.isFullScreen()) {
-      win.once("leave-full-screen", () => {
+      cancelPendingHide?.();
+      const hideOnArrival = (): void => {
+        cancelPendingHide = null;
         win.hide();
-      });
+      };
+      win.once("leave-full-screen", hideOnArrival);
+      cancelPendingHide = () => {
+        win.off("leave-full-screen", hideOnArrival);
+        cancelPendingHide = null;
+      };
       win.setFullScreen(false);
       return;
     }
@@ -305,6 +317,8 @@ const createMainWindow = (): BrowserWindow => {
  * rate this is good enough.
  */
 export const ensureVisible = (): Promise<void> => {
+  // The latest ask wins over a close still waiting to hide.
+  cancelPendingHide?.();
   if (!mainWindow || mainWindow.isDestroyed()) {
     const win = createMainWindow();
     return readiness.wait(win);
@@ -448,4 +462,5 @@ export const installMainWindow = (): void => {
 export const __resetForTesting = (): void => {
   installed = false;
   quitting = false;
+  cancelPendingHide = null;
 };
