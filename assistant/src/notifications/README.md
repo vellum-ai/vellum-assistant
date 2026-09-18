@@ -311,7 +311,7 @@ The `PlatformPushAdapter` posts the notification to the platform's `/v1/assistan
 The assistant sends these itself. Each adapter calls the provider's API through the send module in `../messaging/providers/<channel>/`; nothing goes through the gateway.
 
 - **Telegram**: the `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID through `telegram-bot/send.ts`, which calls the Telegram Bot API. Approval cards carry inline keyboard buttons and fall back to plain text with typed-reply instructions if the rich send fails.
-- **Slack**: the `SlackAdapter` posts to the guardian's DM through `slack/send.ts`. Approval cards render as a Card block with Approve and Reject buttons.
+- **Slack**: the `SlackAdapter` posts to the guardian's DM through `slack/send.ts`. Approval cards render as a Card block with the approval's action buttons.
 - **Discord**: the `DiscordAdapter` opens the guardian's DM from their user ID through the Discord REST API and sends through `discord/send.ts`. Approval cards render component buttons.
 
 The destination for each comes from the guardian delivery list in `destination-resolver.ts`, with deterministic fallback copy when model copy is unavailable.
