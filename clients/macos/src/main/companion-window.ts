@@ -608,12 +608,9 @@ const reportIntro = (
     at: Date.now(),
   };
   const win = currentMainWindow();
-  if (
-    win === null ||
-    win.isDestroyed() ||
-    introReportsTo === null ||
-    win.webContents !== introReportsTo
-  ) {
+  // Held unless the window that is here is the one that said it is listening.
+  // `null` fails that on its own, so an unarmed push needs no case of its own.
+  if (win === null || win.isDestroyed() || win.webContents !== introReportsTo) {
     introReports.push(report);
     // Oldest first out, so what survives a run nobody collected is the end of
     // it: the ending is the row the funnel cannot infer from the others.
