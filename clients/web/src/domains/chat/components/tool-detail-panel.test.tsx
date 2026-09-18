@@ -234,13 +234,14 @@ describe("ToolDetailPanel", () => {
       toolName: "mcp__analytics__exec",
       input: { query },
     });
-    const { getByText, getAllByLabelText } = render(
+    const { getByText, getByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
     expect(getByText(query).tagName).not.toBe("PRE");
-    // Only the output carries a copy button; the query is inline text.
-    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    // The query's own copy button copies the query alone, not the raw input.
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
   });
 
   test("sets text with line breaks as a copyable code block", () => {
@@ -249,7 +250,7 @@ describe("ToolDetailPanel", () => {
       toolName: "mcp__analytics__exec",
       input: { query },
     });
-    const { container, getAllByLabelText } = render(
+    const { container, getAllByLabelText, queryByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
@@ -257,8 +258,10 @@ describe("ToolDetailPanel", () => {
       (pre) => pre.textContent,
     );
     expect(blocks).toContain(query);
-    // One copy button for the query, one for the output.
+    // The block's own copy button, one for the output, and no second one on
+    // the field's label.
     expect(getAllByLabelText("Copy")).toHaveLength(2);
+    expect(queryByLabelText("Copy query")).toBeNull();
   });
 
   test("folds a long one-line value behind Show more", () => {

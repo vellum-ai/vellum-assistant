@@ -8,6 +8,7 @@
 import { Typography } from "@vellumai/design-library";
 import type { ReactNode } from "react";
 
+import { CopyButton } from "@/components/copy-button";
 import {
   ClampedContent,
   CodeBlock,
@@ -148,6 +149,7 @@ export function ToolParamFields({
   list,
   nested = false,
 }: ToolParamFieldsProps) {
+  const { t } = useTranslation("chat");
   const gap = nested ? "gap-2.5" : "gap-3";
 
   return (
@@ -162,8 +164,22 @@ export function ToolParamFields({
       <dl className={cn("flex min-w-0 flex-col", gap)}>
         {list.fields.map((field) => (
           <div key={field.label} className="flex min-w-0 flex-col gap-0.5">
-            <dt className="text-label-medium-default leading-4 [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
-              {field.label}
+            <dt className="flex min-w-0 items-center justify-between gap-2">
+              <span className="text-label-medium-default leading-4 [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
+                {field.label}
+              </span>
+              {field.kind === "text" && (
+                // A code block carries its own copy button; a text value
+                // gets the same one here, so any single value can be copied
+                // on its own rather than out of the raw input's JSON.
+                <CopyButton
+                  text={field.text}
+                  ariaLabel={t("toolParamFields.copyValue", {
+                    label: field.label,
+                  })}
+                  className="-my-1 shrink-0"
+                />
+              )}
             </dt>
             <dd className="min-w-0">
               <FieldValue field={field} />
