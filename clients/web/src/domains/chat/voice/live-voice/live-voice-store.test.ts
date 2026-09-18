@@ -39,6 +39,7 @@ import {
   subscribeSettledLiveVoiceState,
   updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
+  type LiveVoiceResponsePhase,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { toVoiceAvatarVisual } from "@/domains/chat/voice/voice-room/voice-avatar-state";
@@ -259,12 +260,14 @@ function surfaceLabel(
   reconnecting: boolean,
   assistantAudioActive: boolean,
   muted: boolean,
+  responsePhase: LiveVoiceResponsePhase | null = null,
 ): string {
   const key = liveVoiceSurfaceLabelKey(
     state,
     reconnecting,
     assistantAudioActive,
     muted,
+    responsePhase,
   );
   if (!key) {
     return "";
@@ -295,6 +298,18 @@ describe("LIVE_VOICE_STATE_KEYS", () => {
 });
 
 describe("liveVoiceSurfaceLabelKey", () => {
+  test("shows a neutral working status while an escalated response prepares", () => {
+    expect(surfaceLabel("thinking", false, false, false, "escalated")).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, false, false, "escalated")).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, true, false, "escalated")).toBe(
+      "Speaking…",
+    );
+  });
+
   test("a speaking phase with no audio playing reads as thinking", () => {
     // `speaking` stays set across a mid-turn tool run (the ack was spoken and
     // the assistant is now silent) so every surface says "Thinking…".

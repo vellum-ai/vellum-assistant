@@ -82,6 +82,7 @@ import {
   stripInternalSpeechMarkers,
   terminalControlMarkerLength,
 } from "./voice-control-protocol.js";
+import type { VoiceEscalationTarget } from "./voice-escalation-target.js";
 import {
   createFrontDoorStreamGate,
   escalatedContinuationRule,
@@ -389,6 +390,8 @@ export interface VoiceTurnCallbacks {
   tool_result?: (event: VoiceToolResultEvent) => void;
 }
 
+export type { VoiceEscalationTarget } from "./voice-escalation-target.js";
+
 export interface VoiceTurnOptions {
   /** Internal task update delivered through the call, with its original attribution. */
   subagentNotification?: SubagentParentNotification;
@@ -500,6 +503,8 @@ export interface VoiceTurnOptions {
   onError?: (message: string) => void;
   /** Event-name callbacks: tool activity, persisted row ids, raw stream. */
   callbacks?: VoiceTurnCallbacks;
+  /** Called once the escalated leg's actual target profile is resolved. */
+  onEscalationTargetResolved?: (target: VoiceEscalationTarget) => void;
   /**
    * Called when this turn leaves a confirmation for the user to answer instead
    * of deciding it, so the client can put the prompt where they can see it.
@@ -2137,11 +2142,11 @@ export async function startVoiceTurn(
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         ...(opts.routingLeg === "escalated"
           ? {
-              // An image fallback must keep the image-capable profile's own
-              // model. The main-agent site's direct model tuning is exactly
-              // the incompatible target this fallback is routing around.
+              // An image fallback is still a full call-agent turn. Keep it
+              // away from both main-agent tuning that selected an incompatible
+              // model and caption-specific vision tuning.
               inferenceCallSite: needsImagePin
-                ? ("vision" as const)
+                ? ("callAgent" as const)
                 : ("mainAgent" as const),
             }
           : {}),
@@ -2170,25 +2175,74 @@ export async function startVoiceTurn(
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),
-        // Start a speculative warm from the finalized request surface. The
-        // warm is deliberately not awaited: a cache miss must never add a
-        // second model round trip to the live voice response.
-        ...(shouldWarmEscalation
+        ...(opts.routingLeg === "escalated"
           ? {
+              // Warming and diagnostics use the final post-hook request. The
+              // observer stays synchronous so neither delays provider dispatch.
               onFirstModelCallPrepared: (prepared) => {
-                if (prepared.disableCache) {
-                  return;
+                if (shouldWarmEscalation && !prepared.disableCache) {
+                  void conversation.warmPromptCache({
+                    callSite: prepared.callSite ?? "mainAgent",
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    signal: prepared.signal ?? opts.signal,
+                    systemPrompt: prepared.systemPrompt,
+                    tools: prepared.tools,
+                  });
                 }
-                void conversation.warmPromptCache({
-                  callSite: prepared.callSite ?? "mainAgent",
-                  ...(prepared.overrideProfile !== undefined
-                    ? { overrideProfile: prepared.overrideProfile }
-                    : {}),
-                  forceOverrideProfile: prepared.forceOverrideProfile,
-                  signal: prepared.signal ?? opts.signal,
-                  systemPrompt: prepared.systemPrompt,
-                  tools: prepared.tools,
-                });
+                let selectedMixArm:
+                  | { mixProfile: string; chosenProfile: string }
+                  | undefined;
+                const escalationSelection = selectWinningProfile(
+                  prepared.callSite ?? "mainAgent",
+                  config.llm,
+                  {
+                    ...(prepared.overrideProfile !== undefined
+                      ? { overrideProfile: prepared.overrideProfile }
+                      : {}),
+                    forceOverrideProfile: prepared.forceOverrideProfile,
+                    selectionSeed: conversation.conversationId,
+                    isResolvableProvider: dispatchProviderResolvable,
+                    onMixSelected: (selection) => {
+                      selectedMixArm = selection;
+                    },
+                  },
+                );
+                let source: VoiceEscalationTarget["source"] = "call_site";
+                if (escalationSelection.source === "override") {
+                  if (prepared.overrideProfile !== profilePin) {
+                    source = "pre_model_hook";
+                  } else if (opts.overrideProfile != null) {
+                    source = "turn_override";
+                  } else if (needsImagePin) {
+                    source = "image_compatibility";
+                  } else {
+                    source = "conversation";
+                  }
+                }
+                const target: VoiceEscalationTarget = {
+                  profile:
+                    (selectedMixArm?.mixProfile ===
+                    escalationSelection.profileName
+                      ? selectedMixArm.chosenProfile
+                      : escalationSelection.profileName) ?? "balanced",
+                  source,
+                };
+                try {
+                  opts.onEscalationTargetResolved?.(target);
+                } catch (err) {
+                  log.warn(
+                    {
+                      err,
+                      turnId,
+                      profile: target.profile,
+                      source: target.source,
+                    },
+                    "Voice escalation target callback failed",
+                  );
+                }
               },
             }
           : {}),

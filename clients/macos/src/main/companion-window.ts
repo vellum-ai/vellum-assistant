@@ -3258,16 +3258,30 @@ const syncFrontmost = (): void => {
  * surface stays on screen, and a command dispatched into that gap lands
  * nowhere: the press would read as broken. There is no way to act without a
  * renderer to act in, so that case builds one, which necessarily shows it.
+ *
+ * **Answers whether the command reached a renderer**: true once it has been
+ * sent, false when the build finished with no window to send to. A window
+ * closed while it loads releases the wait on purpose, and the send is a no-op
+ * there, which is the user closing the window and nothing happening. Almost
+ * every press is done at the hand-off and ignores the answer; the
+ * introduction's last beat reads it, because what it does next is only true of
+ * a press a renderer actually has (see the `advanceIntro` handler).
  */
-export const dispatchWithoutRaising = (command: VellumCommand): void => {
+export const dispatchWithoutRaising = (
+  command: VellumCommand,
+): Promise<boolean> => {
   if (currentMainWindow() !== null) {
     dispatchToMain(command);
-    return;
+    return Promise.resolve(true);
   }
   // Resolves once the renderer has loaded and the window has shown, so the
   // command arrives at a page that can receive it.
-  void ensureMainWindowVisible().then(() => {
+  return ensureMainWindowVisible().then(() => {
+    if (currentMainWindow() === null) {
+      return false;
+    }
     dispatchToMain(command);
+    return true;
   });
 };
 
@@ -3460,7 +3474,7 @@ export const installCompanionWindow = (): void => {
     if (dialOnTalk(call)) {
       setDialing(true);
     }
-    dispatchWithoutRaising({ kind: "startVoice" });
+    void dispatchWithoutRaising({ kind: "startVoice" });
   });
 
   /**
@@ -3485,7 +3499,7 @@ export const installCompanionWindow = (): void => {
     ([pick]) => {
       if (pick === undefined) {
         pickGeneration += 1;
-        dispatchWithoutRaising({ kind: "toggleWatch" });
+        void dispatchWithoutRaising({ kind: "toggleWatch" });
         return;
       }
       // A tab is resolved here, before the command leaves: it takes a round
@@ -3504,7 +3518,7 @@ export const installCompanionWindow = (): void => {
         if (target === null || generation !== pickGeneration) {
           return;
         }
-        dispatchWithoutRaising({ kind: "toggleWatch", target });
+        void dispatchWithoutRaising({ kind: "toggleWatch", target });
       });
     },
   );
@@ -3544,7 +3558,7 @@ export const installCompanionWindow = (): void => {
     ([pick]) => {
       if (pick === undefined) {
         pickGeneration += 1;
-        dispatchWithoutRaising({ kind: "setScreenShare" });
+        void dispatchWithoutRaising({ kind: "setScreenShare" });
         return;
       }
       const generation = ++pickGeneration;
@@ -3566,7 +3580,7 @@ export const installCompanionWindow = (): void => {
           if (target === null || generation !== pickGeneration) {
             return;
           }
-          dispatchWithoutRaising({ kind: "setScreenShare", target });
+          void dispatchWithoutRaising({ kind: "setScreenShare", target });
         })
         .catch((err: unknown) => {
           log.warn("[companion] could not start the share:", err);
@@ -3679,7 +3693,12 @@ export const installCompanionWindow = (): void => {
       if (!annotating && !lettingGo) {
         return;
       }
-      dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
+      void dispatchWithoutRaising({
+        kind: "annotateShare",
+        phase,
+        strokes,
+        ink,
+      });
     },
   );
 
@@ -3753,7 +3772,7 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:answerWatchRetro", z.tuple([z.boolean()]), ([open]) => {
     if (!open) {
-      dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
+      void dispatchWithoutRaising({ kind: "answerWatchRetro", open: false });
       return;
     }
     // The same shape `activate` takes, because it is the same request: bring
@@ -3789,7 +3808,7 @@ export const installCompanionWindow = (): void => {
       if (answer === "copy" && offered?.id === offerId) {
         clipboard.writeText(offered.text);
       }
-      dispatchWithoutRaising({
+      void dispatchWithoutRaising({
         kind: "answerDictationOffer",
         answer,
         offerId,
@@ -3836,7 +3855,7 @@ export const installCompanionWindow = (): void => {
         pushState();
       }
       if (answer.kind !== "open") {
-        dispatchWithoutRaising(command);
+        void dispatchWithoutRaising(command);
         return;
       }
       void ensureMainWindowVisible().then(() => {
@@ -3910,7 +3929,7 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:togglePicker",
     z.tuple([companionPickerSchema]),
     ([picker]) => {
-      dispatchWithoutRaising({ kind: "toggleCompanionPicker", picker });
+      void dispatchWithoutRaising({ kind: "toggleCompanionPicker", picker });
     },
   );
 
@@ -3998,35 +4017,70 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
-      const from = intro;
-      const next = introOnAdvance(intro, action);
-      // **The offer is counted where it is taken, not where it lands.** A `try`
-      // on the last beat ends the run and a `try` before it does not, so the
-      // beat it was taken on is the only place the two are told apart, and that
-      // beat is gone a line later.
-      if (action === "try") {
-        reportIntro("offer_taken", from);
-      }
-      if (next === null) {
-        finishIntro(introEndingFor(action));
-      } else {
-        intro = next;
-        // `try` mid-run holds the beat, and a beat held is not a beat reached.
-        if (next !== from) {
-          reportIntro("advanced", next);
+      // Resolved against the beat main is on when it runs, not the one this
+      // press arrived on, which is the same rule the handler itself follows:
+      // the hand-off below can put a window build in between, and anything the
+      // user did to the run in that gap is the newer answer.
+      const advance = (): void => {
+        const from = intro;
+        // The run went while the press was in the air, dismissed or put away.
+        // Nothing left to walk, and nothing to count the press against.
+        if (from === null) {
+          return;
         }
+        const next = introOnAdvance(from, action);
+        // **The offer is counted where it is taken, not where it lands.** A
+        // `try` on the last beat ends the run and a `try` before it does not,
+        // so the beat it was taken on is the only place the two are told
+        // apart, and that beat is gone a line later.
+        if (action === "try") {
+          reportIntro("offer_taken", from);
+        }
+        if (next === null) {
+          finishIntro(introEndingFor(action));
+        } else {
+          intro = next;
+          // `try` mid-run holds the beat, and a beat held is not a beat
+          // reached.
+          if (next !== from) {
+            reportIntro("advanced", next);
+          }
+        }
+        pushState();
+      };
+      if (action !== "try") {
+        advance();
+        return;
       }
-      pushState();
       // **A `try` is a press on Talk, made from the card.** Started here the
       // same way the creature's own press starts one, so the dial is drawn in
       // this beat rather than after a round trip, and the card withdraws
       // itself for as long as the session lasts.
-      if (action === "try") {
-        if (dialOnTalk(call)) {
-          setDialing(true);
-        }
-        dispatchWithoutRaising({ kind: "startVoice" });
+      if (dialOnTalk(call)) {
+        setDialing(true);
       }
+      // **The run ends only on a press a renderer actually has**, because on
+      // the last beat a `try` IS what ends it, and ending it clears the
+      // staging the app reads (`getIntroStage`). The app's first-run voice
+      // card stands down while a run is on, so that the offer this beat makes
+      // reaches a session rather than a third card (see
+      // `voice-entry-guards.ts`). Told the run is over first, it puts itself
+      // in front of the one press the whole run is building to.
+      //
+      // With the app's window closed the hand-off builds a renderer first, and
+      // that renderer pulls the staging as it mounts, so the wait is what
+      // keeps it reading a run that is still on.
+      //
+      // A hand-off that reaches nothing leaves the run exactly where it is.
+      // The offer has not been taken, the card is still on the surface with
+      // its own way on and way out, and the staging is still the truth: a run
+      // IS on. Ending it here would record an introduction the user never got
+      // and fly the surface home on a press that did nothing.
+      void dispatchWithoutRaising({ kind: "startVoice" }).then((served) => {
+        if (served) {
+          advance();
+        }
+      });
     },
   );
 

@@ -610,6 +610,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
+  const responsePhase = useLiveVoiceStore.use.responsePhase();
   const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Muting the assistant needs no hands-free gate: it silences the output
@@ -660,6 +661,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     reconnecting,
     assistantAudioActive,
     muted,
+    responsePhase,
   );
   const stateLabel = stateLabelKey ? t(stateLabelKey) : "";
 

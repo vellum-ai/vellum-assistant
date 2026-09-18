@@ -356,6 +356,84 @@ describe("assistant-audio activity", () => {
   });
 });
 
+describe("structured response activity", () => {
+  test("tracks escalation until the next response starts", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 3,
+        turnId: "t1",
+        label: "Working on that",
+        kind: "escalation",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
+
+    act(() => {
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 4,
+        turnId: "t1",
+        label: "Searching the web",
+      });
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 5,
+        turnId: "t1",
+        label: "",
+      });
+    });
+    expect(useLiveVoiceStore.getState().responsePhase).toBe("escalated");
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 6,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 7,
+        text: "Next question",
+      });
+    });
+    expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
+  });
+
+  test("a manual final clears the prior response escalation", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("activity", {
+        type: "activity",
+        seq: 2,
+        turnId: "t1",
+        label: "",
+        kind: "escalation",
+        profile: "quality-optimized",
+        profileSource: "conversation",
+      });
+      useLiveVoiceStore.getState().controls?.release();
+      h.client.emit("sttFinal", {
+        type: "stt_final",
+        seq: 3,
+        text: "Next question",
+      });
+    });
+
+    expect(useLiveVoiceStore.getState().responsePhase).toBeNull();
+    expect(useLiveVoiceStore.getState().state).toBe("thinking");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Barge-in
 // ---------------------------------------------------------------------------

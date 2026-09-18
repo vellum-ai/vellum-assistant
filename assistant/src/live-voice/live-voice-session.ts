@@ -29,6 +29,7 @@ import {
   TASK_STOP_MARKER,
   TASK_UPDATE_SILENT_MARKER,
 } from "../calls/voice-control-protocol.js";
+import type { VoiceEscalationTarget } from "../calls/voice-escalation-target.js";
 import {
   createFrontDoorLegCoordinator,
   type FrontDoorLegCoordinator,
@@ -656,6 +657,10 @@ interface ActiveAssistantTurn {
   // whole frame rather than its wording. What the CLIENT believes, as against
   // `pendingApproval`, which is what is true.
   publishedApprovalRequestId: string | null;
+  // Structured activity the client most recently received. TTS can
+  // temporarily move system surfaces to speaking without changing this
+  // logical activity, while a tool or approval frame clears it.
+  publishedActivityKind: "escalation" | null;
   // Set while the turn is blocked on a decision the user has to make, and null
   // when it is not. Suppresses progress narration, whose entire vocabulary
   // ("still on it", "almost there") describes work in flight and would be
@@ -763,6 +768,9 @@ interface ActiveAssistantTurn {
   // The front-door leg's coordinator: whether it handed the turn off to the
   // escalated leg. Null until the front-door leg starts.
   frontDoor: FrontDoorLegCoordinator | null;
+  // Final post-hook inference target for an escalated leg. Retained so the
+  // neutral waiting phase can be restored after bridge audio drains.
+  escalationTarget: VoiceEscalationTarget | null;
   ttsBuffer: string;
   // What the caller actually hears this turn, summed over the model's own
   // segments (acks and progress narration do not count). Logged at tts_done
@@ -3888,9 +3896,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Publish whatever the turn's activity line should be right now: the
-   * decision it is waiting on if it is waiting, and its newest running tool if
-   * it is not.
+   * Publish whatever the turn's activity should be right now: the decision it
+   * is waiting on, its newest running tool, or the structured escalation state
+   * underneath those temporary overlays.
    *
    * The single entry point for every caller that would otherwise reach for
    * `currentActivityLabel` directly. A turn can start and finish other ops
@@ -3908,7 +3916,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       );
       return;
     }
-    this.publishActivity(turn, this.currentActivityLabel(turn));
+    const label = this.currentActivityLabel(turn);
+    if (
+      label.length === 0 &&
+      turn.escalationTarget !== null &&
+      !turn.assistantCompleted
+    ) {
+      if (turn.publishedActivityKind !== "escalation") {
+        this.publishEscalationActivity(turn, turn.escalationTarget);
+      }
+      return;
+    }
+    this.publishActivity(turn, label);
   }
 
   /**
@@ -3986,14 +4005,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * conversation may wait on one.
    *
    * Callers whose line depends on turn state go through
-   * {@link refreshActivity}; this is called directly only to clear the line
-   * outright, which a cancelled or finished turn does regardless of what it
-   * was waiting on.
+   * {@link refreshActivity}. Structured transition events call this directly
+   * because their meaning is not captured by the label alone.
    */
   private publishActivity(
     turn: ActiveAssistantTurn,
     label: string,
     approvalRequestId?: string,
+    detail?: Pick<
+      Extract<LiveVoiceServerFramePayload, { type: "activity" }>,
+      "kind" | "profile" | "profileSource"
+    >,
   ): void {
     // De-duplicated on the request id as well as the wording. The two move
     // independently: a wait can be entered and left without the tool line
@@ -4001,6 +4023,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // retires the approval — leaving the island's buttons up with nothing
     // behind them.
     if (
+      detail === undefined &&
+      turn.publishedActivityKind === null &&
       turn.activityLabel === label &&
       turn.publishedApprovalRequestId === (approvalRequestId ?? null)
     ) {
@@ -4008,15 +4032,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     turn.activityLabel = label;
     turn.publishedApprovalRequestId = approvalRequestId ?? null;
+    turn.publishedActivityKind = detail?.kind ?? null;
     void this.sendFrame(
       {
         type: "activity",
         turnId: turn.turnId,
         label,
         ...(approvalRequestId !== undefined ? { approvalRequestId } : {}),
+        ...detail,
       },
       () => !this.isClosed,
     );
+  }
+
+  private publishEscalationActivity(
+    turn: ActiveAssistantTurn,
+    target: VoiceEscalationTarget,
+  ): void {
+    this.publishActivity(turn, "", undefined, {
+      kind: "escalation",
+      profile: target.profile,
+      profileSource: target.source,
+    });
   }
 
   private clearActiveAssistantTurn(token: symbol): void {
@@ -5656,6 +5693,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       sessionControlRequested: null,
       activityLabel: "",
       publishedApprovalRequestId: null,
+      publishedActivityKind: null,
       pendingApproval: null,
       ttsAudioStarted: false,
       ttsFailed: false,
@@ -5689,6 +5727,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : null,
       deltaEpoch: 0,
       frontDoor: null,
+      escalationTarget: null,
       ttsBuffer: "",
       spokenSegments: 0,
       spokenChars: 0,
@@ -5963,6 +6002,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         onApprovalsResolved: () => {
           this.clearAwaitingApproval(activeTurn);
         },
+        ...(leg.routingLeg === "escalated"
+          ? {
+              onEscalationTargetResolved: (target) => {
+                if (!this.isActiveAssistantTurn(token)) {
+                  return;
+                }
+                activeTurn.escalationTarget = target;
+                this.publishEscalationActivity(activeTurn, target);
+              },
+            }
+          : {}),
         content: leg.content,
         ...(leg.attachments ? { attachments: leg.attachments } : {}),
         isInbound: true,
@@ -6334,15 +6384,40 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.
       this.flushTtsBuffer(activeTurn.token, true);
-      return;
+    } else {
+      // The canned bridge is a fixed localized-table phrase, enqueued
+      // directly (it is already one complete sentence) so the segment can
+      // carry the "en" override when the table lacks the turn's language.
+      const speakable = sanitizeForTts(spokenBridge).trim();
+      if (speakable.length > 0) {
+        this.enqueueTtsSegment(activeTurn.token, speakable, { language });
+      }
     }
-    // The canned bridge is a fixed localized-table phrase, enqueued
-    // directly (it is already one complete sentence) so the segment can
-    // carry the "en" override when the table lacks the turn's language.
-    const speakable = sanitizeForTts(spokenBridge).trim();
-    if (speakable.length > 0) {
-      this.enqueueTtsSegment(activeTurn.token, speakable, { language });
-    }
+
+    // Target resolution can land before the bridge's queued audio finishes.
+    // Its activity frame moves the system surface to thinking, then a late
+    // bridge tts_audio frame moves it back to speaking. Restore the neutral
+    // waiting phase at the bridge's emission boundary, ahead of any answer
+    // audio queued behind it.
+    const bridgeDrain = activeTurn.ttsQueue;
+    void bridgeDrain.then(
+      () => {
+        const target = activeTurn.escalationTarget;
+        if (
+          target === null ||
+          !this.isActiveAssistantTurn(activeTurn.token) ||
+          activeTurn.assistantCompleted
+        ) {
+          return;
+        }
+        if (activeTurn.publishedActivityKind === "escalation") {
+          this.publishEscalationActivity(activeTurn, target);
+          return;
+        }
+        this.liveActivityReporter.restoreThinkingPhase();
+      },
+      () => undefined,
+    );
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
