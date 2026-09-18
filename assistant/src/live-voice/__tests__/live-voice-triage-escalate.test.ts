@@ -124,8 +124,11 @@ function scriptedStartVoiceTurn(script: {
   // Leave the escalated leg in flight (no deltas, no completion) so a barge-in
   // has a live turn to abort mid-hand-off.
   holdEscalated?: boolean;
+  // The escalation judge's verdict, carried on the front-door handle.
+  judgeVerdict?: Promise<boolean>;
 }) {
   const frontDoorAbort = mock();
+  const frontDoorOverrule = mock();
   const escalatedAbort = mock();
   const starter = mock(async (options: VoiceTurnOptions) => {
     const isEscalated = options.content === ESCALATION_CONTINUATION_CONTENT;
@@ -158,9 +161,15 @@ function scriptedStartVoiceTurn(script: {
     return {
       turnId: isEscalated ? "bridge-escalated" : "bridge-front-door",
       abort: isEscalated ? escalatedAbort : frontDoorAbort,
+      ...(!isEscalated && script.judgeVerdict
+        ? {
+            escalationJudgement: script.judgeVerdict,
+            overrule: frontDoorOverrule,
+          }
+        : {}),
     };
   });
-  return { starter, frontDoorAbort, escalatedAbort };
+  return { starter, frontDoorAbort, frontDoorOverrule, escalatedAbort };
 }
 
 async function driveTurn(session: LiveVoiceSession): Promise<void> {
@@ -632,5 +641,47 @@ describe("live-voice triage-and-escalate routing", () => {
 
     expect(escalatedSignal?.aborted).toBe(true);
     expect(escalatedAbort).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("live-voice escalation judge", () => {
+  function lateVerdict(escalate: boolean, delayMs = 30): Promise<boolean> {
+    return new Promise((resolve) =>
+      setTimeout(() => resolve(escalate), delayMs),
+    );
+  }
+
+  test("a judge escalation overrules an answer the front door already finished", async () => {
+    const { starter, frontDoorOverrule } = scriptedStartVoiceTurn({
+      frontDoor: ["Yeah okay, ", "I'll do it."],
+      escalated: ["Done, the blurb is in the draft."],
+      judgeVerdict: lateVerdict(true),
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter.mock.calls[1]?.[0]?.routingLeg).toBe("escalated");
+    expect(frontDoorOverrule).toHaveBeenCalledTimes(1);
+    // The overruled answer is never heard; the escalated leg answers.
+    expect(spokenText(frames)).not.toContain("I'll do it.");
+    expect(spokenText(frames)).toContain("Done, the blurb is in the draft.");
+  });
+
+  test("a judge that clears late releases the held answer", async () => {
+    const { starter, frontDoorOverrule } = scriptedStartVoiceTurn({
+      frontDoor: ["Sure, ", "it's Tuesday."],
+      judgeVerdict: lateVerdict(false),
+    });
+    const { frames, session } = createHarness(starter);
+
+    await driveTurn(session);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(frontDoorOverrule).not.toHaveBeenCalled();
+    expect(spokenText(frames)).toBe("Sure, it's Tuesday.");
   });
 });

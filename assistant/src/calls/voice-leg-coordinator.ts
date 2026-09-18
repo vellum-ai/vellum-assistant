@@ -12,6 +12,12 @@
  * leg, resolve and speak the bridge, mark it as the floor holder, start the
  * escalated leg, re-arm narration. A leg that was cancelled never hands off.
  *
+ * An optional escalation judge (see `voice-escalation-judge.ts`) runs beside
+ * the leg. While its verdict is pending, an answer is held rather than
+ * spoken; a judge that says the turn needs the escalated leg overrules the
+ * answer and hands off with the canned bridge. Hold and escalate verdicts
+ * from the leg itself never wait on the judge.
+ *
  * Everything transport-specific comes in through {@link FrontDoorLegHost}:
  * how answer text and the bridge are spoken, how a leg is started or
  * aborted, and the speculative hold and commit that only live voice has.
@@ -91,6 +97,13 @@ export interface FrontDoorLegHost {
    */
   abortLeg(): void;
   /**
+   * Abort a leg whose answer the escalation judge overruled. Its persisted
+   * row holds an answer nobody heard, so the driver drops it rather than
+   * leaving it in the history the escalated leg reads. Falls back to
+   * {@link abortLeg} when absent.
+   */
+  overruleLeg?(): void;
+  /**
    * Speak the bridge so the strong-model call has no dead air. The model's
    * own bridge is real assistant speech; the canned fallback is audio-only,
    * matching the row the bridge's transcript hygiene deletes for it.
@@ -103,6 +116,21 @@ export interface FrontDoorLegHost {
 export interface FrontDoorLegCoordinator {
   /** Whether this leg handed the turn off to the escalated leg. */
   readonly handedOff: boolean;
+  /**
+   * True while answer text is held for a pending judge verdict. A driver
+   * whose leg completes in this state waits on {@link settled} before
+   * calling {@link complete}, so the held answer is spoken or overruled
+   * before the turn finishes.
+   */
+  readonly awaitingJudge: boolean;
+  /** Resolves once no answer text is held for the judge. */
+  settled(): Promise<void>;
+  /**
+   * Attach the escalation judge's verdict for this leg. `true` means the
+   * turn needs the escalated leg. The promise must never reject, and must
+   * settle within a bounded time: a held answer waits on it.
+   */
+  attachEscalationJudge(verdict: Promise<boolean>): void;
   /** Feed one raw delta of the front-door leg's stream. */
   push(text: string): void;
   /**
@@ -125,14 +153,35 @@ export function createFrontDoorLegCoordinator(options: {
   const { host } = options;
   const verdict = createFrontDoorVerdictMachine(options.holdEnabled);
   let handedOff = false;
+  // "none": no judge attached. "pending": attached, verdict not in yet.
+  let judge: "none" | "pending" | "escalate" | "clear" = "none";
+  // Answer text released by the verdict machine while the judge is pending.
+  // Null until the leg's verdict classified as an answer.
+  let heldAnswer: string | null = null;
+  let settleWaiters: Array<() => void> = [];
+  // Whether any answer text reached the host. A judge attached after that
+  // is ignored: speech already started cannot be overruled.
+  let answerReleased = false;
 
-  const handOff = (cappedBridge: string): void => {
+  const releaseAnswer = (text: string): void => {
+    answerReleased = true;
+    host.onAnswerText(text);
+  };
+
+  const handOff = (
+    cappedBridge: string,
+    opts: { overruled?: boolean } = {},
+  ): void => {
     if (handedOff || !host.isLive()) {
       return;
     }
     handedOff = true;
     host.progress?.clear();
-    host.abortLeg();
+    if (opts.overruled === true && host.overruleLeg !== undefined) {
+      host.overruleLeg();
+    } else {
+      host.abortLeg();
+    }
     const bridge = resolveSpokenEscalationBridge(cappedBridge, host.language());
     host.speakBridge(bridge);
     // The bridge is the turn's spoken acknowledgement: narration keeps its
@@ -145,9 +194,78 @@ export function createFrontDoorLegCoordinator(options: {
     host.progress?.arm();
   };
 
+  const releaseSettled = (): void => {
+    const waiters = settleWaiters;
+    settleWaiters = [];
+    for (const resolve of waiters) {
+      resolve();
+    }
+  };
+
+  // Act on held answer text once the judge has spoken: overrule it, or speak
+  // it as the leg would have without a judge.
+  const resolveHeldAnswer = (): void => {
+    if (heldAnswer === null || judge === "pending") {
+      return;
+    }
+    const text = heldAnswer;
+    heldAnswer = null;
+    if (judge === "escalate") {
+      handOff("", { overruled: true });
+    } else if (!handedOff && text.length > 0) {
+      releaseAnswer(text);
+    }
+    releaseSettled();
+  };
+
+  const onAnswer = (text: string): void => {
+    if (heldAnswer !== null) {
+      heldAnswer += text;
+      return;
+    }
+    if (judge === "pending") {
+      heldAnswer = text;
+      return;
+    }
+    if (judge === "escalate") {
+      // The verdict landed before the leg's first answer word.
+      heldAnswer = text;
+      resolveHeldAnswer();
+      return;
+    }
+    releaseAnswer(text);
+  };
+
   return {
     get handedOff() {
       return handedOff;
+    },
+    get awaitingJudge() {
+      return heldAnswer !== null && judge === "pending";
+    },
+    settled() {
+      if (heldAnswer === null || judge !== "pending") {
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        settleWaiters.push(resolve);
+      });
+    },
+    attachEscalationJudge(verdict) {
+      if (judge !== "none" || answerReleased || handedOff) {
+        return;
+      }
+      judge = "pending";
+      void verdict.then(
+        (escalate) => {
+          judge = escalate ? "escalate" : "clear";
+          resolveHeldAnswer();
+        },
+        () => {
+          judge = "clear";
+          resolveHeldAnswer();
+        },
+      );
     },
     push(text) {
       if (handedOff) {
@@ -166,7 +284,7 @@ export function createFrontDoorLegCoordinator(options: {
         return;
       }
       if (step.kind === "answer") {
-        host.onAnswerText(step.text);
+        onAnswer(step.text);
         return;
       }
       if (

@@ -32,6 +32,20 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+// The escalation judge's verdict for front-door legs, scripted per test.
+let judgeEscalationCalls: Array<{ utterance: string }> = [];
+let judgeEscalationVerdict = false;
+mock.module("../voice-escalation-judge.js", () => ({
+  judgeEscalation: async (args: { utterance: string }) => {
+    judgeEscalationCalls.push({ utterance: args.utterance });
+    return {
+      escalate: judgeEscalationVerdict,
+      outcome: judgeEscalationVerdict ? "escalate" : "clear",
+      latencyMs: 0,
+    };
+  },
+}));
+
 // Vision capability of the image pin's target profile. Install-dependent in
 // production (a BYO provider resolves the profile key through its own column
 // of the intent matrix), so it is scripted rather than read from a catalog.
@@ -2589,6 +2603,26 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
+  test("an answer the escalation judge overruled is deleted", async () => {
+    const { events, releaseLoop } = makeReservedRowConversation({
+      holdLoopOpen: true,
+    });
+    getMessageByIdImpl = () => makeRow("I'm adding it to the draft now.");
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+    });
+    await flushMicrotasks();
+    handle.overrule?.();
+    releaseLoop();
+    await flushMicrotasks();
+
+    // Only the unheard answer goes: the user row stays for the escalated leg.
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
   test("a committed front-door answer (no verdict token) is left untouched", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () => makeRow("It is Tuesday.");
@@ -3393,6 +3427,49 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
       expect(runOptions.overrideProfile).toBe("quality-optimized");
     } finally {
       visionByProfile.clear();
+    }
+  });
+});
+
+describe("startVoiceTurn escalation judge", () => {
+  beforeEach(() => {
+    judgeEscalationCalls = [];
+    judgeEscalationVerdict = false;
+    fakeConversation = makeFakeConversation({ processing: false }).conversation;
+  });
+
+  test("a front-door leg carries the judge's verdict and an overrule", async () => {
+    judgeEscalationVerdict = true;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "Text my mom I'm late.",
+      routingLeg: "front-door",
+    });
+
+    expect(judgeEscalationCalls).toEqual([
+      { utterance: "Text my mom I'm late." },
+    ]);
+    expect(await handle.escalationJudgement).toBe(true);
+    expect(typeof handle.overrule).toBe("function");
+  });
+
+  test("escalated, unrouted, and synthetic legs are not judged", async () => {
+    const escalated = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+    });
+    const unrouted = await startVoiceTurn(makeTurnOptions());
+    const synthetic = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([]);
+    for (const handle of [escalated, unrouted, synthetic]) {
+      expect(handle.escalationJudgement).toBeUndefined();
+      expect(handle.overrule).toBeUndefined();
     }
   });
 });
