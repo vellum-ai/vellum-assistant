@@ -73,6 +73,22 @@ describe("sendGuardianExpiryNotices", () => {
     expect(deliveredMessages[1].body.chatId).toBe("chat-456");
   });
 
+  test("opens the guardian's DM for a Discord delivery addressed to their user id", async () => {
+    await sendGuardianExpiryNotices(
+      [
+        makeDelivery({
+          destinationChannel: "discord",
+          destinationChatId: "111111111111111111",
+        }),
+      ],
+      "assistant-1",
+    );
+
+    expect(deliveredMessages).toHaveLength(1);
+    expect(deliveredMessages[0].url).toBe("/deliver/discord?dm=1");
+    expect(deliveredMessages[0].body.chatId).toBe("111111111111111111");
+  });
+
   test("skips deliveries that are not sent or pending", async () => {
     await sendGuardianExpiryNotices(
       [
