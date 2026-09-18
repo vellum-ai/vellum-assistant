@@ -289,32 +289,35 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 **Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
 
-1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
-2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
+1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against the `webhook_verify_token` credential and echoes `hub.challenge` as plain text.
+2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using the `app_secret` credential). Fail-closed: a request is rejected with 500 when no app secret is configured, and with 403 when the signature does not match.
 3. **Normalization**: Text and media messages (image, audio, video, document, sticker) from `messages` change fields are forwarded. Delivery receipts, read receipts, and unsupported message types (contacts, location) are silently acknowledged with `{ ok: true }`. Media attachments are downloaded from the WhatsApp Cloud API, uploaded to the runtime attachment store, and their IDs are passed alongside the message content.
 4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
 5. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "whatsapp"` and `conversationExternalId` set to the sender's WhatsApp phone number (E.164).
 6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
 7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
-8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
+8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` of `<gatewayInternalBaseUrl>/deliver/whatsapp`. The gateway serves no route at that path: the daemon uses the URL only to address the reply (see Egress).
 
-**Egress** (`POST /deliver/whatsapp`):
+**Egress** (daemon WhatsApp transport, `src/messaging/providers/whatsapp/`):
 
-1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
-2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
-3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
-4. Text is split at 4096 characters if needed.
+1. Replies, approval prompts, and proactive sends go out through the daemon's `whatsappTransport` (`transport.ts`), which calls the Meta Cloud API itself. `isDirectDelivery()` in `src/messaging/providers/index.ts` resolves the `/deliver/whatsapp` callback URL to this transport through `channelForCallback()` (`src/messaging/providers/callback-routing.ts`), so the daemon never posts back to the gateway or dials the URL's host and port. The exception is on the gateway side: its replies to invite and verification codes it intercepts at ingress (`deliverVerificationReply` in `gateway/src/verification/reply-delivery.ts`) still POST to the callback URL, which no gateway route serves, so those replies are not delivered.
+2. `api.ts` reads `phone_number_id` and `access_token` from the secure store and sends through the Cloud API `/{phoneNumberId}/messages` endpoint.
+3. `send.ts` splits text into 4096-character chunks, preferring newline and then whitespace boundaries.
+4. An approval prompt renders as an interactive message with up to three reply buttons whose ids follow the shared `apr:<requestId>:<action>` convention. When the cap forces a cut, the reject and block actions are kept. The gateway normalizes the guardian's `button_reply` back into callback data on ingress.
+5. Attachments up to 25 MB are uploaded to the Cloud API media endpoint and sent as image, video, or document messages. Any that fail are listed in a follow-up text notice.
 
-**Required credentials**:
+The gateway sends only its own notices to WhatsApp (the `/new` confirmation and routing-rejection notices), through `gateway/src/whatsapp/send.ts`.
 
-- `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
-- `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
-- `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
-- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
+**Required credentials** (credential vault, `whatsapp` service):
 
-These can be set via environment variables or stored in the credential vault (CES / encrypted store) under the `whatsapp` service prefix.
+- `phone_number_id`: the numeric WhatsApp Business phone number ID from Meta
+- `access_token`: System User or temporary access token
+- `app_secret`: app secret for webhook signature verification
+- `webhook_verify_token`: token for the Meta webhook subscription handshake
 
-**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
+The daemon reads `phone_number_id` and `access_token` to send. The gateway reads all four: the last two for ingress, and the first two for its own notices.
+
+**Limitations**: Contacts and location message types are acknowledged but not forwarded.
 
 **Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
@@ -2031,12 +2034,15 @@ Reminders carry optional `routingIntent` (`single_channel` | `multi_channel` | `
 
 ### Channel Delivery
 
-Notifications are delivered to three channel types:
+Notifications are delivered to five channel types. The daemon sends to external channels itself, calling each provider's API through the send modules in `src/messaging/providers/<channel>/`; nothing goes through the gateway.
 
 - **Vellum (always connected)**: SSE via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for conversation navigation and `messageId` for message-level scroll anchoring).
-- **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
+- **Platform (always connected)**: the `PlatformPushAdapter` posts the notification to the platform's `/v1/assistants/{id}/push/dispatch/` endpoint for native mobile push. Without platform credentials the delivery is recorded as failed.
+- **Telegram (when the guardian has a chat ID)**: the `TelegramAdapter` calls the Telegram Bot API through `telegram-bot/send.ts`. Approval cards carry inline keyboard buttons and fall back to plain text with typed-reply instructions if the rich send fails.
+- **Slack (when the guardian's chat is a DM)**: the `SlackAdapter` posts through `slack/send.ts`. Only `D`-prefixed DM channels qualify, so a binding made from a shared channel never receives notifications.
+- **Discord (when the guardian binding names a user)**: the `DiscordAdapter` opens the guardian's DM through the Discord REST API and sends through `discord/send.ts`.
 
-Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
+Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`, from the guardian delivery list (`getGuardianDelivery()`): vellum and platform are always included, and Telegram, Slack, and Discord are included only when that list gives the guardian a deliverable endpoint on the channel.
 
 **Key modules:**
 
@@ -2050,8 +2056,11 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
 | `assistant/src/notifications/conversation-candidates.ts`                   | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via SSE with deep-link metadata                                                     |
-| `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
-| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum SSE, Telegram chat ID from guardian binding)                                                   |
+| `assistant/src/notifications/adapters/platform.ts`                         | Platform adapter: posts to the platform push-dispatch endpoint for native mobile push                                                 |
+| `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter: calls the Telegram Bot API through `messaging/providers/telegram-bot/send.ts`                                       |
+| `assistant/src/notifications/adapters/slack.ts`                            | Slack adapter: posts to the guardian's DM through `messaging/providers/slack/send.ts`                                                 |
+| `assistant/src/notifications/adapters/discord.ts`                          | Discord adapter: sends to the guardian's DM through `messaging/providers/discord/send.ts`                                             |
+| `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints from the guardian delivery list (Telegram and Slack chat ID, Discord user ID)                          |
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
 | `assistant/src/notifications/preferences-store.ts`                         | CRUD for user notification preferences                                                                                                |
