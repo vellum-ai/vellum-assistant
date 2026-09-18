@@ -657,6 +657,10 @@ interface ActiveAssistantTurn {
   // whole frame rather than its wording. What the CLIENT believes, as against
   // `pendingApproval`, which is what is true.
   publishedApprovalRequestId: string | null;
+  // Structured activity the client most recently received. TTS can
+  // temporarily move system surfaces to speaking without changing this
+  // logical activity, while a tool or approval frame clears it.
+  publishedActivityKind: "escalation" | null;
   // Set while the turn is blocked on a decision the user has to make, and null
   // when it is not. Suppresses progress narration, whose entire vocabulary
   // ("still on it", "almost there") describes work in flight and would be
@@ -4114,6 +4118,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // behind them.
     if (
       detail === undefined &&
+      turn.publishedActivityKind === null &&
       turn.activityLabel === label &&
       turn.publishedApprovalRequestId === (approvalRequestId ?? null)
     ) {
@@ -4121,6 +4126,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     turn.activityLabel = label;
     turn.publishedApprovalRequestId = approvalRequestId ?? null;
+    turn.publishedActivityKind = detail?.kind ?? null;
     void this.sendFrame(
       {
         type: "activity",
@@ -5913,6 +5919,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       sessionControlRequested: null,
       activityLabel: "",
       publishedApprovalRequestId: null,
+      publishedActivityKind: null,
       pendingApproval: null,
       ttsAudioStarted: false,
       finalized: false,
@@ -6610,7 +6617,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (
           target === null ||
           !this.isActiveAssistantTurn(activeTurn.token) ||
-          activeTurn.assistantCompleted
+          activeTurn.assistantCompleted ||
+          activeTurn.publishedActivityKind !== "escalation"
         ) {
           return;
         }

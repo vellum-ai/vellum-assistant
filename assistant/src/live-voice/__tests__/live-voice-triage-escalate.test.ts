@@ -263,6 +263,67 @@ describe("live-voice triage-and-escalate routing", () => {
     await session.handleClientFrame({ type: "interrupt" });
   });
 
+  test("does not replace newer tool activity when bridge audio drains", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      holdEscalated: true,
+    });
+    let releaseBridge = (): void => {};
+    const bridgePending = new Promise<void>((resolve) => {
+      releaseBridge = resolve;
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk({
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: "AA==",
+      });
+      await bridgePending;
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: 1,
+      };
+    });
+    const { frames, session } = createHarness(starter, { streamTtsAudio });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    starter.mock.calls[1]?.[0]?.callbacks?.tool_use_start?.("web_search", {
+      toolUseId: "tool-1",
+    });
+    await waitFor(() => {
+      const activity = frames
+        .filter((frame) => frame.type === "activity")
+        .at(-1);
+      return activity?.label !== "" && activity?.kind === undefined;
+    });
+
+    const escalationFramesBeforeDrain = frames.filter(
+      (frame) => frame.type === "activity" && frame.kind === "escalation",
+    ).length;
+    releaseBridge();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(
+      frames.filter(
+        (frame) => frame.type === "activity" && frame.kind === "escalation",
+      ),
+    ).toHaveLength(escalationFramesBeforeDrain);
+    const latestActivity = frames
+      .filter((frame) => frame.type === "activity")
+      .at(-1);
+    expect(latestActivity).toEqual(
+      expect.objectContaining({ label: expect.not.stringMatching(/^$/) }),
+    );
+    expect(latestActivity).not.toHaveProperty("kind");
+
+    await session.handleClientFrame({ type: "interrupt" });
+  });
+
   test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
