@@ -2497,7 +2497,7 @@
   },
   "toneLab": {
     "title": "Tone lab",
-    "subtitle": "Mix the tone a voice conversation plays when it connects.",
+    "subtitle": "Mix the tone a voice conversation plays when it connects. Its inverse plays when the conversation ends.",
     "voiceToneDefault": "Voice start plays the default tone",
     "voiceToneOverride": "Voice start plays your mix on this device",
     "playVoiceTone": "Play",
@@ -2551,6 +2551,7 @@
     "hzPlainValue": "{hz} Hz",
     "msValue": "{ms} ms",
     "percentValue": "{percent}%",
-    "centsValue": "{cents} ¢"
+    "centsValue": "{cents} ¢",
+    "playEnd": "Play end tone"
   }
 }

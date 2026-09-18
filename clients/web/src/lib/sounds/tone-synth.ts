@@ -177,6 +177,31 @@ export function toneDurationSec(recipe: ToneRecipe): number {
 }
 
 /**
+ * The tone played backwards in pitch: the notes keep their timing and
+ * envelopes, but the pitch sequence runs in reverse and every glide flips
+ * direction. A rising arpeggio becomes a falling one that lands on its root.
+ *
+ * Layers that start together form one note (a chord or a doubled octave). The
+ * notes swap pitches as units, layer for layer in recipe order, so a doubling
+ * keeps its voicing. A layer whose mirror note has fewer layers keeps its pitch.
+ */
+export function invertTone(recipe: ToneRecipe): ToneRecipe {
+  const starts = [...new Set(recipe.layers.map((l) => l.startMs))].sort(
+    (a, b) => a - b,
+  );
+  const notes = starts.map((start) =>
+    recipe.layers.filter((layer) => layer.startMs === start),
+  );
+  const layers = recipe.layers.map((layer) => {
+    const noteIndex = starts.indexOf(layer.startMs);
+    const member = notes[noteIndex]?.indexOf(layer) ?? -1;
+    const source = notes[notes.length - 1 - noteIndex]?.[member] ?? layer;
+    return { ...layer, frequency: source.glideTo, glideTo: source.frequency };
+  });
+  return { ...recipe, layers };
+}
+
+/**
  * Build `recipe`'s graph on `ctx`, feeding `destination`, starting at context
  * time `when`. `volume` scales the whole tone. Returns the context time at
  * which the tone has fully decayed.
@@ -277,6 +302,22 @@ function getLiveContext(): AudioContext | null {
   }
   liveContext = new Ctor();
   return liveContext;
+}
+
+/**
+ * Create and resume the shared tone context from inside a user gesture, so a
+ * cue played later, outside any gesture (a call's end tone), is not refused by
+ * the autoplay policy. Safe to call repeatedly.
+ */
+export function prewarmToneContext(): void {
+  try {
+    const ctx = getLiveContext();
+    if (ctx && ctx.state !== "running") {
+      void ctx.resume();
+    }
+  } catch {
+    // No Web Audio, or the context was refused; the cue is simply skipped.
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 /**
  * The tone a live voice conversation plays once it is connected and the mic is
- * open: the cue that it is time to talk.
+ * open, the cue that it is time to talk, and its inverse when the conversation
+ * ends.
  *
  * The shipped tone is {@link DEFAULT_VOICE_START_TONE}. The Debug tone lab can
  * store a device-local override so a mix can be auditioned in a real call
@@ -9,6 +10,7 @@
 
 import { TONE_PRESETS } from "@/lib/sounds/tone-presets";
 import {
+  invertTone,
   playTone,
   sanitizeToneRecipe,
   type ToneRecipe,
@@ -51,6 +53,7 @@ export function resolveVoiceStartTone(): ToneRecipe {
   return readVoiceStartToneOverride() ?? DEFAULT_VOICE_START_TONE;
 }
 
-export function playVoiceStartTone(): void {
-  void playTone(resolveVoiceStartTone());
+/** The start tone with its pitch sequence reversed; see {@link invertTone}. */
+export function playVoiceEndTone(): void {
+  void playTone(invertTone(resolveVoiceStartTone()));
 }

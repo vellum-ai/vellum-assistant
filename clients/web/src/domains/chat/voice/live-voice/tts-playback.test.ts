@@ -5,6 +5,7 @@ import {
   decodePcm16Base64,
   type AudioContextLike,
 } from "@/domains/chat/voice/live-voice/tts-playback";
+import { TONE_PRESETS } from "@/lib/sounds/tone-presets";
 
 // ---------------------------------------------------------------------------
 // Mock Web Audio surface
@@ -1322,5 +1323,79 @@ describe("LiveVoiceAudioPlayer held playback", () => {
     // still be referenced.
     expect(player.isPlaying).toBe(false);
     expect(player.retainedSegmentCount).toBe(0);
+  });
+});
+
+describe("playTone", () => {
+  /**
+   * Give a mock context the synth's node constructors, recording which node
+   * each connects to. Installed after the player's graph is built, so the
+   * mute stage the mock recorded stays the player's own.
+   */
+  function addSynthNodes(ctx: MockAudioContext) {
+    const connections: Array<{ from: unknown; to: unknown }> = [];
+    let oscillators = 0;
+    const param = () => ({
+      value: 0,
+      setValueAtTime() {},
+      linearRampToValueAtTime() {},
+      exponentialRampToValueAtTime() {},
+    });
+    const node = () => {
+      const n = {
+        gain: param(),
+        frequency: param(),
+        detune: param(),
+        delayTime: param(),
+        Q: param(),
+        type: "",
+        start() {},
+        stop() {},
+        connect(to: unknown) {
+          connections.push({ from: n, to });
+        },
+      };
+      return n;
+    };
+    Object.assign(ctx, {
+      createGain: node,
+      createBiquadFilter: node,
+      createDelay: node,
+      createOscillator: () => {
+        oscillators += 1;
+        return node();
+      },
+    });
+    return { connections, oscillators: () => oscillators };
+  }
+
+  test("plays into the mute stage on the echo-cancelled route, after the route rebinds", async () => {
+    const { player, ctx } = makeMediaStreamPlayer();
+    player.prewarm();
+    const muteStage = ctx.gain;
+    const synth = addSynthNodes(ctx);
+
+    void player.restartOutputRoute();
+    player.playTone(TONE_PRESETS.bloom);
+    // Held until the rebind's pause and replay settle, or the cue is lost.
+    expect(synth.oscillators()).toBe(0);
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(synth.oscillators()).toBe(TONE_PRESETS.bloom.layers.length);
+    expect(synth.connections.some(({ to }) => to === muteStage)).toBe(true);
+  });
+
+  test("is a no-op before prewarm and after dispose", async () => {
+    const { player, ctx } = makePlayer();
+    player.playTone(TONE_PRESETS.bloom);
+
+    player.prewarm();
+    const synth = addSynthNodes(ctx);
+    player.playTone(TONE_PRESETS.bloom);
+    await player.dispose();
+    await Promise.resolve();
+
+    expect(synth.oscillators()).toBe(0);
   });
 });

@@ -2,6 +2,7 @@ import {
   AudioWaveform,
   ClipboardCopy,
   ClipboardPaste,
+  CornerDownRight,
   Mic,
   Play,
   Plus,
@@ -29,6 +30,7 @@ import {
   type TonePresetId,
 } from "@/lib/sounds/tone-presets";
 import {
+  invertTone,
   playTone,
   sanitizeToneRecipe,
   TONE_LIMITS,
@@ -69,8 +71,8 @@ function presetMatching(recipe: ToneRecipe): TonePresetId | null {
 }
 
 /**
- * Debug tone lab: mix the tone a voice conversation plays when it connects,
- * starting from a prebuilt, and audition it in a real call via a device-local
+ * Debug tone lab: mix the tone a voice conversation plays when it connects
+ * (its inverse plays when it ends), starting from a prebuilt, and audition it in a real call via a device-local
  * override.
  */
 export function ToneLabPanel() {
@@ -226,6 +228,13 @@ export function ToneLabPanel() {
               onClick={() => void playTone(recipe)}
             >
               {t("toneLab.play")}
+            </Button>
+            <Button
+              variant="ghost"
+              leftIcon={<CornerDownRight />}
+              onClick={() => void playTone(invertTone(recipe))}
+            >
+              {t("toneLab.playEnd")}
             </Button>
             <Button
               variant="ghost"

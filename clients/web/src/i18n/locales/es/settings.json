@@ -2355,7 +2355,7 @@
   },
   "toneLab": {
     "title": "Laboratorio de tonos",
-    "subtitle": "Mezcla el tono que suena cuando se conecta una conversación de voz.",
+    "subtitle": "Mezcla el tono que suena cuando se conecta una conversación de voz. Su inverso suena cuando la conversación termina.",
     "voiceToneDefault": "Al iniciar la voz suena el tono predeterminado",
     "voiceToneOverride": "Al iniciar la voz suena tu mezcla en este dispositivo",
     "playVoiceTone": "Reproducir",
@@ -2409,6 +2409,7 @@
     "hzPlainValue": "{hz} Hz",
     "msValue": "{ms} ms",
     "percentValue": "{percent}%",
-    "centsValue": "{cents} ¢"
+    "centsValue": "{cents} ¢",
+    "playEnd": "Reproducir tono final"
   }
 }

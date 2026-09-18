@@ -2414,7 +2414,7 @@
   },
   "toneLab": {
     "title": "音效實驗室",
-    "subtitle": "調製語音對話接通時播放的提示音。",
+    "subtitle": "調製語音對話接通時播放的提示音。對話結束時播放其反向音。",
     "voiceToneDefault": "語音開始時播放預設提示音",
     "voiceToneOverride": "語音開始時在此裝置上播放你的混音",
     "playVoiceTone": "播放",
@@ -2468,6 +2468,7 @@
     "hzPlainValue": "{hz} Hz",
     "msValue": "{ms} ms",
     "percentValue": "{percent}%",
-    "centsValue": "{cents} ¢"
+    "centsValue": "{cents} ¢",
+    "playEnd": "播放結束提示音"
   }
 }

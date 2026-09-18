@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { TONE_PRESET_IDS, TONE_PRESETS } from "@/lib/sounds/tone-presets";
 import {
+  invertTone,
   noteNameForFrequency,
   sanitizeToneRecipe,
   scheduleTone,
@@ -138,5 +139,47 @@ describe("noteNameForFrequency", () => {
     expect(noteNameForFrequency(440)).toBe("A4");
     expect(noteNameForFrequency(261.63)).toBe("C4");
     expect(noteNameForFrequency(783.99)).toBe("G5");
+  });
+});
+
+describe("invertTone", () => {
+  const pitches = (tone: ToneRecipe) =>
+    tone.layers.map((layer) => layer.frequency);
+
+  test("runs a rising arpeggio downward with the same timing", () => {
+    const bloom = TONE_PRESETS.bloom;
+    const inverse = invertTone(bloom);
+    expect(pitches(inverse)).toEqual([...pitches(bloom)].reverse());
+    expect(inverse.layers.map((l) => l.startMs)).toEqual(
+      bloom.layers.map((l) => l.startMs),
+    );
+    expect(inverse.layers.map((l) => l.decayMs)).toEqual(
+      bloom.layers.map((l) => l.decayMs),
+    );
+  });
+
+  test("swaps doubled notes as units, keeping their voicing", () => {
+    const rise = TONE_PRESETS.rise;
+    // Rise is C5 + C4 (triangle) at 0ms, then G5 + G4 (triangle) at 95ms.
+    expect(pitches(invertTone(rise))).toEqual([783.99, 392, 523.25, 261.63]);
+    expect(invertTone(rise).layers.map((l) => l.waveform)).toEqual(
+      rise.layers.map((l) => l.waveform),
+    );
+  });
+
+  test("flips glides", () => {
+    const sweep = TONE_PRESETS.tuneIn;
+    const inverse = invertTone(sweep);
+    // The saw's 220 to 880 sweep takes the landing note's slot pitch, and the
+    // landing note takes the sweep reversed.
+    expect(inverse.layers[1]).toMatchObject({ frequency: 880, glideTo: 220 });
+  });
+
+  test("inverting twice is the original tone", () => {
+    for (const id of TONE_PRESET_IDS) {
+      expect(invertTone(invertTone(TONE_PRESETS[id]))).toEqual(
+        TONE_PRESETS[id],
+      );
+    }
   });
 });
