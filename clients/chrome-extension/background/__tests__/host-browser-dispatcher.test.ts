@@ -183,8 +183,19 @@ function createHarness(options: MockCdpProxyOptions = {}): DispatcherTestHarness
     forwardedInvalidations,
     resolveTargetCalls,
     resolveTargetImpl: async (cdpSessionId) => {
-      if (cdpSessionId) return { targetId: cdpSessionId };
-      return { tabId: 42 };
+      if (!cdpSessionId) {
+        throw new Error('cdpSessionId (tab binding) is required');
+      }
+      if (cdpSessionId === 'active' || /^\d+$/.test(cdpSessionId)) {
+        const asNumber = Number(cdpSessionId);
+        if (
+          cdpSessionId === 'active' ||
+          (asNumber > 0 && Number.isSafeInteger(asNumber))
+        ) {
+          return { tabId: cdpSessionId === 'active' ? 42 : asNumber };
+        }
+      }
+      return { targetId: cdpSessionId };
     },
     postResultImpl: async (result) => {
       results.push(result);
@@ -240,8 +251,9 @@ const sampleRequest: HostBrowserRequestEnvelope = {
   type: 'host_browser_request',
   requestId: 'req-1',
   conversationId: 'conv-1',
-  cdpMethod: 'Browser.getVersion',
+  cdpMethod: 'Runtime.evaluate',
   cdpParams: { foo: 'bar' },
+  cdpSessionId: '42',
 };
 
 /**
@@ -285,8 +297,8 @@ describe('createHostBrowserDispatcher', () => {
 
       await harness.dispatcher.handle(sampleRequest);
 
-      // resolveTarget was called once with no session id → active tab.
-      expect(harness.resolveTargetCalls).toEqual([undefined]);
+      // resolveTarget was called once with the explicit tab binding.
+      expect(harness.resolveTargetCalls).toEqual(['42']);
 
       // Proxy attach + send happened with the resolved target.
       expect(harness.proxy.attachCalls.length).toBe(1);
@@ -295,7 +307,7 @@ describe('createHostBrowserDispatcher', () => {
 
       expect(harness.proxy.sendCalls.length).toBe(1);
       expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 42 });
-      expect(harness.proxy.sendCalls[0].frame.method).toBe('Browser.getVersion');
+      expect(harness.proxy.sendCalls[0].frame.method).toBe('Runtime.evaluate');
       expect(harness.proxy.sendCalls[0].frame.params).toEqual({ foo: 'bar' });
 
       // A single success result was posted with the stringified CDP result.
@@ -351,20 +363,20 @@ describe('createHostBrowserDispatcher', () => {
       expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
     });
 
-    test('when cdpSessionId is omitted, resolveTarget receives undefined and frame.sessionId is also undefined', async () => {
+    test('when cdpSessionId is omitted, raw CDP is rejected before resolveTarget', async () => {
       harness = createHarness({
         sendResult: { id: 1, result: {} },
       });
 
-      await harness.dispatcher.handle(sampleRequest);
+      const { cdpSessionId: _ignored, ...unbound } = sampleRequest;
+      await harness.dispatcher.handle(unbound);
 
-      // resolveTarget was called with undefined (active-tab fallback path).
-      expect(harness.resolveTargetCalls).toEqual([undefined]);
-
-      // frame.sessionId is also undefined — the active-tab path never sets
-      // a flat-session qualifier.
-      expect(harness.proxy.sendCalls.length).toBe(1);
-      expect(harness.proxy.sendCalls[0].frame.sessionId).toBeUndefined();
+      expect(harness.resolveTargetCalls).toEqual([]);
+      expect(harness.proxy.sendCalls.length).toBe(0);
+      expect(harness.results[0]?.isError).toBe(true);
+      expect(harness.results[0]?.content).toContain(
+        'cdpSessionId (tab binding) is required',
+      );
     });
   });
 
@@ -1388,25 +1400,37 @@ describe('createHostBrowserDispatcher', () => {
       });
     });
 
-    test('undefined cdpSessionId falls back to active tab (tabId: 42)', async () => {
+    test('undefined cdpSessionId is rejected instead of falling back to the active tab', async () => {
       harness = createHarnessWithRealResolveTarget({
         sendResult: { id: 1, result: {} },
       });
 
-      await harness.dispatcher.handle(sampleRequest);
+      const { cdpSessionId: _ignored, ...unbound } = sampleRequest;
+      await harness.dispatcher.handle(unbound);
 
-      // sampleRequest has no cdpSessionId → undefined.
-      expect(harness.resolveTargetCalls).toEqual([undefined]);
+      expect(harness.resolveTargetCalls).toEqual([]);
+      expect(harness.proxy.attachCalls.length).toBe(0);
+      expect(harness.results[0]?.isError).toBe(true);
+      expect(harness.results[0]?.content).toContain(
+        'cdpSessionId (tab binding) is required',
+      );
+    });
 
-      // Falls back to the simulated active tab.
-      expect(harness.proxy.attachCalls.length).toBe(1);
-      expect(harness.proxy.attachCalls[0].target).toEqual({ tabId: 42 });
+    test('rejects browser-wide CDP methods that are not on the allowlist', async () => {
+      harness = createHarness({
+        sendResult: { id: 1, result: {} },
+      });
 
-      expect(harness.proxy.sendCalls.length).toBe(1);
-      expect(harness.proxy.sendCalls[0].target).toEqual({ tabId: 42 });
+      await harness.dispatcher.handle({
+        ...sampleRequest,
+        cdpMethod: 'Target.attachToTarget',
+      });
 
-      expect(harness.results.length).toBe(1);
-      expect(harness.results[0].isError).toBe(false);
+      expect(harness.resolveTargetCalls).toEqual([]);
+      expect(harness.results[0]?.isError).toBe(true);
+      expect(harness.results[0]?.content).toContain(
+        'Target.attachToTarget is not permitted',
+      );
     });
 
     test('"0" is not a valid Chrome tab ID and routes as targetId', async () => {
