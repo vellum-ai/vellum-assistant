@@ -34,6 +34,7 @@ import {
 } from "../../tools/registry.js";
 import { finalizeTool } from "../../tools/tool-defaults.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import type { LiveVoiceContinuationJudge } from "../continuation-judge.js";
 import type { LiveVoiceContinuationLabeler } from "../continuation-label.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
@@ -220,6 +221,7 @@ function createHarness(options: {
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
   labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
@@ -304,6 +306,9 @@ function createHarness(options: {
       : {}),
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
+      : {}),
+    ...(options.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
       : {}),
     ...(options.labelBackgroundContinuation
       ? { labelBackgroundContinuation: options.labelBackgroundContinuation }
@@ -2031,6 +2036,79 @@ describe("LiveVoiceSession server VAD", () => {
     // The objective carries the interrupted request so the continuation knows
     // what to finish even before the user message is persisted into history.
     expect(spawnArgs?.objective).toContain("first question");
+  });
+
+  async function bargeInWithJudge(keep: boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => judged.length === 1);
+    await flushAsyncCallbacks();
+    return { judged, spawnBackgroundContinuation, calls };
+  }
+
+  test("the continuation judge sees the interrupting words and can drop the continuation", async () => {
+    const { judged, spawnBackgroundContinuation, calls } =
+      await bargeInWithJudge(false);
+
+    expect(judged).toEqual([
+      { interruptedRequest: "first question", interruption: "never mind that" },
+    ]);
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    // The foreground turn still carries the interrupted request.
+    const followUp = calls.find((c) => c.content === "never mind that");
+    expect(followUp?.voiceControlPrompt).toContain("first question");
+  });
+
+  test("a keep verdict spawns the continuation as before", async () => {
+    const { spawnBackgroundContinuation } = await bargeInWithJudge(true);
+
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.objective).toContain(
+      "first question",
+    );
   });
 
   test("the continuation carries the label the model phrased", async () => {

@@ -310,6 +310,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Second opinion on the voice front door's escalate decision. Runs only when pinned to a TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
     domain: "agentLoop",
   },
+  voiceContinuationJudge: {
+    id: "voiceContinuationJudge",
+    displayName: "Voice Continuation Judge",
+    description:
+      "Decides from the caller's interruption whether a barged-in request should keep running in the background. Runs only when pinned to a TypeSafe profile.",
+    domain: "agentLoop",
+  },
   voiceContinuationLabel: {
     id: "voiceContinuationLabel",
     displayName: "Voice Continuation Label",

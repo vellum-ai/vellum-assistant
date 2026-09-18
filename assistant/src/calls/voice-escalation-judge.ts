@@ -15,21 +15,11 @@
  * door's own decision stands exactly as it would without the judge.
  */
 
-import { noulFromAnswer } from "../providers/jev/client.js";
-import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-} from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
+import type { Message, Provider } from "../providers/types.js";
 import { safeStringSlice } from "../util/unicode.js";
-
-const log = getLogger("voice-escalation-judge");
+import { askTypesafeNoul } from "./typesafe-noul.js";
 
 export const VOICE_ESCALATION_JUDGE_CALL_SITE = "voiceEscalationJudge";
-
-const TYPESAFE_PROVIDER_NAME = "typesafe";
 
 /**
  * Minimum P(yes) that overrules a front-door answer. Calibrated on a labeled
@@ -66,11 +56,8 @@ export interface EscalationJudgement {
   latencyMs: number;
 }
 
-const ESCALATION_QUESTION = {
-  type: "noul" as const,
-  instructions:
-    "The voice assistant answering right now has NO tools and no access to the user's accounts, files, messages, calendar, screen, apps, the web, or saved memories. Would a correct reply to what the caller just said require doing something it cannot do from here: taking an action (sending, scheduling, creating, editing, changing, opening, calling), looking up live or current information, or retrieving a personal fact that is not already stated in the recent conversation? Answer yes if the caller is asking for, or agreeing to, any such action, even vaguely or via a short confirmation of an earlier offer. Answer no for conversation, opinions, general knowledge, and questions answerable from the recent conversation.",
-};
+const ESCALATION_QUESTION =
+  "The voice assistant answering right now has NO tools and no access to the user's accounts, files, messages, calendar, screen, apps, the web, or saved memories. Would a correct reply to what the caller just said require doing something it cannot do from here: taking an action (sending, scheduling, creating, editing, changing, opening, calling), looking up live or current information, or retrieving a personal fact that is not already stated in the recent conversation? Answer yes if the caller is asking for, or agreeing to, any such action, even vaguely or via a short confirmation of an earlier offer. Answer no for conversation, opinions, general knowledge, and questions answerable from the recent conversation.";
 
 function textOf(message: Message): string {
   return message.content
@@ -110,42 +97,6 @@ export function recentConversationForJudge(
   return lines.slice(-HISTORY_TURNS).join("\n");
 }
 
-function answersFrom(
-  response: ProviderResponse,
-): Record<string, unknown> | null {
-  const raw = response.rawResponse;
-  if (
-    typeof raw === "object" &&
-    raw !== null &&
-    "answers" in raw &&
-    typeof raw.answers === "object" &&
-    raw.answers !== null
-  ) {
-    return raw.answers as Record<string, unknown>;
-  }
-  const block = response.content.find((b) => b.type === "text");
-  if (!block || block.type !== "text") {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(block.text);
-    return typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function resolveJudgeProvider(): Promise<Provider | null> {
-  const resolved = await resolveConfiguredProvider(
-    VOICE_ESCALATION_JUDGE_CALL_SITE,
-  );
-  return resolved?.configuredProviderName === TYPESAFE_PROVIDER_NAME
-    ? resolved.provider
-    : null;
-}
-
 /**
  * Judge whether a front-door turn must escalate. Never rejects: every failure
  * is a non-escalating verdict, so the front door's decision stands.
@@ -159,96 +110,36 @@ export async function judgeEscalation(args: {
   /** Provider resolver, injectable for tests. */
   resolveProvider?: () => Promise<Provider | null>;
 }): Promise<EscalationJudgement> {
-  const startedAt = Date.now();
-  const elapsed = () => Date.now() - startedAt;
   const utterance = args.utterance.trim();
   if (utterance.length === 0) {
     return { escalate: false, outcome: "unavailable", latencyMs: 0 };
   }
-
-  const controller = new AbortController();
-  const signal = args.signal
-    ? AbortSignal.any([args.signal, controller.signal])
-    : controller.signal;
-
-  const ask = async (): Promise<EscalationJudgement> => {
-    try {
-      const provider = await (args.resolveProvider ?? resolveJudgeProvider)();
-      if (!provider) {
-        return {
-          escalate: false,
-          outcome: "unavailable",
-          latencyMs: elapsed(),
-        };
-      }
-      const state = {
-        recent_conversation:
-          recentConversationForJudge(args.history, utterance) ||
-          "(start of conversation)",
-        caller_just_said: utterance,
-      };
-      const response = await provider.sendMessage(
-        [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  state,
-                  questions: { needs_escalation: ESCALATION_QUESTION },
-                }),
-              },
-            ],
-          },
-        ],
-        {
-          config: {
-            callSite: VOICE_ESCALATION_JUDGE_CALL_SITE,
-            conversationId: args.conversationId,
-            disableTurnStartCache: true,
-          },
-          signal,
-        },
-      );
-      const noul = noulFromAnswer(answersFrom(response)?.needs_escalation);
-      if (noul === undefined) {
-        log.warn(
-          { conversationId: args.conversationId },
-          "Voice escalation judge returned no usable answer",
-        );
-        return { escalate: false, outcome: "error", latencyMs: elapsed() };
-      }
-      const escalate = noul >= ESCALATION_JUDGE_THRESHOLD;
-      return {
-        escalate,
-        outcome: escalate ? "escalate" : "clear",
-        noul,
-        latencyMs: elapsed(),
-      };
-    } catch (err) {
-      if (!signal.aborted) {
-        log.warn(
-          { err, conversationId: args.conversationId },
-          "Voice escalation judge failed",
-        );
-      }
-      return { escalate: false, outcome: "error", latencyMs: elapsed() };
-    }
-  };
-
-  // A hard race rather than trusting the provider to honor the abort: the
-  // front door's answer audio waits on this verdict.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<EscalationJudgement>((resolve) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      resolve({ escalate: false, outcome: "timeout", latencyMs: elapsed() });
-    }, args.timeoutMs ?? ESCALATION_JUDGE_TIMEOUT_MS);
+  const result = await askTypesafeNoul({
+    callSite: VOICE_ESCALATION_JUDGE_CALL_SITE,
+    conversationId: args.conversationId,
+    state: {
+      recent_conversation:
+        recentConversationForJudge(args.history, utterance) ||
+        "(start of conversation)",
+      caller_just_said: utterance,
+    },
+    instructions: ESCALATION_QUESTION,
+    timeoutMs: args.timeoutMs ?? ESCALATION_JUDGE_TIMEOUT_MS,
+    ...(args.signal ? { signal: args.signal } : {}),
+    ...(args.resolveProvider ? { resolveProvider: args.resolveProvider } : {}),
   });
-  try {
-    return await Promise.race([ask(), timedOut]);
-  } finally {
-    clearTimeout(timer);
+  if (result.outcome !== "answered" || result.noul === undefined) {
+    return {
+      escalate: false,
+      outcome: result.outcome === "answered" ? "error" : result.outcome,
+      latencyMs: result.latencyMs,
+    };
   }
+  const escalate = result.noul >= ESCALATION_JUDGE_THRESHOLD;
+  return {
+    escalate,
+    outcome: escalate ? "escalate" : "clear",
+    noul: result.noul,
+    latencyMs: result.latencyMs,
+  };
 }
