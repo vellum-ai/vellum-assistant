@@ -2129,7 +2129,14 @@ export async function startVoiceTurn(
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
         ...(opts.routingLeg === "escalated"
-          ? { inferenceCallSite: "mainAgent" as const }
+          ? {
+              // An image fallback must keep the image-capable profile's own
+              // model. The main-agent site's direct model tuning is exactly
+              // the incompatible target this fallback is routing around.
+              inferenceCallSite: needsImagePin
+                ? ("vision" as const)
+                : ("mainAgent" as const),
+            }
           : {}),
         // A caller is on the line, so the turn is interactive: approval prompts
         // must be raised rather than pre-denied, because the approval observer

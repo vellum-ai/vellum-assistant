@@ -3122,6 +3122,23 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
 
     expect(runOptions.overrideProfile).toBe("latency-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
+    expect(runOptions.inferenceCallSite).toBe("vision");
+  });
+
+  test("the image pin bypasses incompatible main-agent model tuning", async () => {
+    setConfig("llm", {
+      activeProfile: "quality-optimized",
+      callSites: { mainAgent: { model: "direct-text-model" } },
+    });
+    visionByProfile.set("direct-text-model", false);
+    try {
+      const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+      expect(runOptions.overrideProfile).toBe("latency-optimized");
+      expect(runOptions.inferenceCallSite).toBe("vision");
+    } finally {
+      visionByProfile.clear();
+    }
   });
 
   test("an image with no image-capable profile anywhere keeps the conversation profile", async () => {
