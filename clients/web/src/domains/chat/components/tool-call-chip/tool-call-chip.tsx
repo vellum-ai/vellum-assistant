@@ -10,7 +10,6 @@ import {
   FileText,
   FilePlus,
   Globe,
-  Loader2,
   Pencil,
   Search,
   Terminal,
@@ -208,11 +207,11 @@ export function InlineConfirmationCard({
           <div className="flex">
             <Button
               variant="primary"
+              loading={isSubmitting}
               disabled={isSubmitting}
               onClick={() => onSubmit?.("allow")}
               className="rounded-r-none"
             >
-              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t("toolCallChip.allow")}
             </Button>
             {/* Internal divider between the two halves of the split pill. */}
@@ -237,10 +236,10 @@ export function InlineConfirmationCard({
         ) : (
           <Button
             variant="primary"
+            loading={isSubmitting}
             disabled={isSubmitting}
             onClick={() => onSubmit?.("allow")}
           >
-            {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t("toolCallChip.allow")}
           </Button>
         )}
