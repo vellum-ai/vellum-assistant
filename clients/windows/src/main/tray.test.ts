@@ -63,6 +63,9 @@ mock.module("./main-window", () => ({
   ensureVisible: () => undefined,
   toggleVisibility: () => undefined,
 }));
+mock.module("@vellumai/electron-desktop/quick-input-window", () => ({
+  toggleQuickInput: () => undefined,
+}));
 
 const { installWindowsTray } = await import("./tray");
 const { installFeatureFlagsIpc, isFeatureEnabled } =
