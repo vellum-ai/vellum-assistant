@@ -179,36 +179,3 @@ export async function callTelegramApi<T>(
     }),
   );
 }
-
-export async function callTelegramApiMultipart<T>(
-  method: string,
-  form: FormData,
-  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
-): Promise<T> {
-  let botToken: string | undefined;
-  if (opts?.credentials) {
-    botToken = await opts.credentials.get(
-      credentialKey("telegram", "bot_token"),
-    );
-  }
-
-  if (!botToken) {
-    throw new Error(
-      `Telegram ${method} failed: botToken is not available (credentials not provided or credential cache returned undefined)`,
-    );
-  }
-
-  const apiBaseUrl =
-    opts?.configFile?.getString("telegram", "apiBaseUrl") ??
-    "https://api.telegram.org";
-  const timeoutMs =
-    opts?.configFile?.getNumber("telegram", "timeoutMs") ?? 15000;
-
-  return retryableTelegramFetch<T>(opts?.configFile, method, () =>
-    fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.timeout(timeoutMs),
-    }),
-  );
-}

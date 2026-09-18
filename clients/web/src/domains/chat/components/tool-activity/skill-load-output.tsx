@@ -53,7 +53,6 @@ export function SkillLoadOutput({
   }
 
   const activeMode: OutputMode = hasClean ? mode : "raw";
-  const body = activeMode === "clean" ? instructions : raw;
 
   return (
     <div>
@@ -79,7 +78,6 @@ export function SkillLoadOutput({
 
       <DetailBlock
         variant="filled"
-        length={body.length}
         copyText={activeMode === "raw" ? raw : undefined}
       >
         {activeMode === "clean" ? (

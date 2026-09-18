@@ -485,6 +485,78 @@ export const longTextParameterDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * Output of many short lines: forty file paths, far under the length that
+ * reads as "long" in characters but taller than the fold, so it folds by the
+ * height it is drawn at.
+ */
+export const manyShortLinesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-list-files-1",
+  toolName: "acme_repo_list_files",
+  title: "Working",
+  activity: "Listing the files the change touched",
+  input: {
+    activity: "Listing the files the change touched",
+    since: "main",
+  },
+  result: Array.from({ length: 40 }, (_, index) => `src/f${index + 1}.ts`).join(
+    "\n",
+  ),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is a list of twenty records: a table taller than the fold,
+ * so the table folds as one value with a single Show more.
+ */
+export const tallTableParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-tasks-import-1",
+  toolName: "acme_tasks_import",
+  title: "Working",
+  activity: "Importing twenty tasks into the launch board",
+  input: {
+    activity: "Importing twenty tasks into the launch board",
+    board: "Launch",
+    tasks: Array.from({ length: 20 }, (_, index) => ({
+      title: `Task ${index + 1}`,
+      owner: index % 2 === 0 ? "design" : "engineering",
+      due: `2026-10-${String(index + 1).padStart(2, "0")}`,
+    })),
+  },
+  result: JSON.stringify({ imported: 20 }),
+  riskLevel: "low",
+});
+
+/**
+ * A parameter that is an object of many fields: a nested group taller than the
+ * fold, so the group folds as one value.
+ */
+export const tallNestedParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-settings-update-1",
+  toolName: "acme_workspace_update_settings",
+  title: "Working",
+  activity: "Updating the workspace notification settings",
+  input: {
+    activity: "Updating the workspace notification settings",
+    settings: {
+      digest: "daily",
+      digest_hour: 9,
+      timezone: "America/New_York",
+      mentions: "immediately",
+      replies: "immediately",
+      reactions: "never",
+      weekly_summary: true,
+      quiet_hours_start: "22:00",
+      quiet_hours_end: "07:00",
+      channels: "email and push",
+      escalate_after_minutes: 30,
+      include_resolved: false,
+    },
+  },
+  result: JSON.stringify({ updated: true }),
+  riskLevel: "low",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well

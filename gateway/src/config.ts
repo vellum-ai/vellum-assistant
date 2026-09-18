@@ -8,7 +8,7 @@ import type { InboundChannelId } from "./channels/inbound-event.js";
 
 const log = getLogger("config");
 
-export type AttachmentByteChannel = InboundChannelId | "telegramOutbound";
+export type AttachmentByteChannel = InboundChannelId;
 
 export type AttachmentByteLimits = {
   default: number;
@@ -206,7 +206,6 @@ export function loadConfig(): GatewayConfig {
     logFile,
     maxAttachmentBytes: {
       telegram: 20 * 1024 * 1024, // Telegram Bot API getFile (download) limit
-      telegramOutbound: 50 * 1024 * 1024, // Telegram Bot API sendDocument (upload) limit
       slack: 100 * 1024 * 1024, // Slack standard plan
       whatsapp: 16 * 1024 * 1024, // WhatsApp Business API limit
       // Discord's attachment limit can exceed this value; the runtime's
