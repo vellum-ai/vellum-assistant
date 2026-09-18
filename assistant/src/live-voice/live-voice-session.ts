@@ -27,6 +27,7 @@ import {
   createControlMarkerHoldback,
   TASK_STOP_MARKER,
 } from "../calls/voice-control-protocol.js";
+import type { VoiceEscalationTarget } from "../calls/voice-escalation-target.js";
 import {
   createFrontDoorLegCoordinator,
   type FrontDoorLegCoordinator,
@@ -774,6 +775,9 @@ interface ActiveAssistantTurn {
   // The front-door leg's coordinator: whether it handed the turn off to the
   // escalated leg. Null until the front-door leg starts.
   frontDoor: FrontDoorLegCoordinator | null;
+  // Final post-hook inference target for an escalated leg. Retained so the
+  // neutral waiting phase can be restored after bridge audio drains.
+  escalationTarget: VoiceEscalationTarget | null;
   ttsBuffer: string;
   // What the caller actually hears this turn, summed over the model's own
   // segments (acks and progress narration do not count). Logged at tts_done
@@ -4129,6 +4133,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
   }
 
+  private publishEscalationActivity(
+    turn: ActiveAssistantTurn,
+    target: VoiceEscalationTarget,
+  ): void {
+    this.publishActivity(turn, "", undefined, {
+      kind: "escalation",
+      profile: target.profile,
+      profileSource: target.source,
+    });
+  }
+
   private clearActiveAssistantTurn(token: symbol): void {
     if (this.activeAssistantTurn?.token !== token) {
       return;
@@ -5927,6 +5942,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           : null,
       deltaEpoch: 0,
       frontDoor: null,
+      escalationTarget: null,
       ttsBuffer: "",
       spokenSegments: 0,
       spokenChars: 0,
@@ -6198,11 +6214,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 if (!this.isActiveAssistantTurn(token)) {
                   return;
                 }
-                this.publishActivity(activeTurn, "", undefined, {
-                  kind: "escalation",
-                  profile: target.profile,
-                  profileSource: target.source,
-                });
+                activeTurn.escalationTarget = target;
+                this.publishEscalationActivity(activeTurn, target);
               },
             }
           : {}),
@@ -6575,15 +6588,36 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.
       this.flushTtsBuffer(activeTurn.token, true);
-      return;
+    } else {
+      // The canned bridge is a fixed localized-table phrase, enqueued
+      // directly (it is already one complete sentence) so the segment can
+      // carry the "en" override when the table lacks the turn's language.
+      const speakable = sanitizeForTts(spokenBridge).trim();
+      if (speakable.length > 0) {
+        this.enqueueTtsSegment(activeTurn.token, speakable, { language });
+      }
     }
-    // The canned bridge is a fixed localized-table phrase, enqueued
-    // directly (it is already one complete sentence) so the segment can
-    // carry the "en" override when the table lacks the turn's language.
-    const speakable = sanitizeForTts(spokenBridge).trim();
-    if (speakable.length > 0) {
-      this.enqueueTtsSegment(activeTurn.token, speakable, { language });
-    }
+
+    // Target resolution can land before the bridge's queued audio finishes.
+    // Its activity frame moves the system surface to thinking, then a late
+    // bridge tts_audio frame moves it back to speaking. Restore the neutral
+    // waiting phase at the bridge's emission boundary, ahead of any answer
+    // audio queued behind it.
+    const bridgeDrain = activeTurn.ttsQueue;
+    void bridgeDrain.then(
+      () => {
+        const target = activeTurn.escalationTarget;
+        if (
+          target === null ||
+          !this.isActiveAssistantTurn(activeTurn.token) ||
+          activeTurn.assistantCompleted
+        ) {
+          return;
+        }
+        this.publishEscalationActivity(activeTurn, target);
+      },
+      () => undefined,
+    );
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {

@@ -217,6 +217,52 @@ describe("live-voice triage-and-escalate routing", () => {
     );
   });
 
+  test("restores the waiting activity after late bridge audio", async () => {
+    const { starter } = scriptedStartVoiceTurn({
+      frontDoor: ["[1] ", "Let me think about that."],
+      holdEscalated: true,
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk({
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: "AA==",
+      });
+      return {
+        provider: "fish-audio" as const,
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        chunks: 1,
+        bytes: 1,
+      };
+    });
+    const { frames, session } = createHarness(starter, { streamTtsAudio });
+
+    await driveTurn(session);
+    await waitFor(() => starter.mock.calls.length >= 2);
+    await waitFor(
+      () =>
+        frames.filter(
+          (frame) => frame.type === "activity" && frame.kind === "escalation",
+        ).length >= 2,
+    );
+
+    const bridgeAudioIndex = frames.findIndex(
+      (frame) => frame.type === "tts_audio",
+    );
+    const restoredActivityIndex = frames.findIndex(
+      (frame, index) =>
+        index > bridgeAudioIndex &&
+        frame.type === "activity" &&
+        frame.kind === "escalation",
+    );
+    expect(bridgeAudioIndex).toBeGreaterThanOrEqual(0);
+    expect(restoredActivityIndex).toBeGreaterThan(bridgeAudioIndex);
+
+    await session.handleClientFrame({ type: "interrupt" });
+  });
+
   test("no leg is told to refuse setup flows, and the escalated leg is told to run them", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
