@@ -70,8 +70,8 @@ import {
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import {
-  type EventTargeting,
   matchesTargeting,
   type SubscriberIdentity,
 } from "./assistant-event-targeting.js";
@@ -103,7 +103,8 @@ interface RingEntry {
   event: AssistantEventEnvelope;
   emittedAt: number;
   sizeBytes: number;
-  targeting?: EventTargeting;
+  /** The publish options the event went out with, re-applied on replay. */
+  targeting?: AssistantEventPublishOptions;
 }
 
 interface AssistantStreamState {
@@ -193,7 +194,7 @@ export function isStreamSeqStampingDisabled(): boolean {
  */
 export function stampAndBuffer(
   event: AssistantEventEnvelope,
-  options?: { targeting?: EventTargeting },
+  options?: { targeting?: AssistantEventPublishOptions },
 ): void {
   if (stampingDisabled) {
     return;

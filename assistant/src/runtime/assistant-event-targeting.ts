@@ -9,29 +9,17 @@
  * applies a subscriber's conversation filter only to events that do not name
  * a client; replay scopes to the conversation its caller asked for. Each path
  * applies its own scoping after this check.
- *
- * Fields use plain `string` rather than branded channel types so this module
- * stays independent of the `channels/` package.
  */
 
-/**
- * Targeting and exclusion modifiers attached to an event at publish time,
- * and stored on ring entries so replay applies the same rules.
- */
-export interface EventTargeting {
-  targetCapability?: string;
-  targetClientId?: string;
-  targetInterfaceId?: string;
-  targetActorPrincipalId?: string;
-  excludeClientId?: string;
-}
+import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 
 /** The connection an event is being delivered to, live or on replay. */
 export interface SubscriberIdentity {
   type: "client" | "process";
   clientId?: string;
-  interfaceId?: string;
-  capabilities?: readonly string[];
+  interfaceId?: InterfaceId;
+  capabilities?: readonly HostProxyCapability[];
   actorPrincipalId?: string;
 }
 
@@ -42,7 +30,7 @@ export interface SubscriberIdentity {
  * property.
  */
 export function matchesTargeting(
-  targeting: EventTargeting | undefined,
+  targeting: AssistantEventPublishOptions | undefined,
   subscriber: SubscriberIdentity,
 ): boolean {
   if (!targeting) {

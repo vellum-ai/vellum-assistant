@@ -9,10 +9,8 @@ import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "../api/index.js";
-import type {
-  EventTargeting,
-  SubscriberIdentity,
-} from "../runtime/assistant-event-targeting.js";
+import type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
+import type { SubscriberIdentity } from "../runtime/assistant-event-targeting.js";
 import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
@@ -103,7 +101,7 @@ describe("assistant-stream-state", () => {
       /** Targeted events stay in the ring so replay can filter them. */
 
       // GIVEN a targeting modifier
-      const targeting: EventTargeting = {
+      const targeting: AssistantEventPublishOptions = {
         targetCapability: "host_bash",
       };
 
