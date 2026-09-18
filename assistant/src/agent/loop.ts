@@ -700,7 +700,10 @@ interface AgentLoopRunOptionsBase {
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
+  /** Semantic call site exposed to hooks, events, and loop behavior. */
   callSite?: LLMCallSite;
+  /** Provider-resolution call site when it differs from turn semantics. */
+  inferenceCallSite?: LLMCallSite;
   /**
    * Route this run's user-facing text through the `send_user_message` tool
    * instead of streamed assistant text. The daemon sets it for main-agent runs
@@ -1441,6 +1444,7 @@ export class AgentLoop {
       requestId,
       onCheckpoint,
       callSite,
+      inferenceCallSite,
       suppressAssistantText = false,
       supportsDynamicUi = true,
       trust,
@@ -1454,6 +1458,7 @@ export class AgentLoop {
       latencyTracker,
       injectionLedgerResets,
     } = options;
+    const providerCallSite = inferenceCallSite ?? callSite;
     // Snapshot the system prompt once per run. The instance field is mutable
     // (the conversation may update it between turns), but a single run must
     // use one consistent prompt — an aborted run left detached after the
@@ -1899,7 +1904,7 @@ export class AgentLoop {
         // unexecutable client tool. The advisor consult's `advisorProfile` can
         // route `subagentSpawn` to a provider/model whose native-search support
         // differs from the construction-time default, so the gate resolves the
-        // routed target (callSite + overrideProfile) via
+        // routed target (providerCallSite + overrideProfile) via
         // `supportsNativeWebSearchFor` rather than the static
         // `this.provider.supportsNativeWebSearch` snapshot; providers without
         // the routing-aware probe fall back to the static flag. This is a SERVER
@@ -1911,7 +1916,7 @@ export class AgentLoop {
           .supportsNativeWebSearchFor
           ? this.provider.supportsNativeWebSearchFor(
               buildNativeWebSearchProbeOptions(
-                callSite,
+                providerCallSite,
                 resolveEffectiveOverrideProfile(),
                 forceOverrideProfile,
                 this.conversationId,
@@ -1930,11 +1935,11 @@ export class AgentLoop {
         //   1. Per-run explicit (`runModel`)
         //   2. Call-site resolved values (filled by
         //      `RetryProvider.normalizeSendMessageOptions` from
-        //      `resolveCallSiteConfig(callSite, llm)`)
+        //      `resolveCallSiteConfig(providerCallSite, llm)`)
         //   3. Conversation defaults (`this.config.*`, from the resolved
         //      default call-site config)
         //
-        // When `callSite` is present we deliberately leave
+        // When `providerCallSite` is present we deliberately leave
         // `max_tokens`/`thinking`/`effort`/`speed` *unset* in `providerConfig`
         // so the normalizer can fill them from the call-site resolution. The
         // normalizer only writes these fields when they're undefined; if we
@@ -1942,10 +1947,10 @@ export class AgentLoop {
         // for these knobs is silently ignored.
         //
         // `toolChoice` and `cacheTtl` are not part of the call-site schema, so
-        // they always come from `this.config` regardless of `callSite`.
+        // they always come from `this.config` regardless of `providerCallSite`.
         const providerConfig: Record<string, unknown> = {};
 
-        if (!callSite) {
+        if (!providerCallSite) {
           providerConfig.max_tokens = this.config.maxTokens;
         }
 
@@ -1953,7 +1958,7 @@ export class AgentLoop {
           providerConfig.model = runModel;
         }
 
-        if (!callSite) {
+        if (!providerCallSite) {
           const thinking = normalizeThinkingConfigForWire(this.config.thinking);
           if (thinking !== undefined) {
             providerConfig.thinking = thinking;
@@ -1992,9 +1997,9 @@ export class AgentLoop {
         // defaults when absent).
         // User-initiated conversation turns default to `mainAgent` in the
         // agent loop's caller; other invocation contexts (heartbeat, filing,
-        // analyze, etc.) pass their own `callSite`.
-        if (callSite) {
-          providerConfig.callSite = callSite;
+        // analyze, etc.) pass their own provider-resolution site.
+        if (providerCallSite) {
+          providerConfig.callSite = providerCallSite;
           providerConfig.usageTracking = "manual";
           // Per-conversation seed for deterministic `mix`-profile expansion.
           // Sourced from the loop's own conversation id so every LLM call in a
@@ -2022,7 +2027,7 @@ export class AgentLoop {
         // `activeProfile` and any call-site named profile. Threading it on
         // every send (rather than once at construction) keeps subagents that
         // share an `AgentLoop` instance but ought to inherit a different
-        // profile correct — and matches how `callSite` is plumbed.
+        // profile correct, matching how the provider call site is plumbed.
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
@@ -2254,7 +2259,9 @@ export class AgentLoop {
               : undefined;
           try {
             onModelCallPrepared({
-              ...(callSite !== undefined ? { callSite } : {}),
+              ...(providerCallSite !== undefined
+                ? { callSite: providerCallSite }
+                : {}),
               ...(preparedOverrideProfile !== undefined
                 ? { overrideProfile: preparedOverrideProfile }
                 : {}),

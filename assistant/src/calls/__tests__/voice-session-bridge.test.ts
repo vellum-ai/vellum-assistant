@@ -43,11 +43,30 @@ let conversationProfileSupportsVision = true;
 // arms differ.
 const visionByProfile = new Map<string, boolean>();
 mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: (profile: string) =>
-    visionByProfile.get(profile) ??
-    (profile === "latency-optimized"
-      ? pinProfileSupportsVision
-      : conversationProfileSupportsVision),
+  doesSupportVision: (
+    target:
+      | string
+      | {
+          model: string;
+          inputModalities?: {
+            image?: { enabled?: boolean; supported?: boolean };
+          } | null;
+        },
+  ) => {
+    if (typeof target !== "string") {
+      const image = target.inputModalities?.image;
+      if (image !== undefined) {
+        return (image.enabled ?? true) && (image.supported ?? false);
+      }
+    }
+    const modelOrProfile = typeof target === "string" ? target : target.model;
+    return (
+      visionByProfile.get(modelOrProfile) ??
+      (modelOrProfile === "latency-optimized"
+        ? pinProfileSupportsVision
+        : conversationProfileSupportsVision)
+    );
+  },
 }));
 
 const unresolvableProviderNames = new Set<string>();
@@ -3051,6 +3070,46 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     } finally {
       visionByProfile.clear();
     }
+  });
+
+  test("image capability honors an enabled profile modality override", async () => {
+    setConfig("llm", {
+      activeProfile: "custom-text-profile",
+      profiles: {
+        "custom-text-profile": {
+          provider: "anthropic",
+          model: "custom-text-model",
+          inputModalities: {
+            image: { enabled: true, supported: true },
+          },
+        },
+      },
+    });
+    conversationProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("custom-text-profile");
+  });
+
+  test("image capability honors a disabled profile modality override", async () => {
+    setConfig("llm", {
+      activeProfile: "custom-vision-profile",
+      profiles: {
+        "custom-vision-profile": {
+          provider: "anthropic",
+          model: "custom-vision-model",
+          inputModalities: {
+            image: { enabled: false, supported: true },
+          },
+        },
+      },
+    });
+    conversationProfileSupportsVision = true;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
   });
 
   test("an image hands a text-only conversation profile to the image pin", async () => {

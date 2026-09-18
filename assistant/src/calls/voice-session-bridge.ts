@@ -51,7 +51,10 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
-import { doesSupportVision } from "../plugin-api/vision-support.js";
+import {
+  doesSupportVision,
+  type ResolvedVisionTarget,
+} from "../plugin-api/vision-support.js";
 import { dispatchProviderResolvable } from "../providers/connection-resolution.js";
 import { pinnedListeningLanguage } from "../providers/speech-to-text/provider-catalog.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -113,7 +116,7 @@ const VOICE_IMAGE_PROFILE = "latency-optimized";
  */
 function conversationTargetForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
-): { profile: string | null; model: string } {
+): { profile: string | null; visionTarget: ResolvedVisionTarget } {
   const overrideProfile = resolveOverrideProfile(conversation);
   const resolveOptions = {
     ...(overrideProfile != null ? { overrideProfile } : {}),
@@ -133,7 +136,13 @@ function conversationTargetForEscalation(
   return {
     profile:
       selection.source === "default" ? null : (selection.profileName ?? null),
-    model: resolved.model,
+    visionTarget: {
+      provider: resolved.provider,
+      model: resolved.model,
+      ...(selection.entry?.inputModalities !== undefined
+        ? { inputModalities: selection.entry.inputModalities }
+        : {}),
+    },
   };
 }
 
@@ -2012,7 +2021,7 @@ export async function startVoiceTurn(
         opts.routingLeg !== "front-door" &&
         !(
           conversationTarget != null &&
-          doesSupportVision(conversationTarget.model)
+          doesSupportVision(conversationTarget.visionTarget)
         ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());

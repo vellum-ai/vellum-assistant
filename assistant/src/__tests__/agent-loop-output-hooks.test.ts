@@ -482,6 +482,48 @@ describe("agent loop output hooks", () => {
     expect(calls[0].options?.systemPrompt).toBeUndefined();
   });
 
+  test("inference routing preserves the semantic call site for hooks and events", async () => {
+    const preModelCallSites: Array<string | null> = [];
+    const postModelCallSites: Array<string | null> = [];
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        preModelCallSites.push(ctx.callSite);
+      },
+      postModelCall: (ctx) => {
+        postModelCallSites.push(ctx.callSite);
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      callSite: "callAgent",
+      inferenceCallSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(calls[0].options?.config?.callSite).toBe("mainAgent");
+    expect(prepared?.callSite).toBe("mainAgent");
+    expect(preModelCallSites).toEqual(["callAgent"]);
+    expect(postModelCallSites).toEqual(["callAgent"]);
+    expect(events).toContainEqual({
+      type: "llm_call_started",
+      callSite: "callAgent",
+    });
+  });
+
   test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {
     // GIVEN a hook that observes the seeded override and then clears it
     let seeded: string | null | undefined;
