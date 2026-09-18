@@ -398,8 +398,15 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "ipc-unix-ndjson",
     auth: "none (local socket)",
     description:
-      "Assistant reads contact auth/authz data from the gateway via IPC (get_contact, list_contacts, get_contact_by_channel, get_channels_for_contact).",
-    callerGlobs: ["assistant/src/ipc/gateway-client.ts"],
+      "Assistant reads and writes gateway-owned contacts over IPC: rich reads (contacts_list_rich, contacts_get_rich), the mirror reconciler's identity snapshot (contacts_identity_snapshot), the guardian contact (get_guardian_contact), and contact writes relayed to the gateway store (create_contact, update_contact_channel, merge_contacts, upsert_verified_channel, mark_channel_revoked).",
+    callerGlobs: [
+      "assistant/src/runtime/routes/contact-routes.ts",
+      "assistant/src/contacts/gateway-channel-read.ts",
+      "assistant/src/contacts/mirror-reconciler.ts",
+      "assistant/src/contacts/guardian-contact-reader.ts",
+      "assistant/src/contacts/member-write-relay.ts",
+      "assistant/src/daemon/handlers/config-channels.ts",
+    ],
     calleeGlobs: [
       "gateway/src/ipc/contact-handlers.ts",
       "gateway/src/ipc/server.ts",
@@ -807,6 +814,22 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     ],
     calleeGlobs: [
       "assistant/src/ipc/routes/route-adapter.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Plugin webhook WebSocket frame IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway terminates plugin ingress WebSockets at the edge and hands each frame, in arrival order, to the plugin's route over IPC as a POST (user_route_post). Nothing travels back to the socket.",
+    callerGlobs: [
+      "gateway/src/http/routes/plugin-webhook-websocket.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/user-routes.ts",
       "assistant/src/ipc/assistant-server.ts",
     ],
   },

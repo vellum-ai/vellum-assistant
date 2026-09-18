@@ -281,4 +281,59 @@ describe("service communication matrix", () => {
       );
     }
   });
+
+  test("every gateway file importing the assistant IPC client is covered by a matrix callerGlob", async () => {
+    /**
+     * A gateway module that imports ipcCallAssistant or ipcCallAssistantRaw
+     * from gateway/src/ipc/assistant-client.ts calls the assistant over IPC,
+     * whether directly or through an injected alias, so it must appear in the
+     * callerGlobs of some gateway -> assistant entry. Matching the import
+     * rather than call sites is what catches the aliased calls.
+     *
+     * Add to this list, with a comment, only a file that imports the client
+     * without calling the assistant.
+     */
+    const ALLOWLIST = new Set<string>([]);
+
+    const IMPORT_PATTERN =
+      /import\s*\{[^}]*\bipcCallAssistant(?:Raw)?\b[^}]*\}\s*from\s*["'][^"']*assistant-client(?:\.js)?["']/;
+
+    const coveredFiles = new Set<string>();
+    for (const entry of MATRIX_ENTRIES.filter(
+      (e) => e.caller === "gateway" && e.callee === "assistant",
+    )) {
+      for (const pattern of entry.callerGlobs) {
+        const glob = new Glob(pattern);
+        for (const match of glob.scanSync({ cwd: REPO_ROOT })) {
+          coveredFiles.add(match);
+        }
+      }
+    }
+
+    const sourceGlob = new Glob("gateway/src/**/*.ts");
+    const uncovered: string[] = [];
+    for (const relPath of sourceGlob.scanSync({ cwd: REPO_ROOT })) {
+      if (relPath.endsWith(".test.ts") || relPath.includes("/__tests__/")) {
+        continue;
+      }
+      const content = await Bun.file(join(REPO_ROOT, relPath)).text();
+      if (!IMPORT_PATTERN.test(content)) continue;
+      if (ALLOWLIST.has(relPath)) continue;
+      if (!coveredFiles.has(relPath)) {
+        uncovered.push(relPath);
+      }
+    }
+
+    if (uncovered.length > 0) {
+      throw new Error(
+        [
+          "The following gateway files call the assistant over IPC but have no matrix entry:",
+          ...uncovered.sort().map((f) => `  ${f}`),
+          "",
+          "Add a Gateway -> Assistant entry in matrix-source.ts with a callerGlob",
+          "that matches each file, or add it to ALLOWLIST if it does not call the assistant.",
+        ].join("\n"),
+      );
+    }
+  });
 });

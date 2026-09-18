@@ -63,12 +63,13 @@ This document enumerates every observed communication permutation between the th
 | 51 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Guardian form IPC |
 | 52 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
 | 53 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
-| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
-| 55 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 56 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 57 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 58 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 59 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Plugin webhook WebSocket frame IPC |
+| 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
+| 56 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 57 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 58 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 59 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 60 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -534,6 +535,19 @@ This document enumerates every observed communication permutation between the th
 - `assistant/src/ipc/routes/route-adapter.ts`
 - `assistant/src/ipc/assistant-server.ts`
 
+### Plugin webhook WebSocket frame IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway terminates plugin ingress WebSockets at the edge and hands each frame, in arrival order, to the plugin's route over IPC as a POST (user_route_post). Nothing travels back to the socket.
+
+**Caller files:**
+- `gateway/src/http/routes/plugin-webhook-websocket.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/user-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
 ### Assistant health IPC
 
 - **Protocol:** `ipc-unix-framed`
@@ -566,10 +580,15 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `ipc-unix-ndjson`
 - **Auth:** none (local socket)
-- **Description:** Assistant reads contact auth/authz data from the gateway via IPC (get_contact, list_contacts, get_contact_by_channel, get_channels_for_contact).
+- **Description:** Assistant reads and writes gateway-owned contacts over IPC: rich reads (contacts_list_rich, contacts_get_rich), the mirror reconciler's identity snapshot (contacts_identity_snapshot), the guardian contact (get_guardian_contact), and contact writes relayed to the gateway store (create_contact, update_contact_channel, merge_contacts, upsert_verified_channel, mark_channel_revoked).
 
 **Caller files:**
-- `assistant/src/ipc/gateway-client.ts`
+- `assistant/src/runtime/routes/contact-routes.ts`
+- `assistant/src/contacts/gateway-channel-read.ts`
+- `assistant/src/contacts/mirror-reconciler.ts`
+- `assistant/src/contacts/guardian-contact-reader.ts`
+- `assistant/src/contacts/member-write-relay.ts`
+- `assistant/src/daemon/handlers/config-channels.ts`
 
 **Callee files:**
 - `gateway/src/ipc/contact-handlers.ts`
