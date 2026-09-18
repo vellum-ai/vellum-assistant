@@ -10,6 +10,9 @@
  *
  * When the verdict is unreadable or unusable, the row falls back to the
  * guardian-address comparison and carries no contact id.
+ *
+ * A read goes through `readInboundTrust`, so it also refreshes the
+ * member-verdict cache for that sender, as a live inbound read does.
  */
 
 import { readInboundTrust } from "../../../calls/inbound-trust-reader.js";

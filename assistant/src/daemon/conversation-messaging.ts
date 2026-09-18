@@ -64,7 +64,7 @@ import {
   updateMetaFile,
 } from "../persistence/conversation-disk-view.js";
 import {
-  isHiddenMessageMetadata,
+  isEchoSuppressedUserMessage,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
 } from "../persistence/conversation-types.js";
 import {
@@ -1331,10 +1331,11 @@ export async function persistQueuedMessageBody(
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
-      // A scripted or hidden row speaks in the person's voice without being
-      // their words, so even a relayed author is not named on one.
+      // A scripted row, or one the repo classes as machine-injected (hidden,
+      // ACP or subagent notification, background event), is not a person's
+      // own words, so even a relayed author is not named on one.
       ...(resolvedScripted ||
-      isHiddenMessageMetadata(metadataWithoutSlackInbound)
+      isEchoSuppressedUserMessage(metadataWithoutSlackInbound)
         ? {}
         : actorAuthorProvenance(options.author)),
       ...(turnCtx

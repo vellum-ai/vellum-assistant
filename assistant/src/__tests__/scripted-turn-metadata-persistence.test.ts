@@ -265,6 +265,22 @@ describe("author contact id on a persisted user message", () => {
     ["scripted", { scripted: true }],
     ["automated", { metadata: { automated: true } }],
     ["hidden", { metadata: { hidden: true } }],
+    [
+      "ACP notification",
+      { metadata: { acpNotification: { acpSessionId: "acp-session-1" } } },
+    ],
+    [
+      "subagent notification",
+      {
+        metadata: {
+          subagentNotification: {
+            subagentId: "subagent-1",
+            label: "Research",
+            status: "completed",
+          },
+        },
+      },
+    ],
   ] as const)(
     "a %s row speaks in their voice without naming them",
     async (kind, extra) => {
