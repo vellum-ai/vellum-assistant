@@ -715,6 +715,7 @@ describe('createHostBrowserDispatcher', () => {
       conversationId: 'conv-1',
       cdpMethod: 'Page.navigate',
       cdpParams: { url: 'https://example.com' },
+      cdpSessionId: '42',
     };
 
     test('recovers from a privileged chrome:// tab by creating a new tab and retargeting', async () => {
@@ -1818,6 +1819,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'attach-1',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.attach',
+        cdpSessionId: '42',
       };
 
       await harness.dispatcher.handle(attachRequest);
@@ -1846,6 +1848,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'attach-1',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.attach',
+        cdpSessionId: '42',
       };
 
       await harness.dispatcher.handle(attachRequest);
@@ -1869,6 +1872,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'attach-1',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.attach',
+        cdpSessionId: '42',
       };
 
       await harness.dispatcher.handle(attachRequest);
@@ -1898,6 +1902,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'detach-1',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.detach',
+        cdpSessionId: '42',
       };
 
       await harness.dispatcher.handle(detachRequest);
@@ -1933,6 +1938,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'detach-1',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.detach',
+        cdpSessionId: '42',
       };
 
       // First detach — actually calls proxy.detach.
@@ -1959,6 +1965,7 @@ describe('createHostBrowserDispatcher', () => {
         requestId: 'detach-cold',
         conversationId: 'conv-1',
         cdpMethod: 'Vellum.detach',
+        cdpSessionId: '42',
       };
 
       await harness.dispatcher.handle(detachRequest);
