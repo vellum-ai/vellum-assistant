@@ -6406,12 +6406,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (
           target === null ||
           !this.isActiveAssistantTurn(activeTurn.token) ||
-          activeTurn.assistantCompleted ||
-          activeTurn.publishedActivityKind !== "escalation"
+          activeTurn.assistantCompleted
         ) {
           return;
         }
-        this.publishEscalationActivity(activeTurn, target);
+        if (activeTurn.publishedActivityKind === "escalation") {
+          this.publishEscalationActivity(activeTurn, target);
+          return;
+        }
+        this.liveActivityReporter.restoreThinkingPhase();
       },
       () => undefined,
     );

@@ -11,6 +11,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import { LiveActivityReporter } from "../live-activity-reporter.js";
 import {
   LiveVoiceSession,
   type LiveVoiceTtsStreamer,
@@ -61,11 +62,29 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+class RecordingLiveActivityReporter extends LiveActivityReporter {
+  readonly dispatched: Array<{ phase: string; event: string; detail: string }> =
+    [];
+
+  waitForDispatches(): Promise<void> {
+    return this.waitForPendingDispatches();
+  }
+
+  protected override async dispatch(
+    phase: string,
+    event: "update" | "end",
+    detail: string,
+  ): Promise<void> {
+    this.dispatched.push({ phase, event, detail });
+  }
+}
+
 function createHarness(
   startVoiceTurn: LiveVoiceTurnStarter,
   opts: {
     transcriber?: MockStreamingTranscriber;
     streamTtsAudio?: LiveVoiceTtsStreamer;
+    liveActivityReporter?: LiveActivityReporter;
   } = {},
 ) {
   const sequencer = createLiveVoiceServerFrameSequencer();
@@ -84,6 +103,9 @@ function createHarness(
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn,
     ...(opts.streamTtsAudio ? { streamTtsAudio: opts.streamTtsAudio } : {}),
+    ...(opts.liveActivityReporter
+      ? { liveActivityReporter: opts.liveActivityReporter }
+      : {}),
     createTurnId: () => "live-turn-1",
     emitMetrics: false,
   });
@@ -288,7 +310,13 @@ describe("live-voice triage-and-escalate routing", () => {
         bytes: 1,
       };
     });
-    const { frames, session } = createHarness(starter, { streamTtsAudio });
+    const liveActivityReporter = new RecordingLiveActivityReporter(
+      "conversation-123",
+    );
+    const { frames, session } = createHarness(starter, {
+      streamTtsAudio,
+      liveActivityReporter,
+    });
 
     await driveTurn(session);
     await waitFor(() => starter.mock.calls.length >= 2);
@@ -305,8 +333,12 @@ describe("live-voice triage-and-escalate routing", () => {
     const escalationFramesBeforeDrain = frames.filter(
       (frame) => frame.type === "activity" && frame.kind === "escalation",
     ).length;
+    const overlayBeforeDrain = frames
+      .filter((frame) => frame.type === "activity")
+      .at(-1);
     releaseBridge();
     await new Promise((resolve) => setTimeout(resolve, 10));
+    await liveActivityReporter.waitForDispatches();
 
     expect(
       frames.filter(
@@ -320,6 +352,12 @@ describe("live-voice triage-and-escalate routing", () => {
       expect.objectContaining({ label: expect.not.stringMatching(/^$/) }),
     );
     expect(latestActivity).not.toHaveProperty("kind");
+    expect(liveActivityReporter.dispatched.at(-1)).toEqual({
+      phase: "thinking",
+      event: "update",
+      detail:
+        overlayBeforeDrain?.type === "activity" ? overlayBeforeDrain.label : "",
+    });
 
     starter.mock.calls[1]?.[0]?.callbacks?.tool_result?.({
       toolName: "web_search",

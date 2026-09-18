@@ -330,6 +330,22 @@ describe("LiveActivityReporter activity line", () => {
     });
   });
 
+  test("restores thinking after bridge speech without clearing an overlay", async () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("thinking"));
+    reporter.report(frame("tts_audio"));
+    reporter.report(activity("Searching the web"));
+    reporter.restoreThinkingPhase();
+    await reporter.waitForDispatches();
+
+    expect(reporter.dispatched.at(-1)).toEqual({
+      phase: "thinking",
+      event: "update",
+      detail: "Searching the web",
+    });
+  });
+
   test("an empty label clears the line", async () => {
     const reporter = new RecordingReporter("conv-1");
 

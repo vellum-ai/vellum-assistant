@@ -173,6 +173,18 @@ export class LiveActivityReporter {
   }
 
   /**
+   * Move the system surface past escalation bridge speech without replacing a
+   * tool or approval line that became active while that speech was draining.
+   */
+  restoreThinkingPhase(): void {
+    if (this.ended || this.lastPhase === "thinking") {
+      return;
+    }
+    this.lastPhase = "thinking";
+    this.enqueueDispatch("thinking", "update", this.lastDetail);
+  }
+
+  /**
    * Retire the activity as the session ends.
    *
    * Latched, because a session can end more than one way — a clean hangup, a
