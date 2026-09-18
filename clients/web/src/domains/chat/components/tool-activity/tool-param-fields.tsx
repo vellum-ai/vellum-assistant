@@ -92,7 +92,7 @@ function FieldValue({ field }: { field: ValueField }) {
   switch (field.kind) {
     case "text":
       return (
-        <ClampedContent length={field.text.length}>
+        <ClampedContent>
           <ValueText>{field.text}</ValueText>
         </ClampedContent>
       );
@@ -101,7 +101,7 @@ function FieldValue({ field }: { field: ValueField }) {
       // carries no copy button of its own.
       return (
         <div className="mt-1">
-          <DetailBlock length={field.text.length}>
+          <DetailBlock>
             <CodePre text={field.text} />
           </DetailBlock>
         </div>
@@ -127,22 +127,26 @@ function FieldValue({ field }: { field: ValueField }) {
         </span>
       );
     case "table":
+      // The table folds as one value, like a long text or code block does:
+      // one Show more for the table, not one per cell.
       return (
         <div className="mt-1 flex min-w-0 flex-col gap-2">
-          <DataTable
-            {...tableProps(field)}
-            copyable={false}
-            renderCell={(text) => (
-              <ClampedContent length={text.length}>
-                <ValueText as="span">{text}</ValueText>
-              </ClampedContent>
-            )}
-          />
+          <ClampedContent>
+            <DataTable
+              {...tableProps(field)}
+              copyable={false}
+              renderCell={(text) => <ValueText as="span">{text}</ValueText>}
+            />
+          </ClampedContent>
           {field.more > 0 && <MoreInRawInput count={field.more} />}
         </div>
       );
     case "nested":
-      return <ToolParamFields list={field.fields} nested />;
+      return (
+        <ClampedContent>
+          <ToolParamFields list={field.fields} nested />
+        </ClampedContent>
+      );
   }
 }
 

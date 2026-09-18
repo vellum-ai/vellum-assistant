@@ -39,6 +39,7 @@ const { useChatSessionStore } =
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { stubOverflow } from "@/hooks/overflow.test-helper";
 
 /** Wrap messages into a materialized-snapshot page. */
 function snap(messages: DisplayMessage[]): PaginatedHistoryResult {
@@ -91,6 +92,8 @@ function makeDetail(
 }
 
 let writeText: ReturnType<typeof mock>;
+/** Set by a test that stubs layout; `afterEach` restores it. */
+let restoreLayout: (() => void) | null = null;
 
 beforeEach(() => {
   queryClient = new QueryClient({
@@ -104,6 +107,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  restoreLayout?.();
+  restoreLayout = null;
   cleanup();
   act(() => {
     useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
@@ -309,6 +314,7 @@ describe("ToolDetailPanel", () => {
 
   test("folds a long one-line value behind Show more", () => {
     const note = "word ".repeat(200).trim();
+    restoreLayout = stubOverflow((el) => el.textContent === note);
     const detail = makeDetail({
       toolName: "acme_notes_append",
       input: { note },
@@ -322,24 +328,74 @@ describe("ToolDetailPanel", () => {
     expect(getAllByText("Show more")).toHaveLength(1);
   });
 
-  test("folds a long table cell behind Show more", () => {
-    const body = "word ".repeat(200).trim();
-    const detail = makeDetail({
-      toolName: "acme_notes_import",
-      input: {
-        notes: [
-          { title: "first", body },
-          { title: "second", body: "short" },
-        ],
-      },
-      result: "",
-    });
-    const { getAllByText } = render(
-      <ToolDetailPanel detail={detail} onClose={noop} />,
+  test("folds a table taller than the fold as one value", () => {
+    const notes = Array.from({ length: 12 }, (_, index) => ({
+      title: `note-${index + 1}`,
+      body: "short",
+    }));
+    restoreLayout = stubOverflow(
+      (el) =>
+        el.querySelector("table") !== null &&
+        el.textContent.includes("note-12"),
+    );
+    const { getAllByText, getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_notes_import",
+          input: { notes },
+          result: "",
+        })}
+        onClose={noop}
+      />,
     );
 
-    // The long cell folds; the short one and the title column do not.
+    // One Show more for the whole table, not one per cell.
     expect(getAllByText("Show more")).toHaveLength(1);
+    expect(getByText("note-12")).toBeDefined();
+  });
+
+  test("folds a nested group taller than the fold as one value", () => {
+    const record = Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [`field_${index + 1}`, "x"]),
+    );
+    restoreLayout = stubOverflow((el) => el.textContent.startsWith("field_1"));
+    const { getAllByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_crm_upsert_contact",
+          input: { record },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  test("opens a long field inside a folded group with the group's one Show more", () => {
+    const summary = "word ".repeat(200).trim();
+    const record = { stage: "qualified", summary };
+    // The long field is taller than the fold on its own, and so is its group.
+    restoreLayout = stubOverflow((el) => el.textContent.includes(summary));
+    const { getAllByText, getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "acme_crm_upsert_contact",
+          input: { record },
+          result: "",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getAllByText("Show more")).toHaveLength(1);
+    act(() => {
+      fireEvent.click(getByText("Show more"));
+    });
+    // Nothing is left folded inside the opened group.
+    expect(queryByText("Show more")).toBeNull();
+    expect(getAllByText("Show less")).toHaveLength(1);
   });
 
   test("counts the items past the first twenty instead of listing them", () => {
@@ -547,8 +603,9 @@ describe("ToolDetailPanel", () => {
     );
   });
 
-  test("clamps a long result behind Show more", () => {
+  test("folds a result taller than the fold behind Show more", () => {
     const long = "a line of output\n".repeat(200);
+    restoreLayout = stubOverflow((el) => el.textContent === long);
     const { getByText, queryByText } = render(
       <ToolDetailPanel detail={makeDetail({ result: long })} onClose={noop} />,
     );
@@ -559,6 +616,16 @@ describe("ToolDetailPanel", () => {
       fireEvent.click(toggle);
     });
     expect(getByText("Show less")).toBeDefined();
+    expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("offers no Show more for long text that fits the fold", () => {
+    // Long in characters, but it fits where it is drawn, so nothing is hidden.
+    const result = "word ".repeat(300).trim();
+    const { queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+    );
+
     expect(queryByText("Show more")).toBeNull();
   });
 

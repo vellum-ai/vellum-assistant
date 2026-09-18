@@ -1,5 +1,5 @@
 import { Button, Card, Typography } from "@vellumai/design-library";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { useTranslation } from "@/i18n";
@@ -8,6 +8,7 @@ import type { QuestionEntry } from "@/types/interaction-ui-types";
 
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 import { useVirtualDesktopEnabled } from "./use-virtual-desktop-enabled";
+import { useOverflows } from "@/hooks/use-overflows";
 
 interface DesktopHelpCardProps {
   entry: QuestionEntry;
@@ -22,20 +23,11 @@ export function DesktopHelpCard({
 }: DesktopHelpCardProps) {
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
-  const [canExpand, setCanExpand] = useState(false);
-  const messageRef = useRef<HTMLParagraphElement>(null);
-  useLayoutEffect(() => {
-    const message = messageRef.current;
-    if (!message || expanded) {
-      return;
-    }
-    const measure = () =>
-      setCanExpand(message.scrollHeight > message.clientHeight);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(message);
-    return () => observer.disconnect();
-  }, [entry.question, expanded]);
+  const { ref: messageRef, overflows: canExpand } =
+    useOverflows<HTMLParagraphElement>({
+      contentKey: entry.question,
+      paused: expanded,
+    });
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const enabled = useVirtualDesktopEnabled();
   const session = useDesktopPreviewStore.use.session();
