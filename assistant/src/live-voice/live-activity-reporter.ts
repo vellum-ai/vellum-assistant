@@ -115,6 +115,7 @@ export class LiveActivityReporter {
   private lastPhase: LiveActivityPhase | null = null;
   private lastDetail = "";
   private ended = false;
+  private dispatchTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly conversationId: string) {}
 
@@ -155,7 +156,7 @@ export class LiveActivityReporter {
     if (this.lastPhase === null) {
       return;
     }
-    void this.dispatch(this.lastPhase, "update", this.lastDetail);
+    this.enqueueDispatch(this.lastPhase, "update", this.lastDetail);
   }
 
   /**
@@ -174,7 +175,32 @@ export class LiveActivityReporter {
     // No detail on the way out: whatever the turn was doing, it is not doing
     // it any more, and this state is the one that lingers on the Lock Screen
     // through the dismissal window.
-    void this.dispatch("ending", "end", "");
+    this.enqueueDispatch("ending", "end", "");
+  }
+
+  /**
+   * Preserve frame order across asynchronous platform requests without making
+   * the session wait for them. A later phase must never arrive before an older
+   * request finishes and then be overwritten by that older content state.
+   */
+  private enqueueDispatch(
+    phase: LiveActivityPhase,
+    event: "update" | "end",
+    detail: string,
+  ): void {
+    this.dispatchTail = this.dispatchTail
+      .then(() => this.dispatch(phase, event, detail))
+      .catch((err: unknown) => {
+        // `dispatch` contains its own best-effort error boundary. Keep this
+        // guard for subclasses and future implementations so one rejection
+        // cannot poison every later phase in the queue.
+        log.debug({ err, phase, event }, "Live Activity dispatch queue failed");
+      });
+  }
+
+  /** Resolve after every queued dispatch has settled. */
+  protected waitForPendingDispatches(): Promise<void> {
+    return this.dispatchTail;
   }
 
   /** `protected` so a test can observe what would be sent without sending it. */
