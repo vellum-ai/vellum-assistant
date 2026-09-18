@@ -13,8 +13,8 @@
  *  - never re-throw — the caller always gets a structured result and decides
  *    whether to alert further
  *
- * Producers that have their own bespoke failure UX (e.g. heartbeat's existing
- * alerter banner) can opt out of the failure-emit via
+ * Producers whose failure alerting is owned elsewhere (e.g. the scheduler's
+ * retry policy) can opt out of the failure-emit via
  * `suppressFailureNotifications`.
  */
 
@@ -104,9 +104,9 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs whose failure alerting is owned elsewhere: heartbeat's
-   * alerter banner, and the scheduler's retry policy (which alerts once,
-   * when retries are exhausted, instead of once per attempt).
+   * Use for jobs whose failure alerting is owned elsewhere, such as the
+   * scheduler's retry policy (which alerts once, when retries are
+   * exhausted, instead of once per attempt).
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
