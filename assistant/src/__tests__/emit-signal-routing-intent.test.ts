@@ -662,7 +662,7 @@ describe("high/critical urgency channel force", () => {
       sourceChannel: "watcher" | "assistant_tool",
     ) {
       return emitNotificationSignal({
-        sourceEventName: "watcher.escalation",
+        sourceEventName: "watcher.notification",
         sourceChannel,
         sourceContextId: "watch-1",
         routingIntent: "single_channel",

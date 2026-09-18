@@ -21,7 +21,7 @@ function makeSignal(
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceContextId: "ctx-1",
-    sourceEventName: "user.send_notification",
+    sourceEventName: "assistant.share",
     contextPayload: {},
     attentionHints: {
       requiresAction: false,
