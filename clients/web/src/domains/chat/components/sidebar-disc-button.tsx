@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   Button,
@@ -25,6 +26,11 @@ export interface SidebarDiscButtonProps
    * that acts for her does. The onboarding tour passes `ghost` to drain it.
    */
   variant?: Extract<ButtonVariant, "accent" | "ghost">;
+  /**
+   * Drawn beside the glyph and positioned against the button (an activity
+   * dot on its corner), since an icon-only `Button` renders nothing else.
+   */
+  badge?: ReactNode;
 }
 
 /**
@@ -43,6 +49,7 @@ export function SidebarDiscButton({
   icon: Icon,
   size,
   variant = "accent",
+  badge,
   className,
   style,
   ...rest
@@ -51,7 +58,12 @@ export function SidebarDiscButton({
     <Button
       {...rest}
       variant={variant}
-      iconOnly={<Icon />}
+      iconOnly={
+        <>
+          <Icon />
+          {badge}
+        </>
+      }
       iconOnlyGlyphClassName="max-md:size-4 max-md:[&_svg]:size-4"
       expandOnMobile={false}
       className={cn("shrink-0 rounded-full", className)}

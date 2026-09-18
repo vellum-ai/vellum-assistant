@@ -1,9 +1,8 @@
 import { MessageSquare } from "lucide-react";
-import { useState, type ReactNode } from "react";
 
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import {
-  CollapsedFlyoutContent,
+  CollapsedFlyout,
   getGroupIndicatorState,
   GroupIndicatorDot,
   type GroupIndicatorState,
@@ -16,60 +15,40 @@ import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { SidebarDiscButton } from "@/domains/chat/components/sidebar-disc-button";
 import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  cn,
-  Popover,
-  SIDE_MENU_TILE_SIZE,
-  Tooltip,
-} from "@vellumai/design-library";
+import { SIDE_MENU_TILE_SIZE, Tooltip } from "@vellumai/design-library";
 
 /**
- * The section's activity dot, read from the rows its card would show. While
+ * The section's activity, read from the rows its card would show. While
  * those rows are not on screen, the dot their header would carry (a thread
  * waiting on the user, a reply the user has not seen) rides on the toggle
- * instead; while they are, it steps aside, as the header's does.
+ * instead; callers drop it while the rows are showing, as the header does.
  */
 function useSectionIndicator(
   conversations: Conversation[],
   section: SidebarSection,
-  showing: boolean,
 ): GroupIndicatorState {
   const { processingConversationIds, attentionConversationIds } =
     useConversationListContext();
-  return showing
-    ? null
-    : getGroupIndicatorState(
-        conversations,
-        processingConversationIds,
-        attentionConversationIds,
-        section.unread,
-      );
+  return getGroupIndicatorState(
+    conversations,
+    processingConversationIds,
+    attentionConversationIds,
+    section.unread,
+  );
 }
 
 /**
- * The toggle with its activity dot on the corner the collapsed rail's tiles
- * put theirs. A sibling of the button rather than its content, since an
- * icon-only `Button` draws its glyph and nothing else; ringed in the page
- * ground so it reads as sitting on the disc's edge rather than as a bite
- * out of it.
+ * The section's activity dot on the toggle's corner, where the collapsed
+ * rail's tiles put theirs; ringed in the page ground so it reads as sitting
+ * on the disc's edge rather than as a bite out of it. The offsets count from
+ * inside the `Button`'s 1px border, so 2px puts the dot 1px past the disc.
  */
-function WithIndicator({
-  indicator,
-  className,
-  children,
-}: {
-  indicator: GroupIndicatorState;
-  className?: string;
-  children: ReactNode;
-}) {
+function IndicatorBadge({ state }: { state: GroupIndicatorState }) {
   return (
-    <span className={cn("relative inline-flex shrink-0", className)}>
-      {children}
-      <GroupIndicatorDot
-        state={indicator}
-        className="pointer-events-none absolute -top-px -right-px ring-2 ring-[var(--surface-base)]"
-      />
-    </span>
+    <GroupIndicatorDot
+      state={state}
+      className="absolute -top-0.5 -right-0.5 ring-2 ring-[var(--surface-base)]"
+    />
   );
 }
 
@@ -101,21 +80,20 @@ export function AssistantSectionToggle({
   /* The same query the section's card runs, so the dot reads the same rows
      the card shows and the card's rows are already loaded when it opens. */
   const { conversations } = useSectionConversations(assistantId, section);
-  const indicator = useSectionIndicator(conversations, section, open);
+  const indicator = useSectionIndicator(conversations, section);
 
   return (
-    <WithIndicator indicator={indicator}>
-      <SidebarDiscButton
-        icon={MessageSquare}
-        size={SIDEBAR_ASSISTANT_DISC_SIZE}
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={t(
-          open ? "assistantSectionToggle.hide" : "assistantSectionToggle.show",
-          { name: assistantName },
-        )}
-      />
-    </WithIndicator>
+    <SidebarDiscButton
+      icon={MessageSquare}
+      size={SIDEBAR_ASSISTANT_DISC_SIZE}
+      badge={<IndicatorBadge state={open ? null : indicator} />}
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={t(
+        open ? "assistantSectionToggle.hide" : "assistantSectionToggle.show",
+        { name: assistantName },
+      )}
+    />
   );
 }
 
@@ -137,42 +115,40 @@ export function AssistantSectionRailToggle({
   assistantId,
   section,
 }: AssistantSectionRailToggleProps) {
-  const [open, setOpen] = useState(false);
   const { conversations, hasMore, loadMore } = useSectionConversations(
     assistantId,
     section,
   );
-  const indicator = useSectionIndicator(conversations, section, open);
+  const indicator = useSectionIndicator(conversations, section);
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <WithIndicator indicator={indicator} className="self-center">
-        <Popover.Trigger asChild>
-          <Tooltip content={section.label} side="right">
-            <SidebarDiscButton
-              icon={MessageSquare}
-              size={SIDE_MENU_TILE_SIZE}
-              aria-label={section.label}
-              aria-haspopup="dialog"
-            />
-          </Tooltip>
-        </Popover.Trigger>
-      </WithIndicator>
-      <CollapsedFlyoutContent>
-        {(scrollParent) =>
-          conversations.length === 0 ? (
-            <AssistantSectionEmptyState />
-          ) : (
-            <CollapsedGroupFlyout
-              title={section.label}
-              conversations={conversations}
-              onClosePopover={() => setOpen(false)}
-              scrollParent={scrollParent}
-              onEndReached={hasMore ? loadMore : undefined}
-            />
-          )
-        }
-      </CollapsedFlyoutContent>
-    </Popover.Root>
+    <CollapsedFlyout
+      trigger={(open) => (
+        <Tooltip content={section.label} side="right">
+          <SidebarDiscButton
+            icon={MessageSquare}
+            size={SIDE_MENU_TILE_SIZE}
+            badge={<IndicatorBadge state={open ? null : indicator} />}
+            aria-label={section.label}
+            aria-haspopup="dialog"
+            className="self-center"
+          />
+        </Tooltip>
+      )}
+    >
+      {(close, scrollParent) =>
+        conversations.length === 0 ? (
+          <AssistantSectionEmptyState />
+        ) : (
+          <CollapsedGroupFlyout
+            title={section.label}
+            conversations={conversations}
+            onClosePopover={close}
+            scrollParent={scrollParent}
+            onEndReached={hasMore ? loadMore : undefined}
+          />
+        )
+      }
+    </CollapsedFlyout>
   );
 }

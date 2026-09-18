@@ -1,4 +1,9 @@
-import { useCallback, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import type { LucideIcon } from "lucide-react";
 
@@ -116,10 +121,6 @@ export interface CollapsedGroupIconProps {
    */
   onOpenChange?: (open: boolean) => void;
   /**
-   * Popover content. Accepts a render function that receives a `close` callback
-   * to programmatically dismiss the popover (e.g. after selecting a conversation).
-   */
-  /**
    * Popover body. Receives a close callback and the popover's own scrollport,
    * so a long list can window against it rather than opening a second one.
    */
@@ -137,15 +138,6 @@ export function CollapsedGroupIcon({
   children,
 }: CollapsedGroupIconProps) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(false);
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      onOpenChange?.(next);
-    },
-    [onOpenChange],
-  );
-  const close = useCallback(() => setOpen(false), []);
 
   if (disabled) {
     // Empty group: the same tile, minus the popover it would open. Its
@@ -164,8 +156,9 @@ export function CollapsedGroupIcon({
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={handleOpenChange}>
-      <Popover.Trigger asChild>
+    <CollapsedFlyout
+      onOpenChange={onOpenChange}
+      trigger={(open) => (
         <SideMenu.Item
           icon={Icon}
           label={label}
@@ -184,39 +177,69 @@ export function CollapsedGroupIcon({
             />
           }
         />
-      </Popover.Trigger>
-      <CollapsedFlyoutContent>
-        {(scrollParent) =>
-          typeof children === "function"
-            ? children(close, scrollParent)
-            : children
-        }
-      </CollapsedFlyoutContent>
-    </Popover.Root>
+      )}
+    >
+      {(close, scrollParent) =>
+        typeof children === "function"
+          ? children(close, scrollParent)
+          : children
+      }
+    </CollapsedFlyout>
   );
 }
 
+export interface CollapsedFlyoutProps {
+  /**
+   * The tile the flyout hangs off, told whether the flyout is open. It
+   * becomes the popover's trigger, so it must be one element that forwards
+   * props and a ref (a `SideMenu.Item`, a `Button`, a `Tooltip` around one).
+   */
+  trigger: (open: boolean) => ReactElement;
+  /** Called when the flyout opens or closes. */
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * The flyout's body. Receives a close callback (a row's selection
+   * dismisses the flyout) and the popover's own scrollport, so a long list
+   * can window against it rather than opening a second scroll region.
+   */
+  children: (close: () => void, scrollParent: HTMLElement | null) => ReactNode;
+}
+
 /**
- * The popover a collapsed-rail tile opens, beside the rail: one geometry for
- * every rail flyout. Hands its own scrollport to the body, so a long list
- * can window against it rather than opening a second scroll region.
+ * The popover a collapsed-rail tile opens beside the rail: its open state,
+ * its trigger, and one geometry for every rail flyout. Every tile that opens
+ * a section's rows from the rail goes through here, so focus, dismissal,
+ * placement and paging are fixed in one place.
  */
-export function CollapsedFlyoutContent({
+export function CollapsedFlyout({
+  trigger,
+  onOpenChange,
   children,
-}: {
-  children: (scrollParent: HTMLElement | null) => ReactNode;
-}) {
+}: CollapsedFlyoutProps) {
+  const [open, setOpen] = useState(false);
   const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  const close = useCallback(() => setOpen(false), []);
+
   return (
-    <Popover.Content
-      ref={setContentEl}
-      side="right"
-      align="start"
-      sideOffset={8}
-      onOpenAutoFocus={(e) => e.preventDefault()}
-      className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
-    >
-      {children(contentEl)}
-    </Popover.Content>
+    <Popover.Root open={open} onOpenChange={handleOpenChange}>
+      <Popover.Trigger asChild>{trigger(open)}</Popover.Trigger>
+      <Popover.Content
+        ref={setContentEl}
+        side="right"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
+      >
+        {children(close, contentEl)}
+      </Popover.Content>
+    </Popover.Root>
   );
 }
