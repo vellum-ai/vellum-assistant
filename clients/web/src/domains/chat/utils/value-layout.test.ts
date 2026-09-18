@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   layoutValues as layout,
   copyText,
+  layoutResult,
+  parseStructuredResult,
   type ValueField,
 } from "@/domains/chat/utils/value-layout";
 
@@ -311,5 +313,55 @@ describe("field values", () => {
     expect(copyText({ team: "growth" })).toBe(
       JSON.stringify({ team: "growth" }, null, 2),
     );
+  });
+});
+
+describe("tool results", () => {
+  test("parses only a JSON object or array with something in it", () => {
+    expect(parseStructuredResult('{"a":1}')).toEqual({ a: 1 });
+    expect(parseStructuredResult("[1,2]")).toEqual([1, 2]);
+    for (const text of ["Moved 3 files.", "42", '"text"', "null", "{}", "[]"]) {
+      expect(parseStructuredResult(text)).toBeNull();
+    }
+  });
+
+  test("lays out a query result written as columns and rows as one unnamed table", () => {
+    expect(
+      layoutResult({
+        columns: ["week", "users"],
+        rows: [
+          ["2026-08-03", 12840],
+          ["2026-08-10", 13217],
+        ],
+      }),
+    ).toMatchObject({
+      fields: [
+        {
+          kind: "table",
+          label: "",
+          columns: ["week", "users"],
+          rows: [
+            ["2026-08-03", "12840"],
+            ["2026-08-10", "13217"],
+          ],
+        },
+      ],
+      more: 0,
+    });
+  });
+
+  test("lays out an object as its keys and a list as one unnamed field", () => {
+    expect(layoutResult({ a: "x" })).toMatchObject({
+      fields: [{ kind: "text", label: "a", text: "x" }],
+      more: 0,
+    });
+    const rows = [
+      { id: 1, name: "one" },
+      { id: 2, name: "two" },
+    ];
+    expect(layoutResult(rows)).toMatchObject({
+      fields: [{ kind: "table", label: "", columns: ["id", "name"] }],
+      more: 0,
+    });
   });
 });

@@ -485,6 +485,39 @@ export const longTextParameterDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * A query whose result is a list of thirty records with ten keys each: wider
+ * than the drawer and taller than a screen. The columns take the width of
+ * their values on one line and the table scrolls sideways; the long `website`
+ * column wraps once it reaches the width cap.
+ */
+export const wideTableOutputDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-accounts-query-1",
+  toolName: "mcp__warehouse__query",
+  title: "Working",
+  activity: "Listing the accounts on the team and enterprise plans",
+  input: {
+    activity: "Listing the accounts on the team and enterprise plans",
+    query:
+      "select * from accounts where plan in ('team', 'enterprise') limit 30",
+  },
+  result: JSON.stringify(
+    Array.from({ length: 30 }, (_, index) => ({
+      id: `acct_${1000 + index}`,
+      name: `Example Account ${index + 1}`,
+      email: `user${index + 1}@example.com`,
+      plan: index % 3 === 0 ? "enterprise" : "team",
+      seats: 10 + index,
+      region: "us-east-1",
+      created_at: "2026-08-03T12:00:00Z",
+      owner: "growth",
+      status: index % 4 === 0 ? "churn_risk" : "active",
+      website: `https://example.com/accounts/${1000 + index}/overview`,
+    })),
+  ),
+  riskLevel: "low",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well

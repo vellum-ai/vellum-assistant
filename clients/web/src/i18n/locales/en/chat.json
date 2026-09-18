@@ -1798,10 +1798,14 @@
   },
   "toolInputParameters": {
     "parameters": "Parameters",
-    "rawInput": "Raw input"
+    "rawInput": "Raw input",
+    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}",
+    "rawOutput": "Raw output"
+  },
+  "valueFields": {
     "copyValue": "Copy {label}"
   },
   "toolStepPill": {

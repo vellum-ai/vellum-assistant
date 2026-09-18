@@ -346,6 +346,44 @@ function shapeFor(label: string, value: unknown, depth: number): ValueShape {
   return { kind: "text", label, text: String(value) };
 }
 
+/** A tool result that lays out as fields: a JSON object or array. */
+export type StructuredResult = Record<string, unknown> | unknown[];
+
+/**
+ * A tool result's text as a JSON object or array with something in it, or
+ * `null` for anything else: text that is not JSON, a scalar, or an empty
+ * object or list, which read better as the text they are.
+ */
+export function parseStructuredResult(text: string): StructuredResult | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Most results are prose or command output; not being JSON is the
+    // ordinary case, not a failure.
+    return null;
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.length > 0 ? parsed : null;
+  }
+  if (isRecord(parsed)) {
+    return Object.keys(parsed).length > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * The fields a tool's output lays out to. A list, or a query result written as
+ * `{ columns, rows }`, is one field with no name, since the section it sits in
+ * already names it; any other object lays out its keys as fields, the way the
+ * input does.
+ */
+export function layoutResult(result: StructuredResult): ValueFieldList {
+  return Array.isArray(result) || isColumnsRowsTable(result)
+    ? { fields: [fieldFor("", result, 0)], more: 0 }
+    : layoutValues(result);
+}
+
 /** The fields that lay out `values`, in insertion order. */
 export function layoutValues(values: Record<string, unknown>): ValueFieldList {
   return capped(Object.entries(values), ([key, value]) =>
