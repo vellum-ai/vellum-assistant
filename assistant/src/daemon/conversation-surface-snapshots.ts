@@ -1,5 +1,5 @@
 /**
- * Canonical conversation surface snapshots for the plugin-facing read API.
+ * Canonical conversation surface snapshots for host readers.
  *
  * Combines an unbounded persisted `ui_surface` scan with the loaded
  * conversation's live `surfaceState` and current-turn snapshots. Hits from
@@ -8,11 +8,18 @@
 
 import { coerceSurfaceDataRecord } from "../api/surfaces.js";
 import { getMessages } from "../persistence/conversation-crud.js";
-import type { ConversationSurfaceSnapshot } from "../plugin-api/conversation-surfaces.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { isPlainObject } from "../util/object.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
+
+export interface ConversationSurfaceSnapshot {
+  surfaceId: string;
+  surfaceType: string;
+  data: Record<string, unknown>;
+  completed: boolean;
+  completionSummary?: string;
+}
 
 function cloneSurfaceData(value: unknown): Record<string, unknown> {
   const record = coerceSurfaceDataRecord(value);

@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ConversationSurfaceSnapshot } from "../../../../plugin-api/conversation-surfaces.js";
+import type { ConversationSurfaceSnapshot } from "../../../../daemon/conversation-surface-snapshots.js";
 import type { Message } from "../../../../providers/types.js";
-import { getTaskProgressDataFromSurfaceData as realParser } from "../../../../runtime/task-progress.js";
 
-let listImpl: (
-  conversationId: string,
-) => Promise<ConversationSurfaceSnapshot[]> | ConversationSurfaceSnapshot[] =
-  async () => [];
+let listImpl: (conversationId: string) => ConversationSurfaceSnapshot[] = () =>
+  [];
 
-mock.module("@vellumai/plugin-api", () => ({
-  getTaskProgressDataFromSurfaceData: realParser,
-  listConversationSurfaces: (conversationId: string) =>
+mock.module("../../../../daemon/conversation-surface-snapshots.js", () => ({
+  listConversationSurfaceSnapshots: (conversationId: string) =>
     listImpl(conversationId),
 }));
 
@@ -183,11 +179,11 @@ describe("task-progress-context formatting", () => {
 
 describe("task-progress-context injection", () => {
   beforeEach(() => {
-    listImpl = async () => [];
+    listImpl = () => [];
   });
 
   test("user-prompt-submit injects into the trailing user message without breaking role shape", async () => {
-    listImpl = async () => [
+    listImpl = () => [
       cardSnapshot(
         "surf_abc",
         taskProgressData("Researching the billing outage", [
@@ -235,7 +231,7 @@ describe("task-progress-context injection", () => {
   });
 
   test("post-compact reinjects after the original tool history is gone", async () => {
-    listImpl = async () => [
+    listImpl = () => [
       cardSnapshot(
         "surf_abc",
         taskProgressData("Researching the billing outage", [
@@ -277,7 +273,7 @@ describe("task-progress-context injection", () => {
   });
 
   test("an existing tagged snapshot is replaced, never duplicated", async () => {
-    listImpl = async () => [
+    listImpl = () => [
       cardSnapshot(
         "surf_abc",
         taskProgressData("Researching the billing outage", [
@@ -318,7 +314,7 @@ describe("task-progress-context injection", () => {
   });
 
   test("a stale tagged snapshot is removed when no active surface remains", async () => {
-    listImpl = async () => [];
+    listImpl = () => [];
     const stale = [
       "<active_task_progress>",
       "surface_id: surf_old",
@@ -342,7 +338,7 @@ describe("task-progress-context injection", () => {
   });
 
   test("preserves non-text blocks on the trailing user message", async () => {
-    listImpl = async () => [
+    listImpl = () => [
       cardSnapshot(
         "surf_abc",
         taskProgressData("Researching the billing outage", [
@@ -365,7 +361,7 @@ describe("task-progress-context injection", () => {
   });
 
   test("surface read failures are fail-open", async () => {
-    listImpl = async () => {
+    listImpl = () => {
       throw new Error("surface read failed");
     };
     const logger = makeLogger();

@@ -263,16 +263,6 @@ export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js"
 // with its later `ui_update`/`ui_dismiss` through this id to see whether the
 // model left the surface open.
 export { parseSurfaceShowResultId } from "../api/surface-show-result.js";
-// Current conversation UI surfaces as safe snapshots. Combines unbounded
-// persisted `ui_surface` history with the loaded conversation's live
-// surface state. Visibility follows the conversation's turn-or-resting
-// trust. Template-specific filtering stays in the calling plugin.
-export type { ConversationSurfaceSnapshot } from "./conversation-surfaces.js";
-export { listConversationSurfaces } from "./conversation-surfaces.js";
-// Read a `task_progress` surface payload into typed steps, if it is one.
-// Plugins that filter or format progress cards use this instead of
-// re-parsing `template` / `templateData.steps`.
-export { getTaskProgressDataFromSurfaceData } from "../runtime/task-progress.js";
 // Refusal quarantine — the canned apology a refusal turn is rewritten into
 // (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
 // "refused" marker), the tool-result-only user-message classifier the producer

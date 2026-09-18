@@ -9,7 +9,7 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (
   ctx,
 ) => {
   try {
-    ctx.latestMessages = await applyTaskProgressContext(
+    ctx.latestMessages = applyTaskProgressContext(
       ctx.conversationId,
       ctx.latestMessages,
     );

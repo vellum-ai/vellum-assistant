@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ConversationSurfaceSnapshot } from "../daemon/conversation-surface-snapshots.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import type { ConversationSurfaceSnapshot } from "../plugin-api/conversation-surfaces.js";
 
 let getMessagesImpl: (conversationId: string) => Array<{
   id: string;

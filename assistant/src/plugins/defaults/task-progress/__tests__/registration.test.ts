@@ -25,12 +25,12 @@ function walkFiles(dir: string): string[] {
   return files;
 }
 
-describe("task-progress-context registration", () => {
+describe("task-progress registration", () => {
   test("default-plugin registration includes both hooks after empty-response", () => {
     const plugins = getAllDefaultPlugins();
     const names = plugins.map((plugin) => plugin.manifest.name);
     const emptyIndex = names.indexOf("default-empty-response");
-    const contextIndex = names.indexOf("default-task-progress-context");
+    const contextIndex = names.indexOf("default-task-progress");
     expect(contextIndex).toBeGreaterThan(-1);
     expect(contextIndex).toBe(emptyIndex + 1);
 
@@ -61,7 +61,7 @@ describe("task-progress-context registration", () => {
     }
 
     const plugin = getAllDefaultPlugins().find(
-      (entry) => entry.manifest.name === "default-task-progress-context",
+      (entry) => entry.manifest.name === "default-task-progress",
     );
     expect(plugin?.hooks?.init).toBeUndefined();
     expect(plugin?.hooks?.shutdown).toBeUndefined();
