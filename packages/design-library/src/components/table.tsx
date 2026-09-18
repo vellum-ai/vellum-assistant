@@ -6,6 +6,7 @@ import {
 } from "react";
 
 import { scrollEdgeMask, useScrollEdges } from "../hooks/use-scroll-edges";
+import { assignRef } from "../utils/assign-ref";
 import { cn } from "../utils/cn";
 
 /**
@@ -97,15 +98,10 @@ export function Table({
   const setContainer = useCallback(
     (node: HTMLDivElement | null) => {
       measureRef(node);
-      if (typeof containerRef === "function") {
-        containerRef(node);
-      } else if (containerRef) {
-        containerRef.current = node;
-      }
+      assignRef(containerRef, node);
     },
     [measureRef, containerRef],
   );
-  // Scrolls: columns sit past one side or the other.
   const scrolls = edges.start || edges.end;
   const mask = scrolls ? scrollEdgeMask("horizontal", EDGE_FADE, edges) : null;
 

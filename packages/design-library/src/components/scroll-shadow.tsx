@@ -6,6 +6,7 @@ import {
   scrollEdgeMask,
   useScrollEdges,
 } from "../hooks/use-scroll-edges";
+import { assignRef } from "../utils/assign-ref";
 import { cn } from "../utils/cn";
 
 export type ScrollShadowOrientation = ScrollAxis;
@@ -57,11 +58,7 @@ export function ScrollShadow({
   const setRefs = useCallback(
     (node: HTMLDivElement | null) => {
       measureRef(node);
-      if (typeof ref === "function") {
-        ref(node);
-      } else if (ref) {
-        ref.current = node;
-      }
+      assignRef(ref, node);
     },
     [measureRef, ref],
   );
