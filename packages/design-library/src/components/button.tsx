@@ -1,5 +1,6 @@
 import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import {
   cloneElement,
   isValidElement,
@@ -19,7 +20,12 @@ import { Tooltip } from "./tooltip";
  * Semantic tokens resolve via CSS variables declared in `tokens.css`, so the
  * button inherits app light/dark theming automatically.
  *
- * - Pass `variant` for chrome style and `size` for dimensions.
+ * - Pass `variant` for chrome style, `size` for dimensions (`compact` 24px,
+ *   `regular` 32px, `large` 44px), and `shape="pill"` for fully rounded ends.
+ * - Pass `loading` while the action the button started is in flight. The
+ *   spinner takes the leading icon's place (or the icon-only glyph's), the
+ *   button announces `aria-busy`, and activation is blocked without dropping
+ *   focus. Do not hand-roll a `Loader2` into `leftIcon`.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
  * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
  *   square icon-only button (the icon is centered at the correct size for the
@@ -113,6 +119,11 @@ const buttonVariants = cva(
       size: {
         regular: "h-8 px-2.5 text-body-medium-default rounded-md",
         compact: "h-6 px-2 text-body-small-default rounded-[6px]",
+        large: "h-11 px-4 text-body-large-default rounded-md",
+      },
+      shape: {
+        default: "",
+        pill: "rounded-full",
       },
       iconOnly: {
         true: "p-0",
@@ -141,6 +152,11 @@ const buttonVariants = cva(
         iconOnly: true,
         size: "compact",
         class: "h-6 w-6",
+      },
+      {
+        iconOnly: true,
+        size: "large",
+        class: "h-11 w-11",
       },
       {
         iconOnly: true,
@@ -229,6 +245,7 @@ const buttonVariants = cva(
     defaultVariants: {
       variant: "primary",
       size: "regular",
+      shape: "default",
       iconOnly: false,
       fullWidth: false,
       active: false,
@@ -241,12 +258,24 @@ type ButtonVariantProps = VariantProps<typeof buttonVariants>;
 
 export type ButtonVariant = NonNullable<ButtonVariantProps["variant"]>;
 export type ButtonSize = NonNullable<ButtonVariantProps["size"]>;
+export type ButtonShape = NonNullable<ButtonVariantProps["shape"]>;
 
 export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /** `pill` rounds the ends fully. The size's own radius applies otherwise. */
+  shape?: ButtonShape;
+  /**
+   * The action this button started is in flight. A spinner replaces
+   * `leftIcon` (or the `iconOnly` glyph; with neither, it takes the leading
+   * slot), the button sets `aria-busy`, and clicks are ignored. The button is
+   * marked `aria-disabled` rather than `disabled`, so keyboard focus stays
+   * where the user left it and the label is still announced. Pass `disabled`
+   * as well to keep the greyed disabled look while the work runs.
+   */
+  loading?: boolean;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
   /**
@@ -297,7 +326,10 @@ export interface ButtonProps
 }
 
 function iconPxForSize(size: ButtonSize): number {
-  return size === "compact" ? 10 : 14;
+  if (size === "compact") {
+    return 10;
+  }
+  return size === "large" ? 16 : 14;
 }
 
 export { buttonVariants };
@@ -306,7 +338,9 @@ export function Button({
   ref,
   variant = "primary",
   size = "regular",
-  leftIcon,
+  shape = "default",
+  loading = false,
+  leftIcon: leftIconProp,
   rightIcon,
   iconOnly,
   fullWidth = false,
@@ -329,6 +363,15 @@ export function Button({
   const isIconOnly = iconOnly != null && iconOnly !== false;
   const isDisabled = disabled === true;
   const isSlotDisabled = asChild && isDisabled;
+  // A loading button stays focusable, so it is blocked the way a disabled
+  // slot is (aria-disabled plus a swallowed click) instead of with the native
+  // attribute, which would drop focus to the body mid-action.
+  // A natively disabled button is already inert and already has its look, so
+  // loading adds nothing to it but the spinner and `aria-busy`.
+  const isBlocked = isSlotDisabled || (loading && !isDisabled);
+  const spinner = loading ? <Loader2 className="animate-spin" /> : null;
+  const leftIcon = spinner ?? leftIconProp;
+  const iconOnlyGlyph = spinner ?? iconOnly;
   const iconPx = iconPxForSize(size);
   const iconStyle: CSSProperties = {
     width: iconPx,
@@ -345,7 +388,8 @@ export function Button({
   // the SVG would then fill the 24px button box instead of the 14px icon box.
   // A fixed size keeps the icon at the intended dimension regardless of nesting.
   const iconOnlyClass = cn(
-    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
+    "inline-flex items-center justify-center shrink-0",
+    size === "large" ? "size-4 [&_svg]:size-4" : "size-3.5 [&_svg]:size-3.5",
     expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
     // Merged last so a caller-supplied `[&_svg]:size-*` overrides the defaults
     // above on the same element (source-order win), rather than fighting them
@@ -372,14 +416,16 @@ export function Button({
       ref={ref}
       type={asChild ? undefined : (type ?? "button")}
       disabled={asChild ? undefined : disabled}
-      aria-disabled={isSlotDisabled ? true : rest["aria-disabled"]}
+      aria-disabled={isBlocked ? true : rest["aria-disabled"]}
+      aria-busy={loading ? true : rest["aria-busy"]}
       data-disabled={isSlotDisabled ? "" : undefined}
+      data-loading={loading ? "" : undefined}
       data-slot="button"
       tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
-      onClick={isSlotDisabled ? handleBlockedClick : onClick}
+      onClick={isBlocked ? handleBlockedClick : onClick}
       title={title}
       className={cn(
-        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
+        buttonVariants({ variant, size, shape, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
         className,
       )}
       style={composedStyle}
@@ -394,12 +440,12 @@ export function Button({
             children,
             undefined,
             <span aria-hidden="true" className={iconOnlyClass}>
-              {iconOnly}
+              {iconOnlyGlyph}
             </span>,
           )
         ) : (
           <span aria-hidden="true" className={iconOnlyClass}>
-            {iconOnly}
+            {iconOnlyGlyph}
           </span>
         )
       ) : leftIcon == null && rightIcon == null ? (
