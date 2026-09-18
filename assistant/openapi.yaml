@@ -29107,8 +29107,8 @@ paths:
       operationId: roadmap_by_slug_patch
       summary: Update a roadmap item
       description:
-        Updates a roadmap item. At least one field is required; the roadmap service decides which items this
-        assistant may edit.
+        Updates the title or description of a roadmap item this assistant filed, while the item is still open.
+        Status and tags are set by Vellum staff.
       tags:
         - roadmap
       parameters:
@@ -29128,13 +29128,7 @@ paths:
                   type: string
                 description:
                   type: string
-                status:
-                  type: string
-                tags:
-                  description: Tag slugs
-                  type: array
-                  items:
-                    type: string
+              additionalProperties: false
       responses:
         "200":
           description: Successful response

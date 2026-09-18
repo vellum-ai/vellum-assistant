@@ -334,12 +334,21 @@ describe("roadmap writes", () => {
     });
   });
 
-  test("update can clear every tag", async () => {
+  test("update refuses the staff-only fields before calling out", async () => {
     stubFetch(UPSTREAM_ITEM);
 
-    await update({ pathParams: { slug: "dark-mode" }, body: { tags: [] } });
-
-    expect(calls[0].body).toEqual({ tags: [] });
+    await expect(
+      update({
+        pathParams: { slug: "dark-mode" },
+        body: { title: "Dark mode", status: "planned" },
+      }),
+    ).rejects.toThrow(
+      "An assistant can change only an item's title and description; status is set by Vellum staff.",
+    );
+    await expect(
+      update({ pathParams: { slug: "dark-mode" }, body: { tags: [] } }),
+    ).rejects.toThrow("tags is set by Vellum staff");
+    expect(calls).toHaveLength(0);
   });
 
   test("create rejects a blank title before calling out", async () => {
@@ -365,11 +374,11 @@ describe("roadmap writes", () => {
 
     await update({
       pathParams: { slug: "dark-mode" },
-      body: { status: "planned" },
+      body: { description: "Follow the OS setting" },
     });
 
     expect(calls[0].method).toBe("PATCH");
-    expect(calls[0].body).toEqual({ status: "planned" });
+    expect(calls[0].body).toEqual({ description: "Follow the OS setting" });
   });
 
   test("delete reports the removed slug", async () => {
@@ -403,7 +412,7 @@ describe("roadmap writes", () => {
     const writes = [
       () => create({ body: { title: "Add dark mode" } }),
       () =>
-        update({ pathParams: { slug: "dark-mode" }, body: { status: "open" } }),
+        update({ pathParams: { slug: "dark-mode" }, body: { title: "Dark" } }),
       () => remove({ pathParams: { slug: "dark-mode" } }),
       () => upvote({ pathParams: { slug: "dark-mode" } }),
       () => unvote({ pathParams: { slug: "dark-mode" } }),

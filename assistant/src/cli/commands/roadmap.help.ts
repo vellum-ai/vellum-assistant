@@ -102,35 +102,24 @@ Examples:
     {
       name: "update",
       args: "<slug>",
-      description: "Update a roadmap item",
+      description:
+        "Edit the title or description of an item the assistant filed",
       options: [
         { flags: "--title <title>", description: "New title" },
         { flags: "--description <desc>", description: "New description" },
-        {
-          flags: "--status <status>",
-          description: "New status (e.g. open, planned, in_progress, someday)",
-        },
-        {
-          flags: "--tag <slug>",
-          description: "Replacement tag slug, repeatable",
-        },
-        {
-          flags: "--clear-tags",
-          description: "Remove every tag (cannot be combined with --tag)",
-        },
       ],
       helpText: `
 Arguments:
   <slug>  Item slug, as printed in the URL by 'assistant roadmap list'
 
-At least one field is required. Passing --tag replaces the whole tag set
-rather than adding to it, so list every tag the item should end up with.
-Vellum decides which items an assistant may edit, so this fails for items the
-assistant does not own.
+At least one of --title or --description is required. Only items this
+assistant filed can be edited, and only while their status is still open.
+Status and tags are set by Vellum staff, so an item's tags are chosen once,
+on 'roadmap create'.
 
 Examples:
   $ assistant roadmap update dark-mode --description "Follow the OS setting"
-  $ assistant roadmap update dark-mode --clear-tags`,
+  $ assistant roadmap update dark-mode --title "Dark mode that follows the OS"`,
     },
     {
       name: "delete",
