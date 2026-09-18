@@ -532,7 +532,7 @@ describe("selectPool — infrastructure failures throw", () => {
       typeof MemoryV3RetrievalUnavailableError
     >;
     expect(failure.pool).toEqual({ stable: [], finder: [] });
-    expect(failure.turn?.currentMessage).toBe("");
+    expect(failure.turn?.currentMessage).toBe("anything");
     expect(failure.turn?.recentContext).toBe("");
   });
 
@@ -679,6 +679,42 @@ describe("selectPool — request shape", () => {
       "finder-needle",
     );
     expect(result.pages[0]?.slug).toBe("stable-0");
+  });
+
+  test("skips a large core card that fits only by dropping the current message", async () => {
+    selectorMaxInputTokens = 8_000;
+    const currentMessage = `CURRENT-QUERY-${"q".repeat(8_000)}`;
+    const pool: SelectorPool = {
+      stable: [
+        {
+          slug: "query-erasing-core",
+          card: `large core ${"x".repeat(20_000)}`,
+          lane: "core",
+        },
+      ],
+      finder: [
+        {
+          slug: "usable-needle",
+          descriptor: "small direct hit",
+          lane: "needle",
+        },
+      ],
+    };
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+
+    const result = await selectPool(pool, makeTurn(currentMessage));
+
+    expect(providerCalls).toHaveLength(1);
+    const sent = JSON.stringify(providerCalls[0]!.messages);
+    expect(sent).toContain(currentMessage);
+    expect(sent).not.toContain("query-erasing-core");
+    expect(sent).toContain("usable-needle");
+    expect(result.pool.stable).toEqual([]);
+    expect(result.pool.finder.map((candidate) => candidate.slug)).toEqual([
+      "usable-needle",
+    ]);
+    expect(result.turn.currentMessage).toBe(currentMessage);
+    expect(result.pages).toEqual([{ slug: "usable-needle", sections: [] }]);
   });
 
   test("skips an individually oversized core card and still sends a smaller direct hit", async () => {

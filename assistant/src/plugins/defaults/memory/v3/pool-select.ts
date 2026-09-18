@@ -795,16 +795,16 @@ function budgetSelectorPool({
     };
   }
 
-  const emptyTurn = latestTurnContextSuffix(turn, 0);
+  const minimumTurn = latestTurnContextSuffix(turn, turn.currentMessage.length);
   const fittingPool: SelectorPool = {
     stable: pool.stable.filter(
       (candidate) =>
-        estimate({ stable: [candidate], finder: [] }, emptyTurn) <=
+        estimate({ stable: [candidate], finder: [] }, minimumTurn) <=
         budgetTokens,
     ),
     finder: pool.finder.filter(
       (candidate) =>
-        estimate({ stable: [], finder: [candidate] }, emptyTurn) <=
+        estimate({ stable: [], finder: [candidate] }, minimumTurn) <=
         budgetTokens,
     ),
   };
@@ -813,9 +813,9 @@ function budgetSelectorPool({
     const emptyPool: SelectorPool = { stable: [], finder: [] };
     return {
       pool: emptyPool,
-      turn: emptyTurn,
+      turn: minimumTurn,
       budgetTokens,
-      estimatedInputTokens: estimate(emptyPool, emptyTurn),
+      estimatedInputTokens: estimate(emptyPool, minimumTurn),
       originalEstimatedInputTokens,
     };
   }
@@ -823,7 +823,7 @@ function budgetSelectorPool({
   const preferredCandidatePool = highestPriorityCandidates(fittingPool, 1);
   let budgetedTurn = turn;
   if (estimate(preferredCandidatePool, budgetedTurn) > budgetTokens) {
-    let low = 0;
+    let low = turn.currentMessage.length;
     let high = turnContextChars(turn);
     while (low < high) {
       const retainedChars = Math.ceil((low + high) / 2);
