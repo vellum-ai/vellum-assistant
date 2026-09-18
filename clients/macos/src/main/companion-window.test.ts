@@ -807,6 +807,18 @@ const state = (): CompanionSurfaceState => {
   return pull([]) as CompanionSurfaceState;
 };
 
+/**
+ * What the app's window pulls on mount: whether to dim itself for a run. The
+ * fact a window built mid-press reads, so it is asked for the way one would.
+ */
+const introStage = (): boolean => {
+  const pull = invocable.get("vellum:companion:getIntroStage");
+  if (!pull) {
+    throw new Error("No handler registered for vellum:companion:getIntroStage");
+  }
+  return pull([]) as boolean;
+};
+
 /** A context as the app's window publishes one. */
 const context = (over: Record<string, unknown> = {}) => ({
   assistantName: "Ziggy",
@@ -2473,10 +2485,18 @@ describe("taking the introduction's last offer", () => {
     closeSurface();
   });
 
-  test("asks for the session before it says the run is over", () => {
+  /** The hand-off answers on a microtask even when a window is already there. */
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i++) {
+      await Promise.resolve();
+    }
+  };
+
+  test("asks for the session before it says the run is over", async () => {
     runToLastBeat();
 
     send("vellum:companion:advanceIntro", "try");
+    await settle();
 
     expect(mainTimeline).toEqual([
       "command:startVoice",
@@ -2484,10 +2504,35 @@ describe("taking the introduction's last offer", () => {
     ]);
   });
 
-  test("and the run is over, so no card waits for the call to end", () => {
+  /**
+   * The gap the order alone does not close. Closing the app's window leaves the
+   * surface on screen with the run still on it, so the press has to build a
+   * renderer before anything can hear it, and that renderer PULLS the staging
+   * as it mounts. A run ended while it was loading is one it pulls as already
+   * over, and the first-run card takes the press.
+   */
+  test("holds the run open while a renderer is built for the press", async () => {
+    runToLastBeat();
+    mainWindowOpen = false;
+
+    send("vellum:companion:advanceIntro", "try");
+
+    // Still staged: nothing has heard the press yet.
+    expect(introStage()).toBe(true);
+    expect(mainTimeline).toEqual([]);
+
+    await settle();
+
+    expect(windowsRaised).toBeGreaterThan(0);
+    expect(mainTimeline).toEqual(["command:startVoice"]);
+    expect(introStage()).toBe(false);
+  });
+
+  test("and the run is over, so no card waits for the call to end", async () => {
     runToLastBeat();
 
     send("vellum:companion:advanceIntro", "try");
+    await settle();
 
     expect(state().intro).toBe(null);
   });
@@ -2497,7 +2542,7 @@ describe("taking the introduction's last offer", () => {
    * interrupted by the user's own business, so the beat is held and the staging
    * with it.
    */
-  test("an earlier beat's offer leaves the run staged", () => {
+  test("an earlier beat's offer leaves the run staged", async () => {
     openStagedRun();
     send("vellum:companion:advanceIntro", "next");
     send("vellum:companion:advanceIntro", "next");
@@ -2505,9 +2550,11 @@ describe("taking the introduction's last offer", () => {
     mainTimeline.length = 0;
 
     send("vellum:companion:advanceIntro", "try");
+    await settle();
 
     expect(mainTimeline).toEqual(["command:startVoice"]);
     expect(state().intro).toBe("talk");
+    expect(introStage()).toBe(true);
   });
 });
 
