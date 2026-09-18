@@ -45,7 +45,7 @@ import {
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
-import { AssistantAccentDisc } from "@/domains/chat/components/assistant-accent-disc";
+import { SidebarDiscButton } from "@/domains/chat/components/sidebar-disc-button";
 import {
   SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
@@ -130,7 +130,7 @@ const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
 
 /**
- * The New Chat button: the assistant's accent disc with the plus, at two
+ * The New Chat button: the sidebar's disc button with the plus, at two
  * sizes. The eyes' disc size on the assistant row, where it stands after
  * the section toggle as a third disc of the row's family, and the rail's
  * tile size on the collapsed rail, where it is a circle in the column of
@@ -140,12 +140,13 @@ function NewChatButton({
   size,
   tooltipSide,
   onSelect,
-  accentHex,
+  drained,
 }: {
   size: number;
   tooltipSide: "right" | "top";
   onSelect: () => void;
-  accentHex: string | null;
+  /** The tour owns the nav: drop the assistant's colour with the pill's. */
+  drained: boolean;
 }) {
   const { t } = useTranslation("chat");
   const hint = useCommandShortcutHint("newConversation");
@@ -160,11 +161,10 @@ function NewChatButton({
       }
       side={tooltipSide}
     >
-      <AssistantAccentDisc
+      <SidebarDiscButton
         icon={Plus}
-        accentHex={accentHex}
         size={size}
-        slot="assistant-new-chat"
+        variant={drained ? "ghost" : "accent"}
         aria-label={label}
         onClick={onSelect}
         className="self-center"
@@ -348,8 +348,7 @@ export function AssistantNavItem({
       size={collapsed ? SIDE_MENU_TILE_SIZE : DISC_SIZE}
       tooltipSide={collapsed ? "right" : "top"}
       onSelect={onNewConversation}
-      /* Drains with the identity pill's fill while the tour owns the nav. */
-      accentHex={navTourActive ? null : hex}
+      drained={navTourActive}
     />
   ) : null;
   /* Where the button stands: on the collapsed rail as its own tile beneath

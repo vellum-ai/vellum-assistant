@@ -1,11 +1,11 @@
 import { MessageSquare } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
-import { AssistantAccentDisc } from "@/domains/chat/components/assistant-accent-disc";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import {
   CollapsedFlyoutContent,
   getGroupIndicatorState,
+  GroupIndicatorDot,
   type GroupIndicatorState,
 } from "@/domains/chat/components/collapsed-group-icon";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
@@ -13,10 +13,11 @@ import { SIDEBAR_ASSISTANT_DISC_SIZE } from "@/components/sidebar-nav-geometry";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
+import { SidebarDiscButton } from "@/domains/chat/components/sidebar-disc-button";
 import { useTranslation } from "@/i18n";
 import type { Conversation } from "@/types/conversation-types";
 import {
+  cn,
   Popover,
   SIDE_MENU_TILE_SIZE,
   Tooltip,
@@ -45,6 +46,33 @@ function useSectionIndicator(
       );
 }
 
+/**
+ * The toggle with its activity dot on the corner the collapsed rail's tiles
+ * put theirs. A sibling of the button rather than its content, since an
+ * icon-only `Button` draws its glyph and nothing else; ringed in the page
+ * ground so it reads as sitting on the disc's edge rather than as a bite
+ * out of it.
+ */
+function WithIndicator({
+  indicator,
+  className,
+  children,
+}: {
+  indicator: GroupIndicatorState;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className={cn("relative inline-flex shrink-0", className)}>
+      {children}
+      <GroupIndicatorDot
+        state={indicator}
+        className="pointer-events-none absolute -top-px -right-px ring-2 ring-[var(--surface-base)]"
+      />
+    </span>
+  );
+}
+
 export interface AssistantSectionToggleProps {
   assistantId: string | null;
   /** The assistant's own section, whose threads the toggle reveals. */
@@ -70,26 +98,24 @@ export function AssistantSectionToggle({
   onToggle,
 }: AssistantSectionToggleProps) {
   const { t } = useTranslation("chat");
-  const { accentHex } = useAssistantAvatar(assistantId);
   /* The same query the section's card runs, so the dot reads the same rows
      the card shows and the card's rows are already loaded when it opens. */
   const { conversations } = useSectionConversations(assistantId, section);
   const indicator = useSectionIndicator(conversations, section, open);
 
   return (
-    <AssistantAccentDisc
-      icon={MessageSquare}
-      accentHex={accentHex}
-      size={SIDEBAR_ASSISTANT_DISC_SIZE}
-      slot="assistant-section-toggle"
-      indicator={indicator}
-      onClick={onToggle}
-      aria-expanded={open}
-      aria-label={t(
-        open ? "assistantSectionToggle.hide" : "assistantSectionToggle.show",
-        { name: assistantName },
-      )}
-    />
+    <WithIndicator indicator={indicator}>
+      <SidebarDiscButton
+        icon={MessageSquare}
+        size={SIDEBAR_ASSISTANT_DISC_SIZE}
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={t(
+          open ? "assistantSectionToggle.hide" : "assistantSectionToggle.show",
+          { name: assistantName },
+        )}
+      />
+    </WithIndicator>
   );
 }
 
@@ -112,7 +138,6 @@ export function AssistantSectionRailToggle({
   section,
 }: AssistantSectionRailToggleProps) {
   const [open, setOpen] = useState(false);
-  const { accentHex } = useAssistantAvatar(assistantId);
   const { conversations, hasMore, loadMore } = useSectionConversations(
     assistantId,
     section,
@@ -121,20 +146,18 @@ export function AssistantSectionRailToggle({
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <Tooltip content={section.label} side="right">
-          <AssistantAccentDisc
-            icon={MessageSquare}
-            accentHex={accentHex}
-            size={SIDE_MENU_TILE_SIZE}
-            slot="assistant-section-toggle"
-            indicator={indicator}
-            aria-label={section.label}
-            aria-haspopup="dialog"
-            className="self-center"
-          />
-        </Tooltip>
-      </Popover.Trigger>
+      <WithIndicator indicator={indicator} className="self-center">
+        <Popover.Trigger asChild>
+          <Tooltip content={section.label} side="right">
+            <SidebarDiscButton
+              icon={MessageSquare}
+              size={SIDE_MENU_TILE_SIZE}
+              aria-label={section.label}
+              aria-haspopup="dialog"
+            />
+          </Tooltip>
+        </Popover.Trigger>
+      </WithIndicator>
       <CollapsedFlyoutContent>
         {(scrollParent) =>
           conversations.length === 0 ? (

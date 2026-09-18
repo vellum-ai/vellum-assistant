@@ -20,7 +20,6 @@ import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
-import { toneForBg } from "@/utils/avatar-tone";
 
 /* The hook reads through React Query, which static rendering has no client
    for. Mocked through a mutable value rather than a fixed one: a module mock
@@ -276,13 +275,11 @@ describe("AssistantNavItem New Chat button", () => {
     );
   });
 
-  test("it is painted solid in the avatar's colour, with the contrast ink, not a wash", () => {
+  test("it is the design library's accent Button, the section toggle's own colour", () => {
     for (const collapsed of [false, true]) {
       const tag = newChatTag(renderNewChat(collapsed));
-      const bg = /background-color:(#[0-9a-fA-F]{6})[;"]/.exec(tag)?.[1];
-      expect(bg).toBeDefined();
-      expect(tag).toContain(`color:${toneForBg(bg!).fg}`);
-      expect(tag).not.toContain("color-mix");
+      expect(tag).toContain('data-slot="button"');
+      expect(tag).toContain('data-variant="accent"');
     }
   });
 
@@ -304,7 +301,7 @@ describe("AssistantNavItem New Chat button", () => {
         '[data-tour-id="new-chat"]',
       );
       expect(button?.getAttribute("aria-label")).toBe("New Chat");
-      expect(button?.style.backgroundColor).toBe("");
+      expect(button?.getAttribute("data-variant")).toBe("ghost");
       unmount();
     } finally {
       useInChatOnboardingStore.setState({ navTourActive: false });
