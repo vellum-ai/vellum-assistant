@@ -22,6 +22,7 @@ import { downloadAttachment } from "@/domains/chat/components/chat-attachments/d
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { useComputerUseScreenshotTransition } from "@/domains/chat/components/chat-attachments/computer-use-screenshot-preview";
 import {
+  createToolResultImageProjector,
   embeddedImageFileNames,
   ToolResultImages,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -238,14 +239,21 @@ export function TranscriptMessageBody({
     () => embeddedImageFileNames(message.contentBlocks),
     [message.contentBlocks],
   );
+  const projectImages = useMemo(() => createToolResultImageProjector(), []);
   const imagePresentation = useMemo(
     () =>
       deriveTranscriptImagePresentation(
         orderedMessageToolCalls,
         message.attachments,
         embeddedImageNames,
+        projectImages,
       ),
-    [orderedMessageToolCalls, message.attachments, embeddedImageNames],
+    [
+      orderedMessageToolCalls,
+      message.attachments,
+      embeddedImageNames,
+      projectImages,
+    ],
   );
   const visibleAssistantAttachments = imagePresentation.visibleAttachments;
   const screenshotTransition = useComputerUseScreenshotTransition({
