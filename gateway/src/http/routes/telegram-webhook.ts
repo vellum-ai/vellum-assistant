@@ -393,7 +393,6 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
-            undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(
@@ -418,7 +417,6 @@ export function createTelegramWebhookHandler(
           config,
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
-          undefined,
           replyOpts,
         ).catch((err) => {
           tlog.error(
@@ -459,7 +457,6 @@ export function createTelegramWebhookHandler(
               config,
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
-              undefined,
               replyOpts,
             ).catch((err) => {
               tlog.error(
@@ -479,7 +476,6 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
-            undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
@@ -499,7 +495,6 @@ export function createTelegramWebhookHandler(
                 config,
                 normalized.message.conversationExternalId,
                 startRuntimeResp.replyText,
-                undefined,
                 replyOpts,
               ).catch((err) => {
                 tlog.error(
@@ -539,7 +534,6 @@ export function createTelegramWebhookHandler(
           config,
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
-          undefined,
           replyOpts,
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
@@ -576,7 +570,6 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
-            undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(
@@ -595,7 +588,6 @@ export function createTelegramWebhookHandler(
               config,
               normalized.message.conversationExternalId,
               text,
-              undefined,
               replyOpts,
             );
           },
@@ -705,7 +697,6 @@ export function createTelegramWebhookHandler(
             config,
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
-            undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(
@@ -754,7 +745,6 @@ export function createTelegramWebhookHandler(
             config,
             chatId,
             runtimeResp.replyText,
-            undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(

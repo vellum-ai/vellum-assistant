@@ -25,16 +25,22 @@ const ASSISTANT_ID = "019d3011-97c7-7541-b49a-ef11aaedfe79";
 interface RequestArgs {
   url: string;
   path?: { id?: string };
-  body?: { access_consented?: boolean };
+  body?: { access_consented?: boolean; never_expires?: boolean };
 }
 
 let consented = false;
 // Set by tests that start with an active grant; PATCH true restarts it.
 let expiresAt: string | null = null;
+let neverExpires = false;
+// A platform from before the override omits the field entirely.
+let platformSupportsKeepOn = true;
 function consentPayload() {
   return {
     access_consented: consented,
-    access_consent_expires_at: consented ? expiresAt : null,
+    access_consent_expires_at: consented && !neverExpires ? expiresAt : null,
+    ...(platformSupportsKeepOn
+      ? { access_consent_never_expires: consented && neverExpires }
+      : {}),
   };
 }
 const getCalls: RequestArgs[] = [];
@@ -63,6 +69,7 @@ mock.module("@/generated/api/client.gen", () => ({
         });
       }
       consented = args.body?.access_consented ?? consented;
+      neverExpires = consented && args.body?.never_expires === true;
       if (consented) {
         expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
       }
@@ -108,6 +115,8 @@ describe("AccessConsentSetting", () => {
   beforeEach(() => {
     consented = false;
     expiresAt = null;
+    neverExpires = false;
+    platformSupportsKeepOn = true;
     getCalls.length = 0;
     patchCalls.length = 0;
     patchGate.release = () => {};
@@ -183,6 +192,47 @@ describe("AccessConsentSetting", () => {
     expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
     expect(patchCalls[0].body).toEqual({ access_consented: true });
     await screen.findByText("Staff access ends in 24 hours.");
+  });
+
+  test("the owner can keep access on until they turn it off, and put the clock back", async () => {
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    renderSetting();
+
+    await screen.findByText("Staff access ends in 3 hours.");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep on until I turn it off" }),
+    );
+
+    await waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].body).toEqual({
+      access_consented: true,
+      never_expires: true,
+    });
+    await screen.findByText("Staff access stays on until you turn it off.");
+    expect(screen.queryByText(/Staff access ends/)).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expire after 24 hours" }),
+    );
+    await waitFor(() => expect(patchCalls).toHaveLength(2));
+    expect(patchCalls[1].body).toEqual({ access_consented: true });
+    await screen.findByText("Staff access ends in 24 hours.");
+  });
+
+  test("hides keep-on when the platform predates it, so a click can never send an unsupported field", async () => {
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    platformSupportsKeepOn = false;
+    renderSetting();
+
+    await screen.findByText("Staff access ends in 3 hours.");
+    expect(
+      screen.getByRole("button", { name: "Extend 24 hours" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Keep on until I turn it off" }),
+    ).toBeNull();
   });
 
   test("an open tab refetches when the grant lapses and shows the toggle off", async () => {

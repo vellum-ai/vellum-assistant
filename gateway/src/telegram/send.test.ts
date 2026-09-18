@@ -1,5 +1,4 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
@@ -20,7 +19,7 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { buildInlineKeyboard, sendTelegramReply } = await import("./send.js");
+const { sendTelegramReply } = await import("./send.js");
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
@@ -42,16 +41,6 @@ const baseConfig: GatewayConfig = {
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
   trustProxy: false,
-};
-
-const sampleApproval: ApprovalUIMetadata = {
-  requestId: "req-456",
-  actions: [
-    { id: "approve_once", label: "Approve once" },
-    { id: "approve_always", label: "Approve always" },
-    { id: "reject", label: "Reject" },
-  ],
-  plainTextFallback: "Reply: approve, always, or reject",
 };
 
 /** Mock credential cache providing test bot token. */
@@ -110,74 +99,9 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
 
-describe("buildInlineKeyboard", () => {
-  it("maps each action to its own row with compact callback data", () => {
-    const result = buildInlineKeyboard(sampleApproval);
-
-    expect(result.inline_keyboard).toHaveLength(3);
-    expect(result.inline_keyboard[0]).toEqual([
-      { text: "Approve once", callback_data: "apr:req-456:approve_once" },
-    ]);
-    expect(result.inline_keyboard[1]).toEqual([
-      { text: "Approve always", callback_data: "apr:req-456:approve_always" },
-    ]);
-    expect(result.inline_keyboard[2]).toEqual([
-      { text: "Reject", callback_data: "apr:req-456:reject" },
-    ]);
-  });
-
-  it("handles a single action", () => {
-    const approval: ApprovalUIMetadata = {
-      requestId: "rq1",
-      actions: [{ id: "ok", label: "OK" }],
-      plainTextFallback: "ok",
-    };
-    const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard).toHaveLength(1);
-    expect(result.inline_keyboard[0][0].callback_data).toBe("apr:rq1:ok");
-  });
-
-  it("uses compact callback data format apr:<requestId>:<actionId>", () => {
-    const approval: ApprovalUIMetadata = {
-      requestId: "abc-def",
-      actions: [{ id: "my_action", label: "Do it" }],
-      plainTextFallback: "do it",
-    };
-    const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard[0][0].callback_data).toBe(
-      "apr:abc-def:my_action",
-    );
-  });
-
-  it("throws when callback_data exceeds 64 bytes", () => {
-    const approval: ApprovalUIMetadata = {
-      requestId: "r".repeat(60),
-      actions: [{ id: "action", label: "Go" }],
-      plainTextFallback: "go",
-    };
-    expect(() => buildInlineKeyboard(approval)).toThrow("64-byte limit");
-  });
-
-  it("accepts callback_data exactly at 64 bytes", () => {
-    // "apr:" = 4 bytes, ":" = 1 byte, so requestId + actionId = 59 bytes
-    const requestId = "r".repeat(50);
-    const actionId = "a".repeat(9);
-    const approval: ApprovalUIMetadata = {
-      requestId,
-      actions: [{ id: actionId, label: "Go" }],
-      plainTextFallback: "go",
-    };
-    expect(Buffer.byteLength(`apr:${requestId}:${actionId}`)).toBe(64);
-    const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard[0][0].callback_data).toBe(
-      `apr:${requestId}:${actionId}`,
-    );
-  });
-});
-
 describe("sendTelegramReply", () => {
-  it("sends a plain message without reply_markup when no approval", async () => {
-    await sendTelegramReply(baseConfig, "chat-1", "Hello", undefined, testOpts);
+  it("sends a plain message without reply_markup", async () => {
+    await sendTelegramReply(baseConfig, "chat-1", "Hello", testOpts);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0].url).toContain("/sendMessage");
@@ -187,46 +111,21 @@ describe("sendTelegramReply", () => {
     expect(body.reply_markup).toBeUndefined();
   });
 
-  it("attaches inline keyboard when approval is provided", async () => {
-    await sendTelegramReply(
-      baseConfig,
-      "chat-1",
-      "Approve?",
-      sampleApproval,
-      testOpts,
-    );
-
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0].url).toContain("/sendMessage");
-    const body = fetchCalls[0].body as Record<string, unknown>;
-    expect(body.reply_markup).toBeDefined();
-
-    const markup = body.reply_markup as {
-      inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
-    };
-    expect(markup.inline_keyboard).toHaveLength(3);
-    expect(markup.inline_keyboard[0][0].callback_data).toBe(
-      "apr:req-456:approve_once",
-    );
-  });
-
-  it("attaches inline keyboard only to the last chunk for long messages", async () => {
-    // Create a message that exceeds TELEGRAM_MAX_MESSAGE_LEN (4000 chars)
+  it("splits long text into one sendMessage per chunk", async () => {
+    // Exceeds TELEGRAM_MAX_MESSAGE_LEN (4000 chars)
     const longText = "A".repeat(4001);
-    await sendTelegramReply(
-      baseConfig,
-      "chat-1",
-      longText,
-      sampleApproval,
-      testOpts,
-    );
+    await sendTelegramReply(baseConfig, "chat-1", longText, testOpts);
 
     expect(fetchCalls).toHaveLength(2);
-
-    const firstBody = fetchCalls[0].body as Record<string, unknown>;
-    expect(firstBody.reply_markup).toBeUndefined();
-
-    const lastBody = fetchCalls[1].body as Record<string, unknown>;
-    expect(lastBody.reply_markup).toBeDefined();
+    for (const call of fetchCalls) {
+      expect(call.url).toContain("/sendMessage");
+      const body = call.body as Record<string, unknown>;
+      expect(body.chat_id).toBe("chat-1");
+      expect(body.reply_markup).toBeUndefined();
+    }
+    const sentText = fetchCalls
+      .map((call) => (call.body as Record<string, unknown>).text)
+      .join("");
+    expect(sentText).toBe(longText);
   });
 });

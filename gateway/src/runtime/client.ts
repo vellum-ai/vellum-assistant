@@ -177,16 +177,6 @@ export type RuntimeAttachmentMeta = {
   kind?: string;
 };
 
-export type RuntimeAttachmentPayload = RuntimeAttachmentMeta & {
-  data?: string; // base64-encoded; absent for file-backed attachments until hydrated
-  fileBacked?: boolean;
-};
-
-/** Attachment payload after hydration — `data` is guaranteed present. */
-export type HydratedAttachmentPayload = RuntimeAttachmentPayload & {
-  data: string;
-};
-
 export type RuntimeInboundResponse = {
   accepted: boolean;
   duplicate: boolean;
@@ -364,118 +354,6 @@ export type UploadAttachmentInput = {
 export type UploadAttachmentResponse = {
   id: string;
 };
-
-/**
- * Internal helper that fetches raw attachment content without interacting
- * with the circuit breaker. Used by downloadAttachment's hydration path
- * which already owns the breaker lifecycle for the compound operation.
- */
-async function fetchAttachmentContentRaw(
-  config: GatewayConfig,
-  attachmentId: string,
-): Promise<Buffer> {
-  const url = buildUpstreamUrl(
-    config.assistantRuntimeBaseUrl,
-    `/v1/attachments/${encodeURIComponent(attachmentId)}/content`,
-  );
-
-  const response = await timedFetch(
-    url,
-    {
-      method: "GET",
-      headers: serviceHeaders(),
-    },
-    config.runtimeTimeoutMs,
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `Attachment content download failed (${response.status}): ${body}`,
-    );
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
-}
-
-export async function downloadAttachmentContent(
-  config: GatewayConfig,
-  attachmentId: string,
-): Promise<Buffer> {
-  cbBeforeRequest();
-
-  try {
-    const buffer = await fetchAttachmentContentRaw(config, attachmentId);
-    cbOnSuccess();
-    return buffer;
-  } catch (err) {
-    cbOnFailure();
-    throw err;
-  }
-}
-
-export async function downloadAttachment(
-  config: GatewayConfig,
-  attachmentId: string,
-): Promise<HydratedAttachmentPayload> {
-  cbBeforeRequest();
-
-  const url = buildUpstreamUrl(
-    config.assistantRuntimeBaseUrl,
-    `/v1/attachments/${encodeURIComponent(attachmentId)}`,
-  );
-
-  let response: Response;
-  try {
-    response = await timedFetch(
-      url,
-      {
-        method: "GET",
-        headers: serviceHeaders(),
-      },
-      config.runtimeTimeoutMs,
-    );
-  } catch (err) {
-    cbOnFailure();
-    throw err;
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    if (response.status >= 500) cbOnFailure();
-    else cbOnSuccess();
-    throw new Error(`Attachment download failed (${response.status}): ${body}`);
-  }
-
-  const payload = (await response.json()) as RuntimeAttachmentPayload;
-
-  // Transparently hydrate file-backed attachments: fetch the binary content
-  // from the dedicated /content endpoint and inline it as base64.
-  // We use the raw helper (no nested circuit breaker) so the compound
-  // metadata+content operation is treated as a single breaker unit.
-  // If content fetch fails, cbOnFailure() fires for the whole operation.
-  if (payload.fileBacked && payload.data == null) {
-    try {
-      const contentBuffer = await fetchAttachmentContentRaw(
-        config,
-        attachmentId,
-      );
-      payload.data = contentBuffer.toString("base64");
-    } catch (err) {
-      cbOnFailure();
-      throw err;
-    }
-  }
-
-  // Use == null to allow empty string (valid base64 for zero-byte attachments)
-  if (payload.data == null) {
-    throw new Error(`Attachment ${attachmentId} has no data after hydration`);
-  }
-
-  cbOnSuccess();
-  return payload as HydratedAttachmentPayload;
-}
 
 // ── Twilio webhook forwarding ────────────────────────────────────────
 
