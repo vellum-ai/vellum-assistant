@@ -502,6 +502,40 @@ describe("selectPool — infrastructure failures throw", () => {
     expect(failure.turn?.situationalContext).toBeUndefined();
   });
 
+  test("throws without sending when no candidate can fit the context budget", async () => {
+    selectorMaxInputTokens = 8_000;
+    const pool: SelectorPool = {
+      stable: [
+        {
+          slug: "oversized-core",
+          card: `oversized core ${"x".repeat(40_000)}`,
+          lane: "core",
+        },
+      ],
+      finder: [],
+    };
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+
+    let caught: unknown;
+    try {
+      await selectPool(pool, makeTurn("anything"));
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(MemoryV3RetrievalUnavailableError);
+    expect((caught as Error).message).toBe(
+      "memory-v3 pool selector has no candidate that fits the context budget",
+    );
+    expect(providerCalls).toHaveLength(0);
+    const failure = caught as InstanceType<
+      typeof MemoryV3RetrievalUnavailableError
+    >;
+    expect(failure.pool).toEqual({ stable: [], finder: [] });
+    expect(failure.turn?.currentMessage).toBe("");
+    expect(failure.turn?.recentContext).toBe("");
+  });
+
   test("managed provider 402 attaches a non-terminal credits notice", async () => {
     providerStub = {
       name: "managed",
@@ -645,6 +679,48 @@ describe("selectPool — request shape", () => {
       "finder-needle",
     );
     expect(result.pages[0]?.slug).toBe("stable-0");
+  });
+
+  test("skips an individually oversized core card and still sends a smaller direct hit", async () => {
+    selectorMaxInputTokens = 8_000;
+    const pool: SelectorPool = {
+      stable: [
+        {
+          slug: "oversized-core",
+          card: `oversized core ${"x".repeat(40_000)}`,
+          lane: "core",
+        },
+      ],
+      finder: [
+        {
+          slug: "usable-needle",
+          descriptor: "small direct hit",
+          lane: "needle",
+        },
+      ],
+    };
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+
+    const result = await selectPool(pool, makeTurn("use the direct hit"));
+
+    expect(providerCalls).toHaveLength(1);
+    expect(JSON.stringify(providerCalls[0]!.messages)).not.toContain(
+      "oversized-core",
+    );
+    expect(JSON.stringify(providerCalls[0]!.messages)).toContain(
+      "usable-needle",
+    );
+    expect(result.pool).toEqual({
+      stable: [],
+      finder: [
+        {
+          slug: "usable-needle",
+          descriptor: "small direct hit",
+          lane: "needle",
+        },
+      ],
+    });
+    expect(result.pages).toEqual([{ slug: "usable-needle", sections: [] }]);
   });
 
   test("stable prefix renders full cards in its own block carrying cache_control", async () => {

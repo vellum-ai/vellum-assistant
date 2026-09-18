@@ -795,16 +795,40 @@ function budgetSelectorPool({
     };
   }
 
-  const candidateCount = pool.stable.length + pool.finder.length;
-  const newestCandidatePool = highestPriorityCandidates(pool, 1);
+  const emptyTurn = latestTurnContextSuffix(turn, 0);
+  const fittingPool: SelectorPool = {
+    stable: pool.stable.filter(
+      (candidate) =>
+        estimate({ stable: [candidate], finder: [] }, emptyTurn) <=
+        budgetTokens,
+    ),
+    finder: pool.finder.filter(
+      (candidate) =>
+        estimate({ stable: [], finder: [candidate] }, emptyTurn) <=
+        budgetTokens,
+    ),
+  };
+  const candidateCount = fittingPool.stable.length + fittingPool.finder.length;
+  if (candidateCount === 0) {
+    const emptyPool: SelectorPool = { stable: [], finder: [] };
+    return {
+      pool: emptyPool,
+      turn: emptyTurn,
+      budgetTokens,
+      estimatedInputTokens: estimate(emptyPool, emptyTurn),
+      originalEstimatedInputTokens,
+    };
+  }
+
+  const preferredCandidatePool = highestPriorityCandidates(fittingPool, 1);
   let budgetedTurn = turn;
-  if (estimate(newestCandidatePool, budgetedTurn) > budgetTokens) {
+  if (estimate(preferredCandidatePool, budgetedTurn) > budgetTokens) {
     let low = 0;
     let high = turnContextChars(turn);
     while (low < high) {
       const retainedChars = Math.ceil((low + high) / 2);
       const candidateTurn = latestTurnContextSuffix(turn, retainedChars);
-      if (estimate(newestCandidatePool, candidateTurn) <= budgetTokens) {
+      if (estimate(preferredCandidatePool, candidateTurn) <= budgetTokens) {
         low = retainedChars;
       } else {
         high = retainedChars - 1;
@@ -813,11 +837,11 @@ function budgetSelectorPool({
     budgetedTurn = latestTurnContextSuffix(turn, low);
   }
 
-  let low = estimate(newestCandidatePool, budgetedTurn) <= budgetTokens ? 1 : 0;
+  let low = 1;
   let high = candidateCount;
   while (low < high) {
     const retainedCount = Math.ceil((low + high) / 2);
-    const candidatePool = highestPriorityCandidates(pool, retainedCount);
+    const candidatePool = highestPriorityCandidates(fittingPool, retainedCount);
     if (estimate(candidatePool, budgetedTurn) <= budgetTokens) {
       low = retainedCount;
     } else {
@@ -825,7 +849,7 @@ function budgetSelectorPool({
     }
   }
 
-  const budgetedPool = highestPriorityCandidates(pool, low);
+  const budgetedPool = highestPriorityCandidates(fittingPool, low);
   return {
     pool: budgetedPool,
     turn: budgetedTurn,
@@ -1101,12 +1125,20 @@ export async function selectPool(
     );
   }
   if (ordered.length === 0) {
-    return {
-      pages: [],
-      keptAll: false,
-      pool: budgetedPool,
-      turn: budgetedTurn,
-    };
+    log.warn(
+      {
+        callSite: MEMORY_V3_SELECT_CALL_SITE,
+        providerName: provider.name,
+        model: effectiveContextWindow.model,
+        maxInputTokens: effectiveContextWindow.maxInputTokens,
+        candidateCount: originalCandidateCount,
+      },
+      "no pool selector candidate fits the context budget",
+    );
+    throw new MemoryV3RetrievalUnavailableError(
+      "memory-v3 pool selector has no candidate that fits the context budget",
+      { pool: budgetedPool, turn: budgetedTurn },
+    );
   }
 
   if (provider.name === TYPE_SAFE_PROVIDER_ID) {
