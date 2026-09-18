@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   layoutValues as layout,
   copyText,
+  layoutResult,
+  parseStructuredResult,
   type ValueField,
+  type ValueFieldList,
 } from "@/domains/chat/utils/value-layout";
 
 /** The first field `values` lays out to, for a test about one value. */
@@ -311,5 +314,108 @@ describe("field values", () => {
     expect(copyText({ team: "growth" })).toBe(
       JSON.stringify({ team: "growth" }, null, 2),
     );
+  });
+});
+
+describe("tool results", () => {
+  test("parses only a JSON object or array with something in it", () => {
+    expect(parseStructuredResult('{"a":1}')).toEqual({ a: 1 });
+    expect(parseStructuredResult("[1,2]")).toEqual([1, 2]);
+    for (const text of ["Moved 3 files.", "42", '"text"', "null", "{}", "[]"]) {
+      expect(parseStructuredResult(text)).toBeNull();
+    }
+  });
+
+  test("lays out a query result written as columns and rows as one unnamed table", () => {
+    expect(
+      layoutResult({
+        columns: ["week", "users"],
+        rows: [
+          ["2026-08-03", 12840],
+          ["2026-08-10", 13217],
+        ],
+      }),
+    ).toMatchObject({
+      fields: [
+        {
+          kind: "table",
+          label: "",
+          columns: ["week", "users"],
+          rows: [
+            ["2026-08-03", "12840"],
+            ["2026-08-10", "13217"],
+          ],
+        },
+      ],
+      more: 0,
+    });
+  });
+
+  test("lays out an object as its keys and a list as one unnamed field", () => {
+    expect(layoutResult({ a: "x" })).toMatchObject({
+      fields: [{ kind: "text", label: "a", text: "x" }],
+      more: 0,
+    });
+    const rows = [
+      { id: 1, name: "one" },
+      { id: 2, name: "two" },
+    ];
+    expect(layoutResult(rows)).toMatchObject({
+      fields: [{ kind: "table", label: "", columns: ["id", "name"] }],
+      more: 0,
+    });
+  });
+});
+
+describe("layout budget", () => {
+  /** Fields and table rows laid out in `list`, at every depth. */
+  function laidOut(list: ValueFieldList): number {
+    return list.fields.reduce(
+      (sum, field) =>
+        sum +
+        1 +
+        (field.kind === "table" ? field.rows.length : 0) +
+        (field.kind === "nested" ? laidOut(field.fields) : 0),
+      0,
+    );
+  }
+
+  /** Lists `width` wide nested `levels` deep, of text too long for one line. */
+  function broad(levels: number, width: number): unknown[] {
+    return Array.from({ length: width }, () =>
+      levels === 1
+        ? "a value long enough that no list of it is written on one line"
+        : broad(levels - 1, width),
+    );
+  }
+
+  test("bounds a value broad at every level, counting what it leaves out", () => {
+    const list = layoutResult(broad(4, 20));
+
+    // Twenty at each of four levels is 160,000 values.
+    expect(laidOut(list)).toBeLessThanOrEqual(500);
+    const root = list.fields[0];
+    expect(root?.kind).toBe("nested");
+    if (root?.kind === "nested") {
+      expect(root.fields.fields.length + root.fields.more).toBe(20);
+      expect(root.fields.more).toBeGreaterThan(0);
+    }
+  });
+
+  test("spends the budget on table rows too", () => {
+    const table = Array.from({ length: 100 }, (_, index) => ({
+      id: index,
+      name: `user${index}`,
+    }));
+    const values = Object.fromEntries(
+      Array.from({ length: 10 }, (_, index) => [`table${index}`, table]),
+    );
+    const list = layout(values);
+
+    expect(laidOut(list)).toBeLessThanOrEqual(500);
+    // The first tables are whole; the ones past the budget are counted.
+    expect(list.fields[0]).toMatchObject({ kind: "table", more: 0 });
+    expect(list.fields.length + list.more).toBe(10);
+    expect(list.more).toBeGreaterThan(0);
   });
 });

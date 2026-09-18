@@ -1828,10 +1828,14 @@
   },
   "toolInputParameters": {
     "parameters": "参数",
-    "rawInput": "原始输入"
+    "rawInput": "原始输入",
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}",
+    "rawOutput": "原始输出"
+  },
+  "valueFields": {
     "copyValue": "复制 {label}"
   },
   "toolStepPill": {

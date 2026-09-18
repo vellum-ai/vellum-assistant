@@ -13,6 +13,7 @@ import {
   fileReadMissingDetail,
   fileWriteDetail,
   largeOutputDetail,
+  wideTableOutputDetail,
   manyShortLinesDetail,
   tallNestedParameterDetail,
   tallTableParameterDetail,
@@ -94,6 +95,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Error | BashError, FileReadError, SkillLoadError | The panel styles an error result identically to a successful one; only the text says it failed. |
  * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
+ * | Structured output | McpTool, UnknownThirdPartyTool, RecordListParameter, WideTableOutput | A result that is a JSON object or list lays out the way the input does, with the result exactly as received under Raw output. Anything else, and an error or a streamed tail, stays a code block. |
  * | Taller than the fold | ManyShortLinesOutput, TallTableParameter, TallNestedParameter | Any value taller than the fold folds behind Show more, measured at the width it is drawn at: many short lines as readily as one long paragraph, and a table or nested group as one value. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
@@ -286,6 +288,16 @@ export const TallNestedParameter: Story = {
  * to the daemon's 400,000 character cap, which is not a height a panel absorbs.
  */
 export const LargeOutput: Story = { args: { detail: largeOutputDetail } };
+
+/**
+ * An output table wider than the drawer and taller than a screen: thirty
+ * records with ten keys each. Columns take the width of their values on one
+ * line and the table scrolls sideways; the long `website` column wraps at the
+ * width cap.
+ */
+export const WideTableOutput: Story = {
+  args: { detail: wideTableOutputDetail },
+};
 
 /**
  * Long and multi-line text. The note is one long line, so it reads inline and

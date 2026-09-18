@@ -254,6 +254,7 @@ describe("ToolDetailPanel", () => {
     const detail = makeDetail({
       toolName: "mcp__analytics__exec",
       input: { query },
+      result: "4 rows",
     });
     const { container, getAllByLabelText, getByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
@@ -835,18 +836,19 @@ describe("ToolDetailPanel", () => {
   });
 
   test("copy button writes the content to the clipboard", () => {
-    const { getAllByLabelText, getByText } = render(
+    const { getAllByLabelText, getByText, queryAllByLabelText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Short parameters are fields with nothing to copy, so at rest only the
-    // output has a copy button. Opening the raw input adds its own.
-    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    // Parameters and a structured output copy from their labels, and both raw
+    // forms start closed, so at rest no block has a copy button. Opening the
+    // raw input adds its own.
+    expect(queryAllByLabelText("Copy")).toHaveLength(0);
     act(() => {
       fireEvent.click(getByText("Raw input"));
     });
     const copyButtons = getAllByLabelText("Copy");
-    expect(copyButtons.length).toBe(2);
+    expect(copyButtons.length).toBe(1);
 
     fireEvent.click(copyButtons[0]!);
     expect(writeText).toHaveBeenCalledTimes(1);
@@ -857,6 +859,106 @@ describe("ToolDetailPanel", () => {
         2,
       ),
     );
+  });
+
+  describe("output laid out like input", () => {
+    test("a JSON object result reads as fields, with the result as received under Raw output", () => {
+      const result = '{"imported":3,"list":"Inbound"}';
+      const { getByText, queryByText, getByLabelText } = render(
+        <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+      );
+
+      expect(getByText("imported")).toBeDefined();
+      expect(getByText("Inbound")).toBeDefined();
+      // The raw form starts closed and, once opened, is the text as received,
+      // not a re-serialization of it.
+      expect(queryByText(result)).toBeNull();
+      act(() => {
+        fireEvent.click(getByText("Raw output"));
+      });
+      expect(getByText(result).tagName).toBe("PRE");
+      fireEvent.click(getByLabelText("Copy list"));
+      expect(writeText).toHaveBeenCalledWith("Inbound");
+    });
+
+    test("a list of records at the root reads as a table with no label of its own", () => {
+      const rows = [
+        { week: "2026-08-03", users: 12840 },
+        { week: "2026-08-10", users: 13217 },
+      ];
+      const { getAllByRole, getByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: JSON.stringify(rows) })}
+          onClose={noop}
+        />,
+      );
+
+      expect(getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+        "week",
+        "users",
+      ]);
+      expect(getByText("Raw output")).toBeDefined();
+    });
+
+    test("a result that is not JSON, or an empty object, stays a code block", () => {
+      for (const result of ["Moved 3 files.", "{}", "[]", "42"]) {
+        const { container, queryByText, unmount } = render(
+          <ToolDetailPanel detail={makeDetail({ result })} onClose={noop} />,
+        );
+        expect(container.querySelector("pre")?.textContent).toBe(result);
+        expect(queryByText("Raw output")).toBeNull();
+        unmount();
+      }
+    });
+
+    test("an error or a streamed tail reads as the text it is, whatever its shape", () => {
+      const json = '{"error":"quota exceeded"}';
+      for (const overrides of [
+        { result: json, status: "error" as const },
+        {
+          result: undefined,
+          streamedOutput: json,
+          status: "running" as const,
+        },
+      ]) {
+        const { container, queryByText, unmount } = render(
+          <ToolDetailPanel detail={makeDetail(overrides)} onClose={noop} />,
+        );
+        expect(container.querySelector("pre")?.textContent).toBe(json);
+        expect(queryByText("Raw output")).toBeNull();
+        unmount();
+      }
+    });
+
+    test("a renderer that owns its output keeps it, JSON or not", () => {
+      const { container, queryByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({
+            toolName: "bash",
+            input: { command: "cat package.json" },
+            result: '{"name":"app"}',
+          })}
+          onClose={noop}
+        />,
+      );
+
+      expect(
+        [...container.querySelectorAll("pre")].map((pre) => pre.textContent),
+      ).toContain('{"name":"app"}');
+      expect(queryByText("Raw output")).toBeNull();
+    });
+
+    test("counts what an output leaves out against Raw output", () => {
+      const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
+      const { getByText } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: JSON.stringify({ ids }) })}
+          onClose={noop}
+        />,
+      );
+
+      expect(getByText("3 more in Raw output")).toBeDefined();
+    });
   });
 
   test("thinking variant renders the reasoning markdown without input/output sections", () => {

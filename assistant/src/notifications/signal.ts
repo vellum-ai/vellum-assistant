@@ -59,8 +59,9 @@ export function isNotificationSourceChannel(
 
 export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   {
-    id: "user.send_notification",
-    description: "User-initiated notification via assistant tool",
+    id: "assistant.share",
+    description:
+      "Assistant chose to tell the user something (`assistant notifications send`)",
   },
   {
     id: "schedule.notify",
@@ -113,27 +114,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "watcher.notification",
     description: "Watcher detected a notable event",
   },
-  {
-    id: "watcher.escalation",
-    description: "Watcher event requiring immediate attention",
-  },
-  {
-    id: "tool_confirmation.required_action",
-    description: "Tool requires user confirmation before executing",
-  },
   { id: "activity.complete", description: "Background activity finished" },
   {
     id: "activity.failed",
     description:
       "Background job execution failed (model_provider, exception, or timeout)",
-  },
-  {
-    id: "quick_chat.response_ready",
-    description: "Quick chat response ready for review",
-  },
-  {
-    id: "voice.response_ready",
-    description: "Voice response ready for playback",
   },
   {
     id: "credential.health_alert",

@@ -1790,10 +1790,14 @@
   },
   "toolInputParameters": {
     "parameters": "Parámetros",
-    "rawInput": "Entrada sin procesar"
+    "rawInput": "Entrada sin procesar",
+    "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
   },
-  "toolParamFields": {
-    "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}",
+  "toolOutputSection": {
+    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}",
+    "rawOutput": "Salida sin procesar"
+  },
+  "valueFields": {
     "copyValue": "Copiar {label}"
   },
   "toolStepPill": {
