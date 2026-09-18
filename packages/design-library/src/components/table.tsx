@@ -118,11 +118,12 @@ export function Table({
         // A keyboard reaches the columns out of view only through a
         // focusable container, and anything focusable needs a role and name
         // (WCAG 2.1.1 and 4.1.2). Only while it scrolls: a table that fits
-        // adds no tab stop.
+        // adds no tab stop. The focus ring is inset because the edge mask
+        // clips anything drawn outside the container.
         role={scrolls ? "region" : containerProps?.role}
         tabIndex={scrolls ? 0 : containerProps?.tabIndex}
         className={cn(
-          "relative w-full overflow-x-auto outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+          "relative w-full overflow-x-auto outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]",
           containerProps?.className,
         )}
         style={
