@@ -18,11 +18,16 @@ metadata:
 This skill provides the computer_use_* action tools through the main agent
 loop and its shared computer-use history, step budget, and screenshot handling.
 
-Choose `target: "assistant-desktop"` on every call to control the streamed
-Virtual desktop on an enabled platform-hosted assistant. Omitted targets and
-`target: "connected-computer"` control the user's connected computer. Use
-`target_client_id` to choose among connected computers; do not combine it with
-`assistant-desktop`. Targets never fall back to a different computer.
+Platform-hosted web conversations default to the streamed Virtual desktop.
+Native desktop apps, including the Mac app connected to a platform-hosted
+assistant, default to the user's connected computer. Use
+`target: "assistant-desktop"` when explicitly asked to use the virtual desktop
+from a native app. Non-platform assistants keep connected-computer behavior.
+
+Explicit targets override these defaults: `target: "connected-computer"` or
+`target_client_id` selects a connected computer even from the web. Do not combine
+`target_client_id` with `assistant-desktop`. An unavailable selected desktop
+returns an error rather than falling back to a different computer.
 
 ## Virtual desktop
 

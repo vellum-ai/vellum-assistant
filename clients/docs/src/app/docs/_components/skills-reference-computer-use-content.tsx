@@ -24,9 +24,11 @@ export function SkillsReferenceComputerUseContent() {
           <p className="mb-0 text-zinc-600">
             Controls a connected desktop directly. It observes the screen through accessibility
             APIs and screenshots, then clicks, types, and scrolls. Some actions depend on the
-            desktop operating system. On enabled platform-hosted assistants, explicitly
-            selecting the assistant desktop controls the streamed Virtual desktop using
-            screenshots and coordinates. Calls default to the connected computer.
+            desktop operating system. Platform-hosted web conversations default to the
+            streamed Virtual desktop using screenshots and coordinates. Native desktop
+            apps, including the Mac app connected to a platform-hosted assistant, use
+            the connected computer unless explicitly directed to the virtual desktop.
+            Explicit connected-computer targets override the web default.
             Each virtual desktop action uses the observation ID from its latest screenshot;
             browser actions or user handoff require a fresh observation.
             Virtual desktop control shares browser

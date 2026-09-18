@@ -607,7 +607,10 @@ export type Tool = Required<
 > &
   Pick<ToolDefinition, "exclusive" | "supportedClientOs"> & {
     /** Invocation-specific boundary for trusted tool implementations. */
-    getExecutionTarget?: (input: Record<string, unknown>) => "sandbox" | "host";
+    getExecutionTarget?: (
+      input: Record<string, unknown>,
+      context?: ToolContext,
+    ) => "sandbox" | "host";
   };
 
 /**

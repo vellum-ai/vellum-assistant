@@ -3168,7 +3168,7 @@ export async function surfaceProxyResolver(
     const desktopContext = virtualDesktopContext(ctx, signal);
     if (
       toolName !== POINT_AT_PROXY_TOOL &&
-      computerUseTarget(input) === "assistant-desktop"
+      computerUseTarget(input, desktopContext) === "assistant-desktop"
     ) {
       if (!canUseVirtualDesktop(desktopContext)) {
         return {

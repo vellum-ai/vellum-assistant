@@ -30,7 +30,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           }
         },
         "required": []
@@ -74,7 +74,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -109,7 +109,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -144,7 +144,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -196,7 +196,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -251,7 +251,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -287,7 +287,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -322,7 +322,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           }
         },
         "required": ["app_name", "reasoning"]
@@ -354,7 +354,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           }
         },
         "required": ["script", "reasoning"]
@@ -450,7 +450,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           },
           "observation_id": {
             "type": "string",
@@ -478,7 +478,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           }
         },
         "required": ["summary"]
@@ -505,7 +505,7 @@
           "target": {
             "type": "string",
             "enum": ["connected-computer", "assistant-desktop"],
-            "description": "Desktop to control. Defaults to connected-computer. Use assistant-desktop for the streamed virtual desktop; do not combine it with target_client_id."
+            "description": "Desktop to control. Platform-hosted web conversations default to assistant-desktop; native desktop apps and non-platform assistants default to connected-computer. Explicit target or target_client_id overrides the default. Use assistant-desktop from a native app only when explicitly requested; do not combine it with target_client_id."
           }
         },
         "required": ["answer", "reasoning"]

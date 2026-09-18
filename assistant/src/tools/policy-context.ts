@@ -75,7 +75,7 @@ export function buildPolicyContext(
   const ownerKind = getToolOwner(tool.name)?.kind;
   if (ownerKind === "skill" || ownerKind === "plugin") {
     return {
-      executionTarget: resolveExecutionTarget(tool, input),
+      executionTarget: resolveExecutionTarget(tool, input, context),
       executionContext,
       conversationId,
       ...originSignals,

@@ -120,7 +120,7 @@ export class PermissionChecker {
     classification?: RiskClassificationWithMeta,
   ): Promise<PermissionDecision> {
     // Policy and prompts use the invocation's execution target.
-    const executionTarget = resolveExecutionTarget(tool, input);
+    const executionTarget = resolveExecutionTarget(tool, input, context);
     classification ??= await classifyRisk(
       name,
       input,

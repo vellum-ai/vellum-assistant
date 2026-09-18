@@ -1,4 +1,5 @@
 import type { ExecutionTarget } from "./tool-types.js";
+import type { Tool, ToolContext } from "./types.js";
 
 export interface ManifestOverride {
   risk: "low" | "medium" | "high";
@@ -10,12 +11,13 @@ export function resolveExecutionTarget(
   tool: {
     name: string;
     executionTarget?: ExecutionTarget;
-    getExecutionTarget?: (input: Record<string, unknown>) => ExecutionTarget;
+    getExecutionTarget?: Tool["getExecutionTarget"];
   },
   input?: Record<string, unknown>,
+  context?: ToolContext,
 ): ExecutionTarget {
   if (input && tool.getExecutionTarget) {
-    return tool.getExecutionTarget(input);
+    return tool.getExecutionTarget(input, context);
   }
   if (tool.executionTarget) {
     return tool.executionTarget;

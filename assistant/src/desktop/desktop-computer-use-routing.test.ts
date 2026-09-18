@@ -182,8 +182,9 @@ test("routing uses frozen turn trust even when the resting conversation is guard
 });
 
 for (const target of [undefined, "connected-computer"]) {
-  test(`target ${target} retains the connected-computer path`, async () => {
+  test(`Mac target ${target} retains the connected-computer path`, async () => {
     const { ctx, proxy } = conversation();
+    ctx.currentTurnClientOs = "macos";
     const execute = spyOn(computerUse, "executeDesktopComputerUse");
     spies.push(execute, spyOn(proxy, "isAvailable").mockReturnValue(false));
     expect(
@@ -230,69 +231,119 @@ for (const input of [
   });
 }
 
-test("the real bundled skill uses the same desktop target for policy and dispatch", async () => {
+for (const platform of [true, false]) {
+  for (const clientOs of ["web", "macos", "windows", "linux"] as const) {
+    test(`bundled tool policy and dispatch agree for ${platform ? "platform" : "local"} ${clientOs}`, async () => {
+      process.env.IS_PLATFORM = String(platform);
+      const skillDir = join(getBundledSkillsDir(), "computer-use");
+      const manifest = JSON.parse(
+        readFileSync(join(skillDir, "TOOLS.json"), "utf8"),
+      ) as SkillToolManifest;
+      const tools = createSkillToolsFromManifest(
+        manifest.tools,
+        skillDir,
+        "",
+        true,
+      );
+      const click = tools.find((tool) => tool.name === "computer_use_click")!;
+      const { ctx, proxy } = conversation();
+      ctx.currentTurnClientOs = clientOs;
+      const local = spyOn(
+        computerUse,
+        "executeDesktopComputerUse",
+      ).mockResolvedValue({ content: "desktop", isError: false });
+      spies.push(local, spyOn(proxy, "isAvailable").mockReturnValue(false));
+      const toolContext = {
+        ...context,
+        clientOs,
+        workingDir: "/tmp",
+        conversationId: "conv-123",
+        proxyToolResolver: (name: string, args: Record<string, unknown>) =>
+          surfaceProxyResolver(ctx, name, args),
+      };
+      for (const target of [
+        undefined,
+        "connected-computer",
+        "assistant-desktop",
+      ]) {
+        const virtual =
+          target === "assistant-desktop" ||
+          (target === undefined && platform && clientOs === "web");
+        const input = {
+          target,
+          x: 30,
+          y: 40,
+          reasoning: "Focus field",
+          ...(virtual ? { observation_id: "observation-123" } : {}),
+        };
+        const boundary = resolveExecutionTarget(click, input, toolContext);
+        expect(boundary).toBe(virtual ? "sandbox" : "host");
+        if (virtual) {
+          expect(sensitiveToolReach(click.name, boundary, input)).not.toBe(
+            "host",
+          );
+        } else {
+          expect(sensitiveToolReach(click.name, boundary, input)).toBe("host");
+        }
+        const calls = local.mock.calls.length;
+        const result = await click.execute(input, toolContext);
+        expect(result.isError).toBe(!(virtual && platform));
+        expect(local).toHaveBeenCalledTimes(
+          calls + (virtual && platform ? 1 : 0),
+        );
+      }
+      const calls = local.mock.calls.length;
+      const rejected = await click.execute(
+        { target: "invalid", reasoning: "Focus field" },
+        toolContext,
+      );
+      expect(rejected.isError).toBe(true);
+      expect(local).toHaveBeenCalledTimes(calls);
+      const entry = manifest.tools.find((tool) => tool.name === click.name)!;
+      for (const tool of [
+        createSkillTool(entry, "/tmp/skills/computer-use", "", true),
+        createSkillTool(entry, skillDir, "", false),
+        createSkillTool(entry, skillDir, "", true, "plugin-123"),
+      ]) {
+        expect(
+          resolveExecutionTarget(
+            tool,
+            { target: "assistant-desktop" },
+            toolContext,
+          ),
+        ).toBe("host");
+      }
+    });
+  }
+}
+
+test("desktop revocation between policy and dispatch never falls back to the host", async () => {
+  const { ctx, proxy } = conversation();
   const skillDir = join(getBundledSkillsDir(), "computer-use");
   const manifest = JSON.parse(
     readFileSync(join(skillDir, "TOOLS.json"), "utf8"),
   ) as SkillToolManifest;
-  const tools = createSkillToolsFromManifest(
+  const observe = createSkillToolsFromManifest(
     manifest.tools,
     skillDir,
     "",
     true,
-  );
-  const click = tools.find((tool) => tool.name === "computer_use_click")!;
-  const { ctx, proxy } = conversation();
-  const local = spyOn(
-    computerUse,
-    "executeDesktopComputerUse",
-  ).mockResolvedValue({ content: "desktop", isError: false });
-  spies.push(local, spyOn(proxy, "isAvailable").mockReturnValue(false));
-  for (const target of [undefined, "connected-computer", "assistant-desktop"]) {
-    const input = {
-      target,
-      x: 30,
-      y: 40,
-      reasoning: "Focus field",
-      ...(target === "assistant-desktop"
-        ? { observation_id: "observation-123" }
-        : {}),
-    };
-    const boundary = resolveExecutionTarget(click, input);
-    expect(boundary).toBe(target === "assistant-desktop" ? "sandbox" : "host");
-    if (target !== "assistant-desktop") {
-      expect(sensitiveToolReach(click.name, boundary, input)).toBe("host");
-    } else {
-      expect(sensitiveToolReach(click.name, boundary, input)).not.toBe("host");
-    }
-    const result = await click.execute(input, {
-      ...context,
-      workingDir: "/tmp",
-      conversationId: "conv-123",
-      proxyToolResolver: (name, args) => surfaceProxyResolver(ctx, name, args),
-    });
-    expect(result.isError).toBe(target !== "assistant-desktop");
-  }
-  expect(local).toHaveBeenCalledTimes(1);
-  expect(local.mock.calls[0][1]).toMatchObject({
-    observation_id: "observation-123",
-  });
-  const rejected = await click.execute(
-    { target: "invalid", reasoning: "Focus field" },
-    { ...context, workingDir: "/tmp", conversationId: "conv-123" },
-  );
-  expect(rejected.isError).toBe(true);
-  expect(local).toHaveBeenCalledTimes(1);
-  const entry = manifest.tools.find((tool) => tool.name === click.name)!;
-  for (const tool of [
-    createSkillTool(entry, "/tmp/skills/computer-use", "", true),
-    createSkillTool(entry, skillDir, "", false),
-    createSkillTool(entry, skillDir, "", true, "plugin-123"),
-  ]) {
-    expect(resolveExecutionTarget(tool, { target: "assistant-desktop" })).toBe(
-      "host",
-    );
-  }
+  ).find((tool) => tool.name === "computer_use_observe")!;
+  const toolContext = {
+    ...context,
+    workingDir: "/tmp",
+    conversationId: "conv-123",
+  };
+  expect(resolveExecutionTarget(observe, {}, toolContext)).toBe("sandbox");
+  setOverridesForTesting({ "assistant-desktop": false });
+  const local = spyOn(computerUse, "executeDesktopComputerUse");
+  const host = spyOn(proxy, "request");
+  spies.push(local, host, spyOn(proxy, "isAvailable").mockReturnValue(true));
+  expect(
+    (await surfaceProxyResolver(ctx, "computer_use_observe", {})).isError,
+  ).toBe(true);
+  expect(host).not.toHaveBeenCalled();
+  expect(local).not.toHaveBeenCalled();
 });
 
 test("a disabled assistant desktop never falls back to a connected computer", async () => {

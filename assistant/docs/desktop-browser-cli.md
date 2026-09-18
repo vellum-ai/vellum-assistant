@@ -38,11 +38,16 @@ Desktop streaming checks the current in-memory gateway feature flags during conn
 
 ## Computer use on the same desktop
 
-The existing `computer-use` skill controls this desktop when each call includes
-`target: "assistant-desktop"`. It returns full-screen screenshots and accepts
-screen coordinates for mouse actions. Omitted targets and
-`target: "connected-computer"` retain the personal-computer path on every client;
-`target_client_id` selects a specific connected computer.
+The existing `computer-use` skill defaults to this desktop in platform-hosted
+web conversations. Native desktop clients, including the Mac app connected to a
+platform-hosted assistant, keep the connected-computer default and require
+`target: "assistant-desktop"` to select the virtual desktop explicitly.
+Non-platform assistants keep their connected-computer behavior.
+
+Explicit `target: "connected-computer"` or `target_client_id` selects a connected
+computer on every client. The selected target never falls back to another
+computer when unavailable. Virtual desktop observations return full-screen
+screenshots and mouse actions use screen coordinates.
 
 Observe first and pass the returned `observation_id` with each native action.
 Browser commands, user handoff, errors, and interruption require a fresh
