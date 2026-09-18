@@ -300,7 +300,9 @@ Local SSE via the assistant's broadcast mechanism. The `VellumAdapter` emits a `
 - `title` and `body` -- rendered notification copy
 - `deepLinkMetadata` -- optional metadata for navigating to the relevant context (e.g. `{ conversationId }`)
 
-The macOS client posts a native `UNUserNotificationCenter` notification from this payload. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
+Every first-party client runs the shared web renderer (browser, desktop app, mobile apps), which posts a local notification from this payload and acks the delivery. When the user taps the notification, the client uses `deepLinkMetadata` to navigate to the relevant conversation.
+
+A guardian-sensitive notification (approval requests, access requests, channel activation codes) carries `targetGuardianPrincipalId` and is published with `targetActorPrincipalId`, so the event hub delivers it only to connections authenticated as the guardian. The client shows it when the sending assistant is new enough to apply that targeting (`clients/web/src/lib/backwards-compat/guardian-notification-targeting.ts`) and drops it otherwise.
 
 ### Platform (always connected)
 

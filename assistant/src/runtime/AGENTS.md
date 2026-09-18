@@ -277,6 +277,8 @@ Verification SESSION state (sessions, secrets, rate limits, validate+consume) AN
 
 The daemon relays session lifecycle operations over the `verification_sessions_*` IPC routes via `assistant/src/channels/gateway-verification-sessions.ts` and keeps what is presentation: message composition and channel delivery (`channel-verification-routes.ts`, `verification-outbound-actions.ts`). `channel-verification-service.ts` retains only guardian-delivery reads (`getGuardianBinding`, `isGuardian`, `isGuardianBoundForChannel`).
 
+The gateway answers a code (or an invite) it consumed at ingress with a reply it composes itself, and delivers it through the daemon's IPC-only `deliver_gateway_reply` method (`ipc/routes/channel-reply-ipc-routes.ts`), which hands it to the channel transport the inbound message's callback URL names. The gateway never sends to a provider itself: the transports are the one outbound path per channel, whoever composed the text. The reply is not recorded in a conversation, since the message it answers never entered one.
+
 The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"); the code-match paths (text and the `verification_sessions_validate_consume` engine route) apply role side effects in-engine — guardian phone binding commits in the same gateway transaction as the consume. The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
 
 ## Rate Limiting & Diagnostics

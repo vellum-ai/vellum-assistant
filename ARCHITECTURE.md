@@ -555,6 +555,9 @@ subgraph "Text Q&A Session"
     %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
     %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
     %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    %% A reply the gateway composes for a message it answered at ingress (a
+    %% verification code, an invite redemption) reaches the same transport over
+    %% the daemon's IPC-only deliver_gateway_reply method.
     %% The same transport carries proactive sends: the messaging tool and
     %% POST /v1/channels/send run sendChannelText (runtime/channel-send.ts), which
     %% asks the transport to address a chat or person (addressFor) and records the
