@@ -223,11 +223,21 @@ export function createOutboundSessionGuarded(
 
   // Claimed after the other guard, so a mint that is going to conflict
   // anyway does not burn a bootstrap token on its way out.
-  if (
-    params.requireSourceSessionPending !== undefined &&
-    !claimBootstrapSession(params.requireSourceSessionPending, params.channel)
-  ) {
-    return { conflict: true, reason: "source_session_not_pending" };
+  if (params.requireSourceSessionPending !== undefined) {
+    const source = claimBootstrapSession(
+      params.requireSourceSessionPending,
+      params.channel,
+    );
+    if (!source) {
+      return { conflict: true, reason: "source_session_not_pending" };
+    }
+    // The replacement continues the claimed session, so it keeps that
+    // session's purpose whatever the caller passed. A trusted-contact deep
+    // link must not come back as a guardian code.
+    return createOutboundSession({
+      ...params,
+      verificationPurpose: source.verificationPurpose,
+    });
   }
 
   return createOutboundSession(params);
