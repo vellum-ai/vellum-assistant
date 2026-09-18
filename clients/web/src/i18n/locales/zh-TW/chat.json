@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "電腦操作工作階段",
+      "computerUse": "電腦工作階段",
       "browser": "瀏覽器工作階段",
       "liveVision": "即時視覺工作階段",
       "ambient": "環境工作階段"

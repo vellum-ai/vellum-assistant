@@ -73,7 +73,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "Сеанс управления компьютером",
+      "computerUse": "Сеанс работы с компьютером",
       "browser": "Сеанс браузера",
       "liveVision": "Сеанс видеопросмотра",
       "ambient": "Фоновый сеанс"
