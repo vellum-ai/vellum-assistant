@@ -154,6 +154,7 @@ import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
 } from "./live-voice-tts.js";
+import { MicrophoneIdleGate } from "./microphone-idle-gate.js";
 import {
   type LiveVoiceClientAttachFrameFrame,
   type LiveVoiceClientAttachImageFrame,
@@ -1211,6 +1212,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // room itself stops reading as speech.
   private readonly roomNoiseFloor = new RoomNoiseFloor();
   private readonly inputDiagnostics = new VoiceInputDiagnostics();
+  private readonly microphoneIdleGate: MicrophoneIdleGate;
   private diagnosticEchoCorrelation: number | null = null;
   private diagnosticTtsSampleRate: number | null = null;
   private readonly echoBargeInMargin: number;
@@ -1410,6 +1412,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     options: LiveVoiceSessionOptions = {},
   ) {
     this.context = context;
+    this.microphoneIdleGate = new MicrophoneIdleGate(
+      context.startFrame.audio.sampleRate,
+    );
     this.resolveTranscriber =
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
     this.resolveCredentialReadiness =
@@ -2149,6 +2154,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (transcriber && this.sharedTranscriber === transcriber) {
       this.sharedTranscriber = null;
       this.sharedTranscriberLanguage = undefined;
+      this.microphoneIdleGate.reset();
     }
   }
 
@@ -2418,6 +2424,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ),
         echoDrainSlackMs: this.echoDrainSlackMs,
         bargeInMinSpeechMs: this.bargeInMinSpeechMs,
+        microphoneGateClosed:
+          this.providerTurnEndActive && this.microphoneIdleGate.closed,
         ...details,
       },
       "Live voice input diagnostics",
@@ -2452,8 +2460,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.peakChunkAmplitude = meanAmplitude;
     }
 
-    // Locally endpointed streams keep idle audio in pre-roll. Provider-owned
-    // endpointing receives quiet audio too, including speech below our gate.
+    if (this.providerTurnEndActive) {
+      const wasClosed = this.microphoneIdleGate.closed;
+      chunk = this.microphoneIdleGate.process(chunk, hasSpeech);
+      if (wasClosed !== this.microphoneIdleGate.closed) {
+        this.logInputDiagnostic("voice_input_microphone_gate_changed");
+      }
+      if (chunk.byteLength === 0) {
+        return;
+      }
+    }
+
+    // Locally endpointed streams keep idle audio in pre-roll.
     if (!hasSpeech && !detector.isActive && !this.providerTurnEndActive) {
       this.pushVadPreRoll(chunk, false);
       return;
@@ -4366,6 +4384,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.providerTurnEndActive = active;
+    this.microphoneIdleGate.reset();
     if (active || this.providerTurnEndTimer === null) {
       return;
     }
@@ -5187,8 +5206,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         // The shared stream closed under the session: fall back to the
         // per-cycle path — the next arm resolves a fresh transcriber.
-        this.sharedTranscriber = null;
-        this.sharedTranscriberLanguage = undefined;
+        this.releaseSharedTranscriber(transcriber);
         const drained = this.drainFinalizeQueueFor(transcriber);
         const current = this.currentUtterance;
         if (
@@ -5387,6 +5405,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // per-cycle) and clears the finalize bookkeeping. Used by interrupt() and
   // close(); persistent mode re-establishes itself on the next arm.
   private stopSessionTranscriber(): void {
+    this.microphoneIdleGate.reset();
     this.clearFinalizeGraceTimer();
     this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
