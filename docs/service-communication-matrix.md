@@ -31,45 +31,47 @@ This document enumerates every observed communication permutation between the th
 | 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
 | 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
 | 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
-| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
-| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
-| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
-| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
-| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
-| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel admission policy IPC |
-| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Inbound trust verdict IPC |
-| 34 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian delivery IPC |
-| 35 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian requests IPC |
-| 36 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Invites IPC |
-| 37 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Verification sessions IPC |
-| 38 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel socket health IPC |
-| 39 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Credential request IPC |
-| 40 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Gateway log tail IPC |
-| 41 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Slack thread IPC |
-| 42 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Trust rules IPC |
-| 43 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Velay status IPC |
-| 44 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Webhook route IPC |
-| 45 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contacts mirror IPC |
-| 46 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contact info IPC |
-| 47 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Invite actions IPC |
-| 48 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Event emission IPC |
-| 49 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant database proxy IPC |
-| 50 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Credential write IPC |
-| 51 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Guardian form IPC |
-| 52 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
-| 53 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
-| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Plugin webhook WebSocket frame IPC |
-| 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
-| 56 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 57 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 58 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 59 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 60 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Backup snapshot export |
+| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Internal telemetry relay |
+| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
+| 25 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
+| 26 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
+| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 28 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
+| 29 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 34 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel admission policy IPC |
+| 35 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Inbound trust verdict IPC |
+| 36 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian delivery IPC |
+| 37 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian requests IPC |
+| 38 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Invites IPC |
+| 39 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Verification sessions IPC |
+| 40 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel socket health IPC |
+| 41 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Credential request IPC |
+| 42 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Gateway log tail IPC |
+| 43 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Slack thread IPC |
+| 44 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Trust rules IPC |
+| 45 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Velay status IPC |
+| 46 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Webhook route IPC |
+| 47 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contacts mirror IPC |
+| 48 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contact info IPC |
+| 49 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Invite actions IPC |
+| 50 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Event emission IPC |
+| 51 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant database proxy IPC |
+| 52 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Credential write IPC |
+| 53 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Guardian form IPC |
+| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
+| 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
+| 56 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Plugin webhook WebSocket frame IPC |
+| 57 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
+| 58 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 59 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 60 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 61 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 62 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -328,6 +330,33 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
+
+### Backup snapshot export
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway's backup worker fetches a .vbundle from the assistant's /v1/migrations/export to write a snapshot. backup-routes.ts starts manual snapshots (POST /v1/backups/create) through the same worker.
+
+**Caller files:**
+- `gateway/src/backup/backup-worker.ts`
+- `gateway/src/backup/backup-routes.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/migration-routes.ts`
+
+### Internal telemetry relay
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway relays its watchdog events and aggregated auth-fallback counts to the assistant's /v1/internal/telemetry/watchdog and /v1/internal/telemetry/auth-fallback through one shared poster.
+
+**Caller files:**
+- `gateway/src/internal-telemetry-client.ts`
+- `gateway/src/watchdog-reporter.ts`
+- `gateway/src/auth-fallback-reporter.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/internal-telemetry-routes.ts`
 
 ### Desktop setup proxy
 

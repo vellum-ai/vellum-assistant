@@ -300,6 +300,35 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
   {
+    label: "Backup snapshot export",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway's backup worker fetches a .vbundle from the assistant's /v1/migrations/export to write a snapshot. backup-routes.ts starts manual snapshots (POST /v1/backups/create) through the same worker.",
+    callerGlobs: [
+      "gateway/src/backup/backup-worker.ts",
+      "gateway/src/backup/backup-routes.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/routes/migration-routes.ts"],
+  },
+  {
+    label: "Internal telemetry relay",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway relays its watchdog events and aggregated auth-fallback counts to the assistant's /v1/internal/telemetry/watchdog and /v1/internal/telemetry/auth-fallback through one shared poster.",
+    callerGlobs: [
+      "gateway/src/internal-telemetry-client.ts",
+      "gateway/src/watchdog-reporter.ts",
+      "gateway/src/auth-fallback-reporter.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/routes/internal-telemetry-routes.ts"],
+  },
+  {
     label: "Desktop setup proxy",
     caller: "gateway",
     callee: "assistant",
