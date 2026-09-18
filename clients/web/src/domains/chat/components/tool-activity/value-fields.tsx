@@ -2,8 +2,8 @@
  * Draws the layout `value-layout` decides for a tool's input or output: each
  * field a small label above its value, text with line breaks as a code block,
  * a list of records as a table, and larger structure nested in a bordered
- * group. A long value folds behind Show more wherever it is drawn, inline or
- * in a cell, and every named value copies from its label.
+ * group. Any value taller than the fold, whatever its kind, folds behind Show
+ * more, and every named value copies from its label.
  */
 
 import { Typography } from "@vellumai/design-library";
@@ -116,7 +116,7 @@ function FieldValue({
   switch (field.kind) {
     case "text":
       return (
-        <ClampedContent length={field.text.length}>
+        <ClampedContent>
           <ValueText>{field.text}</ValueText>
         </ClampedContent>
       );
@@ -125,7 +125,7 @@ function FieldValue({
       // carries no copy button of its own.
       return (
         <div className="mt-1">
-          <DetailBlock length={field.text.length}>
+          <DetailBlock>
             <CodePre text={field.text} />
           </DetailBlock>
         </div>
@@ -151,27 +151,29 @@ function FieldValue({
         </span>
       );
     case "table":
+      // The table folds as one value, like a long text or code block does:
+      // one Show more for the table, not one per cell.
       return (
         <div className="mt-1 flex min-w-0 flex-col gap-2">
-          <DataTable
-            {...tableProps(field)}
-            copyable={false}
-            renderCell={(text) => (
-              <ClampedContent length={text.length}>
-                <CellText>{text}</CellText>
-              </ClampedContent>
-            )}
-          />
+          <ClampedContent>
+            <DataTable
+              {...tableProps(field)}
+              copyable={false}
+              renderCell={(text) => <CellText>{text}</CellText>}
+            />
+          </ClampedContent>
           {field.more > 0 && <MoreCount label={moreLabel(field.more)} />}
         </div>
       );
     case "nested":
       return (
-        <ValueFields
-          list={field.fields}
-          moreLabel={moreLabel}
-          variant="nested"
-        />
+        <ClampedContent>
+          <ValueFields
+            list={field.fields}
+            moreLabel={moreLabel}
+            variant="nested"
+          />
+        </ClampedContent>
       );
   }
 }

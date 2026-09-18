@@ -15,17 +15,15 @@ import { useState, type ReactNode } from "react";
 import { Typography, type TypographyAs } from "@vellumai/design-library";
 
 import { CopyButton } from "@/components/copy-button";
+import { useOverflows } from "@/hooks/use-overflows";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 
 /**
- * Content longer than this collapses behind "Show more". Roughly a dozen lines
- * of prose: enough to tell what the block holds, short enough that whatever
- * sits above it stays on screen.
+ * Content taller than this folds behind "Show more". Roughly a dozen lines of
+ * prose: enough to tell what a value holds, short enough that whatever sits
+ * above it stays on screen.
  */
-const CLAMP_CHARS = 700;
-
-/** Collapsed height of a clamped block, in px. */
 const CLAMP_HEIGHT = 260;
 
 /** The bottom of a clamped body fades to nothing over this height. */
@@ -39,44 +37,47 @@ const CLAMP_FADE = "3rem";
 const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FADE}), transparent)`;
 
 /**
- * Collapses `children` to a readable height when `length` exceeds the clamp,
- * with a fade over the cut and a Show more control. Callers pass the length of
- * the text they are rendering rather than the node, because the decision is
- * about how much there is to read, not how it is marked up.
+ * Folds `children` behind a Show more control when they are taller than
+ * {@link CLAMP_HEIGHT}, with a fade over the cut. The height is measured where
+ * the content is drawn, at the width it is drawn at, so text of many short
+ * lines folds as readily as one long paragraph, and content that fits never
+ * offers to show more.
  *
- * It is what keeps a long value from running a detail panel on, wherever the
- * value is drawn: inside a {@link DetailBlock}, as a field's inline text, or in
- * a table cell.
+ * It is what keeps a long value from running a detail panel on, whatever the
+ * value is: a code block, a field's inline text, a table, a nested group.
  */
-export function ClampedContent({
-  length,
-  children,
-}: {
-  length: number;
-  children: ReactNode;
-}) {
+export function ClampedContent({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  const clampable = length > CLAMP_CHARS;
-  const clamped = clampable && !expanded;
+  // Paused while expanded: uncapped content never overflows, and the measure
+  // is what keeps Show less on screen.
+  const { ref, overflows } = useOverflows<HTMLDivElement>({
+    paused: expanded,
+  });
+  const clamped = overflows && !expanded;
 
   return (
     <>
       <div
+        ref={ref}
         className="overflow-hidden"
         style={
-          clamped
-            ? {
+          expanded
+            ? undefined
+            : {
                 maxHeight: CLAMP_HEIGHT,
-                maskImage: CLAMP_FADE_MASK,
-                WebkitMaskImage: CLAMP_FADE_MASK,
+                ...(clamped && {
+                  maskImage: CLAMP_FADE_MASK,
+                  WebkitMaskImage: CLAMP_FADE_MASK,
+                }),
               }
-            : undefined
         }
       >
-        {children}
+        {/* One child for the observer to follow as the content grows under
+            the cap, which does not move the capped box itself. */}
+        <div>{children}</div>
       </div>
-      {clampable && (
+      {overflows && (
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
@@ -105,8 +106,6 @@ const DETAIL_BLOCK_VARIANT_CLASSES = {
 interface DetailBlockProps {
   /** `outlined` carries a hairline border; `filled` is the bare surface. */
   variant?: keyof typeof DETAIL_BLOCK_VARIANT_CLASSES;
-  /** Length of the text shown, which decides whether the block clamps. */
-  length: number;
   /** Text the copy button copies. Without it the block has no copy button. */
   copyText?: string;
   children: ReactNode;
@@ -125,7 +124,6 @@ interface DetailBlockProps {
  */
 export function DetailBlock({
   variant = "outlined",
-  length,
   copyText,
   children,
 }: DetailBlockProps) {
@@ -140,7 +138,7 @@ export function DetailBlock({
         hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
       )}
     >
-      <ClampedContent length={length}>{children}</ClampedContent>
+      <ClampedContent>{children}</ClampedContent>
       {hasCopy && (
         <CopyButton
           text={copyText}
@@ -239,7 +237,7 @@ export function CodeBlock({
   tone?: "default" | "error";
 }) {
   return (
-    <DetailBlock length={text.length} copyText={text}>
+    <DetailBlock copyText={text}>
       <CodePre text={text} tone={tone} />
     </DetailBlock>
   );

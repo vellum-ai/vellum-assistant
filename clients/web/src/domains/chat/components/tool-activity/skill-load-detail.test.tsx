@@ -36,6 +36,7 @@ const { SkillLoadDetail } =
   await import("@/domains/chat/components/tool-activity/skill-load-detail");
 const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { stubOverflow } from "@/hooks/overflow.test-helper";
 
 const LONG_PARAGRAPH = "Detailed guidance about the skill. ".repeat(40);
 
@@ -147,8 +148,11 @@ describe("SkillLoadDetail", () => {
     expect(container.textContent).toContain("## Available Tools");
   });
 
-  test("clamps a long body behind Show more", () => {
+  test("folds a body taller than the fold behind Show more", () => {
+    // The skill body is the only folded content in this detail.
+    const restore = stubOverflow(() => true);
     const { getByText, queryByText } = renderDetail();
+    restore();
 
     expect(getByText("Show more")).toBeDefined();
 
