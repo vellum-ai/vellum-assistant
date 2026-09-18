@@ -772,6 +772,48 @@ describe("LiveVoiceSession subagent outcomes", () => {
     },
   );
 
+  test("a completion replacing interrupted findings carries the delivery receipt into its retry", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const { session, frames } = createHarness({
+      finals: ["tell me about birds"],
+      continuationAnnounceSilenceMs: 10,
+      streamTtsAudio: immediateTts(),
+      startVoiceTurn: async (turn) => {
+        calls.push(turn);
+        return { turnId: `turn-${calls.length}`, abort: mock() };
+      },
+    });
+    await session.start();
+    try {
+      session.receiveSubagentNotification(outcome("task-1", "running"));
+      await waitFor(() => calls.length === 1);
+      calls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Here are all the generated findings."),
+      );
+      await waitFor(() => countType(frames, "tts_audio") > 0);
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => calls.length === 2);
+      session.receiveSubagentNotification(outcome("task-1", "completed"));
+      calls[1]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("Birds have feathers."),
+      );
+      calls[1]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => calls.length === 3);
+      expect(calls[2]?.subagentNotification?.message).toBe(
+        "Task task-1 completed",
+      );
+      expect(calls[2]?.voiceControlPrompt).toContain(
+        "interrupted before playback completed",
+      );
+      expect(calls[2]?.voiceControlPrompt).toContain("Birds have feathers.");
+      expect(calls[2]?.voiceControlPrompt).not.toContain(
+        "Here are all the generated findings.",
+      );
+    } finally {
+      await session.close("client_end");
+    }
+  });
+
   test("hang-up returns every undelivered outcome with its metadata and attribution", async () => {
     const { session } = createHarness({ continuationAnnounceSilenceMs: 1_000 });
     await session.start();
@@ -2375,7 +2417,7 @@ describe("LiveVoiceSession server VAD", () => {
     return { startVoiceTurn, calls };
   }
 
-  test("a completed continuation's result folds into the next turn's control prompt", async () => {
+  test("a completed continuation remains pending across unrelated user turns", async () => {
     // Control the continuation's resolution so we know exactly when its result
     // is stashed relative to the turns we inspect.
     let resolveContinuation: ((result: string) => void) | undefined;
@@ -2433,14 +2475,14 @@ describe("LiveVoiceSession server VAD", () => {
     expect(resurfaced?.voiceControlPrompt).toContain("THE_RESULT");
     expect(resurfaced?.voiceControlPrompt).toContain("background");
 
-    // Consume-once: a later turn does not repeat it.
+    // Context exposure is not delivery, so a later turn still has the result.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "fourth question"));
     const later = calls.find((c) => c.content === "fourth question");
-    expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("a client interrupt drops a stashed continuation result", async () => {
+  test("a client interrupt defers delivery without dropping a finished result", async () => {
     let resolveContinuation: ((result: string) => void) | undefined;
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -2485,15 +2527,15 @@ describe("LiveVoiceSession server VAD", () => {
     resolveContinuation?.("THE_RESULT");
     await flushAsyncCallbacks();
 
-    // ...but a client interrupt is a hard stop that drops it.
+    // Stopping speech defers delivery until the next user turn.
     await session.handleClientFrame({ type: "interrupt" });
     await flushAsyncCallbacks();
 
-    // The next turn carries no resurfaced result.
+    // Finished work remains available to the next turn.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     const later = calls.find((c) => c.content === "third question");
-    expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
+    expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
   test("an empty continuation result adds no context to the next turn", async () => {
@@ -2686,7 +2728,7 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[1]?.("");
   });
 
-  test("a new barge-in drops an already-stashed continuation result", async () => {
+  test("a new barge-in preserves an already-finished continuation", async () => {
     const resolvers: Array<(result: string) => void> = [];
     const spawnBackgroundContinuation = mock(
       (_args: {
@@ -2739,15 +2781,14 @@ describe("LiveVoiceSession server VAD", () => {
     resolvers[0]?.("A_RESULT");
     await flushAsyncCallbacks();
 
-    // Barge #2 is a fresh interruption: it must drop A's already-stashed result
-    // (and detach the newer continuation).
+    // Barge #2 starts a new continuation while the finished result stays pending.
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     await waitFor(() => resolvers.length === 2);
 
-    // The barge #2 follow-up turn carries no stale A result.
+    // The follow-up still has the completed result as context.
     const followUp = calls.find((c) => c.content === "third question");
-    expect(followUp?.voiceControlPrompt).not.toContain("A_RESULT");
+    expect(followUp?.voiceControlPrompt).toContain("A_RESULT");
 
     // Cleanup the still-pending newer continuation.
     resolvers[1]?.("");
@@ -2985,6 +3026,45 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcement?.voiceControlPrompt).toContain("first question");
   });
 
+  test("continuations and explicit workers share delivery and finish independently", async () => {
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
+    const { frames, session } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() => countType(frames, "utterance_discarded") === 1);
+    continuation.finish("CONTINUATION_RESULT");
+    session.receiveSubagentNotification({
+      taskId: "task-1",
+      message: "WORKER_RESULT",
+      metadata: {},
+    });
+    await waitFor(() => countType(frames, "tts_done") === 2);
+    expect(
+      calls.filter((call) => call.content === "WORKER_RESULT"),
+    ).toHaveLength(1);
+    expect(announcementCount(calls)).toBe(1);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain(
+      "CONTINUATION_RESULT",
+    );
+    expect(announcementOf(calls)?.directEscalated).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const before = injectMessageIntoParentMock.mock.calls.length;
+    await session.close("client_end");
+    expect(injectMessageIntoParentMock.mock.calls.length).toBe(before);
+  });
+
   // Deepgram Flux sends interim updates through silence, each an empty
   // partial. A call nobody is talking on is still idle.
   test("an empty partial on an idle call does not hold the announcement back", async () => {
@@ -3056,7 +3136,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).not.toContain("THE_RESULT");
   });
 
-  test("a user utterance before the silence elapses cancels the announcement", async () => {
+  test("an unrelated user reply does not consume the queued continuation", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session } = createHarness({
@@ -3065,7 +3145,7 @@ describe("LiveVoiceSession server VAD", () => {
       streamTtsAudio: makeImmediateTts(),
       spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
       // Long enough that the user always speaks first.
-      continuationAnnounceSilenceMs: 5_000,
+      continuationAnnounceSilenceMs: 250,
     });
 
     await session.start();
@@ -3082,14 +3162,16 @@ describe("LiveVoiceSession server VAD", () => {
     continuation.finish("THE_RESULT");
     await flushAsyncCallbacks();
 
-    // The user speaks first: their turn delivers the answer through the stash,
-    // and the announcement is dropped rather than repeating it after.
+    // The unrelated reply can see the result, but only says "ok".
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "third question"));
     const spoken = calls.find((c) => c.content === "third question");
     expect(spoken?.voiceControlPrompt).toContain("THE_RESULT");
-    await flushAsyncCallbacks();
-    expect(announcementOf(calls)).toBeUndefined();
+    await waitFor(() => announcementCount(calls) === 1);
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain("THE_RESULT");
+    expect(announcementOf(calls)?.voiceControlPrompt).toContain(
+      'completed audio playback for this task was: "ok"',
+    );
   });
 
   test("an active turn at fire time announces after the turn becomes idle", async () => {
@@ -3312,52 +3394,42 @@ describe("LiveVoiceSession server VAD", () => {
     expect(later?.voiceControlPrompt).toContain("THE_RESULT");
   });
 
-  test("an announcement whose launch throws hands the answer back to the stash", async () => {
+  test("an announcement whose launch throws retains its result", async () => {
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { session } = createHarness({
       finals: ["stashed question"],
       startVoiceTurn,
       continuationAnnounceSilenceMs: 20,
     });
-
     await session.start();
-    await flushAsyncCallbacks();
-
     const internals = session as unknown as {
-      pendingContinuationResult: string | null;
-      pendingAnnouncement: { request: string; answer: string } | null;
-      scheduleContinuationAnnouncement: () => void;
+      receiveTaskOutcome: (
+        outcome: import("../task-outcomes.js").VoiceTaskOutcome,
+      ) => boolean;
       launchAssistantTurn: (
         utterance: unknown,
         content: string,
         opts?: unknown,
       ) => Promise<boolean>;
     };
-    // The announcement's launch REJECTS rather than returning false — a frame
-    // write failing ahead of the leg's own error handling. The `started ===
-    // false` re-stash never runs on that path, so only the catch can save the
-    // answer.
     const launch = internals.launchAssistantTurn.bind(session);
+    const failed = mock(() => {
+      throw new Error("thinking frame write failed");
+    });
     internals.launchAssistantTurn = async (utterance, content, opts) => {
       if (content === CONTINUATION_DELIVERY_CONTENT) {
-        throw new Error("thinking frame write failed");
+        return failed();
       }
       return launch(utterance, content, opts);
     };
-    internals.pendingContinuationResult = "THE_RESULT";
-    internals.pendingAnnouncement = {
-      request: "the first question",
-      answer: "THE_RESULT",
-    };
-    internals.scheduleContinuationAnnouncement();
-
-    // The attempt runs (the queue empties) and throws.
-    await waitFor(() => internals.pendingAnnouncement === null);
-    await flushAsyncCallbacks();
+    internals.receiveTaskOutcome({
+      taskId: "continuation-1",
+      message: "THE_RESULT",
+      metadata: {},
+      source: "continuation",
+    });
+    await waitFor(() => failed.mock.calls.length === 1);
     expect(announcementOf(calls)).toBeUndefined();
-    expect(internals.pendingContinuationResult).toBe("THE_RESULT");
-
-    // ...so the user's next turn still carries it.
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.some((c) => c.content === "stashed question"));
     expect(
@@ -3443,7 +3515,7 @@ describe("LiveVoiceSession server VAD", () => {
     expect(message).toContain("first question");
   });
 
-  test("a speculatively dispatched turn carries the stashed answer and cancels the announcement", async () => {
+  test("a speculative user reply preserves the pending announcement", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
     const { frames, session, transcribers } = createHarness({
@@ -3486,10 +3558,8 @@ describe("LiveVoiceSession server VAD", () => {
     expect(speculative?.unifiedVerdict).toBe(true);
     expect(speculative?.voiceControlPrompt).toContain("THE_RESULT");
 
-    // The user's own turn is the delivery, so the queued announcement is
-    // cancelled rather than speaking the same answer again afterwards.
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(announcementCount(calls)).toBe(0);
+    // Completing an unrelated speculative reply does not acknowledge delivery.
+    await waitFor(() => announcementCount(calls) === 1);
   });
 
   test("a held speculative turn hands the stashed answer back for the replay", async () => {
@@ -3617,24 +3687,19 @@ describe("LiveVoiceSession server VAD", () => {
     // every transcript-derived idle signal still reads "nobody is speaking".
     await session.handleBinaryAudio(LOUD_CHUNK);
 
-    // A manual session reaches the announcement path only through machinery a
-    // server_vad barge-in owns, so the state a finished continuation leaves
-    // behind is staged directly: the stashed answer plus its queued
-    // announcement.
     const internals = session as unknown as {
-      pendingContinuationResult: string | null;
-      pendingAnnouncement: { request: string; answer: string } | null;
-      scheduleContinuationAnnouncement: () => void;
+      receiveTaskOutcome: (
+        outcome: import("../task-outcomes.js").VoiceTaskOutcome,
+      ) => boolean;
     };
-    internals.pendingContinuationResult = "THE_RESULT";
-    internals.pendingAnnouncement = {
-      request: "the first question",
-      answer: "THE_RESULT",
-    };
-    internals.scheduleContinuationAnnouncement();
+    internals.receiveTaskOutcome({
+      taskId: "continuation-1",
+      message: "THE_RESULT",
+      metadata: {},
+      source: "continuation",
+    });
 
-    // The silence timer and the single retry both find the utterance in
-    // flight, so the session never speaks over the in-progress utterance.
+    // The floor stays blocked while captured speech is awaiting release.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(announcementOf(calls)).toBeUndefined();
 
