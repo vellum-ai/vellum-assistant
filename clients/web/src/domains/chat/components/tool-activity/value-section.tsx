@@ -42,7 +42,7 @@ export function ValueSection({
       {list && (
         <div>
           <SectionLabel>{label}</SectionLabel>
-          <ValueFields list={list} moreLabel={moreLabel} />
+          <ValueFields list={list} moreLabel={moreLabel} label={label} />
         </div>
       )}
       <DetailDisclosure label={rawLabel}>

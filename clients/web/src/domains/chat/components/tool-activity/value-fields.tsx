@@ -108,15 +108,18 @@ function tableProps(field: TableField): {
 
 function FieldValue({
   field,
+  name,
   moreLabel,
 }: {
   field: ValueField;
+  /** Names the value while it scrolls, once opened past the fold. */
+  name: string | undefined;
   moreLabel: MoreLabel;
 }) {
   switch (field.kind) {
     case "text":
       return (
-        <ClampedContent>
+        <ClampedContent label={name}>
           <ValueText>{field.text}</ValueText>
         </ClampedContent>
       );
@@ -125,7 +128,7 @@ function FieldValue({
       // carries no copy button of its own.
       return (
         <div className="mt-1">
-          <DetailBlock>
+          <DetailBlock label={name}>
             <CodePre text={field.text} />
           </DetailBlock>
         </div>
@@ -155,7 +158,7 @@ function FieldValue({
       // one Show more for the table, not one per cell.
       return (
         <div className="mt-1 flex min-w-0 flex-col gap-2">
-          <ClampedContent>
+          <ClampedContent label={name}>
             <DataTable
               {...tableProps(field)}
               copyable={false}
@@ -167,7 +170,7 @@ function FieldValue({
       );
     case "nested":
       return (
-        <ClampedContent>
+        <ClampedContent label={name}>
           <ValueFields
             list={field.fields}
             moreLabel={moreLabel}
@@ -193,12 +196,18 @@ interface ValueFieldsProps {
    * is the group a list or object inside it draws.
    */
   variant?: keyof typeof VARIANT_CLASSES;
+  /**
+   * Names a value with no name of its own, a whole output that is one list or
+   * table, after the section it fills.
+   */
+  label?: string;
 }
 
 export function ValueFields({
   list,
   moreLabel,
   variant = "section",
+  label,
 }: ValueFieldsProps) {
   const { t } = useTranslation("chat");
   const gap = variant === "nested" ? "gap-2.5" : "gap-3";
@@ -211,7 +220,7 @@ export function ValueFields({
           the raw output beneath it, so it draws with no label row. */}
       {unnamed.map((field, index) => (
         <div key={index} className="min-w-0">
-          <FieldValue field={field} moreLabel={moreLabel} />
+          <FieldValue field={field} name={label} moreLabel={moreLabel} />
         </div>
       ))}
       {named.length > 0 && (
@@ -245,7 +254,11 @@ export function ValueFields({
                 </span>
               </dt>
               <dd className="min-w-0">
-                <FieldValue field={field} moreLabel={moreLabel} />
+                <FieldValue
+                  field={field}
+                  name={field.label}
+                  moreLabel={moreLabel}
+                />
               </dd>
             </div>
           ))}

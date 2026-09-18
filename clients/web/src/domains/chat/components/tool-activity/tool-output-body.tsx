@@ -32,7 +32,13 @@ export function ToolOutputBody({
 }) {
   const { t } = useTranslation("chat");
   if (text && !isDenied) {
-    return <CodeBlock text={text} tone={isError ? "error" : "default"} />;
+    return (
+      <CodeBlock
+        text={text}
+        tone={isError ? "error" : "default"}
+        label={t("toolDetailPanel.output")}
+      />
+    );
   }
   return (
     <Typography

@@ -313,6 +313,7 @@
   },
   "detailPrimitives": {
     "copy": "複製",
+    "expandedValue": "展開的值",
     "showLess": "顯示較少",
     "showMore": "顯示更多"
   },
