@@ -609,6 +609,44 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
 });
 
 describe("mergeAdjacentAssistantMessages · skip predicates", () => {
+  test("does not fold across marked, unmarked, or differently owned sessions", () => {
+    const marked = makeAssistant({
+      id: "a-marked",
+      modeSession: { mode: "browser", id: "session-a" },
+    });
+    const unmarked = makeAssistant({ id: "a-unmarked" });
+    const different = makeAssistant({
+      id: "a-different",
+      modeSession: { mode: "browser", id: "session-b" },
+    });
+
+    expect(mergeAdjacentAssistantMessages([marked, unmarked])).toHaveLength(2);
+    expect(mergeAdjacentAssistantMessages([marked, different])).toHaveLength(2);
+  });
+
+  test("widens preserved activity bounds only for the same owner", () => {
+    const owner = { mode: "browser" as const, id: "session-a" };
+    const [merged] = mergeAdjacentAssistantMessages([
+      makeAssistant({
+        id: "a-1",
+        timestamp: 2_000,
+        modeSession: owner,
+        modeSessionActivity: { firstAt: 1_500, lastAt: 2_500 },
+      }),
+      makeAssistant({
+        id: "a-2",
+        timestamp: 3_000,
+        modeSession: owner,
+        modeSessionActivity: { firstAt: 1_000, lastAt: 4_000 },
+      }),
+    ]);
+
+    expect(merged?.modeSessionActivity).toEqual({
+      firstAt: 1_000,
+      lastAt: 4_000,
+    });
+  });
+
   test("does NOT fold when either side is optimistic", () => {
     const real = makeAssistant({ id: "a-1", ...textBody("done") });
     const optimistic = makeAssistant({

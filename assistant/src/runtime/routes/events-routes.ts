@@ -22,7 +22,7 @@ import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 
 import { z } from "zod";
 
-import type { HostProxyCapability } from "../../channels/types.js";
+import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
@@ -300,25 +300,14 @@ export function handleSubscribeAssistantEvents(
   }
 
   // ── Client identity from headers ──────────────────────────────────────
-  const rawClientId = headers?.["x-vellum-client-id"];
-  const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const rawMachineName = headers?.["x-vellum-machine-name"];
   const rawActorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  const clientId = rawClientId?.trim() || null;
-  const interfaceId = clientId
-    ? parseInterfaceId(rawInterfaceId?.trim())
-    : null;
-  // Verified by RuntimeHttpServer and forwarded by the http-adapter from the
-  // bearer token's AuthContext. May be absent for legacy / service-token
-  // connections that have no principal. See `resolveActorPrincipalId` for the
-  // dev-bypass translation rationale.
-  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
-    rawActorPrincipalId?.trim() || undefined,
-  );
+  const { clientId, interfaceId, actorPrincipalId } =
+    readClientIdentity(headers);
 
   if (clientId && !interfaceId) {
     log.error(
-      { clientId, rawInterfaceId },
+      { clientId, rawInterfaceId: headers?.["x-vellum-interface-id"] },
       "client registration failed: invalid or missing X-Vellum-Interface-Id",
     );
     throw new BadRequestError(
@@ -521,20 +510,9 @@ export function handleSubscribeAssistantEvents(
         // The client detects the gap from the seq jump on its first
         // live event and refetches via the existing messages API.
         if (lastSeenSeq != null) {
-          const replaySubscriber: ReplaySubscriber =
-            clientId && interfaceId
-              ? {
-                  type: "client",
-                  clientId,
-                  interfaceId,
-                  capabilities: ALL_CAPABILITIES.filter((cap) =>
-                    supportsHostProxy(interfaceId, cap),
-                  ),
-                }
-              : { type: "process" };
           const window = getReplayWindow(
             lastSeenSeq,
-            replaySubscriber,
+            replaySubscriberFor(clientId, interfaceId, actorPrincipalId),
             filter.conversationId,
           );
           if (window !== null) {
@@ -591,6 +569,53 @@ export function handleSubscribeAssistantEvents(
 }
 
 /**
+ * The caller's client identity, read the same way by the SSE subscribe route
+ * and the tail route. The principal is verified by RuntimeHttpServer and
+ * forwarded by the http-adapter from the bearer token's AuthContext; it is
+ * absent for legacy and service-token connections, and a dev-bypass header
+ * resolves to the local guardian (see `resolveActorPrincipalIdForLocalGuardianSync`).
+ */
+function readClientIdentity(headers: Record<string, string> | undefined): {
+  clientId: string | null;
+  interfaceId: InterfaceId | null;
+  actorPrincipalId: string | undefined;
+} {
+  const clientId = headers?.["x-vellum-client-id"]?.trim() || null;
+  const interfaceId = clientId
+    ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
+    : null;
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
+    headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  return { clientId, interfaceId, actorPrincipalId };
+}
+
+/**
+ * The identity a replay filter checks targeted events against: the client a
+ * live SSE subscription with these headers would register, or a process
+ * subscriber when the caller names no client. Shared by the reconnect replay
+ * and the tail route so both deliver exactly what live fanout would have.
+ */
+function replaySubscriberFor(
+  clientId: string | null,
+  interfaceId: InterfaceId | null,
+  actorPrincipalId: string | undefined,
+): ReplaySubscriber {
+  if (!clientId || !interfaceId) {
+    return { type: "process" };
+  }
+  return {
+    type: "client",
+    clientId,
+    interfaceId,
+    capabilities: ALL_CAPABILITIES.filter((cap) =>
+      supportsHostProxy(interfaceId, cap),
+    ),
+    actorPrincipalId,
+  };
+}
+
+/**
  * Replay-by-request companion to the SSE `lastSeenSeq` resume: return the
  * ring-buffered event tail for one conversation with `seq > fromSeq`.
  *
@@ -641,26 +666,13 @@ function handleEventsTail({
     toSeq = parsed;
   }
 
-  // Same client-identity resolution as the SSE subscribe handler, so the
-  // replay filter matches what a live subscription would have delivered.
-  const rawClientId = headers?.["x-vellum-client-id"];
-  const clientId = rawClientId?.trim() || null;
-  const interfaceId = clientId
-    ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
-    : null;
-  const subscriber: ReplaySubscriber | undefined =
-    clientId && interfaceId
-      ? {
-          type: "client",
-          clientId,
-          interfaceId,
-          capabilities: ALL_CAPABILITIES.filter((cap) =>
-            supportsHostProxy(interfaceId, cap),
-          ),
-        }
-      : undefined;
-
-  const window = getReplayWindow(fromSeq, subscriber, conversationId);
+  const { clientId, interfaceId, actorPrincipalId } =
+    readClientIdentity(headers);
+  const window = getReplayWindow(
+    fromSeq,
+    replaySubscriberFor(clientId, interfaceId, actorPrincipalId),
+    conversationId,
+  );
   if (window === null) {
     return { events: [], complete: false, frontier: null };
   }

@@ -637,6 +637,27 @@ describe("upsertToolCall", () => {
     status: "running" as const,
   };
 
+  it("stamps the first owned tool boundary on an existing or new row", () => {
+    const modeSession = { mode: "browser" as const, id: "session-1" };
+    const existing = upsertToolCall(
+      [userMsg, makeAssistantMsg({ toolCalls: undefined })],
+      toolCall,
+      undefined,
+      undefined,
+      modeSession,
+    );
+    const created = upsertToolCall(
+      [userMsg],
+      toolCall,
+      "assistant-1",
+      undefined,
+      modeSession,
+    );
+
+    expect(existing.at(-1)?.modeSession).toEqual(modeSession);
+    expect(created.at(-1)?.modeSession).toEqual(modeSession);
+  });
+
   it("appends tool call to existing streaming assistant tail", () => {
     const msg = makeAssistantMsg({ toolCalls: undefined });
     const result = upsertToolCall([userMsg, msg], toolCall);

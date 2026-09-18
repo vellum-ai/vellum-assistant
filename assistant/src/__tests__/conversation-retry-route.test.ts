@@ -197,6 +197,7 @@ function makeConversation(opts: { processing?: boolean } = {}) {
   const emitActivityState = mock(
     (_phase: string, _reason: string, _options?: unknown) => {},
   );
+  const invalidateAllStructuralWaits = mock(() => 0);
   const conversation = {
     conversationId: "conv-retry-test",
     trustContext: undefined,
@@ -209,6 +210,7 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     loadFromDb,
     runAgentLoop,
     emitActivityState,
+    modeSessions: { invalidateAllStructuralWaits },
   };
   return {
     conversation,
@@ -217,6 +219,7 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     loadFromDb,
     runAgentLoop,
     emitActivityState,
+    invalidateAllStructuralWaits,
   };
 }
 
@@ -264,6 +267,24 @@ beforeEach(() => {
 });
 
 describe("POST /v1/conversations/:id/retry", () => {
+  test("tracking invalidation failure does not prevent retry", async () => {
+    const ctx = makeConversation();
+    activeConversation = ctx.conversation;
+    ctx.invalidateAllStructuralWaits.mockImplementation(() => {
+      throw new Error("session tracking unavailable");
+    });
+    const res = await callHandler(
+      retryHandler,
+      makeRequest(),
+      { id: "conv-retry-test" },
+      202,
+    );
+    expect(res.status).toBe(202);
+    await settle();
+    expect(discardMock).toHaveBeenCalledTimes(1);
+    expect(ctx.runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
   test("202s, discards the tail, and re-runs the loop from the anchor", async () => {
     const ctx = makeConversation();
     activeConversation = ctx.conversation;
@@ -299,6 +320,7 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(ctx.conversation.isProcessing()).toBe(true);
     expect(ctx.conversation.abortController).not.toBeNull();
     expect(discardMock).toHaveBeenCalledWith("conv-retry-test");
+    expect(ctx.invalidateAllStructuralWaits).toHaveBeenCalledTimes(1);
 
     // Origin-less invalidation: the initiating client reconciles too.
     expect(publishConversationMessagesChangedMock).toHaveBeenCalledTimes(1);

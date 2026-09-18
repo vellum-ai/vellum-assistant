@@ -25,7 +25,10 @@ import {
 } from "@/domains/chat/components/conversation-list-context";
 import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
-import { AssistantSectionToggle } from "@/domains/chat/components/assistant-section-toggle";
+import {
+  AssistantSectionRailToggle,
+  AssistantSectionToggle,
+} from "@/domains/chat/components/assistant-section-toggle";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
@@ -493,8 +496,9 @@ export function AssistantSideMenu({
   /* The assistant's own section is lifted out of the list: it opens beneath
      the assistant pill from a round toggle beside it, rather than standing
      as a card pinned to the foot of the list, so the threads the assistant
-     started read as hers, hanging off her row. The collapsed rail draws no
-     pill and no toggle, so there the section keeps its tile in the list. */
+     started read as hers, hanging off her row. The collapsed rail keeps the
+     toggle as a tile beneath the assistant's, so there too the section
+     stays out of the list. */
   const assistantSection = sidebar.sections.find((s) => s.type === "assistant");
   const listSections = sidebar.sections.filter((s) => s.type !== "assistant");
 
@@ -540,7 +544,12 @@ export function AssistantSideMenu({
   );
 
   const assistantSectionToggle =
-    assistantSection && !isCollapsedRail ? (
+    !assistantSection ? undefined : isCollapsedRail ? (
+      <AssistantSectionRailToggle
+        assistantId={assistantId ?? null}
+        section={assistantSection}
+      />
+    ) : (
       <AssistantSectionToggle
         assistantId={assistantId ?? null}
         section={assistantSection}
@@ -548,7 +557,7 @@ export function AssistantSideMenu({
         open={assistantSectionOpen}
         onToggle={() => setAssistantSectionOpen(!assistantSectionOpen)}
       />
-    ) : undefined;
+    );
 
   /* Mounted only while open: closed, the toggle is the section's whole
      presence, so nothing of the card (not even a collapsed header) is drawn
@@ -719,7 +728,7 @@ export function AssistantSideMenu({
           ) : null}
           {isCollapsedRail ? (
             <CollapsedRailSections
-              sections={sidebar.sections}
+              sections={listSections}
               assistantId={assistantId ?? null}
               processingConversationIds={processingConversationIds}
               attentionConversationIds={attentionConversationIds}
@@ -792,9 +801,7 @@ export function AssistantSideMenu({
              footer's own top padding is the whole separation, and `mt-auto`
              on `SideMenu.Footer` is what holds it at the bottom while the
              list scrolls in `SideMenu.Body` above it. */
-          <SideMenu.Footer>
-            {footerAction}
-          </SideMenu.Footer>
+          <SideMenu.Footer>{footerAction}</SideMenu.Footer>
         ) : null}
       </SideMenu>
     </ConversationListProvider>

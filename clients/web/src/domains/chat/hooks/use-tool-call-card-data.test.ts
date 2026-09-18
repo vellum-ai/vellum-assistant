@@ -81,6 +81,7 @@ describe("computeToolCallCardData — step kinds", () => {
       title: "Working",
       info: "echo hello",
       activity: "",
+      actionDisplayKey: "terminal",
       riskLevel: undefined,
       iconName: "terminal",
       toolCallId: "tc-1",
@@ -92,6 +93,7 @@ describe("computeToolCallCardData — step kinds", () => {
     // carousels the live step ("Working | echo hello").
     expect(data.currentStepTitle).toBe("Working");
     expect(data.currentStepInfo).toBe("echo hello");
+    expect(data.currentStepActionDisplayKey).toBe("terminal");
   });
 
   test("carries activity + riskLevel on the `tool` step and prefers activity for currentStepInfo", () => {
@@ -117,6 +119,7 @@ describe("computeToolCallCardData — step kinds", () => {
     });
     // Collapsed-header subtext prefers the rich activity sentence.
     expect(data.currentStepInfo).toBe("Greeting the user from the shell");
+    expect(data.currentStepActionDisplayKey).toBeUndefined();
   });
 
   test("falls back to terse info for currentStepInfo when no activity is present", () => {

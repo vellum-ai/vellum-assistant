@@ -4,8 +4,11 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ClipboardEvent as ReactClipboardEvent,
   type ReactNode,
 } from "react";
@@ -31,6 +34,30 @@ import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { ModeSessionDescriptor } from "@vellumai/assistant-api";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import {
+  groupSessionItems,
+  sameSessionGroupIdentity,
+  type SessionGroupedTranscriptItem,
+  type SessionGroupSegment,
+  type SessionGroupIdentity,
+} from "@/domains/chat/transcript/group-session-items";
+import {
+  useSessionDisclosureState,
+  type SessionDisclosureState,
+} from "@/domains/chat/transcript/use-session-disclosure-state";
+import { useSessionDurationClock } from "@/domains/chat/transcript/use-session-duration-clock";
+import {
+  SessionGroupRow,
+  SessionGroupContinuation,
+  type SessionGroupMode,
+} from "@/domains/chat/transcript/session-group-row";
+import type { SessionGroupSummaryInput } from "@/domains/chat/transcript/session-group-summary";
+import { LatestTurnResponse } from "@/domains/chat/transcript/latest-turn-response";
+import { isActivityLive } from "@/domains/chat/turn-store";
+import { messageItemIdentityIds } from "@/domains/chat/transcript/transcript-message-identity";
 
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
@@ -49,6 +76,14 @@ export type RefreshOutcome =
 export interface TranscriptProps {
   items: TranscriptItem[];
   conversationId: string | null;
+  modeSessionDescriptors?: ModeSessionDescriptor[];
+  sessionDisclosureState?: SessionDisclosureState;
+  /** Deterministic story/test override. Production reads the assistant flag. */
+  sessionGroupsEnabled?: boolean;
+  sessionClockConnected?: boolean;
+  /** Deterministic story/test override for live summary time. */
+  sessionClockNow?: number;
+  onBeforeSessionDisclosureToggle?: () => void;
   assistantDisplayName?: string | null;
   onSurfaceAction: (surfaceId: string, action: string, input?: unknown) => void;
   /** Callback for "Fork from here" from a message's hover actions. */
@@ -134,12 +169,148 @@ export interface TranscriptProps {
   };
 }
 
+const MODE_PRESENTATION: Record<
+  SessionGroupSegment["modeSession"]["mode"],
+  SessionGroupMode
+> = {
+  computer_use: "computerUse",
+  browser: "browser",
+  live_vision: "liveVision",
+  ambient: "ambient",
+};
+
+interface SegmentHistory {
+  conversationId: string | null;
+  segments: SessionGroupIdentity[];
+}
+
+function sameSegmentHistory(
+  left: readonly SessionGroupIdentity[],
+  right: readonly SessionGroupIdentity[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((segment, index) =>
+      sameSessionGroupIdentity(segment, right[index]!),
+    )
+  );
+}
+
+function segmentSummaryInput(
+  segment: SessionGroupSegment,
+  descriptor: ModeSessionDescriptor,
+  now: number | null,
+  connected: boolean,
+): SessionGroupSummaryInput {
+  const { summary, runtimeState } = descriptor;
+  const isTail = segment.containsLastBoundary;
+  let state: SessionGroupSummaryInput["state"];
+  if (!isTail) {
+    state = "settledSegment";
+  } else if (summary.status !== "active") {
+    state = summary.status;
+  } else {
+    state = connected ? (runtimeState ?? "working") : "disconnected";
+  }
+  return {
+    state,
+    startedAt: segment.containsFirstBoundary
+      ? (summary.firstIncludedAt ?? segment.firstActivityAt)
+      : segment.firstActivityAt,
+    lastActivityAt: isTail ? summary.lastActivityAt : segment.lastActivityAt,
+    endedAt: isTail ? summary.endedAt : segment.lastActivityAt,
+    now,
+  };
+}
+
+function segmentLiveState(
+  segment: SessionGroupSegment | undefined,
+  descriptor: ModeSessionDescriptor | undefined,
+) {
+  return segment?.containsLastBoundary &&
+    descriptor?.summary.status === "active"
+    ? (descriptor.runtimeState ?? "working")
+    : null;
+}
+
+function isClockEligible(
+  segment: SessionGroupSegment | undefined,
+  descriptor: ModeSessionDescriptor | undefined,
+) {
+  const state = segmentLiveState(segment, descriptor);
+  return state === "working" || state === "waiting";
+}
+
+function SessionSegment({
+  segment,
+  descriptor,
+  disclosure,
+  children,
+  onBeforeToggle,
+  clockConnected = true,
+  clockNow,
+  continuationId,
+  spaceBefore,
+}: {
+  segment?: SessionGroupSegment;
+  descriptor?: ModeSessionDescriptor;
+  disclosure: SessionDisclosureState;
+  children: ReactNode;
+  onBeforeToggle?: () => void;
+  clockConnected?: boolean;
+  clockNow?: number;
+  continuationId?: string;
+  spaceBefore?: boolean;
+}) {
+  const open = segment
+    ? disclosure.isSessionOpen(segment.modeSession.id)
+    : true;
+  const clockEligible = isClockEligible(segment, descriptor);
+  const tickingNow = useSessionDurationClock(
+    clockNow === undefined && clockConnected && clockEligible,
+  );
+  const now = clockNow ?? tickingNow;
+  return (
+    <SessionGroupRow
+      mode={
+        segment ? MODE_PRESENTATION[segment.modeSession.mode] : "computerUse"
+      }
+      summary={
+        segment && descriptor
+          ? segmentSummaryInput(
+              segment,
+              descriptor,
+              clockConnected ? now : null,
+              clockConnected,
+            )
+          : { state: "unavailable" }
+      }
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!segment) {
+          return;
+        }
+        onBeforeToggle?.();
+        disclosure.setSessionOpen(segment.modeSession.id, nextOpen);
+      }}
+      headerVisible={Boolean(segment && descriptor)}
+      continuationId={continuationId}
+      spaceBefore={spaceBefore}
+    >
+      {children}
+    </SessionGroupRow>
+  );
+}
+
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
   /** Scroll a message into view by id and briefly highlight it. Returns
    *  `false` when no element with that message id is currently rendered (e.g.
    *  the message lives in an older history page not yet loaded). */
   scrollToMessage(messageId: string): boolean;
+  /** Reveal a loaded message hidden by a default-closed session, then invoke
+   * the callback after the open state commits. Explicit user closes win. */
+  revealMessage?(messageId: string, onRevealed: () => void): boolean;
   /** If a text field inside the transcript holds focus, scroll it just far
    *  enough to stay visible and report `true`, so a caller can skip a pin that
    *  would scroll past it. Reports `false` when focus is anywhere else. */
@@ -151,6 +322,7 @@ export interface TranscriptHandle {
    *  late image loads, streaming growth). */
   getContentElement(): HTMLDivElement | null;
   getViewportHeight(): number;
+  getRenderedMessageIds?(): string[];
   /** Debug API: snapshot of the current scroll state (distance from bottom,
    *  pinned-to-latest flag, button visibility, older-page load flag). */
   getScrollState(): {
@@ -192,17 +364,33 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     const {
       items,
       conversationId,
+      modeSessionDescriptors = [],
+      sessionDisclosureState,
+      sessionGroupsEnabled,
       onPullRefresh,
       pullRefreshEnabled,
       ...rest
     } = props;
+    const configuredSessionGroups =
+      useAssistantFeatureFlagStore.use.sessionGroups();
+    const sessionGroupsOn = sessionGroupsEnabled ?? configuredSessionGroups;
+    const fallbackDisclosure = useSessionDisclosureState(
+      conversationId,
+      sessionGroupsOn,
+    );
+    const disclosure = sessionDisclosureState ?? fallbackDisclosure;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const latestEdgeSpacerRef = useRef<HTMLDivElement | null>(null);
+    const sessionContinuationId = useId();
     // Pending removal of the transient deep-link highlight class.
     const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
+    const pendingRevealRef = useRef<{
+      sessionId: string;
+      onRevealed: () => void;
+    } | null>(null);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
     const hideIdleScrollbar = useHideIdleScrollbar(
       scrollRef,
@@ -243,9 +431,175 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     });
 
     const partition = useMemo(() => partitionLatestTurn(items), [items]);
-    const latestHistoryMessageIndex = partition.anchorMessage
-      ? -1
-      : partition.historyItems.findLastIndex((item) => item.kind === "message");
+    const descriptorsById = useMemo(() => {
+      if (!sessionGroupsOn) {
+        return new Map<string, ModeSessionDescriptor>();
+      }
+      return new Map(
+        modeSessionDescriptors.map((descriptor) => [
+          descriptor.summary.id,
+          descriptor,
+        ]),
+      );
+    }, [modeSessionDescriptors, sessionGroupsOn]);
+    const summariesById = useMemo(() => {
+      if (!sessionGroupsOn) {
+        return new Map();
+      }
+      return new Map(
+        modeSessionDescriptors.map((descriptor) => [
+          descriptor.summary.id,
+          descriptor.summary,
+        ]),
+      );
+    }, [modeSessionDescriptors, sessionGroupsOn]);
+    const [segmentHistory, setSegmentHistory] = useState<SegmentHistory>({
+      conversationId,
+      segments: [],
+    });
+    const previousSegments = useMemo(
+      () =>
+        segmentHistory.conversationId === conversationId
+          ? segmentHistory.segments
+          : [],
+      [conversationId, segmentHistory],
+    );
+    const grouped = useMemo(() => {
+      if (!sessionGroupsOn || !conversationId) {
+        return {
+          history: partition.historyItems as SessionGroupedTranscriptItem[],
+          latest: [
+            ...(partition.anchorMessage ? [partition.anchorMessage] : []),
+            ...partition.responseItems,
+          ] as SessionGroupedTranscriptItem[],
+        };
+      }
+      const getModeSession = (message: DisplayMessage) => message.modeSession;
+      const getActivityBounds = (message: DisplayMessage) => ({
+        firstActivityAt:
+          message.modeSessionActivity?.firstAt ?? message.timestamp ?? null,
+        lastActivityAt:
+          message.modeSessionActivity?.lastAt ?? message.timestamp ?? null,
+      });
+      const projected = groupSessionItems({
+        items,
+        conversationId,
+        summariesById,
+        getModeSession,
+        getActivityBounds,
+        previousSegments,
+      });
+      const anchor = partition.anchorMessage;
+      const latestIndex = anchor
+        ? projected.findIndex((item) =>
+            item.kind === "sessionGroup"
+              ? item.items.includes(anchor)
+              : item === anchor,
+          )
+        : -1;
+      return latestIndex === -1
+        ? { history: projected, latest: [] }
+        : {
+            history: projected.slice(0, latestIndex),
+            latest: projected.slice(latestIndex),
+          };
+    }, [
+      conversationId,
+      items,
+      partition,
+      previousSegments,
+      sessionGroupsOn,
+      summariesById,
+    ]);
+    const firstLatest = grouped.latest[0];
+    const anchorGroup =
+      firstLatest?.kind === "sessionGroup" &&
+      firstLatest.items.includes(partition.anchorMessage!)
+        ? firstLatest
+        : null;
+    const anchorGroupIndex = anchorGroup
+      ? anchorGroup.items.indexOf(partition.anchorMessage!)
+      : -1;
+    const anchorVisible =
+      partition.anchorMessage &&
+      (!anchorGroup || disclosure.isSessionOpen(anchorGroup.modeSession.id));
+    const avatarFollowsSession =
+      sessionGroupsOn &&
+      (grouped.latest.length > 0 ? grouped.latest : grouped.history).findLast(
+        (item) => item.kind !== "thinking" || item.active,
+      )?.kind === "sessionGroup";
+    useEffect(() => {
+      const segments = sessionGroupsOn
+        ? [...grouped.history, ...grouped.latest]
+            .filter(
+              (item): item is SessionGroupSegment =>
+                item.kind === "sessionGroup",
+            )
+            .map(
+              ({
+                key,
+                modeSession,
+                rawMemberMessageIds,
+                memberMessageIds,
+              }) => ({
+                key,
+                modeSession,
+                rawMemberMessageIds,
+                memberMessageIds,
+              }),
+            )
+        : [];
+      setSegmentHistory((current) => {
+        if (
+          current.conversationId === conversationId &&
+          sameSegmentHistory(current.segments, segments)
+        ) {
+          return current;
+        }
+        return { conversationId, segments };
+      });
+    }, [conversationId, grouped, sessionGroupsOn]);
+    const sessionByMemberId = useMemo(() => {
+      const result = new Map<string, string>();
+      if (!sessionGroupsOn) {
+        return result;
+      }
+      for (const item of [...grouped.history, ...grouped.latest]) {
+        if (item.kind !== "sessionGroup") {
+          continue;
+        }
+        for (const memberId of item.memberMessageIds) {
+          result.set(memberId, item.modeSession.id);
+        }
+      }
+      return result;
+    }, [grouped, sessionGroupsOn]);
+    const domMessageIdByIdentity = useMemo(() => {
+      const result = new Map<string, string>();
+      if (!sessionGroupsOn) {
+        return result;
+      }
+      for (const item of items) {
+        if (item.kind !== "message") {
+          continue;
+        }
+        for (const identity of messageItemIdentityIds(item)) {
+          result.set(identity, item.message.id);
+        }
+      }
+      return result;
+    }, [items, sessionGroupsOn]);
+    useLayoutEffect(() => {
+      const pending = pendingRevealRef.current;
+      if (!pending || !disclosure.isSessionOpen(pending.sessionId)) {
+        return;
+      }
+      pendingRevealRef.current = null;
+      pending.onRevealed();
+    }, [disclosure, grouped]);
+    const latestHistoryMessage = partition.anchorMessage
+      ? undefined
+      : partition.historyItems.findLast((item) => item.kind === "message");
 
     // A document the thread changed earns one reopen link, at the end of the
     // response that first reached it. Not one per message that wrote to it,
@@ -274,8 +628,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           });
         },
         scrollToMessage(messageId) {
-          const target = document.getElementById(`msg-${messageId}`);
+          const target = document.getElementById(
+            `msg-${domMessageIdByIdentity.get(messageId) ?? messageId}`,
+          );
           if (!target) {
+            const sessionId = sessionByMemberId.get(messageId);
+            if (sessionId) {
+              disclosure.setSessionOpen(sessionId, true);
+            }
             return false;
           }
           target.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -289,6 +649,19 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           }, 2000);
           return true;
         },
+        revealMessage(messageId, onRevealed) {
+          const sessionId = sessionByMemberId.get(messageId);
+          if (
+            !sessionId ||
+            disclosure.isSessionOpen(sessionId) ||
+            disclosure.isSessionExplicitlyClosed?.(sessionId)
+          ) {
+            return false;
+          }
+          pendingRevealRef.current = { sessionId, onRevealed };
+          disclosure.setSessionOpen(sessionId, true);
+          return true;
+        },
         keepFocusedFieldVisible() {
           return keepFocusedFieldVisible(scrollRef.current);
         },
@@ -300,6 +673,15 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         },
         getViewportHeight() {
           return scrollRef.current?.clientHeight ?? 0;
+        },
+        getRenderedMessageIds() {
+          const content = contentRef.current;
+          if (!content) {
+            return [];
+          }
+          return [...content.querySelectorAll<HTMLElement>("[data-message-id]")]
+            .map((element) => element.dataset.messageId)
+            .filter((id): id is string => Boolean(id));
         },
         getScrollState() {
           const el = scrollRef.current;
@@ -325,7 +707,12 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           };
         },
       }),
-      [rest.scrollCoordinatorState],
+      [
+        disclosure,
+        domMessageIdByIdentity,
+        rest.scrollCoordinatorState,
+        sessionByMemberId,
+      ],
     );
 
     // One read for the whole transcript; rows take the answer as a prop.
@@ -353,6 +740,178 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       onStopSubagent: rest.onStopSubagent,
       onWorkflowClick: rest.onWorkflowClick,
       onStopWorkflow: rest.onStopWorkflow,
+    };
+    const renderHistoryRows = (rows: SessionGroupSegment["items"]) =>
+      rows.map((item) => (
+        <TranscriptRow
+          key={item.key}
+          item={item}
+          {...rowProps}
+          responseArtifacts={responseArtifactsByKey.get(item.key)}
+          isLatestMessage={item === latestHistoryMessage}
+        />
+      ));
+    const renderGroupedHistoryItem = (
+      item: SessionGroupedTranscriptItem,
+      index: number,
+    ) => {
+      if (item.kind === "sessionGroup") {
+        const descriptor = descriptorsById.get(item.modeSession.id);
+        if (descriptor) {
+          return (
+            <TranscriptColumn key={item.key}>
+              <SessionSegment
+                segment={item}
+                spaceBefore={
+                  grouped.history[index - 1]?.kind !== "sessionGroup"
+                }
+                descriptor={descriptor}
+                disclosure={disclosure}
+                onBeforeToggle={rest.onBeforeSessionDisclosureToggle}
+                clockConnected={rest.sessionClockConnected}
+                clockNow={rest.sessionClockNow}
+                continuationId={
+                  item === anchorGroup ? sessionContinuationId : undefined
+                }
+              >
+                {renderHistoryRows(
+                  item === anchorGroup
+                    ? item.items.slice(0, anchorGroupIndex)
+                    : item.items,
+                )}
+              </SessionSegment>
+            </TranscriptColumn>
+          );
+        }
+        return (
+          <TranscriptColumn key={item.key}>
+            {renderHistoryRows(item.items)}
+          </TranscriptColumn>
+        );
+      }
+      return (
+        <TranscriptColumn key={item.key}>
+          <TranscriptRow
+            item={item}
+            {...rowProps}
+            responseArtifacts={responseArtifactsByKey.get(item.key)}
+            isLatestMessage={item === latestHistoryMessage}
+          />
+        </TranscriptColumn>
+      );
+    };
+    const latestMessageItem = [
+      ...(partition.anchorMessage ? [partition.anchorMessage] : []),
+      ...partition.responseItems,
+    ].findLast((item) => item.kind === "message");
+    const latestStreaming = isActivityLive(turnPhase);
+    const renderLatestRows = (rows: SessionGroupSegment["items"]) => {
+      const anchorIndex = rows.indexOf(partition.anchorMessage!);
+      return rows.map((item, index) => (
+        <TranscriptRow
+          key={item.key}
+          item={item}
+          {...rowProps}
+          responseArtifacts={responseArtifactsByKey.get(item.key)}
+          isStreaming={latestStreaming && index > anchorIndex}
+          isLatestMessage={item === latestMessageItem}
+        />
+      ));
+    };
+    const renderGroupedLatest = () => {
+      const hasSegment = grouped.latest.some(
+        (item) => item.kind === "sessionGroup",
+      );
+      if (!hasSegment && partition.anchorMessage) {
+        return (
+          <>
+            <TranscriptRow
+              item={partition.anchorMessage}
+              {...rowProps}
+              isLatestMessage={!latestMessageItem}
+            />
+            <SessionSegment
+              key="latest-session-shell"
+              disclosure={disclosure}
+              clockConnected={rest.sessionClockConnected}
+              clockNow={rest.sessionClockNow}
+            >
+              <LatestTurnResponse
+                responseItems={partition.responseItems}
+                {...rowProps}
+                responseArtifactsByKey={responseArtifactsByKey}
+                isStreaming={latestStreaming}
+              />
+            </SessionSegment>
+          </>
+        );
+      }
+      return grouped.latest.map((item, index) => {
+        if (item.kind === "sessionGroup") {
+          if (item === anchorGroup) {
+            return (
+              <SessionGroupContinuation
+                key={item.key}
+                id={sessionContinuationId}
+                mode={MODE_PRESENTATION[item.modeSession.mode]}
+                open={disclosure.isSessionOpen(item.modeSession.id)}
+              >
+                {renderLatestRows(item.items.slice(anchorGroupIndex))}
+              </SessionGroupContinuation>
+            );
+          }
+          const descriptor = descriptorsById.get(item.modeSession.id);
+          if (descriptor) {
+            const preservesLatestResponse =
+              !item.items.includes(partition.anchorMessage!) &&
+              item.items.length === partition.responseItems.length &&
+              item.items.every(
+                (row, index) => row === partition.responseItems[index],
+              );
+            return (
+              <SessionSegment
+                key={
+                  preservesLatestResponse ? "latest-session-shell" : item.key
+                }
+                segment={item}
+                spaceBefore={
+                  (grouped.latest[index - 1] ?? grouped.history.at(-1))
+                    ?.kind !== "sessionGroup"
+                }
+                descriptor={descriptor}
+                disclosure={disclosure}
+                onBeforeToggle={rest.onBeforeSessionDisclosureToggle}
+                clockConnected={rest.sessionClockConnected}
+                clockNow={rest.sessionClockNow}
+              >
+                {preservesLatestResponse ? (
+                  <LatestTurnResponse
+                    responseItems={partition.responseItems}
+                    {...rowProps}
+                    responseArtifactsByKey={responseArtifactsByKey}
+                    isStreaming={latestStreaming}
+                  />
+                ) : (
+                  renderLatestRows(item.items)
+                )}
+              </SessionSegment>
+            );
+          }
+          return (
+            <Fragment key={item.key}>{renderLatestRows(item.items)}</Fragment>
+          );
+        }
+        return (
+          <TranscriptRow
+            key={item.key}
+            item={item}
+            {...rowProps}
+            responseArtifacts={responseArtifactsByKey.get(item.key)}
+            isStreaming={latestStreaming}
+            isLatestMessage={item === latestMessageItem}
+          />
+        );
+      });
     };
 
     return (
@@ -394,22 +953,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  slot, pending prompts, ephemeral meta) carry no trailer, so
            *  the flag skips past them. With an anchor present the latest
            *  turn owns the flag instead (see `LatestTurnRow`). */}
-          {partition.historyItems.map((item, i) => (
-            <Fragment key={item.key}>
-              <TranscriptColumn>
-                <TranscriptRow
-                  item={item}
-                  {...rowProps}
-                  responseArtifacts={responseArtifactsByKey.get(item.key)}
-                  isLatestMessage={i === latestHistoryMessageIndex}
-                />
-              </TranscriptColumn>
-            </Fragment>
-          ))}
+          {grouped.history.map(renderGroupedHistoryItem)}
+          {anchorGroup
+            ? renderGroupedHistoryItem(anchorGroup, grouped.history.length)
+            : null}
           {/* Latest-edge region: contains the latest-turn cluster and the
            *  assistant avatar. Two layout modes:
            *
-           *  1. Anchor present — `minHeight: viewportMinHeight` pins the
+           *  1. Anchor visible: `minHeight: viewportMinHeight` pins the
            *     anchor user message to the viewport top. The avatar
            *     renders directly below the response items so it follows
            *     the conversation flow visually. The `flex-1` spacer then
@@ -439,11 +990,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           {(partition.anchorMessage || rest.renderAvatar) && (
             <TranscriptColumn
               className="flex flex-col"
-              minHeight={
-                partition.anchorMessage ? viewportMinHeight : undefined
-              }
+              minHeight={anchorVisible ? viewportMinHeight : undefined}
             >
-              {partition.anchorMessage && (
+              {partition.anchorMessage && !sessionGroupsOn && (
                 <LatestTurnRow
                   anchorMessage={partition.anchorMessage}
                   responseItems={partition.responseItems}
@@ -451,11 +1000,18 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   responseArtifactsByKey={responseArtifactsByKey}
                 />
               )}
+              {partition.anchorMessage && sessionGroupsOn
+                ? renderGroupedLatest()
+                : null}
               {rest.renderAvatar && (
                 <div
                   data-latest-assistant-avatar="true"
                   data-copy-exclude
-                  className="flex justify-start pl-1 pt-3 pb-2"
+                  className={`flex justify-start pl-1 pb-2 ${avatarFollowsSession ? "pt-0" : "pt-3"} ${
+                    sessionGroupsOn
+                      ? "transition-[padding-top] duration-300 ease-out motion-reduce:transition-none"
+                      : ""
+                  }`}
                 >
                   {rest.renderAvatar()}
                 </div>

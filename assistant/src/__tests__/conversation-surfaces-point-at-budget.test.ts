@@ -15,12 +15,20 @@ const { assistantEventHub } = await import("../runtime/assistant-event-hub.js");
  */
 function proxyDouble() {
   const recordAction = mock(() => {});
-  const request = mock(async () => ({ content: "ok", isError: false }));
+  const request = mock(async (...args: unknown[]) => {
+    const onValidatedDispatch = args[8];
+    if (typeof onValidatedDispatch === "function") {
+      onValidatedDispatch();
+    }
+    return { content: "ok", isError: false };
+  });
   return {
     recordAction,
     request,
     proxy: {
       isAvailable: () => true,
+      sourceId: "proxy-123",
+      resetGeneration: 4,
       recordAction,
       request,
       reset: () => {},
@@ -38,6 +46,22 @@ const context = (proxy: unknown) =>
     hostCuProxy: proxy as never,
     currentTurnSourceActorPrincipalId: ACTOR,
   });
+
+function modeSessionContext(proxy: unknown) {
+  const recordAction = mock(() => undefined);
+  const endTask = mock(() => true);
+  return {
+    recordAction,
+    endTask,
+    ctx: asConversation({
+      conversationId: "conv-1",
+      currentRequestId: "turn-123",
+      hostCuProxy: proxy as never,
+      currentTurnSourceActorPrincipalId: ACTOR,
+      computerUseModeSessions: { recordAction, endTask } as never,
+    }),
+  };
+}
 
 /**
  * A client that can actually draw. Pointing resolves on `host_cu_annotate`
@@ -147,5 +171,43 @@ describe("the computer-use step budget", () => {
     });
 
     expect(recordAction).toHaveBeenCalledTimes(1);
+  });
+
+  test("claims a mode session only after target validation", async () => {
+    const { proxy } = proxyDouble();
+    const valid = modeSessionContext(proxy);
+
+    await surfaceProxyResolver(valid.ctx, "computer_use_click", {
+      element_id: 3,
+    });
+    expect(valid.recordAction).toHaveBeenCalledWith({
+      turnId: "turn-123",
+      source: { sourceId: "proxy-123", generation: 4 },
+      at: expect.any(Number),
+    });
+
+    const rejected = modeSessionContext(proxy);
+    await surfaceProxyResolver(rejected.ctx, "computer_use_click", {
+      element_id: 3,
+      target_client_id: "missing-client",
+    });
+    expect(rejected.recordAction).not.toHaveBeenCalled();
+  });
+
+  test("terminal respond retires the exact run and begins draining", async () => {
+    const { proxy } = proxyDouble();
+    const state = modeSessionContext(proxy);
+
+    const result = await surfaceProxyResolver(
+      state.ctx,
+      "computer_use_respond",
+      { answer: "Finished" },
+    );
+
+    expect(result).toEqual({ content: "Finished", isError: false });
+    expect(state.endTask).toHaveBeenCalledWith({
+      turnId: "turn-123",
+      source: { sourceId: "proxy-123", generation: 4 },
+    });
   });
 });

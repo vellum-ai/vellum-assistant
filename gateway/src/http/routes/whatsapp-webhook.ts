@@ -203,7 +203,6 @@ export function createWhatsAppWebhookHandler(
             config,
             from,
             ROUTING_REJECTION_NOTICE,
-            undefined,
             apiCaches,
           ).catch((err) => {
             tlog.error(
@@ -217,7 +216,7 @@ export function createWhatsAppWebhookHandler(
             event.sourceChannel,
             event.message.conversationExternalId,
             async (text) => {
-              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
+              await sendWhatsAppReply(config, from, text, apiCaches);
             },
             tlog,
           );
@@ -237,7 +236,6 @@ export function createWhatsAppWebhookHandler(
             config,
             from,
             ROUTING_REJECTION_NOTICE,
-            undefined,
             apiCaches,
           ).catch((err) => {
             tlog.error(
@@ -328,7 +326,6 @@ export function createWhatsAppWebhookHandler(
                 config,
                 from,
                 ROUTING_REJECTION_NOTICE,
-                undefined,
                 apiCaches,
               ).catch((err) => {
                 tlog.error(

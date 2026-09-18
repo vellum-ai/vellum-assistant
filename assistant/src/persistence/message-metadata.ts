@@ -1,3 +1,4 @@
+import { type ModeSession, parseModeSession } from "../api/mode-session.js";
 import { safeParseRecord } from "../util/json.js";
 
 /**
@@ -17,4 +18,28 @@ export function mergeMessageMetadata(
     ...(existing ? safeParseRecord(existing) : {}),
     ...updates,
   });
+}
+
+export function readModeSessionMetadata(
+  metadata: string | null | undefined,
+): ModeSession | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  return parseModeSession(safeParseRecord(metadata).modeSession);
+}
+
+export function readMessageSentAt(
+  metadata: string | null | undefined,
+): number | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  const sentAt = safeParseRecord(metadata).sentAt;
+  return typeof sentAt === "number" &&
+    Number.isInteger(sentAt) &&
+    sentAt >= 0 &&
+    Number.isFinite(new Date(sentAt).getTime())
+    ? sentAt
+    : undefined;
 }

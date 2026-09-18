@@ -257,3 +257,53 @@ describe("AssistantEventHub — getClientById()", () => {
     expect(hub.getClientById("client-x")).toBeUndefined();
   });
 });
+
+// ── Principal targeting ───────────────────────────────────────────────────────
+
+describe("AssistantEventHub principal targeting (targetActorPrincipalId)", () => {
+  test("delivers only to clients authenticated as that principal", async () => {
+    const hub = new AssistantEventHub();
+    const received: Record<string, number> = {
+      guardianMac: 0,
+      guardianWeb: 0,
+      otherUser: 0,
+      noPrincipal: 0,
+      process: 0,
+    };
+    const client = (
+      clientId: string,
+      key: string,
+      actorPrincipalId: string | undefined,
+    ) =>
+      hub.subscribe({
+        type: "client",
+        clientId,
+        interfaceId: "web",
+        capabilities: [],
+        ...(actorPrincipalId ? { actorPrincipalId } : {}),
+        callback: () => {
+          received[key]! += 1;
+        },
+      });
+    client("mac", "guardianMac", "principal-g");
+    client("web", "guardianWeb", "principal-g");
+    client("other", "otherUser", "principal-x");
+    client("legacy", "noPrincipal", undefined);
+    hub.subscribe({
+      type: "process",
+      callback: () => {
+        received.process! += 1;
+      },
+    });
+
+    await hub.publish(makeEvent(), { targetActorPrincipalId: "principal-g" });
+
+    expect(received).toEqual({
+      guardianMac: 1,
+      guardianWeb: 1,
+      otherUser: 0,
+      noPrincipal: 0,
+      process: 0,
+    });
+  });
+});

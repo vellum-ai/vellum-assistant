@@ -6,6 +6,8 @@ import type {
   ConversationContentBlock,
   ConversationMessage,
   ConversationMessageSurface,
+  ModeSession,
+  ModeSessionActivity,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { AssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
@@ -85,6 +87,10 @@ export interface DisplayMessage {
    * these as aliases so a live SSE row can merge into its collapsed history row.
    */
   mergedMessageIds?: string[];
+  /** Canonical recorded mode-session ownership for this display row. */
+  modeSession?: ModeSession;
+  /** Preserved activity bounds across same-owner history consolidation. */
+  modeSessionActivity?: ModeSessionActivity;
   /**
    * Client-generated correlation nonce, carried from the wire
    * `ConversationMessage["clientMessageId"]`. The originating client mints it

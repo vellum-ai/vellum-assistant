@@ -16,6 +16,10 @@ import {
 } from "../../config/loader.js";
 import type { VoiceFrontModelConfig } from "../../config/schemas/voice.js";
 import type {
+  ConversationModeSessionCoordinator,
+  ModeSessionSourceHandle,
+} from "../../daemon/conversation-mode-session.js";
+import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
@@ -38,6 +42,7 @@ import {
   type LiveVoiceBackgroundContinuationSpawner,
   LiveVoiceSession,
   type LiveVoiceSessionAudioArchiver,
+  type LiveVoiceSessionOptions,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -222,6 +227,9 @@ function createHarness(options: {
   foregroundTaskResumeSilenceMs?: number;
   foregroundTaskMaxSuspendedMs?: number;
   foregroundTaskMaxInterveningTurns?: number;
+  acquireModeSessionResidency?: NonNullable<
+    LiveVoiceSessionOptions["acquireModeSessionResidency"]
+  >;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -322,6 +330,9 @@ function createHarness(options: {
           foregroundTaskMaxInterveningTurns:
             options.foregroundTaskMaxInterveningTurns,
         }
+      : {}),
+    ...(options.acquireModeSessionResidency
+      ? { acquireModeSessionResidency: options.acquireModeSessionResidency }
       : {}),
   };
   const session = options.viaFactory
@@ -3565,13 +3576,59 @@ describe("LiveVoiceSession server VAD", () => {
   test("a held speculative turn hands the stashed answer back for the replay", async () => {
     const continuation = makeControlledContinuation();
     const calls: VoiceTurnOptions[] = [];
-    const discard = mock(async () => {});
+    const claimedTurnIds: string[] = [];
+    const releasedTurnIds = new Set<string>();
+    let activation = 0;
+    let activeSource: ModeSessionSourceHandle | undefined;
+    const modeSessions = {
+      activateSource: (input: {
+        sourceId: string;
+        generation: number;
+        mode: "ambient" | "live_vision";
+      }) => {
+        activation += 1;
+        activeSource = {
+          sourceId: input.sourceId,
+          generation: input.generation,
+          activation,
+          id: `camera-session-${activation}`,
+          mode: input.mode,
+        };
+        return activeSource;
+      },
+      claimTurn: (turnId: string, source: ModeSessionSourceHandle) => {
+        if (source !== activeSource) {
+          return undefined;
+        }
+        claimedTurnIds.push(turnId);
+        return { id: source.id, mode: source.mode };
+      },
+      recordActivity: () => true,
+      releaseTurn: (turnId: string) => {
+        releasedTurnIds.add(turnId);
+        return true;
+      },
+      retireSource: (source: ModeSessionSourceHandle) => {
+        if (source !== activeSource) {
+          return false;
+        }
+        activeSource = undefined;
+        return true;
+      },
+      trackPersistedRow: () => {},
+    } as unknown as ConversationModeSessionCoordinator;
     // The first turn stays thinking so the barge-in lands on it. Every
     // speculative leg afterwards answers with the hold token while it is
     // offered one (`unifiedVerdict`), and answers for real on the replay.
     const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
       calls.push(options);
       const index = calls.length;
+      const discard = mock(async () => {
+        const requestId = options.preacceptedModeSession?.requestId;
+        if (requestId) {
+          modeSessions.releaseTurn(requestId);
+        }
+      });
       if (options.content !== "first question") {
         const reply = options.unifiedVerdict === true ? "[0]" : "Sure thing.";
         setTimeout(() => {
@@ -3592,9 +3649,19 @@ describe("LiveVoiceSession server VAD", () => {
       // The announcement must not fire during the hold window — the replay
       // turn is the delivery this test is about.
       continuationAnnounceSilenceMs: 5_000,
+      acquireModeSessionResidency: async () => ({
+        coordinator: modeSessions,
+        release: () => {},
+      }),
     });
 
     await session.start();
+    await session.handleClientFrame({
+      type: "sight_start",
+      cameraEpoch: 1,
+      source: "live",
+    });
+    expect(claimedTurnIds).toHaveLength(1);
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => frames.some((frame) => frame.type === "thinking"));
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
@@ -3613,7 +3680,26 @@ describe("LiveVoiceSession server VAD", () => {
     await session.handleBinaryAudio(LOUD_CHUNK);
 
     // The speculative leg holds: it is rolled back, taking nothing with it.
-    await waitFor(() => discard.mock.calls.length === 1);
+    await waitFor(() =>
+      calls.some(
+        (call) =>
+          call.content === "third question" && call.unifiedVerdict === true,
+      ),
+    );
+    const speculative = calls.find(
+      (call) =>
+        call.content === "third question" && call.unifiedVerdict === true,
+    );
+    expect(speculative?.preacceptedModeSession).toBeDefined();
+    await waitFor(() =>
+      releasedTurnIds.has(speculative?.preacceptedModeSession?.requestId ?? ""),
+    );
+    const primaryIndex = claimedTurnIds.indexOf(
+      speculative!.preacceptedModeSession!.requestId,
+    );
+    expect(primaryIndex).toBeGreaterThanOrEqual(0);
+    expect(releasedTurnIds.has(claimedTurnIds[primaryIndex + 1]!)).toBe(true);
+    expect(releasedTurnIds.has(claimedTurnIds[primaryIndex + 2]!)).toBe(true);
 
     // The extension replays the boundary and the replay leg answers. It is a
     // different dispatch, so it only carries the answer if the rollback gave
@@ -3624,6 +3710,7 @@ describe("LiveVoiceSession server VAD", () => {
     const replay = calls.filter((c) => c.content === "third question")[1];
     expect(replay?.unifiedVerdict).toBeUndefined();
     expect(replay?.voiceControlPrompt).toContain("THE_RESULT");
+    await session.close("client_end");
   });
 
   test("an announcement waits out the client's queued playback", async () => {

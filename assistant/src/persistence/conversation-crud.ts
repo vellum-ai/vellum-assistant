@@ -26,6 +26,7 @@ import {
   forgetActivationConversation,
   forgetAllActivationConversations,
 } from "../activation/progress-store.js";
+import { TolerantModeSessionSchema } from "../api/mode-session.js";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
@@ -91,6 +92,7 @@ import {
   REFERENTIAL_FORK_STRATEGY,
   resolveConversationLineage,
 } from "./conversation-lineage.js";
+import { repairConversationModeSessionBoundaries } from "./conversation-mode-sessions.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import {
   BACKGROUND_CONVERSATION_TYPES,
@@ -333,6 +335,8 @@ const backgroundToolCompletionMetadataSchema = z.object({
 
 export const messageMetadataSchema = z
   .object({
+    /** Immutable ownership of this transcript row by a recorded mode session. */
+    modeSession: TolerantModeSessionSchema,
     /**
      * Epoch ms the content actually happened, when that differs from when
      * the row was written. Set wherever persistence lags the event: a queued
@@ -4343,6 +4347,24 @@ export function purgeConversationSegments(
   return segmentIds;
 }
 
+/** Repair derived mode-session boundaries without changing delete success. */
+function repairModeSessionBoundariesAfterDelete(conversationId: string): void {
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      repairConversationModeSessionBoundaries(conversationId);
+      return;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        log.warn(
+          { err, conversationId, attempts: maxAttempts },
+          "Failed to repair mode session boundaries after message deletion; continuing",
+        );
+      }
+    }
+  }
+}
+
 export function deleteLastExchange(conversationId: string): number {
   const db = getDb();
 
@@ -4445,6 +4467,10 @@ export function deleteLastExchange(conversationId: string): number {
       messageId: row.id,
       createdAt: row.createdAt,
     } satisfies MessageDeletedInputContext);
+  }
+
+  if (deleted > 0) {
+    repairModeSessionBoundariesAfterDelete(conversationId);
   }
 
   return deleted;
@@ -4757,6 +4783,7 @@ export function deleteMessageById(
       messageId,
       createdAt: msgRow.createdAt,
     } satisfies MessageDeletedInputContext);
+    repairModeSessionBoundariesAfterDelete(msgRow.conversationId);
   }
 
   return result;

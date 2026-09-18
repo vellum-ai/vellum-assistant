@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 import type { ReactNode } from "react";
@@ -355,6 +356,11 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+
+import {
+  appendThinkingDelta,
+  appendTextDelta,
+} from "@/domains/chat/utils/stream-updaters/message-updaters";
 
 const noop = () => {};
 const realImageDecode = globalThis.Image.prototype.decode;
@@ -2515,6 +2521,56 @@ describe("TranscriptMessageBody", () => {
     expect(
       (await waitForComputerUseScreenshot(container)).getAttribute("src"),
     ).toBe("data:image/png;base64,block-only-image");
+  });
+
+  test("does not reprocess screenshot bytes as thinking and text grow", async () => {
+    const screenshot: ChatMessageToolCall = {
+      id: "cu-streaming",
+      name: "computer_use_screenshot",
+      input: {},
+      imageDataList: ["iVBORw0KGgo=" + "A".repeat(128 * 1024)],
+    };
+    let messages: DisplayMessage[] = [
+      {
+        id: "streaming-images",
+        role: "assistant",
+        contentBlocks: [toolUseBlock(screenshot)],
+      },
+    ];
+    const row = () => (
+      <TranscriptMessageBody
+        message={messages[0]!}
+        isStreaming
+        onSurfaceAction={noop}
+      />
+    );
+    const decode = spyOn(globalThis, "atob");
+    try {
+      const { container, rerender } = render(row());
+      const displayed = await waitForComputerUseScreenshot(container);
+      expect(decode).toHaveBeenCalled();
+      decode.mockClear();
+
+      for (let index = 0; index < 10; index += 1) {
+        messages = appendThinkingDelta(
+          messages,
+          " considering",
+          "streaming-images",
+        );
+        rerender(row());
+      }
+      messages = appendTextDelta(
+        messages,
+        "Here is the result.",
+        "streaming-images",
+      );
+      rerender(row());
+
+      expect(decode).not.toHaveBeenCalled();
+      expect(await waitForComputerUseScreenshot(container)).toBe(displayed);
+    } finally {
+      decode.mockRestore();
+    }
   });
 
   test("keeps one screenshot across inline completion and referenced history", async () => {

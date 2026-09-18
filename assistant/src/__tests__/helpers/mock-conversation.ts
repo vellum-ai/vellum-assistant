@@ -18,6 +18,26 @@
 import type { Conversation } from "../../daemon/conversation.js";
 import type { ChannelCapabilities } from "../../daemon/conversation-runtime-assembly.js";
 
+/** Build a coordinator double representing a turn with no mode owner. */
+export function mockUnownedModeSessions(): Conversation["modeSessions"] {
+  return {
+    acceptTurn: () => undefined,
+    getTurnOwner: () => undefined,
+    getTerminalDisposition: () => undefined,
+    hasResidentWork: () => false,
+    keepsSessionOpenAfterTurn: () => false,
+    trackPersistedRow: () => false,
+    recordStructuralWait: () => false,
+    invalidateStructuralWait: () => false,
+    settleStructuralWait: () => false,
+    invalidateAllStructuralWaits: () => 0,
+    beginDraining: () => false,
+    finalizeTurn: () => false,
+    releaseTurn: () => {},
+    transferTurn: () => undefined,
+  } as unknown as Conversation["modeSessions"];
+}
+
 /**
  * `TExtra` carries test-only fields a double hangs off the same object
  * (recorded calls, captured messages) through to the return type, so a caller
@@ -38,6 +58,7 @@ export function asConversation<TExtra extends object = object>(
       merged.currentTurnTrustContext ?? merged.trustContext,
     isStale: () => false,
     hasInFlightWork: () => false,
+    modeSessions: mockUnownedModeSessions(),
     ...mock,
   };
   return merged as unknown as Conversation & TExtra;
