@@ -11,8 +11,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
+
+import { SIDEBAR_ASSISTANT_DISC_SIZE } from "@/components/sidebar-nav-geometry";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
+import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 
@@ -192,11 +196,24 @@ describe("AssistantNavItem switcher slots", () => {
     expect(html).not.toContain('data-testid="switcher-chevron"');
   });
 
-  test("an expansion replaces the pill and keeps the New Chat row", () => {
+  test("an expansion replaces the pill and takes the New Chat button with the row", () => {
     const html = renderWithSlots({ expansion: EXPANSION });
     expect(html).toContain('data-testid="switcher-card"');
     expect(html).not.toContain('data-tour-id="assistant-page"');
-    expect(html).toContain(">New Chat<");
+    expect(html).not.toContain('data-tour-id="new-chat"');
+  });
+
+  test("the New Chat button stands on the row after the aside", () => {
+    const html = renderWithSlots({ aside: ASIDE });
+    const pillAt = html.indexOf('data-tour-id="assistant-page"');
+    const asideAt = html.indexOf('data-testid="section-toggle"');
+    const newChatAt = html.indexOf('data-tour-id="new-chat"');
+    expect(pillAt).toBeGreaterThanOrEqual(0);
+    expect(asideAt).toBeGreaterThan(pillAt);
+    expect(newChatAt).toBeGreaterThan(asideAt);
+    // One row holds all three: no stack wrapper opens between the pill
+    // and the button.
+    expect(html.slice(pillAt, newChatAt)).not.toContain("flex-col");
   });
 
   test("the collapsed tile ignores an expansion", () => {
@@ -206,7 +223,7 @@ describe("AssistantNavItem switcher slots", () => {
   });
 });
 
-describe("AssistantNavItem New Chat shortcut tooltip", () => {
+describe("AssistantNavItem New Chat button", () => {
   function renderNewChat(collapsed = false): string {
     return renderToStaticMarkup(
       createElement(AssistantNavItem, {
@@ -220,14 +237,45 @@ describe("AssistantNavItem New Chat shortcut tooltip", () => {
     );
   }
 
-  test("the expanded row keeps its New Chat label", () => {
+  /** The New Chat button's opening tag, wherever it stands. */
+  function newChatTag(html: string): string {
+    const at = html.indexOf('data-tour-id="new-chat"');
+    expect(at).toBeGreaterThanOrEqual(0);
+    return html.slice(html.lastIndexOf("<button", at), html.indexOf(">", at));
+  }
+
+  test("the expanded row names the button New Chat with no label text", () => {
     const html = renderNewChat();
-    expect(html).toContain(">New Chat<");
+    expect(newChatTag(html)).toContain('aria-label="New Chat"');
+    expect(html).not.toContain(">New Chat<");
+    expect(html).not.toContain('title="New Chat"');
   });
 
-  test("the collapsed tile is named New Chat without a native title", () => {
+  test("on the row it is drawn at the disc size the section toggle is", () => {
+    expect(newChatTag(renderNewChat())).toContain(
+      `width:${SIDEBAR_ASSISTANT_DISC_SIZE}px;height:${SIDEBAR_ASSISTANT_DISC_SIZE}px`,
+    );
+  });
+
+  test("on the collapsed rail it is a tile beneath the assistant's, at the tile size", () => {
     const html = renderNewChat(true);
-    expect(html).toContain('aria-label="New Chat"');
+    expect(newChatTag(html)).toContain(
+      `width:${SIDE_MENU_TILE_SIZE}px;height:${SIDE_MENU_TILE_SIZE}px`,
+    );
+    expect(newChatTag(html)).toContain('aria-label="New Chat"');
     expect(html).not.toContain('title="New Chat"');
+    // Its own entry in the rail's column, after the assistant's tile.
+    expect(html.indexOf('data-tour-id="new-chat"')).toBeGreaterThan(
+      html.indexOf('data-tour-id="assistant-page"'),
+    );
+  });
+
+  test("the button stays on the row while the tour owns the nav", () => {
+    useInChatOnboardingStore.setState({ navTourActive: true });
+    try {
+      expect(newChatTag(renderNewChat())).toContain('aria-label="New Chat"');
+    } finally {
+      useInChatOnboardingStore.setState({ navTourActive: false });
+    }
   });
 });

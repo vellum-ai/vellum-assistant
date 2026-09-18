@@ -22,6 +22,7 @@
  */
 
 import type { LLMCallSummary } from "@vellumai/assistant-api";
+import { isRecord } from "@/utils/is-record";
 
 /** Where a segment sits in the provider's cache prefix order. */
 export type CacheSegmentRegion = "tools" | "system" | "messages";
@@ -60,10 +61,6 @@ export interface CacheBreakpointMap {
 
 /** Rough characters-per-token ratio for English prose and JSON. */
 const CHARS_PER_TOKEN = 4;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function asArray(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null;

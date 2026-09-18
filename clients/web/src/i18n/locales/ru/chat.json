@@ -311,7 +311,17 @@
     "seeAllAppsAria": "Показать все приложения",
     "seeAllFilesAria": "Показать все документы и изображения",
     "seeAllFramesAria": "Показать все кадры с камеры",
-    "title": "Информация о диалоге"
+    "title": "Информация о диалоге",
+    "retry": "Повторить",
+    "retrySourceAria": "Повторить загрузку: {source}",
+    "documentsSource": "Документы",
+    "attachmentsSource": "Вложения",
+    "sourceLoading": "Загрузка: {source}…",
+    "sourceLoadFailed": "Не удалось загрузить: {source}.",
+    "sourceRefreshFailed": "Не удалось обновить: {source}. Показаны сохранённые результаты.",
+    "sourcePageFailed": "Не удалось загрузить следующие элементы: {source}.",
+    "framesUnsupported": "Классификация кадров камеры недоступна в этой версии помощника.",
+    "loadedHistory": "Вложения взяты только из загруженной истории чата."
   },
   "compactionTab": {
     "compactedMessages": "сжато: {count}",
@@ -415,7 +425,12 @@
     "ariaLabelUnavailable": "Ресурсы диалога, не удалось загрузить",
     "ariaLabelUnseen": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}} (есть невидимые изменения)",
     "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}",
-    "labelUnavailable": "Не удалось загрузить ресурсы"
+    "labelUnavailable": "Не удалось загрузить ресурсы",
+    "labelPartial": "Не удалось загрузить некоторые ресурсы",
+    "ariaLabelPartial": "Ресурсы беседы, некоторые не удалось загрузить",
+    "labelLoaded": "{count, plural, one {# загруженный ресурс} few {# загруженных ресурса} many {# загруженных ресурсов} other {# загруженного ресурса}}",
+    "ariaLabelLoaded": "Ресурсы беседы, {count, plural, one {# загруженный элемент} few {# загруженных элемента} many {# загруженных элементов} other {# загруженного элемента}}",
+    "ariaLabelLoadedUnseen": "Ресурсы беседы, {count, plural, one {# загруженный элемент} few {# загруженных элемента} many {# загруженных элементов} other {# загруженного элемента}} (непросмотренные изменения)"
   },
   "conversationStarterDock": {
     "caption": "Подсказки:"

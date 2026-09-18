@@ -103,6 +103,26 @@ describe("retagDelegateError", () => {
     expect(err.apiErrorCode).toBe("restricted");
     expect(err.apiErrorParam).toBe("model");
     expect(err.rawBody).toBe('{"type":"error"}');
+    expect(err.rawRequest).toBeUndefined();
+  });
+
+  test("carries rawRequest across the re-tag", () => {
+    const rawRequest = { model: "anthropic/claude-opus-4.6", messages: [] };
+    const inner = new ProviderError("rate limited", "anthropic", 429, {
+      rawRequest,
+    });
+
+    let caught: unknown;
+    try {
+      retagDelegateError(inner, providerName);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ProviderError);
+    const err = caught as ProviderError;
+    expect(err.provider).toBe(providerName);
+    expect(err.rawRequest).toEqual(rawRequest);
   });
 
   test("re-tags a delegate ContextOverflowError, preserving token counts", () => {
@@ -110,6 +130,7 @@ describe("retagDelegateError", () => {
       actualTokens: 250_000,
       maxTokens: 200_000,
       statusCode: 400,
+      rawRequest: { model: "anthropic/claude-opus-4.6" },
     });
 
     let caught: unknown;
@@ -126,6 +147,7 @@ describe("retagDelegateError", () => {
     expect(err.maxTokens).toBe(200_000);
     expect(err.statusCode).toBe(400);
     expect(err.cause).toBe(inner);
+    expect(err.rawRequest).toEqual({ model: "anthropic/claude-opus-4.6" });
   });
 
   test("rethrows an already-tagged error unchanged", () => {

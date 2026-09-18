@@ -1,3 +1,5 @@
+import type { IntegrationCategory } from "@vellumai/service-contracts/integration-categories";
+
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 
@@ -25,6 +27,7 @@ export function oauthProvider(
   providerKey: OAuthConnection["provider"],
   displayName: string,
   description: string,
+  category: IntegrationCategory = "productivity",
 ): OAuthProvider {
   return {
     provider_key: providerKey,
@@ -37,6 +40,7 @@ export function oauthProvider(
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    category,
     tenant_host: null,
     acts_as: "user",
   };
@@ -68,6 +72,7 @@ export function pluginDefinition(
     documentationUrl: "https://example.com/docs/notion-mcp",
     logo: "",
     oauthProvider: "notion",
+    category: "productivity",
     setup: {
       mode: "oauth",
       instructions: "Sign in with the workspace you want Vellum to use.",

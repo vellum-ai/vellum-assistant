@@ -5,10 +5,10 @@
  * the user interacting with that control, not a message-level gesture
  * (long-press action sheet, bubble tap).
  *
- * Both the long-press touchstart guard (`use-long-press`) and the bubble-click
- * guard (`isInteractiveClickTarget`, used by transcript-message-body) key off
- * this selector, so they must agree on what is interactive — hence one shared
- * definition rather than a copy in each. See AGENTS.md → Single Source of Truth.
+ * Both the long-press touchstart guard (`use-long-press`) and the transcript
+ * bubble-click guards key off this selector, so they must agree on what is
+ * interactive: one shared definition rather than a copy in each. See
+ * AGENTS.md → Single Source of Truth.
  */
 export const INTERACTIVE_TARGET_SELECTOR =
   'a, button, [role="button"], input, textarea, select';

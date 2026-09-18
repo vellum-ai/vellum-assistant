@@ -33,11 +33,6 @@ import {
   type ChatSessionStore,
   useChatSessionStore,
 } from "@/domains/chat/chat-session-store";
-import {
-  type DaemonSourceState,
-  daemonSourceState,
-  worstSourceState,
-} from "@/domains/chat/hooks/daemon-source-state";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
@@ -45,6 +40,11 @@ import {
   attachmentsGetInfiniteQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AttachmentsGetResponse } from "@/generated/daemon/types.gen";
+import {
+  conversationAssetSourceState,
+  retryConversationAssetQuery,
+  type ConversationAssetSourceState,
+} from "@/lib/conversation-asset-sources";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useSupportsAttachmentList } from "@/lib/backwards-compat/use-supports-attachment-list";
 import type {
@@ -96,14 +96,10 @@ export interface ConversationAttachments {
   /** Exact on the daemon path; the entry counts on the transcript path. */
   totalFiles: number;
   totalFrames: number;
-  /**
-   * How far the active path has got. The daemon path reports the two list
-   * reads; the transcript path is ready once the target's own transcript has
-   * stopped loading (its chat session owns it, and either a snapshot is loaded
-   * or the history fetch is over) and never failed, since a history load that
-   * failed settles rather than staying unready for good.
-   */
-  sourceState: DaemonSourceState;
+  filesState: ConversationAssetSourceState;
+  framesState: ConversationAssetSourceState;
+  retryFiles: () => void;
+  retryFrames: () => void;
   hasMoreFiles: boolean;
   hasMoreFrames: boolean;
   loadMoreFiles: () => void;
@@ -248,35 +244,44 @@ export function useConversationAttachments(target: {
   const fetchNextFiles = filesQuery.fetchNextPage;
   const fetchNextFrames = framesQuery.fetchNextPage;
   const loadMoreFiles = useCallback(() => {
-    void fetchNextFiles();
+    void fetchNextFiles({ cancelRefetch: false });
   }, [fetchNextFiles]);
   const loadMoreFrames = useCallback(() => {
-    void fetchNextFrames();
+    void fetchNextFrames({ cancelRefetch: false });
   }, [fetchNextFrames]);
 
   const filesPages = filesQuery.data?.pages;
   const framesPages = framesQuery.data?.pages;
   const daemonLists = useMemo(() => {
-    if (filesPages === undefined || framesPages === undefined) {
-      return null;
-    }
-    const filesTail = filesPages[filesPages.length - 1]!;
-    const framesTail = framesPages[framesPages.length - 1]!;
+    const filesTail = filesPages?.at(-1);
+    const framesTail = framesPages?.at(-1);
     return {
       entries: [
-        ...filesPages.flatMap((page) => page.attachments.map(toDaemonEntry)),
-        ...framesPages.flatMap((page) => page.attachments.map(toDaemonEntry)),
+        ...(filesPages?.flatMap((page) =>
+          page.attachments.map(toDaemonEntry),
+        ) ?? NO_ENTRIES),
+        ...(framesPages?.flatMap((page) =>
+          page.attachments.map(toDaemonEntry),
+        ) ?? NO_ENTRIES),
       ],
-      totalFiles: filesTail.total,
-      totalFrames: framesTail.total,
-      hasMoreFiles: filesTail.hasMore,
-      hasMoreFrames: framesTail.hasMore,
+      totalFiles: filesTail?.total ?? 0,
+      totalFrames: framesTail?.total ?? 0,
+      hasMoreFiles: filesTail?.hasMore ?? false,
+      hasMoreFrames: framesTail?.hasMore ?? false,
     };
   }, [filesPages, framesPages]);
-  const listsState = worstSourceState(
-    daemonSourceState(filesQuery),
-    daemonSourceState(framesQuery),
-  );
+  const filesState = conversationAssetSourceState(filesQuery);
+  const framesState = conversationAssetSourceState(framesQuery);
+  const retryFiles = () => {
+    if (listsActive) {
+      retryConversationAssetQuery(filesQuery);
+    }
+  };
+  const retryFrames = () => {
+    if (listsActive) {
+      retryConversationAssetQuery(framesQuery);
+    }
+  };
 
   // The chat-session store names the conversation its snapshot was loaded for.
   // The navigation selection flips a render before that snapshot is cleared, so
@@ -362,47 +367,50 @@ export function useConversationAttachments(target: {
     invalidateLists();
   }, [refreshKey, listsEnabled, invalidateLists]);
 
-  const transcriptState: DaemonSourceState =
-    ownsTranscript && (hasSnapshot || !isLoadingHistory)
-      ? "ready"
-      : "unresolved";
+  const transcriptReady = ownsTranscript && (hasSnapshot || !isLoadingHistory);
 
-  return useMemo(() => {
-    if (listsActive && daemonLists) {
-      return {
-        entries: daemonLists.entries,
-        totalFiles: daemonLists.totalFiles,
-        totalFrames: daemonLists.totalFrames,
-        sourceState: listsState,
-        hasMoreFiles: daemonLists.hasMoreFiles,
-        hasMoreFrames: daemonLists.hasMoreFrames,
-        loadMoreFiles,
-        loadMoreFrames,
-        source: "daemon" as const,
-      };
-    }
+  if (listsActive) {
     return {
-      entries,
-      totalFiles: entries.length,
-      // The transcript path cannot produce a frame: it never sees the tag.
-      totalFrames: 0,
-      // A list still on its way speaks for the panel even though the entries
-      // below it are the transcript's, so an open panel is never empty and
-      // never reads settled before the daemon has answered.
-      sourceState: listsActive ? listsState : transcriptState,
-      hasMoreFiles: false,
-      hasMoreFrames: false,
-      loadMoreFiles: NOOP,
-      loadMoreFrames: NOOP,
-      source: "transcript" as const,
+      entries: daemonLists.entries,
+      totalFiles: daemonLists.totalFiles,
+      totalFrames: daemonLists.totalFrames,
+      filesState,
+      framesState,
+      retryFiles,
+      retryFrames,
+      hasMoreFiles: daemonLists.hasMoreFiles,
+      hasMoreFrames: daemonLists.hasMoreFrames,
+      loadMoreFiles,
+      loadMoreFrames,
+      source: "daemon",
     };
-  }, [
-    daemonLists,
+  }
+  return {
     entries,
-    listsActive,
-    listsState,
-    loadMoreFiles,
-    loadMoreFrames,
-    transcriptState,
-  ]);
+    totalFiles: entries.length,
+    totalFrames: 0,
+    filesState: {
+      supported: true,
+      hasData: transcriptReady,
+      pending: !transcriptReady,
+      fetching: false,
+      failure: null,
+      scope: "loaded-history",
+    },
+    framesState: {
+      supported: false,
+      hasData: false,
+      pending: false,
+      fetching: false,
+      failure: null,
+      scope: "loaded-history",
+    },
+    retryFiles: NOOP,
+    retryFrames: NOOP,
+    hasMoreFiles: false,
+    hasMoreFrames: false,
+    loadMoreFiles: NOOP,
+    loadMoreFrames: NOOP,
+    source: "transcript",
+  };
 }

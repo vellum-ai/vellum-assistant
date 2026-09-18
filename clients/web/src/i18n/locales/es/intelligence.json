@@ -433,5 +433,9 @@
       "v1": "Migra mi memoria de v1 a v3. Lo más probable es que sean dos saltos, tu skill «Memory v2 Migration» y luego tu skill «Memory v3 Migration», pero averigua qué necesita realmente mi asistente y sigue exactamente las skills que uses.\n\nEjecútalo en segundo plano y avísame cuando termine, o si algo lo bloquea.",
       "enable": "Vuelve a activar mi memoria. Me gustaría que empieces a recordar cosas de nuestras conversaciones otra vez."
     }
+  },
+  "assistantHandleLine": {
+    "edit": "Editar identificador @{handle}",
+    "editTitle": "Editar identificador"
   }
 }

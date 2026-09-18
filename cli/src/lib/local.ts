@@ -1182,14 +1182,6 @@ export async function startCes(
 }
 
 /**
- * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
- * This replaces the socket-based `isSocketResponsive()` check.
- */
-async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
-  return httpHealthCheck(daemonPort);
-}
-
-/**
  * Find the PID of the process listening on the given TCP port.
  * Uses `lsof` on macOS/Linux. Returns undefined if no listener is found
  * or the command fails.
@@ -1284,7 +1276,7 @@ async function checkOrphanedDaemon(
   pidFile: string,
   daemonPort: number,
 ): Promise<boolean> {
-  if (!(await isDaemonResponsive(daemonPort))) return false;
+  if (!(await httpHealthCheck(daemonPort))) return false;
 
   const recoveredPid = recoverPidFile(pidFile, daemonPort);
   if (recoveredPid) {
@@ -1682,7 +1674,7 @@ export async function startLocalDaemon(
       const daemonSpawnEnv = envWithCompiledRuntimeNodePath(daemonEnv);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
-      // see the file and fall through to the isDaemonResponsive() port check
+      // see the file and fall through to the httpHealthCheck() port check
       // instead of racing to spawn a duplicate daemon.
       writeFileSync(pidFile, "starting", "utf-8");
 

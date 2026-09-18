@@ -234,12 +234,12 @@ describe("LLM catalog parity: daemon vs client", () => {
   });
 
   test("jev-latest opts out of chat text generation", () => {
-    expect(catalogModelSupportsText("jev", "jev-latest")).toBe(false);
+    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
     expect(catalogModelSupportsText("anthropic", "claude-opus-4-8")).toBe(true);
     expect(catalogModelSupportsText("openai-compatible", "local-model")).toBe(
       true,
     );
-    expect(DEFAULT_PROVIDER_CHOICES).not.toContain("jev");
+    expect(DEFAULT_PROVIDER_CHOICES).not.toContain("typesafe");
     expect(DEFAULT_PROVIDER_CHOICES).toContain("poolside");
   });
 

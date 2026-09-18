@@ -37,7 +37,7 @@ interface AssistantSwitcherProps {
   active: boolean;
   collapsed?: boolean;
   onSelect?: () => void;
-  /** Renders the "New Chat" row below the assistant row. */
+  /** Renders the New Chat button; see `AssistantNavItem`'s `onNewConversation`. */
   onNewConversation?: () => void;
   /**
    * Called after a successful switch. The overlay drawer passes its close

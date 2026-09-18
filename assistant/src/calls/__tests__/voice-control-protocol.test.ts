@@ -10,6 +10,7 @@ import {
   type SessionControlRequest,
   stripInternalSpeechMarkers,
   TASK_STOP_MARKER,
+  TASK_UPDATE_SILENT_MARKER,
   terminalControlMarkerLength,
 } from "../voice-control-protocol.js";
 
@@ -226,4 +227,18 @@ describe("session control markers", () => {
     expect(terminalControlMarkerLength("Okay [UPDATES:FEWER]")).toBe(15);
     expect(terminalControlMarkerLength("The array [-1] sorts")).toBe(0);
   });
+});
+
+test("silent task-update marker is held across every split and removed from the transcript", () => {
+  for (let split = 1; split < TASK_UPDATE_SILENT_MARKER.length; split += 1) {
+    const emitted: string[] = [];
+    const flush = createControlMarkerHoldback((text) => emitted.push(text));
+    flush(TASK_UPDATE_SILENT_MARKER.slice(0, split));
+    flush(TASK_UPDATE_SILENT_MARKER, { force: true });
+    expect(emitted.join("")).toBe("");
+  }
+  expect(terminalControlMarkerLength(TASK_UPDATE_SILENT_MARKER)).toBe(
+    TASK_UPDATE_SILENT_MARKER.length,
+  );
+  expect(parseTerminalSessionControl(TASK_UPDATE_SILENT_MARKER)).toBeNull();
 });

@@ -303,7 +303,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
-      } else if (name === "jev") {
+      } else if (name === "typesafe") {
         const validation = await validateJevApiKey(value);
         if (!validation.valid) {
           log.warn(

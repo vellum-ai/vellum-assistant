@@ -1,15 +1,3 @@
-/**
- * A conversation's assets in the three categories the chat-info panel lists:
- * apps, files (daemon documents plus the attachments that are not camera
- * frames), and camera frames. Frames stay empty while attachments come from
- * the transcript, which cannot see the camera-frame tag.
- *
- * The daemon queries wait for the org header and retry both the statuses a
- * restarting assistant answers with and a refused connection, so anything that
- * settles failed here is a failure the panel can name, and it is named only
- * once every source has settled.
- */
-
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
@@ -19,7 +7,13 @@ import {
   documentsGetOptions,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { daemonSourceState } from "@/domains/chat/hooks/daemon-source-state";
+import {
+  conversationAssetSourceState,
+  retryConversationAssetQuery,
+  summarizeAssetSources,
+  type ConversationAssetSource,
+  type ConversationAssetSourceState,
+} from "@/lib/conversation-asset-sources";
 import {
   type ConversationAttachmentEntry,
   useConversationAttachments,
@@ -46,11 +40,7 @@ export type ConversationFileAsset =
       capturedAt: number | null;
     };
 
-/**
- * How far the panel's three sources have got: the apps query, the documents
- * query, and the conversation's attachments, which are read from the daemon's
- * lists or, below the gate, from the transcript that carries them.
- */
+/** Overall loading state; source details preserve partial results and failures. */
 export type ConversationAssetsStatus = "pending" | "error" | "ready";
 
 interface ConversationAssets {
@@ -59,13 +49,20 @@ interface ConversationAssets {
   files: ConversationFileAsset[];
   frames: ConversationFileAsset[];
   counts: { apps: number; files: number; frames: number };
-  /** Sum of `counts`: what the header trigger shows, and hides on when zero. */
+  /** Sum of known totals; display as exact only when `countExact` is true. */
   count: number;
   /**
    * Whether the categories can be believed yet. An empty category means
    * "nothing here" only once this reads `"ready"`.
    */
   status: ConversationAssetsStatus;
+  allFailed: boolean;
+  sources: Record<ConversationAssetSource, ConversationAssetSourceState>;
+  countsExact: { apps: boolean; files: boolean; frames: boolean };
+  countExact: boolean;
+  loadedCount: number;
+  retrySource: (source: ConversationAssetSource) => void;
+  retryFailedSources: () => void;
   hasMoreFiles: boolean;
   hasMoreFrames: boolean;
   loadMoreFiles: () => void;
@@ -171,9 +168,7 @@ export function useConversationAssets({
     });
   }, [refreshKey, queryClient, assistantId, conversationId]);
 
-  // The attachment lists are this hook's third daemon source, and the one that
-  // owns their invalidation, so `refreshKey` reaches them there rather than
-  // being re-implemented against their keys here.
+  // The attachment hook owns list invalidation and retry.
   const attachments = useConversationAttachments({
     assistantId,
     conversationId,
@@ -183,27 +178,29 @@ export function useConversationAssets({
   const apps = appsQuery.data ?? NO_APPS;
   const docs = documentsQuery.data ?? NO_DOCUMENTS;
 
-  const appsState = daemonSourceState(appsQuery);
-  const documentsState = daemonSourceState(documentsQuery);
-  // The attachments count as a source too: without them a conversation whose
-  // only assets are attachments would read ready and empty until the lists or
-  // the snapshot land. Every source settles before one of them speaks for the
-  // panel, since a failure named while another source is still coming would be
-  // taken back the moment it lands.
-  const unresolved =
-    appsState === "unresolved" ||
-    documentsState === "unresolved" ||
-    attachments.sourceState === "unresolved";
-  const failed =
-    appsState === "failed" ||
-    documentsState === "failed" ||
-    attachments.sourceState === "failed";
-  let status: ConversationAssetsStatus = "ready";
-  if (unresolved) {
-    status = "pending";
-  } else if (failed) {
-    status = "error";
-  }
+  const sources = {
+    apps: conversationAssetSourceState(appsQuery),
+    documents: conversationAssetSourceState(documentsQuery),
+    attachments: attachments.filesState,
+    frames: attachments.framesState,
+  };
+  const summary = summarizeAssetSources(Object.values(sources));
+  const retrySource = (source: ConversationAssetSource) => {
+    if (source === "apps") {
+      retryConversationAssetQuery(appsQuery);
+    } else if (source === "documents") {
+      retryConversationAssetQuery(documentsQuery);
+    } else if (source === "attachments") {
+      attachments.retryFiles();
+    } else {
+      attachments.retryFrames();
+    }
+  };
+  const retryFailedSources = () => {
+    for (const source of Object.keys(sources) as ConversationAssetSource[]) {
+      retrySource(source);
+    }
+  };
 
   const sortedApps = useMemo(
     () => [...apps].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -215,23 +212,33 @@ export function useConversationAssets({
     [docs, attachments.entries],
   );
 
-  return useMemo(() => {
-    const counts = {
-      apps: sortedApps.length,
-      files: docs.length + attachments.totalFiles,
-      frames: attachments.totalFrames,
-    };
-    return {
-      apps: sortedApps,
-      files,
-      frames,
-      counts,
-      count: counts.apps + counts.files + counts.frames,
-      status,
-      hasMoreFiles: attachments.hasMoreFiles,
-      hasMoreFrames: attachments.hasMoreFrames,
-      loadMoreFiles: attachments.loadMoreFiles,
-      loadMoreFrames: attachments.loadMoreFrames,
-    };
-  }, [sortedApps, files, frames, docs.length, attachments, status]);
+  const counts = {
+    apps: sortedApps.length,
+    files: docs.length + attachments.totalFiles,
+    frames: attachments.totalFrames,
+  };
+  return {
+    apps: sortedApps,
+    files,
+    frames,
+    counts,
+    count: counts.apps + counts.files + counts.frames,
+    loadedCount: sortedApps.length + files.length + frames.length,
+    status: summary.status,
+    allFailed: summary.allFailed,
+    sources,
+    countsExact: {
+      apps: summarizeAssetSources([sources.apps]).exact,
+      files: summarizeAssetSources([sources.documents, sources.attachments])
+        .exact,
+      frames: summarizeAssetSources([sources.frames]).exact,
+    },
+    countExact: summary.exact,
+    retrySource,
+    retryFailedSources,
+    hasMoreFiles: attachments.hasMoreFiles,
+    hasMoreFrames: attachments.hasMoreFrames,
+    loadMoreFiles: attachments.loadMoreFiles,
+    loadMoreFrames: attachments.loadMoreFrames,
+  };
 }

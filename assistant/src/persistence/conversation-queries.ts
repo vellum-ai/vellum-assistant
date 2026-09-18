@@ -956,19 +956,6 @@ function likeContainsPattern(query: string): string {
 }
 
 /**
- * Whether the sparse Qdrant `messages_lexical` index — the only source of
- * message-content matches — is a safe read source. Content matching is
- * unavailable (title matches only) until the one-time upgrade backfill has
- * fully drained: a partially populated collection would silently miss older
- * content (an empty result — not a throw). Indexing itself is unconditional
- * host infrastructure, so completion is the only gate; the recall read site
- * applies the same one via the shared {@link isLexicalBackfillComplete}.
- */
-function isMessageContentSearchAvailable(): boolean {
-  return isLexicalBackfillComplete();
-}
-
-/**
  * Full-text search across message content.
  *
  * Message-content candidates come from the sparse `messages_lexical` Qdrant
@@ -976,9 +963,9 @@ function isMessageContentSearchAvailable(): boolean {
  * merged with a `LIKE` match on conversation titles; matching conversations
  * return with their relevant messages, ordered by most recently updated.
  *
- * Content matching is index-only — there is no `messages.content` scan
+ * Content matching is index-only: there is no `messages.content` scan
  * fallback and no other content source. Only the title arm can match while
- * the index is not a safe read source ({@link isMessageContentSearchAvailable}),
+ * the index is not a safe read source ({@link isLexicalBackfillComplete}),
  * for a query that tokenizes to nothing under the shared tokenizer (non-ASCII
  * or single-char input like "你", "é", "C++"), or when the Qdrant lexical
  * lookup fails (logged). An unindexed or unreachable index yields fewer
@@ -1017,7 +1004,7 @@ export async function searchConversations(
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
 
   const hasTokens = hasLexicalTokens(trimmed);
-  const contentSearchAvailable = isMessageContentSearchAvailable();
+  const contentSearchAvailable = isLexicalBackfillComplete();
 
   // LIKE pattern for title matching (message-content indexes don't cover titles).
   const titlePattern = likeContainsPattern(query);

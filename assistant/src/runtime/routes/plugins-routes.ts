@@ -226,6 +226,12 @@ const mcpPluginIntegrationSchema = z.object({
   }),
   logo: z.string(),
   oauthProvider: z.string().optional(),
+  category: z
+    .string()
+    .optional()
+    .describe(
+      "Where the integrations catalog files the entry: a slug from the shared integration-category vocabulary, passed through as the catalog declares it.",
+    ),
 });
 
 const pluginSearchMatchSchema = z.object({

@@ -1128,6 +1128,15 @@ export const routeTree = [
                             },
                           },
                           {
+                            path: "inbox",
+                            lazy: {
+                              Component: () =>
+                                import("@/assistant-inbox-page-route").then(
+                                  (m) => m.AssistantInboxPageRoute,
+                                ),
+                            },
+                          },
+                          {
                             // Same page, with the selected channel in the URL
                             // so a row is linkable and survives a reload.
                             // `/channels` alone still resolves, landing on the

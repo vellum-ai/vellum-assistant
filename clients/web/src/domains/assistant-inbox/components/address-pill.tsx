@@ -7,6 +7,7 @@ import {
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
+import { AssistantEyesMark } from "@/components/avatar/assistant-eyes-mark";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
@@ -64,12 +65,21 @@ export function AddressPill({
         className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-active)]"
         style={discStyle}
       >
-        <ChatAvatar
-          components={components}
-          traits={traits}
-          customImageUrl={customImageUrl}
-          size={DISC_SIZE}
-        />
+        {/* A character avatar shows as the sidebar's assistant pill shows
+            it: the eyes alone on the accent disc, at their hand-tuned size.
+            The whole figure scaled into the disc leaves them too small to
+            read. An uploaded image has no eyes to lift out, so it fills the
+            disc as it does everywhere else. */}
+        {components && traits ? (
+          <AssistantEyesMark assistantId={assistantId} />
+        ) : (
+          <ChatAvatar
+            components={components}
+            traits={traits}
+            customImageUrl={customImageUrl}
+            size={DISC_SIZE}
+          />
+        )}
       </span>
       <span className="min-w-0 truncate text-body-medium-default text-[var(--content-default)]">
         {address}

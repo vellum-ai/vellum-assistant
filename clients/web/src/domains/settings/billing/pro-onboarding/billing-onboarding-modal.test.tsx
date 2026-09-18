@@ -45,6 +45,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
+import { pressBackdrop } from "@/lib/overlay-test-helpers";
 import {
   readCheckoutIntent,
   saveCheckoutIntent,
@@ -755,7 +756,7 @@ describe("BillingOnboardingModal", () => {
 
     const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
     expect(overlay).not.toBeNull();
-    fireEvent.click(overlay as Element);
+    pressBackdrop(overlay as Element);
     expect(onClose).toHaveBeenCalled();
   }, 20_000);
 
@@ -770,7 +771,7 @@ describe("BillingOnboardingModal", () => {
 
     const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
     expect(overlay).not.toBeNull();
-    fireEvent.click(overlay as Element);
+    pressBackdrop(overlay as Element);
     expect(onClose).not.toHaveBeenCalled();
   });
 

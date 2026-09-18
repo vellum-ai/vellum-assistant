@@ -281,6 +281,7 @@ function provider(overrides: Partial<OAuthProvider> = {}): OAuthProvider {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    category: "productivity",
     tenant_host: null,
     acts_as: "user",
     ...overrides,
@@ -330,6 +331,7 @@ function catalogMatch(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
       verification: "documentation-only",
       setup: { mode: "oauth", instructions: "Sign in to Example." },
       logo: "example.png",
+      category: "meetings",
     },
     ...overrides,
   };
@@ -749,6 +751,47 @@ describe("IntegrationsPage", () => {
     screen.getByText("example-integration");
   });
 
+  test("category chips narrow the catalog and clear on a second click", async () => {
+    seededProviders = [provider()];
+    seededCatalog = [catalogMatch()];
+    seededServers = [server()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+    await screen.findByText("Notion");
+    await screen.findByText("Example");
+
+    const chips = screen.getByRole("group", { name: "Filter by category" });
+    // The catalog's order, not the page's, and only what it files something under.
+    expect(
+      Array.from(chips.querySelectorAll("button")).map((chip) => chip.textContent),
+    ).toEqual(["Productivity1", "Meetings1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
+    await waitFor(() => expect(screen.queryByText("Notion")).toBeNull());
+    screen.getByText("Example");
+    // A custom server is filed nowhere, so a chip hides it too.
+    expect(screen.queryByText("example-integration")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Meetings 1" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
+    await screen.findByText("Notion");
+    screen.getByText("example-integration");
+  });
+
+  test("a chip with a search that matches nothing says which category is empty", async () => {
+    seededProviders = [provider()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+    await screen.findByText("Notion");
+
+    fireEvent.click(screen.getByRole("button", { name: "Productivity 1" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search integrations" }),
+      { target: { value: "nothing matches this" } },
+    );
+    await screen.findByText('No integrations matched "nothing matches this"');
+  });
+
   test("provider deep links ask a per-tenant provider for its host", async () => {
     seededProviders = [
       provider({
@@ -868,11 +911,9 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Notion" }));
     await screen.findByText("user@example.com");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "More actions for user@example.com" }),
-      { button: 0, ctrlKey: false },
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove user@example.com" }),
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() =>
@@ -897,13 +938,9 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
     await screen.findByText("Manage how Vellum connects to Example.");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", {
-        name: "More actions for Example MCP server",
-      }),
-      { button: 0, ctrlKey: false },
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Example MCP server" }),
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
@@ -1015,13 +1052,9 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
     await screen.findByText("Manage how Vellum connects to Example.");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", {
-        name: "More actions for Example MCP server",
-      }),
-      { button: 0, ctrlKey: false },
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Example MCP server" }),
     );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
@@ -1059,11 +1092,7 @@ describe("IntegrationsPage", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "More actions for example-b" }),
-      { button: 0, ctrlKey: false },
-    );
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove example-b" }));
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
@@ -1169,14 +1198,10 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
     await screen.findByText("Manage how Vellum connects to Example.");
 
-    fireEvent.pointerDown(
-      screen.getByRole("button", {
-        name: "More actions for Example MCP server",
-      }),
-      { button: 0, ctrlKey: false },
-    );
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Tools and details" }),
+      screen.getByRole("button", {
+        name: "Tools and details for Example MCP server",
+      }),
     );
 
     await screen.findByRole("button", { name: "search_pages" });

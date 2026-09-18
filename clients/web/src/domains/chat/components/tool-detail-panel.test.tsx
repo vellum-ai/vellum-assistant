@@ -11,6 +11,7 @@ import {
   cleanup,
   fireEvent,
   render as rtlRender,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -186,6 +187,44 @@ describe("ToolDetailPanel", () => {
     // A short list reads as one line.
     expect(getByText("inbound, trial")).toBeDefined();
     expect(container.textContent).not.toContain('"stage"');
+  });
+
+  test("renders a list of records as a table, one column per key", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_import_contacts",
+      input: {
+        contacts: [
+          { email: "ada@example.com", stage: "qualified", owner: "growth" },
+          { email: "grace@example.com", stage: "new" },
+        ],
+      },
+    });
+    const { getAllByRole, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(
+      getAllByRole("columnheader").map((header) => header.textContent),
+    ).toEqual(["email", "stage", "owner"]);
+    const cellsOf = (row: HTMLElement) =>
+      within(row)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    const [, first, second] = getAllByRole("row");
+    expect(first && cellsOf(first)).toEqual([
+      "ada@example.com",
+      "qualified",
+      "growth",
+    ]);
+    // The record without an owner keeps its row, with that cell empty.
+    expect(second && cellsOf(second)).toEqual(["grace@example.com", "new", ""]);
+    // A cell is a machine value, set in the same monospace as the other values.
+    const firstCell = first && within(first).getAllByRole("cell")[0];
+    expect(firstCell?.querySelector(".font-mono")?.textContent).toBe(
+      "ada@example.com",
+    );
+    // No positional labels: the records are rows, not a numbered group.
+    expect(queryByText("1")).toBeNull();
   });
 
   test("sets long text as a copyable code block", () => {

@@ -87,7 +87,7 @@ export function useLongPress(
       // Skip if the touch landed on an interactive element (inline link,
       // button, form control, [role="button"], etc.) — the user's intent
       // is to interact with that control, not to open the long-press
-      // action sheet. Mirrors the `isInteractiveClickTarget` guard in
+      // action sheet. Mirrors the `isInteractiveTarget` guard in
       // `handleBubbleClick` (transcript-message-body.tsx). Bypassed when the
       // long-press target is itself interactive (see `ignoreInteractiveTarget`)
       // — the caller then skips nested controls via `shouldSkip`.

@@ -17,8 +17,10 @@ interface GenerateCall {
 
 let geminiCalls: GenerateCall[] = [];
 let openaiCalls: GenerateCall[] = [];
+let openrouterCalls: GenerateCall[] = [];
 let geminiErrorCalls: unknown[] = [];
 let openaiErrorCalls: unknown[] = [];
+let openrouterErrorCalls: unknown[] = [];
 
 let geminiResult: ImageGenerationResult = {
   images: [],
@@ -27,6 +29,10 @@ let geminiResult: ImageGenerationResult = {
 let openaiResult: ImageGenerationResult = {
   images: [],
   resolvedModel: "openai-mock",
+};
+let openrouterResult: ImageGenerationResult = {
+  images: [],
+  resolvedModel: "openrouter-mock",
 };
 
 // ---------------------------------------------------------------------------
@@ -61,6 +67,20 @@ mock.module("../media/openai-image-service.js", () => ({
   },
 }));
 
+mock.module("../media/openrouter-image-service.js", () => ({
+  generateImageOpenRouter: async (
+    credentials: ImageGenCredentials,
+    request: ImageGenerationRequest,
+  ): Promise<ImageGenerationResult> => {
+    openrouterCalls.push({ credentials, request });
+    return openrouterResult;
+  },
+  mapOpenRouterError: (error: unknown): string => {
+    openrouterErrorCalls.push(error);
+    return "openrouter-mapped";
+  },
+}));
+
 // Import after mocking
 import {
   generateImage,
@@ -90,8 +110,10 @@ describe("image-service dispatcher", () => {
   beforeEach(() => {
     geminiCalls = [];
     openaiCalls = [];
+    openrouterCalls = [];
     geminiErrorCalls = [];
     openaiErrorCalls = [];
+    openrouterErrorCalls = [];
     geminiResult = {
       images: [{ mimeType: "image/png", dataBase64: "gemini-bytes" }],
       resolvedModel: "gemini-3.1-flash-image-preview",
@@ -99,6 +121,10 @@ describe("image-service dispatcher", () => {
     openaiResult = {
       images: [{ mimeType: "image/png", dataBase64: "openai-bytes" }],
       resolvedModel: "gpt-image-2",
+    };
+    openrouterResult = {
+      images: [{ mimeType: "image/png", dataBase64: "openrouter-bytes" }],
+      resolvedModel: "google/gemini-3.1-flash-image-preview",
     };
   });
 
@@ -131,6 +157,17 @@ describe("image-service dispatcher", () => {
     expect(mapped).toBe("gemini-mapped");
   });
 
+  test("generateImage('openrouter', ...) delegates to the OpenRouter implementation", async () => {
+    const result = await generateImage("openrouter", directCreds, request);
+
+    expect(openrouterCalls).toHaveLength(1);
+    expect(openrouterCalls[0]?.credentials).toBe(directCreds);
+    expect(openrouterCalls[0]?.request).toBe(request);
+    expect(geminiCalls).toHaveLength(0);
+    expect(openaiCalls).toHaveLength(0);
+    expect(result).toEqual(openrouterResult);
+  });
+
   test("mapImageGenError('openai', err) delegates to mapOpenAIError", () => {
     const err = new Error("kapow");
     const mapped = mapImageGenError("openai", err);
@@ -138,6 +175,14 @@ describe("image-service dispatcher", () => {
     expect(openaiErrorCalls).toEqual([err]);
     expect(geminiErrorCalls).toEqual([]);
     expect(mapped).toBe("openai-mapped");
+  });
+
+  test("mapImageGenError('openrouter', err) delegates to mapOpenRouterError", () => {
+    const err = new Error("or-boom");
+    const mapped = mapImageGenError("openrouter", err);
+
+    expect(openrouterErrorCalls).toEqual([err]);
+    expect(mapped).toBe("openrouter-mapped");
   });
 });
 

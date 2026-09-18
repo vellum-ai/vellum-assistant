@@ -134,16 +134,19 @@ mock.module(
    own QueryClient per render, so a test has nothing to seed. */
 let pinnedAppsFixture: AppSummary[] = [];
 
-mock.module("@/hooks/use-pinned-apps", (): Partial<typeof UsePinnedApps> => ({
-  usePinnedApps: () => ({
-    pinnedApps: pinnedAppsFixture,
-    pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
-    source: "daemon" as const,
-    togglePin: () => {},
-    unpin: () => {},
-    setColor: () => {},
+mock.module(
+  "@/hooks/use-pinned-apps",
+  (): Partial<typeof UsePinnedApps> => ({
+    usePinnedApps: () => ({
+      pinnedApps: pinnedAppsFixture,
+      pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+      source: "daemon" as const,
+      togglePin: () => {},
+      unpin: () => {},
+      setColor: () => {},
+    }),
   }),
-}));
+);
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -783,7 +786,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the New Chat row (below the assistant row) when onStartNewConversation is supplied", () => {
+  test("renders the New Chat button (on the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(SideMenuUnderTest, {
         ...baseProps,
@@ -791,21 +794,22 @@ describe("AssistantSideMenu · new conversation affordance", () => {
       }),
     );
 
-    expect(html).toContain(">New Chat<");
-    // It is a button row, not a navigation link.
+    expect(html).toContain('aria-label="New Chat"');
+    // It is an icon button, not a labelled row and not a navigation link.
+    expect(html).not.toContain(">New Chat<");
     expect(html).not.toContain('<a aria-label="New Chat"');
     // The identity leads and the action hangs off it.
     expect(html.indexOf("Your Assistant")).toBeLessThan(
-      html.indexOf(">New Chat<"),
+      html.indexOf('aria-label="New Chat"'),
     );
   });
 
-  test("omits the New Chat row when onStartNewConversation is absent", () => {
+  test("omits the New Chat button when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
       createElement(SideMenuUnderTest, { ...baseProps }),
     );
 
-    expect(html).not.toContain(">New Chat<");
+    expect(html).not.toContain('aria-label="New Chat"');
   });
 
   test("the overlay drawer omits the New Chat row — its floating pill owns the action", () => {

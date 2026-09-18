@@ -206,7 +206,7 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),
     }),
-  jev: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+  typesafe: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new JevProvider(apiKey, model, {
       streamTimeoutMs,
       ...(baseURL ? { baseURL } : {}),

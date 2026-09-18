@@ -31,7 +31,7 @@ import {
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 import {
-  openMarkdownOAuthLinkInPopup,
+  openOAuthUrlInPopup,
   shouldOpenMarkdownLinkInOAuthPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
 import {
@@ -90,7 +90,7 @@ function OAuthAwareLink({
       target="_blank"
       rel={opensOAuthPopup ? undefined : "noopener noreferrer"}
       onClick={(event) => {
-        if (openMarkdownOAuthLinkInPopup(href)) {
+        if (openOAuthUrlInPopup(href)) {
           event.preventDefault();
           return;
         }

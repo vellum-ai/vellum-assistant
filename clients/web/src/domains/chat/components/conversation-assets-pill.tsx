@@ -50,11 +50,12 @@ export function ConversationAssetsPill({
   conversationId,
   refreshKey,
 }: ConversationAssetsPillProps) {
-  const { count, status } = useConversationAssets({
-    assistantId,
-    conversationId,
-    refreshKey,
-  });
+  const { count, status, allFailed, countExact, loadedCount } =
+    useConversationAssets({
+      assistantId,
+      conversationId,
+      refreshKey,
+    });
 
   const mainView = useViewerStore.use.mainView();
   const activeChatInfo = useViewerStore.use.activeChatInfo();
@@ -85,34 +86,47 @@ export function ConversationAssetsPill({
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
   }, [assistantId, conversationId]);
 
-  // A conversation with nothing to show has no trigger, and neither does one
-  // whose sources have not settled: counting nothing yet is not the same as
-  // holding nothing, and a partial total that changes as the other sources
-  // land is worse than none. A failed load keeps it: the panel is where the
-  // user finds out why.
+  // The trigger stands for the assets that reached the client, so nothing
+  // reaching it is nothing to point at: a conversation that holds none, one
+  // whose sources have not settled (counting nothing yet is not the same as
+  // holding nothing), and a load that failed before anything arrived. That
+  // last one used to keep the trigger, which put a Layers glyph on chats with
+  // no assets at all whose only panel content was a failure the user never
+  // asked about. A failure that did land something keeps its trigger, under a
+  // label that does not pass the partial total off as the whole of them.
   const failedToLoad = status === "error";
-  if (status === "pending" || (count === 0 && !failedToLoad)) {
+  if (loadedCount === 0) {
     return null;
   }
 
-  // ICU `plural` picks the category through `Intl.PluralRules` for the active
-  // locale, so both strings agree with `count` in languages with more than the
-  // two forms English has. The unseen variant is its own key rather than a
-  // `select` branch appended to the base one: translators get a whole sentence
-  // to work with, and languages that place the qualifier somewhere other than
-  // the end are free to move it. A failed load names no count at all, since
-  // what reached the client is a fraction of what the conversation holds.
-  const countedAriaLabel = hasUnseenChanges
-    ? t("conversationAssets.ariaLabelUnseen", { count })
-    : t("conversationAssets.ariaLabel", { count });
   const label = failedToLoad
-    ? t("conversationAssets.labelUnavailable")
-    : t("conversationAssets.label", { count });
+    ? t(
+        allFailed
+          ? "conversationAssets.labelUnavailable"
+          : "conversationAssets.labelPartial",
+      )
+    : countExact
+      ? t("conversationAssets.label", { count })
+      : t("conversationAssets.labelLoaded", { count: loadedCount });
   const ariaLabel = failedToLoad
-    ? t("conversationAssets.ariaLabelUnavailable")
-    : countedAriaLabel;
-  // The dot points at changes in a list the trigger could not load, and the
-  // name it sits beside no longer mentions them.
+    ? t(
+        allFailed
+          ? "conversationAssets.ariaLabelUnavailable"
+          : "conversationAssets.ariaLabelPartial",
+      )
+    : countExact
+      ? t(
+          hasUnseenChanges
+            ? "conversationAssets.ariaLabelUnseen"
+            : "conversationAssets.ariaLabel",
+          { count },
+        )
+      : t(
+          hasUnseenChanges
+            ? "conversationAssets.ariaLabelLoadedUnseen"
+            : "conversationAssets.ariaLabelLoaded",
+          { count: loadedCount },
+        );
   const showUnseenDot = hasUnseenChanges && !failedToLoad;
 
   // Same dot as the notifications bell in this header cluster: ringed in the

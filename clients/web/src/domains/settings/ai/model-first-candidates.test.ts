@@ -205,10 +205,10 @@ describe("resolveModelFirstOptions", () => {
 
   test("omits structured-decision models from the conversation list", () => {
     const options = resolveModelFirstOptions(
-      input([connection("jev-key", "jev")]),
+      input([connection("jev-key", "typesafe")]),
     );
     expect(options.map((option) => option.displayName)).not.toContain("Jev");
-    expect(options.some((option) => option.owner === "jev")).toBe(false);
+    expect(options.some((option) => option.owner === "typesafe")).toBe(false);
   });
 
   test("surfaces the managed route as one entry rather than its upstreams", () => {

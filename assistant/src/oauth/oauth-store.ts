@@ -678,8 +678,6 @@ export async function upsertApp(
     );
   }
 
-  const defaultCredPath = (appId: string) => oauthAppClientSecretPath(appId);
-
   // Verify the credential path points to an existing secret.
   if (clientSecretCredentialPath) {
     const existing = await getSecureKeyAsync(clientSecretCredentialPath);
@@ -739,7 +737,7 @@ export async function upsertApp(
 
   const now = Date.now();
   const id = uuid();
-  const credPath = clientSecretCredentialPath ?? defaultCredPath(id);
+  const credPath = clientSecretCredentialPath ?? oauthAppClientSecretPath(id);
 
   const row = {
     id,

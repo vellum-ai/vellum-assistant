@@ -958,6 +958,7 @@ export class AnthropicProvider implements Provider {
     // (30 min default) from an external transport abort (bun fetch deadline,
     // edge LB, NAT idle) — only the latter should be retried.
     let innerTimeoutSignal: AbortSignal | undefined;
+    let inspectableRequest: unknown | undefined;
     try {
       sentMessages = await this.buildSentMessages(messages);
       const {
@@ -1344,6 +1345,7 @@ export class AnthropicProvider implements Provider {
         const streamOnce = async (
           streamParams: Anthropic.MessageStreamParams,
         ): Promise<Anthropic.Message> => {
+          inspectableRequest = streamParams;
           const stream: UnifiedStream = useFastMode
             ? (this.client.beta.messages.stream(
                 {
@@ -1768,6 +1770,7 @@ export class AnthropicProvider implements Provider {
               statusCode: error.status,
               reason: "context_overflow",
               cause: error,
+              rawRequest: inspectableRequest,
             },
           );
         }
@@ -1779,7 +1782,11 @@ export class AnthropicProvider implements Provider {
           reason?: ProviderErrorReason;
           apiErrorType?: string;
           apiErrorCode?: string;
+          rawRequest?: unknown;
         } = {};
+        if (inspectableRequest !== undefined) {
+          errorOptions.rawRequest = inspectableRequest;
+        }
         if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
         }
@@ -1832,7 +1839,9 @@ export class AnthropicProvider implements Provider {
         }`,
         "anthropic",
         undefined,
-        abortReason ? { cause: error, abortReason } : { cause: error },
+        abortReason
+          ? { cause: error, abortReason, rawRequest: inspectableRequest }
+          : { cause: error, rawRequest: inspectableRequest },
       );
     }
   }

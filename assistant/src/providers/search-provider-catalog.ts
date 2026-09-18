@@ -163,6 +163,18 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     supportsApiBase: true,
     defaultApiBase: "https://api.fastcrw.com",
   },
+  {
+    id: "searxng",
+    displayName: "SearXNG",
+    kind: "byok",
+    keyless: true,
+    apiKeyPrefix: "token (optional)",
+    envVar: "SEARXNG_API_KEY",
+    secretKey: "searxng",
+    fallbackOrder: 7,
+    privacyPolicyUrl: "https://docs.searxng.org/own-instance.html",
+    supportsApiBase: true,
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

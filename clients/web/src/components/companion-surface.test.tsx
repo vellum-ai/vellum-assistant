@@ -510,10 +510,12 @@ describe("the companion surface at two sizes", () => {
  * positioned, since that is what lets the caption stand outside the clip.
  */
 describe("the companion surface's control captions", () => {
+  // The speaker mute is named after whoever is on the call, so this is the
+  // row as `LISTENING_CALL` names it.
   const CALL_ROW_CONTROLS = [
     "Teach",
     "Mute microphone",
-    "Mute assistant",
+    "Mute Ziggy",
     "End session",
   ] as const;
 
@@ -585,7 +587,7 @@ describe("the companion surface's control captions", () => {
     expect(shortcutOf(container, "Share")).toBe("⌥S");
     expect(shortcutOf(container, "Draw")).toBe("⌥D");
     expect(shortcutOf(container, "Mute microphone")).toBe("⌥M");
-    expect(shortcutOf(container, "Mute assistant")).toBe("⌥A");
+    expect(shortcutOf(container, "Mute Ziggy")).toBe("⌥A");
     expect(shortcutOf(container, "End session")).toBeNull();
     expect(buttonOf(container, "Share").getAttribute("aria-label")).toBe(
       "Share",
@@ -774,7 +776,7 @@ describe("the companion surface's Watch action", () => {
       [...container.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
-    ).toEqual(["Teach", "Mute microphone", "Mute assistant", "End session"]);
+    ).toEqual(["Teach", "Mute microphone", "Mute Ziggy", "End session"]);
   });
 
   test("reports the press", () => {
@@ -1219,6 +1221,85 @@ describe("the companion surface's call bar", () => {
 });
 
 /**
+ * The two mutes, which stop the two halves of the call.
+ *
+ * The microphone is a device and is named as one. The speaker stops the
+ * assistant, who has a name and is already called by it a control away on the
+ * dial, so it uses that name too: the row reads as a call with someone rather
+ * than as an audio panel.
+ *
+ * The name is the session's own, not the window's. See `onCall`.
+ */
+describe("the companion surface's mutes", () => {
+  test("names the assistant on the speaker, and the device on the microphone", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(buttonOf(container, "Mute Ziggy")).not.toBeNull();
+    expect(buttonOf(container, "Mute assistant")).toBeNull();
+    expect(buttonOf(container, "Mute microphone")).not.toBeNull();
+  });
+
+  test("names the assistant on the way back out of the mute", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, outputMuted: true }}
+      />,
+    );
+    expect(buttonOf(container, "Unmute Ziggy")).not.toBeNull();
+  });
+
+  /**
+   * A call outlives a switch to another assistant, and the surface's own name
+   * follows the selection rather than the call. The control acts on the
+   * session, so it is named from the session: the alternative offers to mute
+   * an assistant who is not on this call.
+   */
+  test("keeps the caller's name when the window has moved on to another assistant", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Quill"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(buttonOf(container, "Mute Ziggy")).not.toBeNull();
+    expect(buttonOf(container, "Mute Quill")).toBeNull();
+  });
+
+  /**
+   * No name to use, so the control says what it acts on instead. A label
+   * built around the empty name would read as a bug.
+   */
+  test("says what it acts on with no name to say", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, assistantName: "" }}
+      />,
+    );
+    expect(buttonOf(container, "Mute assistant")).not.toBeNull();
+    expect(buttonOf(container, "Mute ")).toBeNull();
+  });
+
+  test("still acts on the session's audio under the name", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    fireEvent.click(buttonOf(container, "Mute Ziggy")!);
+    expect(actions).toEqual(["muteAssistantAudio"]);
+  });
+});
+
+/**
  * The bar docked to a side of the display, which stands it up. The same
  * controls in the same order read down a column under the creature, and
  * everything the row says over or across its controls stands off the column
@@ -1566,6 +1647,7 @@ describe("the companion surface's dial", () => {
     );
     expect(buttonOf(container, "Mute microphone")).toBeNull();
     expect(buttonOf(container, "Mute assistant")).toBeNull();
+    expect(buttonOf(container, "Mute Ziggy")).toBeNull();
   });
 
   test("keeps the stop of a session already reading the screen", () => {
@@ -2279,7 +2361,7 @@ describe("the companion surface's Share action", () => {
       "Teach",
       "Share",
       "Mute microphone",
-      "Mute assistant",
+      "Mute Ziggy",
       "End session",
     ]);
   });
@@ -2390,7 +2472,7 @@ describe("the companion surface's Draw action", () => {
       "Share",
       "Draw",
       "Mute microphone",
-      "Mute assistant",
+      "Mute Ziggy",
       "End session",
     ]);
   });

@@ -46,12 +46,22 @@ export interface ProfileDispatchOptions {
    * profile, so only the disabled check applies there.
    */
   readonly requireOwnProviderAndModel: boolean;
+  /**
+   * Whether a profile must name a chat-text model. Conversation pickers
+   * keep the default (true) so structured-decision models cannot be the
+   * conversation model. Call-site override pickers pass false so those
+   * profiles can be assigned for experimentation.
+   */
+  readonly requireTextGeneration?: boolean;
 }
 
 /** A profile that names no other profiles: it dispatches on its own fields. */
 function isDispatchableStandardProfile(
   p: ProfilePickerEntry,
-  { requireOwnProviderAndModel }: ProfileDispatchOptions,
+  {
+    requireOwnProviderAndModel,
+    requireTextGeneration = true,
+  }: ProfileDispatchOptions,
 ): boolean {
   if (p.status === "disabled") {
     return false;
@@ -59,7 +69,10 @@ function isDispatchableStandardProfile(
   if (requireOwnProviderAndModel && (!p.provider || !p.model)) {
     return false;
   }
-  return catalogModelSupportsText(p.provider, p.model);
+  if (requireTextGeneration) {
+    return catalogModelSupportsText(p.provider, p.model);
+  }
+  return true;
 }
 
 /**

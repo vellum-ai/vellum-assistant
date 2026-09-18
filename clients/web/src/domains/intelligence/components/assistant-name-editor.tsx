@@ -15,6 +15,8 @@ import { useReducedMotion } from "motion/react";
 
 import { useTranslation } from "@/i18n";
 
+import { AssistantHandleLine } from "./assistant-handle-line";
+
 const TYPEWRITER_INTERVAL_MS = 65;
 /** Override lines are longer and transient — type them snappier. */
 const OVERRIDE_TYPEWRITER_INTERVAL_MS = 26;
@@ -48,6 +50,8 @@ function useTypewriter(
 }
 
 interface AssistantNameEditorProps {
+  /** Whose page this is; the `@handle` line under the greeting is theirs. */
+  assistantId: string;
   name: string;
   /** A rename rewrite turn is in flight — show a spinner beside the name. */
   isRenaming: boolean;
@@ -59,6 +63,7 @@ interface AssistantNameEditorProps {
 }
 
 export function AssistantNameEditor({
+  assistantId,
   name,
   isRenaming,
   overrideText = null,
@@ -71,32 +76,40 @@ export function AssistantNameEditor({
   );
 
   return (
-    <div className="flex items-center justify-center gap-2">
-      <h1
-        aria-label={greeting}
-        className={`relative leading-none whitespace-nowrap text-[var(--content-strong)] ${
-          overrideText
-            ? "text-[2.1rem] max-sm:text-[1.4rem]"
-            : "text-[3.25rem] max-sm:text-[2rem]"
-        }`}
-        style={{ fontFamily: "var(--font-serif)" }}
-      >
-        {/* Invisible full greeting reserves the final width. */}
-        <span className="invisible" aria-hidden="true">
-          {greeting}
-        </span>
-        <span className="absolute inset-0" aria-hidden="true">
-          {typed}
-          {typing && <span className="animate-pulse">▎</span>}
-        </span>
-      </h1>
-      {!overrideText && isRenaming && (
-        <div
-          aria-label={t("assistantNameEditor.renamingInProgressAriaLabel")}
-          className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--border-base)]"
-          style={{ borderTopColor: "var(--content-default)" }}
-        />
-      )}
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center justify-center gap-2">
+        <h1
+          aria-label={greeting}
+          className={`relative leading-none whitespace-nowrap text-[var(--content-strong)] ${
+            overrideText
+              ? "text-[2.1rem] max-sm:text-[1.4rem]"
+              : "text-[3.25rem] max-sm:text-[2rem]"
+          }`}
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          {/* Invisible full greeting reserves the final width. */}
+          <span className="invisible" aria-hidden="true">
+            {greeting}
+          </span>
+          <span className="absolute inset-0" aria-hidden="true">
+            {typed}
+            {typing && <span className="animate-pulse">▎</span>}
+          </span>
+        </h1>
+        {!overrideText && isRenaming && (
+          <div
+            aria-label={t("assistantNameEditor.renamingInProgressAriaLabel")}
+            className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--border-base)]"
+            style={{ borderTopColor: "var(--content-default)" }}
+          />
+        )}
+      </div>
+      {/* Held in place but hidden while the greeting is a borrowed line, so
+          the commentary does not read as the handle's and nothing shifts. */}
+      <AssistantHandleLine
+        assistantId={assistantId}
+        hidden={overrideText !== null}
+      />
     </div>
   );
 }

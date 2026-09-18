@@ -1,7 +1,7 @@
 /**
  * Memory v3 — single pool selector.
  *
- * Runs a SINGLE forced-tool call over one unified candidate pool rendered in
+ * Runs a SINGLE selector call over one unified candidate pool rendered in
  * two segments that share one numbering:
  *
  *   1. STABLE PREFIX — the core+hot lane pages as FULL CARDS (head section +
@@ -52,6 +52,8 @@
 import type {
   ContentBlock,
   Message,
+  Provider,
+  ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
 import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
@@ -179,7 +181,8 @@ type PoolSelectorAttemptFailureReason =
   | "provider_error"
   | "missing_tool_use"
   | "unexpected_tool_name"
-  | "schema_mismatch";
+  | "schema_mismatch"
+  | "unusable_answers";
 
 interface PoolSelectorAttemptFailure {
   attempt: number;
@@ -493,6 +496,248 @@ export function selectAllPoolCandidates(pool: SelectorPool): SelectedPage[] {
   );
 }
 
+/**
+ * Inclusive noul threshold for TypeSafe pool selection. 0.5 is calibrated
+ * equal yes/no. This sits slightly below that so a plausible candidate is
+ * kept, matching the selector's recall-heavy rule.
+ */
+export const TYPE_SAFE_POOL_KEEP_NOUL = 0.4;
+
+/** Catalog id of the TypeSafe System One provider. */
+const TYPE_SAFE_PROVIDER_ID = "typesafe";
+
+type TypesafeNoulQuestion = {
+  type: "noul";
+  instructions: string;
+  criteria: { yes: string; no: string };
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function noulFromAnswer(answer: unknown): number | undefined {
+  if (typeof answer === "number" && Number.isFinite(answer)) {
+    return answer;
+  }
+  if (
+    isRecord(answer) &&
+    typeof answer.noul === "number" &&
+    Number.isFinite(answer.noul)
+  ) {
+    return answer.noul;
+  }
+  return undefined;
+}
+
+function typesafeCandidateEntries(
+  pool: SelectorPool,
+): Record<string, { slug: Slug; text: string }> {
+  const entries: Record<string, { slug: Slug; text: string }> = {};
+  pool.stable.forEach((candidate, index) => {
+    entries[String(index + 1)] = {
+      slug: candidate.slug,
+      text: candidate.card,
+    };
+  });
+  pool.finder.forEach((candidate, index) => {
+    entries[String(pool.stable.length + index + 1)] = {
+      slug: candidate.slug,
+      text: renderFinderLine(candidate),
+    };
+  });
+  return entries;
+}
+
+function typesafeKeepQuestion(id: string): TypesafeNoulQuestion {
+  return {
+    type: "noul",
+    instructions:
+      `Would the upcoming assistant reply draw on \`candidates.${id}\`? ` +
+      "Lean inclusive. Facts, current task and event state, register, " +
+      "framing, calibration, and relationship texture all count. True when " +
+      "the candidate could plausibly inform the reply.",
+    criteria: {
+      yes: "The reply would draw on this candidate.",
+      no: "The reply would not draw on this candidate.",
+    },
+  };
+}
+
+function answersFromSelectorResponse(
+  response: ProviderResponse,
+): Record<string, unknown> | null {
+  const raw = response.rawResponse;
+  if (isRecord(raw) && isRecord(raw.answers)) {
+    return raw.answers;
+  }
+  const textBlock = response.content.find((block) => block.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(textBlock.text);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function selectPoolWithTypesafe(
+  pool: SelectorPool,
+  turn: MemoryRoutingTurn,
+  ordered: PoolLine[],
+  systemPrompt: string,
+  provider: Provider,
+): Promise<PoolSelection> {
+  const candidates = typesafeCandidateEntries(pool);
+  const questions: Record<string, TypesafeNoulQuestion> = {};
+  for (const id of Object.keys(candidates)) {
+    questions[id] = typesafeKeepQuestion(id);
+  }
+  const state = {
+    selector_instructions: systemPrompt,
+    candidates,
+    ...(turn.situationalContext
+      ? { situation: turn.situationalContext }
+      : {}),
+    recent_context: turn.recentContext,
+    current_message: turn.currentMessage,
+  };
+  const userMsg: Message = {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({ state, questions }),
+      },
+    ],
+  };
+
+  const failures: PoolSelectorAttemptFailure[] = [];
+  let attempt = 0;
+  const recordFailure = (
+    failure: Omit<
+      PoolSelectorAttemptFailure,
+      | "callSite"
+      | "providerName"
+      | "candidateCount"
+      | "stableCount"
+      | "finderCount"
+    >,
+  ): void => {
+    const diagnostic: PoolSelectorAttemptFailure = {
+      ...failure,
+      callSite: MEMORY_V3_SELECT_CALL_SITE,
+      providerName: provider.name,
+      candidateCount: ordered.length,
+      stableCount: pool.stable.length,
+      finderCount: pool.finder.length,
+    };
+    failures.push(diagnostic);
+    log.warn(diagnostic, "pool selector attempt failed");
+  };
+
+  let lastError: unknown = null;
+  const parsed = await retryForResult(async () => {
+    attempt += 1;
+    let response: Awaited<ReturnType<typeof provider.sendMessage>>;
+    try {
+      response = await provider.sendMessage([userMsg], {
+        config: {
+          callSite: MEMORY_V3_SELECT_CALL_SITE,
+          conversationId: turn.conversationId,
+          disableTurnStartCache: true,
+        },
+      });
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+      recordFailure({
+        attempt,
+        reason: "provider_error",
+        error: summarizeError(error),
+      });
+      throw error;
+    }
+    const answers = answersFromSelectorResponse(response);
+    if (!answers) {
+      recordFailure({
+        attempt,
+        reason: "unusable_answers",
+        response: summarizeResponse(response),
+      });
+      return null;
+    }
+    const picked: number[] = [];
+    let parsedCount = 0;
+    for (let index = 0; index < ordered.length; index++) {
+      const noul = noulFromAnswer(answers[String(index + 1)]);
+      if (noul === undefined) {
+        continue;
+      }
+      parsedCount += 1;
+      if (noul >= TYPE_SAFE_POOL_KEEP_NOUL) {
+        picked.push(index);
+      }
+    }
+    if (parsedCount === 0) {
+      recordFailure({
+        attempt,
+        reason: "unusable_answers",
+        response: summarizeResponse(response),
+      });
+      return null;
+    }
+    return { pages: mergeSelectedLines(ordered, picked), keptAll: false };
+  });
+
+  if (parsed === null) {
+    if (lastError !== null) {
+      const detail =
+        lastError instanceof Error ? lastError.message : String(lastError);
+      const redactedDetail = truncate(
+        redactLogString(detail),
+        ERROR_MESSAGE_MAX_CHARS,
+      );
+      log.warn(
+        {
+          candidateCount: ordered.length,
+          stableCount: pool.stable.length,
+          finderCount: pool.finder.length,
+          callSite: MEMORY_V3_SELECT_CALL_SITE,
+          providerName: provider.name,
+          failures,
+        },
+        "pool selector provider call failed after retries",
+      );
+      throw new MemoryV3RetrievalUnavailableError(
+        `memory-v3 pool selector provider call failed after retries: ${redactedDetail}`,
+        {
+          cause: lastError,
+          conversationNotice: providerBillingNoticeFromError(lastError),
+        },
+      );
+    }
+    log.warn(
+      {
+        candidateCount: ordered.length,
+        stableCount: pool.stable.length,
+        finderCount: pool.finder.length,
+        callSite: MEMORY_V3_SELECT_CALL_SITE,
+        providerName: provider.name,
+        failures,
+      },
+      "pool selector returned no usable TypeSafe answers after retries",
+    );
+    throw new MemoryV3RetrievalUnavailableError(
+      "memory-v3 pool selector returned no usable selection after retries",
+    );
+  }
+
+  return parsed;
+}
+
 /** A selection plus whether it came from the recall-safe keep-all fallback. */
 export interface PoolSelection {
   pages: SelectedPage[];
@@ -504,14 +749,16 @@ export interface PoolSelection {
 }
 
 /**
- * Run the single forced-tool selector over the unified candidate pool. Returns
+ * Run the single selector over the unified candidate pool. Returns
  * the pages to inject, merged per slug (a page selected as a card and on
  * finder lines yields one entry carrying every selected section), plus a
  * `keptAll` flag marking the recall-safe fallback.
  *
- * An omitted `ids` keeps ALL candidates (the recall-safe "all of these are
- * relevant" signal, `keptAll: true`); an explicit `[]` keeps none; an
- * infrastructure failure (after a short re-prompt retry) throws
+ * On a chat model, an omitted `ids` keeps ALL candidates (the recall-safe
+ * "all of these are relevant" signal, `keptAll: true`); an explicit `[]`
+ * keeps none. TypeSafe answers one noul per candidate and never omits ids,
+ * so `keptAll` is always false on that path. An infrastructure failure
+ * (after a short re-prompt retry) throws
  * {@link MemoryV3RetrievalUnavailableError}, and the orchestrator keeps the
  * stable prefix unjudged in its place.
  *
@@ -542,6 +789,16 @@ export async function selectPool(
     );
     throw new MemoryV3RetrievalUnavailableError(
       "memory-v3 pool selector provider unavailable",
+    );
+  }
+
+  if (provider.name === TYPE_SAFE_PROVIDER_ID) {
+    return selectPoolWithTypesafe(
+      pool,
+      turn,
+      ordered,
+      systemPrompt,
+      provider,
     );
   }
 

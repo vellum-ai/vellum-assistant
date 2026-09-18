@@ -266,12 +266,6 @@ export function backfillGoogleThoughtSignatures(
   return added;
 }
 
-export function backfillUnsignedGoogleThoughtSignatures(
-  params: unknown,
-): boolean {
-  return backfillGoogleThoughtSignatures(params);
-}
-
 const UNKNOWN_EXTRA_CONTENT_REJECTION =
   /unknown|unexpected|unrecognized|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i;
 

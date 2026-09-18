@@ -127,7 +127,7 @@ export async function buildSlackUserLabelMap(
     ids.map(async (id): Promise<[string, string] | undefined> => {
       try {
         const label = await resolveLabel(id);
-        const sanitized = sanitizeOptionalLabel(label ?? undefined);
+        const sanitized = sanitizeSlackLabel(label ?? undefined);
         if (!sanitized || sanitized === id) return undefined;
         return [id, sanitized];
       } catch {
@@ -166,7 +166,7 @@ export async function buildSlackChannelLabelMap(
     ids.map(async (id): Promise<[string, string] | undefined> => {
       try {
         const label = await resolveLabel(id);
-        const sanitized = sanitizeOptionalLabel(label ?? undefined);
+        const sanitized = sanitizeSlackLabel(label ?? undefined);
         if (!sanitized || sanitized === id) return undefined;
         return [id, sanitized];
       } catch {
@@ -222,7 +222,7 @@ function renderChannelReference(
     return `#${embeddedLabel}`;
   }
 
-  const resolvedLabel = sanitizeOptionalLabel(
+  const resolvedLabel = sanitizeSlackLabel(
     options.channelLabels?.[channelId],
   );
   if (resolvedLabel && resolvedLabel !== channelId) {
@@ -320,13 +320,9 @@ export function sanitizeSlackLabel(
 function sanitizeEmbeddedSlackLabel(
   label: string | undefined,
 ): string | undefined {
-  return sanitizeOptionalLabel(
+  return sanitizeSlackLabel(
     label === undefined ? undefined : decodeSlackHtmlEntities(label),
   );
-}
-
-function sanitizeOptionalLabel(label: string | undefined): string | undefined {
-  return sanitizeSlackLabel(label);
 }
 
 function isSlackUserId(value: string): boolean {

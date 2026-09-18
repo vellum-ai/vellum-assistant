@@ -2294,6 +2294,25 @@ export interface CompanionContext {
    * bar draws its voice chevron. Absent is a publisher that predates it.
    */
   voicesPickable?: boolean;
+  /**
+   * How many times the voice key has been tapped since the publishing window
+   * loaded.
+   *
+   * Raw key edges reach only the window that claimed the binding, which is
+   * never the surface's, so a tap is invisible to the one surface that has
+   * anything to say about it: the introduction, which draws the key and asks
+   * for it to be pressed.
+   *
+   * A running count rather than an event, the way `captureCount` is, and for
+   * the same reason: a number that goes up is the only shape that survives the
+   * crossing and still says "that was another one" to a renderer that repaints
+   * on its own schedule. Never reset, so a reader measuring taps since some
+   * moment of its own subtracts the value it saw then.
+   *
+   * Optional and defaulted, the bargain `captureCount` makes: a publisher that
+   * reports no taps has reported none.
+   */
+  voiceKeyTaps?: number;
 }
 
 /**
@@ -2473,6 +2492,68 @@ export const COMPANION_INTRO_ACTIONS = [
 ] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
+
+/**
+ * The moments of a run worth counting.
+ *
+ * **Main is the only side that sees all of them.** The run starting is decided
+ * before the surface's window exists, the tray's hide is answered in main, and
+ * a session started by the voice key never passes through either renderer. So
+ * these are named here, reported by main, and carried to the app's window,
+ * which is the only window with a telemetry path and a consent answer.
+ *
+ * `advanced` names the beat the run moved *to*, including a step back, so how
+ * far a user got is a distinct count of runs per beat rather than a sum of
+ * rows: a user who reads a card twice has still reached it once.
+ *
+ * `offer_taken` is the run's own offer of a conversation being taken up,
+ * whichever way. It names the beat it was taken on, which is what separates the
+ * rehearsal the Talk beat asks for from the real call the last beat starts.
+ */
+export const COMPANION_INTRO_EVENTS = [
+  "exposed",
+  "advanced",
+  "completed",
+  "dismissed",
+  "offer_taken",
+] as const;
+
+export type CompanionIntroEvent = (typeof COMPANION_INTRO_EVENTS)[number];
+
+/** One such moment, as main hands it to the app's window to report. */
+export interface CompanionIntroReport {
+  event: CompanionIntroEvent;
+  /** The beat the run was on when this happened. */
+  beat: CompanionIntroBeat;
+  /**
+   * Which introduction this was: {@link COMPANION_INTRO_VERSION} as the
+   * install ran it. Carried on every report so the eight-beat run is separable
+   * from the four-beat one it replaced, which shares this funnel.
+   */
+  introVersion: number;
+  /**
+   * Whether the microphone was already granted when the run *began*.
+   *
+   * Not an aside: the Talk and the last beat both read it and say different
+   * things, so a run against an ungranted microphone is a different run, and
+   * one ending in a system prompt rather than a call is a different ending.
+   *
+   * The run's answer rather than the moment's, because the last beat asks for
+   * the grant and waits for it: read per moment, a run that began without it
+   * would report its exposure under one answer and its finish under the other,
+   * and land its conversions in the cohort holding none of its exposures.
+   */
+  micGranted: boolean;
+  /**
+   * When this happened, by main's clock.
+   *
+   * Carried rather than taken where the report is read, because a report made
+   * with no window listening is held and can be handed over a launch later. An
+   * ending dated to the launch that collected it, rather than to the run that
+   * ended, is the one row here nobody could place.
+   */
+  at: number;
+}
 
 /** What main tells the companion renderer. */
 export interface CompanionSurfaceState {
@@ -2779,6 +2860,18 @@ export interface CompanionSurfaceState {
    * renderer never has to decide whether a run is due.
    */
   intro: CompanionIntroBeat | null;
+  /**
+   * Taps of the voice key, counted by the window that holds the binding. See
+   * {@link CompanionContext.voiceKeyTaps}.
+   *
+   * What the introduction's drawn keycap answers with: the beat asks for the
+   * real key, and a step in this number is the only evidence this window has
+   * that the user pressed it.
+   *
+   * Optional, and absence reads as no taps, the same bargain
+   * {@link CompanionSurfaceState.captureCount} makes with absence.
+   */
+  voiceKeyTaps?: number;
 }
 
 // ---------------------------------------------------------------------------

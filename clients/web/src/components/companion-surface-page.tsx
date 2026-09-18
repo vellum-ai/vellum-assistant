@@ -250,6 +250,10 @@ export function CompanionSurfacePage() {
   // Main's, like the session: this window can reload mid-run, and a beat held
   // here would reset to the first one when it did.
   const [intro, setIntro] = useState<CompanionIntroBeat | null>(null);
+  // Taps of the real voice key, counted by the window that holds the binding.
+  // Main's, like the beat: the edges never reach this window, so the only way
+  // the introduction can show the key answering is to be told the count.
+  const [voiceKeyTaps, setVoiceKeyTaps] = useState(0);
   // Mirrors what main was last told, so a pointer crossing the pill does not
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
@@ -362,6 +366,9 @@ export function CompanionSurfacePage() {
       // names none, and the strip must not offer what that shell cannot do.
       setAnnotationTool(state.annotationTool);
       setIntro(state.intro);
+      // Zero on a shell that predates the field, which is a surface that has
+      // been told about no taps rather than one that saw them and forgot.
+      setVoiceKeyTaps(state.voiceKeyTaps ?? 0);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -1116,6 +1123,10 @@ export function CompanionSurfacePage() {
               // creature that takes it belongs to the surface rather than to
               // the card.
               greeted={greeted}
+              // Taps of the real key, which is what the drawn keycap answers:
+              // the beats that show it ask for the key rather than for the
+              // picture of it.
+              voiceKeyTaps={voiceKeyTaps}
               onAdvance={(action) => {
                 if (action === "try") {
                   takeIntroOffer();

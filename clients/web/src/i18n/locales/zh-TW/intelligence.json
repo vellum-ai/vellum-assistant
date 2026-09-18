@@ -448,5 +448,9 @@
     "system": "系統",
     "integrations": "整合",
     "other": "其他"
+  },
+  "assistantHandleLine": {
+    "edit": "編輯使用者名稱 @{handle}",
+    "editTitle": "編輯使用者名稱"
   }
 }

@@ -71,6 +71,7 @@ export interface FluxTurnFrame {
   transcript?: string;
   /** Flux's end-of-turn confidence in [0, 1]. */
   end_of_turn_confidence?: number;
+  trigger?: "model" | "manual" | "timeout";
 }
 
 /**
@@ -153,6 +154,8 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
     case "EndOfTurn": {
       const text = readTranscript(frame);
       const confidence = readNumber(frame.end_of_turn_confidence);
+      const trigger = frame.trigger;
+      const audioWindowEndSeconds = readNumber(frame.audio_window_end);
       return [
         { type: "final", text },
         {
@@ -160,6 +163,14 @@ export function parseFluxFrame(raw: unknown): SttStreamServerEvent[] {
           text,
           ...(confidence !== undefined ? { confidence } : {}),
           ...(turnIndex !== undefined ? { turnIndex } : {}),
+          ...(trigger === "model" ||
+          trigger === "manual" ||
+          trigger === "timeout"
+            ? { trigger }
+            : {}),
+          ...(audioWindowEndSeconds !== undefined
+            ? { audioWindowEndSeconds }
+            : {}),
         },
       ];
     }

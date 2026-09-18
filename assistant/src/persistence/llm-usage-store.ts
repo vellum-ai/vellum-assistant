@@ -515,19 +515,13 @@ interface GroupRow {
 
 type UsageQueryParam = ScheduleAttributionSqlParam;
 
-function normalizeUsageAggregationFilter(
-  filter?: UsageAggregationFilter,
-): UsageAggregationFilter {
-  return normalizeScheduleAttributionFilter(filter);
-}
-
 function buildUsageAggregationWhere(
   range: UsageTimeRange,
   filter?: UsageAggregationFilter,
   eventAlias?: string,
   now: number = Date.now(),
 ): { sql: string; params: UsageQueryParam[] } {
-  const normalized = normalizeUsageAggregationFilter(filter);
+  const normalized = normalizeScheduleAttributionFilter(filter);
   const eventTable = eventAlias ?? "llm_usage_events";
   const createdAt = `${eventTable}.created_at`;
   const clauses = [`${createdAt} >= ? AND ${createdAt} <= ?`];
@@ -852,7 +846,7 @@ export function getUsageGroupBreakdown(
   // Runtime allowlist — defense-in-depth against SQL injection via type assertions.
   assertGroupByDimension(groupBy);
 
-  const normalizedFilter = normalizeUsageAggregationFilter(filter);
+  const normalizedFilter = normalizeScheduleAttributionFilter(filter);
 
   // Conversation grouping requires a JOIN with conversations to resolve titles.
   if (groupBy === "conversation") {
@@ -984,7 +978,7 @@ export function getUsageGroupedSeries(
     throw new Error("Grouped usage series does not support conversation");
   }
 
-  const normalizedFilter = normalizeUsageAggregationFilter(filter);
+  const normalizedFilter = normalizeScheduleAttributionFilter(filter);
   let rows: UsageGroupedBucketRow[];
 
   if (groupBy === "schedule") {

@@ -86,4 +86,13 @@ describe("search-provider-catalog", () => {
     expect(getSearchProvider("brave")?.displayName).toBe("Brave");
     expect(getSearchProvider("unknown-xyz")).toBeUndefined();
   });
+
+  test("SearXNG is a keyless BYOK provider that requires an instance URL", () => {
+    const searxng = getSearchProvider("searxng");
+    expect(searxng?.kind).toBe("byok");
+    expect(searxng?.keyless).toBe(true);
+    expect(searxng?.supportsApiBase).toBe(true);
+    expect(searxng?.defaultApiBase).toBeUndefined();
+    expect(searxng?.envVar).toBe("SEARXNG_API_KEY");
+  });
 });

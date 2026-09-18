@@ -31,6 +31,7 @@ import {
   type FnClaimant,
 } from "@/domains/chat/voice/fn-claimants";
 import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
+import { useVoiceKeyTapStore } from "@/domains/chat/voice/voice-key-tap-store";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
   markHoldDictation,
@@ -387,6 +388,12 @@ export function GlobalPushToTalkBridge({
         (to, options) => navigateRef.current(to, options),
         "voice_key",
       );
+    },
+    // Counted and nothing else. A tap asks for nothing here; the count is what
+    // lets the companion's introduction show the key answering while it is
+    // teaching that key.
+    onTap: () => {
+      useVoiceKeyTapStore.getState().countTap();
     },
   });
 

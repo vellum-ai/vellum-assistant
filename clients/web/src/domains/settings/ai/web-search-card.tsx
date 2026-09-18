@@ -131,21 +131,26 @@ export function WebSearchCard() {
   const configChanged =
     webSearchProvider !== serverWebSearchProvider ||
     (showsApiBase && trimmedApiBase !== serverApiBase.trim());
+  const defaultApiBase =
+    WEB_SEARCH_PROVIDER_DEFAULT_API_BASE[webSearchProvider] ?? "";
   const needsKeyBeforeSave =
     requiresProviderCredential &&
     !isKeylessByok &&
     !hasCustomApiBase &&
     !webSearchHasStoredKey &&
     !hasNewApiKey;
+  const needsApiBaseBeforeSave =
+    showsApiBase && defaultApiBase.length === 0 && !trimmedApiBase;
   const saveDisabled =
-    saving || needsKeyBeforeSave || (!configChanged && !hasNewApiKey);
+    saving ||
+    needsKeyBeforeSave ||
+    needsApiBaseBeforeSave ||
+    (!configChanged && !hasNewApiKey);
   const apiKeyPlaceholder = secretPlaceholder(
     WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS[webSearchProvider] ??
       t("webSearchCard.apiKeyPlaceholder"),
     webSearchHasStoredKey,
   );
-  const defaultApiBase =
-    WEB_SEARCH_PROVIDER_DEFAULT_API_BASE[webSearchProvider] ?? "";
 
   const handleSave = useCallback(async () => {
     setSaving(true);

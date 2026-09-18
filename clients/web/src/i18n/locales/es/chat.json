@@ -442,7 +442,17 @@
     "seeAllAppsAria": "Ver todas las apps",
     "seeAllFilesAria": "Ver todos los documentos e imágenes",
     "seeAllFramesAria": "Ver todos los fotogramas de la cámara",
-    "title": "Información del chat"
+    "title": "Información del chat",
+    "retry": "Reintentar",
+    "retrySourceAria": "Reintentar {source}",
+    "documentsSource": "Documentos",
+    "attachmentsSource": "Archivos adjuntos",
+    "sourceLoading": "Cargando {source}…",
+    "sourceLoadFailed": "No se pudo cargar: {source}.",
+    "sourceRefreshFailed": "No se pudo actualizar: {source}. Se muestran los resultados guardados.",
+    "sourcePageFailed": "No se pudieron cargar más elementos de {source}.",
+    "framesUnsupported": "La clasificación de fotogramas de cámara no está disponible en esta versión del asistente.",
+    "loadedHistory": "Los archivos adjuntos solo incluyen el historial de chat cargado."
   },
   "chatLayout": {
     "navigationAria": "Navegación"
@@ -687,7 +697,12 @@
     "ariaLabelUnavailable": "Recursos de la conversación, no se pudieron cargar",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
     "label": "{count, plural, one {# recurso} other {# recursos}}",
-    "labelUnavailable": "No se pudieron cargar los recursos"
+    "labelUnavailable": "No se pudieron cargar los recursos",
+    "labelPartial": "No se pudieron cargar algunos recursos",
+    "ariaLabelPartial": "Recursos de la conversación, algunos no se pudieron cargar",
+    "labelLoaded": "{count, plural, one {# recurso cargado} other {# recursos cargados}}",
+    "ariaLabelLoaded": "Recursos de la conversación, {count, plural, one {# elemento cargado} other {# elementos cargados}}",
+    "ariaLabelLoadedUnseen": "Recursos de la conversación, {count, plural, one {# elemento cargado} other {# elementos cargados}} (cambios sin ver)"
   },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"

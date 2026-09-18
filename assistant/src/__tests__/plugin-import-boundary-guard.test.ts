@@ -272,6 +272,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "zod",
   ],
   "platform-hosted": ["node:fs/promises", "node:path"],
+  // Host-internal surface snapshot and task_progress parser. UI surfaces
+  // stay host-owned, so there is no plugin-api equivalent.
+  "task-progress": [
+    "../../../../daemon/conversation-surface-snapshots.js",
+    "../../../../runtime/task-progress.js",
+  ],
   session: [
     "../../../config/loader.js",
     "../../types.js",
