@@ -227,20 +227,119 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("1")).toBeNull();
   });
 
-  test("sets long text as a copyable code block", () => {
+  test("reads a one-line value inline whatever its length", () => {
     const query =
       "SELECT week, count(DISTINCT person_id) AS users FROM events GROUP BY week ORDER BY week";
     const detail = makeDetail({
       toolName: "mcp__analytics__exec",
       input: { query },
     });
-    const { getByText, getAllByLabelText } = render(
+    const { getByText, getByLabelText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
-    expect(getByText(query).tagName).toBe("PRE");
-    // One copy button for the query, one for the output.
-    expect(getAllByLabelText("Copy")).toHaveLength(2);
+    expect(getByText(query).tagName).not.toBe("PRE");
+    // The query's own copy button copies the query alone, not the raw input.
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
+  });
+
+  test("sets text with line breaks as a code block copied from its label", () => {
+    const query = "SELECT week\nFROM events";
+    const detail = makeDetail({
+      toolName: "mcp__analytics__exec",
+      input: { query },
+    });
+    const { container, getAllByLabelText, getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    const blocks = [...container.querySelectorAll("pre")].map(
+      (pre) => pre.textContent,
+    );
+    expect(blocks).toContain(query);
+    // The block carries no copy button of its own; the only unlabelled one
+    // is the output's.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    fireEvent.click(getByLabelText("Copy query"));
+    expect(writeText).toHaveBeenCalledWith(query);
+  });
+
+  test("copies a table field from its label, with no separate table control", () => {
+    const contacts = [
+      { email: "user1@example.com", stage: "new" },
+      { email: "user2@example.com", stage: "trial" },
+    ];
+    const detail = makeDetail({
+      toolName: "acme_crm_import_contacts",
+      input: { contacts },
+    });
+    const { getByLabelText, queryByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(queryByLabelText("Copy table as markdown")).toBeNull();
+    fireEvent.click(getByLabelText("Copy contacts"));
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify(contacts, null, 2));
+  });
+
+  test("reveals only the hovered field's copy button inside a group", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_upsert_contact",
+      input: {
+        record: {
+          stage: "qualified",
+          address: { city: "Lisbon", country: "Portugal" },
+        },
+      },
+    });
+    const { container, getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // Hover reaches every row around the pointer, so a row that held
+    // another row would reveal its own button along with the inner one.
+    expect(
+      container.querySelectorAll("[data-reveal-row] [data-reveal-row]"),
+    ).toHaveLength(0);
+    for (const label of ["Copy record", "Copy stage", "Copy address"]) {
+      expect(getByLabelText(label).closest("[data-reveal-row]")).not.toBeNull();
+    }
+  });
+
+  test("folds a long one-line value behind Show more", () => {
+    const note = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_append",
+      input: { note },
+      result: "",
+    });
+    const { getByText, getAllByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText(note).tagName).not.toBe("PRE");
+    expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  test("folds a long table cell behind Show more", () => {
+    const body = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_import",
+      input: {
+        notes: [
+          { title: "first", body },
+          { title: "second", body: "short" },
+        ],
+      },
+      result: "",
+    });
+    const { getAllByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // The long cell folds; the short one and the title column do not.
+    expect(getAllByText("Show more")).toHaveLength(1);
   });
 
   test("counts the items past the first twenty instead of listing them", () => {

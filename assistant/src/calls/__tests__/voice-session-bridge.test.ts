@@ -32,6 +32,25 @@ mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
 }));
 
+// The escalation judge's verdict for front-door legs, scripted per test.
+let judgeEscalationCalls: Array<{ utterance: string }> = [];
+let judgeEscalationVerdict = false;
+// When set, the judge's verdict waits on this before resolving.
+let judgeEscalationGate: Promise<void> | null = null;
+mock.module("../voice-escalation-judge.js", () => ({
+  judgeEscalation: async (args: { utterance: string }) => {
+    judgeEscalationCalls.push({ utterance: args.utterance });
+    if (judgeEscalationGate) {
+      await judgeEscalationGate;
+    }
+    return {
+      escalate: judgeEscalationVerdict,
+      outcome: judgeEscalationVerdict ? "escalate" : "clear",
+      latencyMs: 0,
+    };
+  },
+}));
+
 const unresolvableProviderNames = new Set<string>();
 mock.module("../../providers/provider-resolvability.js", () => ({
   dispatchProviderResolvable: (provider: string) =>
@@ -2498,6 +2517,51 @@ describe("front-door hub stream gate", () => {
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
   });
 
+  test("an answer waits on the escalation judge before reaching the hub", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = false;
+    makeStreamingConversation(["Sure, ", "it's Tuesday."]);
+    try {
+      const whilePending = await collectBroadcastText(() =>
+        startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+      );
+      expect(whilePending).toEqual([]);
+
+      const afterClear = await collectBroadcastText(async () => {
+        openGate();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+      expect(afterClear.join("")).toBe("Sure, it's Tuesday.");
+    } finally {
+      judgeEscalationGate = null;
+    }
+  });
+
+  test("an overruled answer never reaches the hub", async () => {
+    judgeEscalationVerdict = true;
+    makeStreamingConversation(["Yeah okay, ", "I'll do it."]);
+
+    const texts = await collectBroadcastText(async () => {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      // What the driver does with an escalate verdict on a held answer.
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    expect(texts).toEqual([]);
+    judgeEscalationVerdict = false;
+  });
+
   test("an answer that merely opens with a bracket is released in full", async () => {
     // "[" alone could still become the escalate token, so the gate holds it;
     // the next delta disproves the token and the whole prefix must come out.
@@ -2642,6 +2706,60 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(crudLog.updates).toHaveLength(0);
     expect(crudLog.deletes).toEqual(["assistant-row-1"]);
     expect(events).toContain("loadFromDb");
+  });
+
+  test("an answer the escalation judge overruled is deleted", async () => {
+    const { events, releaseLoop } = makeReservedRowConversation({
+      holdLoopOpen: true,
+    });
+    getMessageByIdImpl = () => makeRow("I'm adding it to the draft now.");
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+    });
+    await flushMicrotasks();
+    handle.overrule?.();
+    releaseLoop();
+    await flushMicrotasks();
+
+    // Only the unheard answer goes: the user row stays for the escalated leg.
+    expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a verdict that lands after the model finished still deletes the overruled row", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = true;
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Yeah okay, I'll do it.");
+    try {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      // The loop has finished; teardown hygiene waits on the verdict.
+      await flushMicrotasks();
+      expect(crudLog.deletes).toEqual([]);
+
+      openGate();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushMicrotasks();
+
+      expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+      expect(events).toContain("loadFromDb");
+    } finally {
+      judgeEscalationGate = null;
+      judgeEscalationVerdict = false;
+    }
   });
 
   test("a committed front-door answer (no verdict token) is left untouched", async () => {
@@ -3287,5 +3405,48 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
 
     expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+});
+
+describe("startVoiceTurn escalation judge", () => {
+  beforeEach(() => {
+    judgeEscalationCalls = [];
+    judgeEscalationVerdict = false;
+    fakeConversation = makeFakeConversation({ processing: false }).conversation;
+  });
+
+  test("a front-door leg carries the judge's verdict and an overrule", async () => {
+    judgeEscalationVerdict = true;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "Text my mom I'm late.",
+      routingLeg: "front-door",
+    });
+
+    expect(judgeEscalationCalls).toEqual([
+      { utterance: "Text my mom I'm late." },
+    ]);
+    expect(await handle.escalationJudgement).toBe(true);
+    expect(typeof handle.overrule).toBe("function");
+  });
+
+  test("escalated, unrouted, and synthetic legs are not judged", async () => {
+    const escalated = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+    });
+    const unrouted = await startVoiceTurn(makeTurnOptions());
+    const synthetic = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([]);
+    for (const handle of [escalated, unrouted, synthetic]) {
+      expect(handle.escalationJudgement).toBeUndefined();
+      expect(handle.overrule).toBeUndefined();
+    }
   });
 });

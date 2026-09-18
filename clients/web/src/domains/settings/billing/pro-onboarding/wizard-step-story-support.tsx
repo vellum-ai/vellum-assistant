@@ -33,7 +33,7 @@ export function makeStoryAssistant(id: string): Assistant {
     platform_actor_token: null,
     access_consented: true,
     access_consent_expires_at: null,
-    access_consent_never_expires: true,
+    access_consent_never_expires: false,
   };
 }
 

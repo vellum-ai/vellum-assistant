@@ -76,6 +76,7 @@ import {
   stripInternalSpeechMarkers,
   terminalControlMarkerLength,
 } from "./voice-control-protocol.js";
+import { judgeEscalation } from "./voice-escalation-judge.js";
 import type { VoiceEscalationTarget } from "./voice-escalation-target.js";
 import {
   createFrontDoorStreamGate,
@@ -556,6 +557,19 @@ export interface VoiceTurnHandle {
    * rollback — a missing discard degrades to abort-without-rollback.
    */
   discard?: () => Promise<void>;
+  /**
+   * Front-door legs only: the escalation judge's verdict on this turn,
+   * resolving true when the turn needs the escalated leg. Never rejects.
+   * Absent when the judge does not apply (other legs, synthetic prompts).
+   */
+  escalationJudgement?: Promise<boolean>;
+  /**
+   * Abort a front-door leg whose answer the escalation judge overruled. The
+   * caller never heard that answer, so the teardown transcript-hygiene pass
+   * deletes its row instead of leaving it in the history the escalated leg
+   * reads. The user row stays: the turn continues on the escalated leg.
+   */
+  overrule?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1779,6 +1793,8 @@ export async function startVoiceTurn(
   let reservedAssistantRowId: string | null = null;
   // Set by the handle's discard(): the whole leg must leave no trace.
   let discarded = false;
+  // Set by the handle's overrule(): the leg's answer was never spoken.
+  let overruled = false;
 
   // Verdict-first gate on the hub broadcast. A front-door leg's raw stream
   // carries its routing verdict, so hub subscribers (web, passive devices)
@@ -1799,12 +1815,46 @@ export async function startVoiceTurn(
    */
   const broadcastLegEvent = (msg: AssistantEvent): void => {
     if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
-      broadcastMessage(msg);
+      emitHubEvent(msg);
       return;
     }
     const released = frontDoorStreamGate.push(msg.text);
     if (released.length > 0) {
-      broadcastMessage({ ...msg, text: released });
+      // Answer text while the escalation judge is out: hold it, and every
+      // leg event after it, until the verdict says the caller hears it.
+      if (
+        frontDoorStreamGate.answering &&
+        !escalationJudgeSettled &&
+        hubHold === null
+      ) {
+        hubHold = [];
+      }
+      emitHubEvent({ ...msg, text: released });
+    }
+  };
+
+  // Hub events held while the escalation judge decides whether the
+  // front-door answer is spoken. Null when nothing is held.
+  let hubHold: AssistantEvent[] | null = null;
+  let escalationJudgeSettled = true;
+  const emitHubEvent = (msg: AssistantEvent): void => {
+    if (hubHold !== null) {
+      hubHold.push(msg);
+      return;
+    }
+    broadcastMessage(msg);
+  };
+  // Release held hub events once the judge settles. An overruled answer's
+  // text is dropped: the caller never heard it, and its row is deleted.
+  const releaseHubHold = (): void => {
+    escalationJudgeSettled = true;
+    const held = hubHold ?? [];
+    hubHold = null;
+    for (const msg of held) {
+      if (overruled && msg.type === "assistant_text_delta") {
+        continue;
+      }
+      broadcastMessage(msg);
     }
   };
 
@@ -1861,6 +1911,9 @@ export async function startVoiceTurn(
       if (discarded) {
         deleteMessageById(reservedAssistantRowId);
         action = "delete_discarded";
+      } else if (overruled) {
+        deleteMessageById(reservedAssistantRowId);
+        action = "delete_overruled";
       } else {
         const row = getMessageById(reservedAssistantRowId, opts.conversationId);
         const terminalMarkerLength = row
@@ -1940,6 +1993,44 @@ export async function startVoiceTurn(
       );
     }
   };
+
+  // The escalation judge runs beside the front-door leg's model call, so its
+  // verdict is usually in before the leg's first answer word. Snapshot the
+  // history now: the leg's own reply must not be part of what is judged.
+  const escalationJudgement =
+    opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt
+      ? judgeEscalation({
+          conversationId: opts.conversationId,
+          history: conversation.getMessages(),
+          utterance: opts.content,
+          ...(opts.signal ? { signal: opts.signal } : {}),
+        }).then((judgement) => {
+          if (judgement.outcome !== "unavailable") {
+            log.info(
+              {
+                turnId,
+                outcome: judgement.outcome,
+                noul: judgement.noul,
+                latencyMs: judgement.latencyMs,
+              },
+              "Voice escalation judge verdict",
+            );
+          }
+          return judgement.escalate;
+        })
+      : undefined;
+  if (escalationJudgement !== undefined) {
+    escalationJudgeSettled = false;
+    // A clear verdict releases at once; an escalate verdict waits a macrotask
+    // so the driver's overrule, reacting to the same promise, lands first.
+    void escalationJudgement.then((escalate) => {
+      if (escalate) {
+        setTimeout(releaseHubHold, 0);
+      } else {
+        releaseHubHold();
+      }
+    });
+  }
 
   // Fire-and-forget the agent loop
   void (async () => {
@@ -2198,6 +2289,17 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth--;
       }
       cleanup();
+      // A judge verdict that lands after the model finished can still
+      // overrule the answer. Wait for it (bounded by the judge's own budget)
+      // so the overrule's row cleanup runs here, before the escalated leg,
+      // blocked on this teardown, reads history.
+      if (
+        escalationJudgement !== undefined &&
+        !discarded &&
+        (await escalationJudgement)
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       await finalizeVoiceLegTranscript();
       settleTurnTeardown();
     }
@@ -2257,9 +2359,17 @@ export async function startVoiceTurn(
     }
   };
 
+  const overruleFn = () => {
+    overruled = true;
+    abortFn();
+  };
+
   return {
     turnId,
     abort: abortFn,
     discard: discardFn,
+    ...(escalationJudgement !== undefined
+      ? { escalationJudgement, overrule: overruleFn }
+      : {}),
   };
 }

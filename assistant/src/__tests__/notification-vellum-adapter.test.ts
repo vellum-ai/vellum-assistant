@@ -35,6 +35,7 @@ import type {
   ChannelDeliveryPayload,
   ChannelDestination,
 } from "../notifications/types.js";
+import type { BroadcastMessageOptions } from "../runtime/assistant-event-hub.js";
 
 function makePayload(
   overrides?: Partial<ChannelDeliveryPayload>,
@@ -360,5 +361,38 @@ describe("VellumAdapter update", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("DB write failed");
+  });
+});
+
+describe("VellumAdapter guardian scoping", () => {
+  function captureOptions(): {
+    adapter: VellumAdapter;
+    options: Array<BroadcastMessageOptions | undefined>;
+  } {
+    const options: Array<BroadcastMessageOptions | undefined> = [];
+    const adapter = new VellumAdapter((_msg, _conversationId, opts) => {
+      options.push(opts);
+    });
+    return { adapter, options };
+  }
+
+  test("a guardian-sensitive intent is delivered only to the guardian's connections", async () => {
+    const { adapter, options } = captureOptions();
+    await adapter.send(
+      makePayload({ sourceEventName: "guardian.question", urgency: "high" }),
+      makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+    );
+
+    expect(options).toEqual([{ targetActorPrincipalId: "principal-g" }]);
+  });
+
+  test("an ordinary intent is broadcast to every connection", async () => {
+    const { adapter, options } = captureOptions();
+    await adapter.send(
+      makePayload({ sourceEventName: "schedule.notify" }),
+      makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+    );
+
+    expect(options).toEqual([{ targetActorPrincipalId: undefined }]);
   });
 });

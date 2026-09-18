@@ -1,17 +1,10 @@
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
-import {
-  downloadAttachment,
-  type RuntimeAttachmentMeta,
-} from "../runtime/client.js";
 import { splitText } from "../util/split-text.js";
 import {
   sendWhatsAppInteractiveMessage,
   sendWhatsAppTextMessage,
-  uploadWhatsAppMedia,
-  sendWhatsAppMediaMessage,
-  type WhatsAppMediaType,
   type WhatsAppApiCaches,
 } from "./api.js";
 
@@ -19,15 +12,6 @@ const log = getLogger("whatsapp-send");
 
 // WhatsApp supports up to 4096 characters per text message
 const WHATSAPP_MAX_MESSAGE_LEN = 4096;
-
-const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/webp"];
-const VIDEO_MIME_PREFIXES = ["video/mp4", "video/3gpp"];
-
-function resolveMediaType(mimeType: string): WhatsAppMediaType {
-  if (IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return "image";
-  if (VIDEO_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return "video";
-  return "document";
-}
 
 // WhatsApp interactive message body text limit is 1024 characters
 const WHATSAPP_INTERACTIVE_BODY_MAX_LEN = 1024;
@@ -119,103 +103,4 @@ export async function sendWhatsAppReply(
   }
 
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
-}
-
-export type AttachmentResult = {
-  allFailed: boolean;
-  failureCount: number;
-  totalCount: number;
-};
-
-export async function sendWhatsAppAttachments(
-  config: GatewayConfig,
-  to: string,
-  attachments: RuntimeAttachmentMeta[],
-  caches?: WhatsAppApiCaches,
-): Promise<AttachmentResult> {
-  const failures: string[] = [];
-
-  for (const meta of attachments) {
-    if (
-      meta.sizeBytes !== undefined &&
-      meta.sizeBytes >
-        (config.maxAttachmentBytes.whatsapp ??
-          config.maxAttachmentBytes.default)
-    ) {
-      log.warn(
-        { attachmentId: meta.id, sizeBytes: meta.sizeBytes },
-        "Skipping oversized outbound attachment",
-      );
-      failures.push(meta.filename ?? meta.id);
-      continue;
-    }
-
-    try {
-      const payload = await downloadAttachment(config, meta.id);
-
-      const mimeType =
-        meta.mimeType ?? payload.mimeType ?? "application/octet-stream";
-      const filename = meta.filename ?? payload.filename ?? meta.id;
-      const buffer = Buffer.from(payload.data, "base64");
-      const sizeBytes = meta.sizeBytes ?? payload.sizeBytes ?? buffer.length;
-
-      if (
-        sizeBytes >
-        (config.maxAttachmentBytes.whatsapp ??
-          config.maxAttachmentBytes.default)
-      ) {
-        log.warn(
-          { attachmentId: meta.id, sizeBytes },
-          "Skipping oversized outbound attachment (detected after download)",
-        );
-        failures.push(filename);
-        continue;
-      }
-
-      const blob = new Blob([buffer], { type: mimeType });
-      const mediaType = resolveMediaType(mimeType);
-
-      const uploaded = await uploadWhatsAppMedia(
-        blob,
-        filename,
-        mimeType,
-        caches,
-      );
-      await sendWhatsAppMediaMessage(
-        to,
-        mediaType,
-        uploaded.id,
-        filename,
-        undefined,
-        caches,
-      );
-
-      log.debug(
-        { to, attachmentId: meta.id, filename, mediaType },
-        "Attachment sent to WhatsApp",
-      );
-    } catch (err) {
-      const displayName = meta.filename ?? meta.id;
-      log.error(
-        { err, attachmentId: meta.id, filename: displayName },
-        "Failed to send attachment to WhatsApp",
-      );
-      failures.push(displayName);
-    }
-  }
-
-  if (failures.length > 0) {
-    const notice = `${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
-    try {
-      await sendWhatsAppReply(config, to, notice, undefined, caches);
-    } catch (err) {
-      log.error({ err, to }, "Failed to send attachment failure notice");
-    }
-  }
-
-  return {
-    allFailed: failures.length === attachments.length,
-    failureCount: failures.length,
-    totalCount: attachments.length,
-  };
 }

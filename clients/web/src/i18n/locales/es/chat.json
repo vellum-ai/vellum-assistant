@@ -1792,7 +1792,8 @@
     "rawInput": "Entrada sin procesar"
   },
   "toolParamFields": {
-    "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
+    "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}",
+    "copyValue": "Copiar {label}"
   },
   "toolStepPill": {
     "openAria": "Abrir {label}",

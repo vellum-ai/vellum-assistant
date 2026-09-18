@@ -458,6 +458,33 @@ export const recordListDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * A third-party tool whose parameters show both halves of the text rule: a
+ * long note on one line reads inline and folds behind Show more, and a short
+ * checklist with line breaks keeps its lines in a block.
+ */
+export const longTextParameterDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-notes-append-1",
+  toolName: "acme_notes_append",
+  title: "Working",
+  activity: "Adding the planting plan to the garden notebook",
+  input: {
+    activity: "Adding the planting plan to the garden notebook",
+    notebook: "Garden",
+    note: [
+      "Start tomatoes, peppers and basil indoors in the second week of March under the shop light, and keep the tray on the heat mat until most seedlings are up.",
+      "Harden them off on the porch for ten days once nights stay above ten degrees, bringing them in if the forecast drops.",
+      "Plant the tomatoes in the two back beds with cages set at planting time, peppers along the fence where they get afternoon sun, and basil between the tomatoes.",
+      "Direct sow beans and squash in the front bed after the last frost date, then mulch everything with straw once the soil has warmed.",
+      "Water deeply twice a week rather than a little every day, and check the drip line for clogs at the start of each month.",
+      "Pick beans every other day once they start, and pull any squash leaves that show mildew before it spreads down the row.",
+    ].join(" "),
+    checklist: "Order compost\nFix the rain barrel tap\nLabel the seed trays",
+  },
+  result: JSON.stringify({ appended: true }, null, 2),
+  riskLevel: "low",
+});
+
+/**
  * Long enough to exercise the Output clamp. The daemon truncates a tool result
  * at up to `HARD_MAX_TOOL_RESULT_CHARS` (400,000, see
  * `assistant/src/plugins/defaults/tool-result-truncate/`), so this is well

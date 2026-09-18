@@ -72,9 +72,16 @@ export function AccessConsentSetting() {
   });
 
   // A grant lapses on its own (24h by default). Extending is just enabling
-  // again: the server restarts the clock from now.
+  // again: the server restarts the clock from now. The owner can instead keep
+  // it on until they turn it off.
+  const isOn = data?.access_consented === true;
+  // A platform from before the override omits this field. Then the button
+  // to keep access on is hidden, since that platform could not honor it.
+  const canKeepOn =
+    isOn && typeof data.access_consent_never_expires === "boolean";
+  const neverExpires = isOn && data.access_consent_never_expires === true;
   const expiresAt =
-    data?.access_consented === true ? data.access_consent_expires_at : null;
+    isOn && !neverExpires ? data.access_consent_expires_at : null;
   useRelativeAgeTick(expiresAt !== null);
 
   // The target id travels with the mutation rather than being read from
@@ -85,15 +92,20 @@ export function AccessConsentSetting() {
     mutationFn: async ({
       assistantId: targetId,
       next,
+      mode,
     }: {
       assistantId: string;
       next: boolean;
-      extend?: boolean;
+      /** Why the owner is enabling, for the toast and the request body. */
+      mode?: "extend" | "keepOn" | "expireAgain";
     }) => {
       const { data: updated } =
         await assistantsAccessConsentDetailPartialUpdate({
           path: { id: targetId },
-          body: { access_consented: next },
+          body: {
+            access_consented: next,
+            ...(mode === "keepOn" ? { never_expires: true } : {}),
+          },
           throwOnError: true,
         });
       return updated;
@@ -105,11 +117,15 @@ export function AccessConsentSetting() {
         updated,
       );
       toast.success(
-        variables.extend
+        variables.mode === "extend"
           ? t("accessConsentSetting.toastExtended")
-          : updated?.access_consented
-            ? t("accessConsentSetting.toastEnabled")
-            : t("accessConsentSetting.toastDisabled"),
+          : variables.mode === "keepOn"
+            ? t("accessConsentSetting.toastKeptOn")
+            : variables.mode === "expireAgain"
+              ? t("accessConsentSetting.toastExpiring")
+              : updated?.access_consented
+                ? t("accessConsentSetting.toastEnabled")
+                : t("accessConsentSetting.toastDisabled"),
       );
     },
     onError: () => {
@@ -176,12 +192,53 @@ export function AccessConsentSetting() {
                     updateConsent.mutate({
                       assistantId,
                       next: true,
-                      extend: true,
+                      mode: "extend",
                     });
                   }
                 }}
               >
                 {t("accessConsentSetting.extend")}
+              </Button>
+              {canKeepOn && (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  disabled={disabled}
+                  onClick={() => {
+                    if (assistantId) {
+                      updateConsent.mutate({
+                        assistantId,
+                        next: true,
+                        mode: "keepOn",
+                      });
+                    }
+                  }}
+                >
+                  {t("accessConsentSetting.keepOn")}
+                </Button>
+              )}
+            </div>
+          )}
+          {neverExpires && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                {t("accessConsentSetting.staysOn")}
+              </p>
+              <Button
+                variant="outlined"
+                size="compact"
+                disabled={disabled}
+                onClick={() => {
+                  if (assistantId) {
+                    updateConsent.mutate({
+                      assistantId,
+                      next: true,
+                      mode: "expireAgain",
+                    });
+                  }
+                }}
+              >
+                {t("accessConsentSetting.expireAgain")}
               </Button>
             </div>
           )}
