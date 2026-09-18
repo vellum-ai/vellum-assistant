@@ -5,21 +5,24 @@
  * agent reads may present the archive as making removal safe: that framing
  * licenses deleting filed content that exists nowhere else.
  *
- * The check is sentence-level: no sentence may mention the archive together
- * with losing something.
+ * The check is sentence-level: no sentence may pair the archive with
+ * reassurance that removing content loses nothing. A sentence warning that
+ * removed text IS lost stays allowed.
  */
 import { describe, expect, test } from "bun:test";
 
 import { renderConsolidationPrompt } from "../substrate/prompts/consolidation.js";
 import { deleteMemoryPageTool } from "../tools.js";
 
-function archiveLossClaims(text: string): string[] {
+function archiveSafetyClaims(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+/)
     .filter(
       (sentence) =>
         /archive/i.test(sentence) &&
-        /\blos(?:e|es|ing|t)\b|\bloss\b/i.test(sentence),
+        /don.t worry|no need to worry|never los|nothing is lost|won.t lose|safe to (?:delete|remove|cut|drop)/i.test(
+          sentence,
+        ),
     );
 }
 
@@ -43,11 +46,19 @@ describe("the archive is never framed as making removal safe", () => {
     });
 
     expect(v3).toContain("the archive is a record");
-    expect(archiveLossClaims(v2)).toEqual([]);
-    expect(archiveLossClaims(v3)).toEqual([]);
+    expect(archiveSafetyClaims(v2)).toEqual([]);
+    expect(archiveSafetyClaims(v3)).toEqual([]);
+  });
+
+  test("a warning that removed text is lost is not the claim", () => {
+    expect(
+      archiveSafetyClaims(
+        "Text you cut from a page is lost to retrieval: the archive does not bring it back.",
+      ),
+    ).toEqual([]);
   });
 
   test("the delete_memory_page description does not make the claim", () => {
-    expect(archiveLossClaims(deleteMemoryPageTool.description)).toEqual([]);
+    expect(archiveSafetyClaims(deleteMemoryPageTool.description)).toEqual([]);
   });
 });
