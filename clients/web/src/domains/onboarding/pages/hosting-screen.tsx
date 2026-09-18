@@ -204,9 +204,8 @@ export function HostingScreen() {
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
-            className={electron ? undefined : "h-11 text-base"}
             onClick={onContinue}
           >
             {t("actions.continue")}

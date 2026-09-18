@@ -119,9 +119,9 @@ export function InChatOnboardingController() {
             screen) so the hand-off reads as one flow. */}
         <Button
           variant="primary"
-          size="regular"
+          size="large"
           rightIcon={<ArrowRight size={16} />}
-          className="h-11 w-[234px] text-base"
+          className="w-[234px]"
           onClick={() => tourRef.current?.next()}
         >
           {t("inChatOnboardingController.showMeAround")}
