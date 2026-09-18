@@ -1156,6 +1156,29 @@ describe("prompt cache warming", () => {
     await expect(conversation.warmPromptCache()).resolves.toBeUndefined();
     expect(sendMessage).not.toHaveBeenCalled();
   });
+
+  test("does not rebuild a system prompt explicitly removed by a hook", async () => {
+    const sendMessage = mock(
+      async (_messages: Message[], _options?: SendMessageOptions) =>
+        textResponse("unused"),
+    );
+    const buildCurrentSystemPrompt = mock(() => "rebuilt prompt");
+    const conversation = Object.assign(
+      Object.create(Conversation.prototype) as object,
+      {
+        conversationId: "conv-cache-warm-test",
+        messages: [],
+        provider: { name: "mock-provider", sendMessage },
+        agentLoop: { getResolvedTools: () => [] },
+        buildCurrentSystemPrompt,
+      },
+    ) as unknown as Conversation;
+
+    await conversation.warmPromptCache({ systemPrompt: null, tools: [] });
+
+    expect(buildCurrentSystemPrompt).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls[0]?.[1]?.systemPrompt).toBeUndefined();
+  });
 });
 
 describe("session-agent-loop", () => {
@@ -2243,6 +2266,7 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
         callSite: "callAgent",
+        inferenceCallSite: "mainAgent",
         overrideProfile: "quality-optimized",
         forceOverrideProfile: true,
         onFirstModelCallPrepared,
@@ -2250,13 +2274,14 @@ describe("session-agent-loop", () => {
 
       expect(onFirstModelCallPrepared).toHaveBeenCalledTimes(1);
       expect(onFirstModelCallPrepared).toHaveBeenCalledWith({
-        callSite: "callAgent",
+        callSite: "mainAgent",
         overrideProfile: "quality-optimized",
         forceOverrideProfile: true,
         signal: turnSignal,
         systemPrompt: "system prompt",
         tools: [tool],
       });
+      expect(ctx.currentCallSite).toBe("callAgent");
     });
   });
 

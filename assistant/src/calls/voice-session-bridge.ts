@@ -22,7 +22,10 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { selectWinningProfile } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  selectWinningProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import {
   ABORT_WATCHDOG_MS,
@@ -104,50 +107,33 @@ const log = getLogger("voice-session-bridge");
 const VOICE_IMAGE_PROFILE = "latency-optimized";
 
 /**
- * The profile the conversation's own text turns run on, resolved the way a
- * `mainAgent` turn resolves it: the conversation's pinned profile when it
- * carries one, else the workspace chat-model selection (`llm.activeProfile`),
- * else the main agent's call-site pin.
- *
- * The escalated voice leg runs through `callAgent`, whose chain never
- * consults `llm.activeProfile`, so without this the hand-off lands on that
- * site's shipped `balanced` default while the same conversation's typed
- * turns run on whatever the user picked. Pinning the text-turn winner keeps
- * the stronger model the front door escalates to the one the conversation is
- * already using.
- *
- * `profile` is the name to pin (a mix's own name, so dispatch re-expands it
- * to the same arm from the conversation seed); `modelProfile` is the concrete
- * profile whose model actually runs (the chosen arm of a mix), which is what
- * capability checks must judge: a mix reads as vision-capable when any arm
- * is, but only one arm serves this conversation.
- *
- * Null when nothing above named a profile (the winner is the code-owned
- * anchor): the leg then keeps its ordinary call-site resolution, which lands
- * on the same anchor intent and still honors a `callAgent` site pin.
+ * The conversation's effective `mainAgent` target. `profile` preserves the
+ * selected profile name for an explicit pin, while `model` includes the
+ * call-site's direct tuning and the concrete arm selected from a mix.
  */
-function conversationProfileForEscalation(
+function conversationTargetForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
-): { profile: string; modelProfile: string } | null {
+): { profile: string | null; model: string } {
   const overrideProfile = resolveOverrideProfile(conversation);
-  let chosenMix: { mixProfile: string; chosenProfile: string } | undefined;
-  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
+  const resolveOptions = {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
     isResolvableProvider: dispatchProviderResolvable,
-    onMixSelected: ({ mixProfile, chosenProfile }) => {
-      chosenMix = { mixProfile, chosenProfile };
-    },
-  });
-  if (selection.source === "default" || selection.profileName == null) {
-    return null;
-  }
+  };
+  const selection = selectWinningProfile(
+    "mainAgent",
+    getConfig().llm,
+    resolveOptions,
+  );
+  const resolved = resolveCallSiteConfig(
+    "mainAgent",
+    getConfig().llm,
+    resolveOptions,
+  );
   return {
-    profile: selection.profileName,
-    modelProfile:
-      chosenMix?.mixProfile === selection.profileName
-        ? chosenMix.chosenProfile
-        : selection.profileName,
+    profile:
+      selection.source === "default" ? null : (selection.profileName ?? null),
+    model: resolved.model,
   };
 }
 
@@ -2005,18 +1991,18 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
-      // An escalated leg follows the conversation's own model: the front
-      // door hands off to the profile the caller's typed turns already run
-      // on, not to `callAgent`'s shipped default. Null keeps the ordinary
-      // call-site resolution.
-      const conversationProfile =
+      // An escalated leg follows the conversation's effective main-agent
+      // target, including direct call-site tuning and the concrete arm of a
+      // mix. The semantic call site remains `callAgent` below so voice tool
+      // and delivery behavior do not change.
+      const conversationTarget =
         opts.routingLeg === "escalated"
-          ? conversationProfileForEscalation(conversation)
+          ? conversationTargetForEscalation(conversation)
           : null;
       // Resolved once here rather than inside the options literal below, so
       // the history scan happens once per leg. A front-door leg is skipped:
       // its own call site already resolves to the same profile. A
-      // conversation profile whose model takes images needs no image pin
+      // conversation target whose model takes images needs no image pin
       // either; one that does not yields to the image pin, since a model
       // that rejects an image fails the whole leg. The judged profile is the
       // concrete arm that serves this conversation, not a mix's name. The
@@ -2025,8 +2011,8 @@ export async function startVoiceTurn(
       const needsImagePin =
         opts.routingLeg !== "front-door" &&
         !(
-          conversationProfile != null &&
-          doesSupportVision(conversationProfile.modelProfile)
+          conversationTarget != null &&
+          doesSupportVision(conversationTarget.model)
         ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
@@ -2035,9 +2021,9 @@ export async function startVoiceTurn(
           { turnId, routingLeg: opts.routingLeg ?? null },
           "Voice leg carries an image; pinning the image-capable profile",
         );
-      } else if (conversationProfile != null) {
+      } else if (conversationTarget?.profile != null) {
         log.info(
-          { turnId, profile: conversationProfile.profile },
+          { turnId, profile: conversationTarget.profile },
           "Escalated voice leg pinned to the conversation's own profile",
         );
       }
@@ -2045,7 +2031,7 @@ export async function startVoiceTurn(
         opts.overrideProfile ??
         (needsImagePin
           ? VOICE_IMAGE_PROFILE
-          : (conversationProfile?.profile ?? null));
+          : (conversationTarget?.profile ?? null));
       // Optional cache traffic must not consume the last admitted request.
       // A configured cap reserves its whole budget for user-visible calls.
       const shouldWarmEscalation =
@@ -2133,6 +2119,9 @@ export async function startVoiceTurn(
         // ordinary call-agent resolution.
         callSite:
           opts.routingLeg === "front-door" ? "voiceFrontDoor" : "callAgent",
+        ...(opts.routingLeg === "escalated"
+          ? { inferenceCallSite: "mainAgent" as const }
+          : {}),
         // A caller is on the line, so the turn is interactive: approval prompts
         // must be raised rather than pre-denied, because the approval observer
         // above is what decides them (auto-resolve for a non-guardian caller,
@@ -2148,9 +2137,7 @@ export async function startVoiceTurn(
           : {}),
         // Triage-and-escalate routing pins this turn to the fast front-door
         // profile or to the conversation's own profile for the escalated
-        // leg. `forceOverrideProfile` floats it above the callAgent call-site
-        // layers (callAgent is not `mainAgent`, so the override would
-        // otherwise sit below the call-site profile).
+        // leg. `forceOverrideProfile` preserves an explicit routing pin.
         //
         // An explicit routing pin wins; failing that, a leg whose history
         // carries an image is pinned to a profile whose model takes one;
@@ -2167,15 +2154,13 @@ export async function startVoiceTurn(
           ? {
               onFirstModelCallPrepared: (prepared) => {
                 void conversation.warmPromptCache({
-                  callSite: prepared.callSite ?? "callAgent",
+                  callSite: prepared.callSite ?? "mainAgent",
                   ...(prepared.overrideProfile !== undefined
                     ? { overrideProfile: prepared.overrideProfile }
                     : {}),
                   forceOverrideProfile: prepared.forceOverrideProfile,
                   signal: prepared.signal ?? opts.signal,
-                  ...(prepared.systemPrompt !== undefined
-                    ? { systemPrompt: prepared.systemPrompt }
-                    : {}),
+                  systemPrompt: prepared.systemPrompt,
                   tools: prepared.tools,
                 });
               },

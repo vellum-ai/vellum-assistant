@@ -669,7 +669,7 @@ export interface PreparedModelCall {
   overrideProfile?: string;
   forceOverrideProfile: boolean;
   signal?: AbortSignal;
-  systemPrompt?: string;
+  systemPrompt: string | null;
   tools: ToolDefinition[];
 }
 
@@ -2261,9 +2261,7 @@ export class AgentLoop {
               forceOverrideProfile:
                 providerConfig.forceOverrideProfile === true,
               ...(signal !== undefined ? { signal } : {}),
-              ...(providerOptions.systemPrompt !== undefined
-                ? { systemPrompt: providerOptions.systemPrompt }
-                : {}),
+              systemPrompt: providerOptions.systemPrompt ?? null,
               tools: currentTools,
             });
           } catch (preparedError) {

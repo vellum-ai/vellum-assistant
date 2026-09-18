@@ -453,6 +453,35 @@ describe("agent loop output hooks", () => {
     expect(calls[0].tools).toEqual(prepared?.tools);
   });
 
+  test("prepared model call preserves explicit system-prompt removal", async () => {
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.systemPrompt = null;
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("hi")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "base prompt",
+      conversationId: "test-conversation",
+    });
+    let prepared: PreparedModelCall | undefined;
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      callSite: "mainAgent",
+      onModelCallPrepared: (value) => {
+        prepared = value;
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(prepared?.systemPrompt).toBeNull();
+    expect(calls[0].options?.systemPrompt).toBeUndefined();
+  });
+
   test("pre-model-call seeds modelProfile from the resolved override and clearing it drops the override", async () => {
     // GIVEN a hook that observes the seeded override and then clears it
     let seeded: string | null | undefined;

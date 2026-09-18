@@ -1245,7 +1245,7 @@ export class Conversation {
     overrideProfile?: string;
     forceOverrideProfile?: boolean;
     signal?: AbortSignal;
-    systemPrompt?: string;
+    systemPrompt?: string | null;
     tools?: ToolDefinition[];
   }): Promise<void> {
     this.cacheWarmAbort?.abort();
@@ -1263,8 +1263,12 @@ export class Conversation {
     const callSite = options?.callSite ?? "mainAgent";
 
     try {
-      const systemPrompt =
-        options?.systemPrompt ?? this.buildCurrentSystemPrompt();
+      const hasSystemPrompt =
+        options !== undefined &&
+        Object.prototype.hasOwnProperty.call(options, "systemPrompt");
+      const systemPrompt = hasSystemPrompt
+        ? (options.systemPrompt ?? undefined)
+        : this.buildCurrentSystemPrompt();
       const tools =
         options?.tools ?? this.agentLoop.getResolvedTools(this.messages);
       const providerConfig = {
@@ -1283,7 +1287,7 @@ export class Conversation {
 
       await this.provider.sendMessage([warmMessage], {
         tools: tools.length > 0 ? tools : undefined,
-        systemPrompt,
+        ...(systemPrompt !== undefined ? { systemPrompt } : {}),
         config: {
           max_tokens: 1,
           callSite,
@@ -3456,6 +3460,8 @@ export class Conversation {
        */
       replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
+      /** Provider configuration source when distinct from turn semantics. */
+      inferenceCallSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call
        * the loop issues for this turn. Forwarded into
