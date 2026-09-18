@@ -1,13 +1,18 @@
 /**
  * Draws the parameter layout `layoutValues` decides: each field a small label
- * above its value, long text as a code block, a list of records as a table,
- * and larger structure nested in a bordered group.
+ * above its value, text with line breaks as a code block, a list of records as
+ * a table, and larger structure nested in a bordered group. A long value folds
+ * behind Show more wherever it is drawn, inline or in a cell.
  */
 
 import { Typography } from "@vellumai/design-library";
 import type { ReactNode } from "react";
 
-import { CodeBlock, MachineText } from "@/components/detail-primitives";
+import {
+  ClampedContent,
+  CodeBlock,
+  MachineText,
+} from "@/components/detail-primitives";
 import {
   DataTable,
   type DataTableColumn,
@@ -83,7 +88,11 @@ function tableProps(field: TableField): {
 function FieldValue({ field }: { field: ValueField }) {
   switch (field.kind) {
     case "text":
-      return <ValueText>{field.text}</ValueText>;
+      return (
+        <ClampedContent length={field.text.length}>
+          <ValueText>{field.text}</ValueText>
+        </ClampedContent>
+      );
     case "code":
       return (
         <div className="mt-1">
@@ -115,7 +124,11 @@ function FieldValue({ field }: { field: ValueField }) {
         <div className="mt-1 flex min-w-0 flex-col gap-2">
           <DataTable
             {...tableProps(field)}
-            renderCell={(text) => <ValueText as="span">{text}</ValueText>}
+            renderCell={(text) => (
+              <ClampedContent length={text.length}>
+                <ValueText as="span">{text}</ValueText>
+              </ClampedContent>
+            )}
           />
           {field.more > 0 && <MoreInRawInput count={field.more} />}
         </div>

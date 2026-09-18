@@ -227,7 +227,7 @@ describe("ToolDetailPanel", () => {
     expect(queryByText("1")).toBeNull();
   });
 
-  test("sets long text as a copyable code block", () => {
+  test("reads a one-line value inline whatever its length", () => {
     const query =
       "SELECT week, count(DISTINCT person_id) AS users FROM events GROUP BY week ORDER BY week";
     const detail = makeDetail({
@@ -238,9 +238,62 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
-    expect(getByText(query).tagName).toBe("PRE");
+    expect(getByText(query).tagName).not.toBe("PRE");
+    // Only the output carries a copy button; the query is inline text.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+  });
+
+  test("sets text with line breaks as a copyable code block", () => {
+    const query = "SELECT week\nFROM events";
+    const detail = makeDetail({
+      toolName: "mcp__analytics__exec",
+      input: { query },
+    });
+    const { container, getAllByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    const blocks = [...container.querySelectorAll("pre")].map(
+      (pre) => pre.textContent,
+    );
+    expect(blocks).toContain(query);
     // One copy button for the query, one for the output.
     expect(getAllByLabelText("Copy")).toHaveLength(2);
+  });
+
+  test("folds a long one-line value behind Show more", () => {
+    const note = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_append",
+      input: { note },
+      result: "",
+    });
+    const { getByText, getAllByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText(note).tagName).not.toBe("PRE");
+    expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  test("folds a long table cell behind Show more", () => {
+    const body = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_import",
+      input: {
+        notes: [
+          { title: "first", body },
+          { title: "second", body: "short" },
+        ],
+      },
+      result: "",
+    });
+    const { getAllByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // The long cell folds; the short one and the title column do not.
+    expect(getAllByText("Show more")).toHaveLength(1);
   });
 
   test("counts the items past the first twenty instead of listing them", () => {

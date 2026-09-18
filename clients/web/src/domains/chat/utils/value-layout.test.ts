@@ -11,15 +11,26 @@ function firstField(values: Record<string, unknown>): ValueField | undefined {
 }
 
 describe("layoutValues", () => {
-  test("shows short values as text and long text as a code block", () => {
-    const query = "x".repeat(81);
-    expect(layout({ depth: "deep", max_results: 10, query })).toEqual({
+  test("shows a one-line value as text however long it is", () => {
+    const short = "select 1";
+    const long = `select ${"x, ".repeat(200)}1`;
+    expect(layout({ depth: "deep", max_results: 10, short, long })).toEqual({
       fields: [
         { kind: "text", label: "depth", text: "deep" },
         { kind: "text", label: "max_results", text: "10" },
-        { kind: "code", label: "query", text: query },
+        { kind: "text", label: "short", text: short },
+        { kind: "text", label: "long", text: long },
       ],
       more: 0,
+    });
+  });
+
+  test("shows text with a line break as a code block however short it is", () => {
+    const script = "cd app\nls";
+    expect(firstField({ script })).toEqual({
+      kind: "code",
+      label: "script",
+      text: script,
     });
   });
 
