@@ -196,6 +196,23 @@ describe("the introduction's keycap", () => {
     expect(lookAfter(1, 7)).toBe(lookAfter(1));
   });
 
+  /**
+   * The count belongs to the app's window, which can reload while the beat is
+   * still up: the run is main's and the surface holds it across that. The count
+   * starts again at zero when it does, and the press after it has to land on
+   * something rather than wait for the new count to climb past the old total.
+   */
+  test("follows the count back down when its window restarts", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={9} />,
+    );
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={0} />);
+    expect(keycapOf(container).className).not.toContain("emerald");
+
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={1} />);
+    expect(keycapOf(container).className).toContain("emerald");
+  });
+
   /** Walking on to the next beat asks again, so the cap starts again dark. */
   test("starts the next beat dark however many presses came before it", () => {
     const { container, rerender } = render(

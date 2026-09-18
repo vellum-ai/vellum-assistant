@@ -441,11 +441,19 @@ export function CompanionIntro({
   if (beatOfTaps !== beat) {
     setBeatOfTaps(beat);
     setTapsBeforeBeat(voiceKeyTaps);
+  } else if (voiceKeyTaps < tapsBeforeBeat) {
+    // **The count went backwards, so it is a different count.** It belongs to
+    // another window's store, which starts again at zero when that window
+    // reloads, and this card can outlive one: the beat is main's and the
+    // surface holds it across the app window coming and going. A baseline left
+    // where it was would be measuring the new count against the old one's
+    // total, and every press until it caught up would land on a cap that never
+    // lit. Following it down costs nothing, since a count that fell has no
+    // presses of this beat's left in it either way.
+    setTapsBeforeBeat(voiceKeyTaps);
   }
-  // Floored as well as capped: the count comes from another window's store,
-  // which starts again at zero when that window reloads, and a negative
-  // difference is a baseline from before the reload rather than a press taken
-  // back.
+  // Floored as well as capped, for the render that notices either of the two
+  // resets above and still holds the baseline they are replacing.
   const taps = Math.min(Math.max(voiceKeyTaps - tapsBeforeBeat, 0), 2);
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
