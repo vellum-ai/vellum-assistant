@@ -23549,6 +23549,14 @@ paths:
                 description:
                   description: Human-readable export description.
                   type: string
+                profile:
+                  description:
+                    "Export profile. 'migration' (default) builds a teleport bundle. 'debug' builds a bundle for Vellum staff
+                    to open on a debug clone: no credentials, plus the gateway's database and logs under gateway/."
+                  type: string
+                  enum:
+                    - migration
+                    - debug
               required:
                 - upload_url
       responses:

@@ -19,7 +19,10 @@ import { join, resolve } from "node:path";
 
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
-import { isRetiredArchivePath } from "./vbundle-import-policy.js";
+import {
+  isGatewayArchivePath,
+  isRetiredArchivePath,
+} from "./vbundle-import-policy.js";
 import type { ManifestType } from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-import-analyzer");
@@ -123,7 +126,10 @@ export class DefaultPathResolver implements PathResolver {
     // must never resolve to a disk target — resolving would write them
     // back into the workspace on import. The analyzer and both importers
     // turn the resulting null into a silent non-blocking skip.
-    if (isRetiredArchivePath(archivePath)) {
+    if (
+      isRetiredArchivePath(archivePath) ||
+      isGatewayArchivePath(archivePath)
+    ) {
       return null;
     }
 
@@ -297,10 +303,13 @@ export function analyzeImport(
       // Retired-feature file from a legacy bundle: nothing consumes it
       // anymore, so drop it silently instead of blocking the restore with
       // an UNKNOWN_ARCHIVE_PATH conflict.
-      if (isRetiredArchivePath(fileEntry.path)) {
+      if (
+        isRetiredArchivePath(fileEntry.path) ||
+        isGatewayArchivePath(fileEntry.path)
+      ) {
         log.info(
           { path: fileEntry.path },
-          "Retired archive path in legacy bundle — will be skipped on import",
+          "Archive path is not workspace data — will be skipped on import",
         );
         files.push({
           path: fileEntry.path,

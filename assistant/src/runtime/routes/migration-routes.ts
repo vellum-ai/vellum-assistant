@@ -643,8 +643,11 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   // "managed"), and teleport clients re-provision platform identity after
   // a platform→local import — so redact instead of emitting a bundle the
   // importer is guaranteed to reject.
+  //
+  // A debug bundle goes to Vellum staff, so it never carries credentials
+  // either, whatever the deployment mode.
   let collected: CollectedCredentials;
-  if (manifestInputs.origin.mode === "managed") {
+  if (manifestInputs.origin.mode === "managed" || isDebugProfile) {
     collected = {
       credentials: [],
       unreachable: false,
@@ -667,20 +670,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
     collected.perAccountUnreachable,
   );
 
-  // A debug bundle without the gateway's data is not what staff asked for,
-  // so this fails the request rather than shipping a partial bundle.
-  let extraFiles: Array<{ archivePath: string; data: Uint8Array }> = [];
   if (isDebugProfile) {
-    try {
-      extraFiles = [await collectGatewayDebugExport()];
-    } catch (err) {
-      log.error({ err }, "Failed to collect the gateway's debug export");
-      throw new RouteError(
-        "The gateway did not provide its debug export; the bundle was not sent.",
-        "gateway_debug_export_failed",
-        502,
-      );
-    }
     manifestInputs = {
       ...manifestInputs,
       exportOptions: { ...manifestInputs.exportOptions, include_gateway: true },
@@ -693,6 +683,25 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
     job = migrationJobs.startJob("export", async () => {
       let cleanup: (() => Promise<void>) | undefined;
       try {
+        // The gateway snapshot can take a while on a large database, so it
+        // runs inside the job (after the export slot is held) rather than
+        // before the 202. A debug bundle without the gateway's data is not
+        // what staff asked for, so a failure fails the job and nothing is
+        // uploaded.
+        let extraFiles: Array<{ archivePath: string; data: Uint8Array }> = [];
+        if (isDebugProfile) {
+          try {
+            extraFiles = [await collectGatewayDebugExport()];
+          } catch (err) {
+            log.error({ err }, "Failed to collect the gateway's debug export");
+            const wrapped = new Error(
+              "The gateway did not provide its debug export; the bundle was not sent.",
+            );
+            (wrapped as { code?: string }).code = "gateway_debug_export_failed";
+            throw wrapped;
+          }
+        }
+
         const result = await streamExportVBundle({
           workspaceDir: getWorkspaceDir(),
           ...manifestInputs,
@@ -2458,6 +2467,12 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe("Human-readable export description."),
+      profile: z
+        .enum(["migration", "debug"])
+        .optional()
+        .describe(
+          "Export profile. 'migration' (default) builds a teleport bundle. 'debug' builds a bundle for Vellum staff to open on a debug clone: no credentials, plus the gateway's database and logs under gateway/.",
+        ),
     }),
     responseStatus: "202",
     responseBody: z.object({

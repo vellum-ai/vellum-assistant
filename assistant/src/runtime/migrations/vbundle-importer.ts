@@ -324,10 +324,6 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     if (fileEntry.path.startsWith("credentials/")) {
       continue;
     }
-    // A debug bundle's gateway archive is never written into a workspace.
-    if (fileEntry.path.startsWith("gateway/")) {
-      continue;
-    }
 
     const diskPath = pathResolver.resolve(fileEntry.path);
 
@@ -344,7 +340,10 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         sha256: fileEntry.sha256,
         backup_path: null,
       });
-      if (!policy.isRetiredArchivePath(fileEntry.path)) {
+      if (
+        !policy.isRetiredArchivePath(fileEntry.path) &&
+        !policy.isGatewayArchivePath(fileEntry.path)
+      ) {
         warnings.push(
           `Skipped "${fileEntry.path}": no known disk target for this archive path`,
         );

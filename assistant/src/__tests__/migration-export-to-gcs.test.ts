@@ -383,6 +383,13 @@ describe("handleMigrationExportToGcs — debug profile", () => {
         (f) => f.path === "gateway/export.tar.gz",
       );
       expect(gatewayEntry?.size_bytes).toBe(FAKE_GATEWAY_ARCHIVE.length);
+      // Staff never receive credentials. The store mock reports itself
+      // unreachable, which would force `secrets_redacted: false` had the
+      // handler tried to collect them.
+      expect(manifest.secrets_redacted).toBe(true);
+      expect(
+        manifest.contents.some((f) => f.path.startsWith("credentials/")),
+      ).toBe(false);
     } finally {
       await fixture.close();
     }
@@ -450,11 +457,12 @@ describe("handleMigrationExportToGcs — debug profile", () => {
         handleMigrationExportToGcs,
         req,
         undefined,
-        502,
+        202,
       );
-      expect(res.status).toBe(502);
-      const body = (await res.json()) as { error?: { code?: string } };
-      expect(body.error?.code).toBe("gateway_debug_export_failed");
+      const body = (await res.json()) as { job_id: string };
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("failed");
+      expect(terminal.error?.code).toBe("gateway_debug_export_failed");
       expect(putCount).toBe(0);
     } finally {
       await fixture.close();

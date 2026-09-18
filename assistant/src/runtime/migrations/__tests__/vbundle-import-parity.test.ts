@@ -33,7 +33,10 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { buildVBundle } from "../vbundle-builder.js";
-import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
+import {
+  analyzeImport,
+  DefaultPathResolver,
+} from "../vbundle-import-analyzer.js";
 import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
@@ -419,7 +422,7 @@ describe("vbundle import parity (buffer vs streaming)", () => {
 
   test("F — debug-profile gateway entry: both importers drain it and write nothing", async () => {
     const configJson = JSON.stringify({ version: 1 });
-    const { archive } = buildVBundle({
+    const { archive, manifest } = buildVBundle({
       files: [
         { path: "workspace/data/db/assistant.db", data: new Uint8Array(8) },
         {
@@ -433,6 +436,15 @@ describe("vbundle import parity (buffer vs streaming)", () => {
       ],
       ...defaultV1Options(),
     });
+
+    // Preflight must not block on the gateway entry, or the CLI would
+    // refuse the restore before either importer runs.
+    const preflight = analyzeImport({
+      manifest,
+      pathResolver: new DefaultPathResolver(bufferWs),
+    });
+    expect(preflight.can_import).toBe(true);
+    expect(preflight.conflicts).toEqual([]);
 
     mkdirSync(bufferWs, { recursive: true });
     mkdirSync(streamWs, { recursive: true });
@@ -460,10 +472,14 @@ describe("vbundle import parity (buffer vs streaming)", () => {
     for (const relPath of bufferMap.keys()) {
       expect(relPath.startsWith("gateway")).toBe(false);
     }
-    // Silent, like credentials/: no "no known disk target" noise.
+    // Skipped silently, like a retired path: counted, but no
+    // "no known disk target" warning.
     for (const { report } of [bufferResult, streamResult]) {
-      expect(report.warnings.some((w) => w.includes("gateway/"))).toBe(false);
-      expect(report.summary.files_skipped).toBe(0);
+      expect(report.warnings).toEqual([]);
+      const gateway = report.files.find(
+        (f) => f.path === "gateway/export.tar.gz",
+      );
+      expect(gateway?.action).toBe("skipped");
     }
   });
 });

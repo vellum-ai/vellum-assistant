@@ -32,12 +32,17 @@ export async function buildDebugExportArchive(
     snapshotGatewayDb(join(stagingDir, "gateway.sqlite"));
     await collectGatewayLogs(config, stagingDir);
 
+    // The absolute path keeps a PATH-injected tar out of the picture on
+    // macOS and Linux. Windows 10+ ships bsdtar as tar.exe in System32 with
+    // no fixed absolute path, so it resolves through PATH there.
+    const tarBinary = process.platform === "win32" ? "tar" : "/usr/bin/tar";
     const archivePath = `${stagingDir}.tar.gz`;
     const tar = Bun.spawn(
-      ["/usr/bin/tar", "czf", archivePath, "-C", stagingDir, "."],
+      [tarBinary, "czf", archivePath, "-C", stagingDir, "."],
       {
         stdout: "ignore",
         stderr: "pipe",
+        windowsHide: true,
       },
     );
     if ((await tar.exited) !== 0) {
