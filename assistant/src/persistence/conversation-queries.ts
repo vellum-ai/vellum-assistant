@@ -1440,9 +1440,9 @@ function buildExcerptFromText(
     text.length,
     match.index + match.length + EXCERPT_WINDOW,
   );
-  const excerpt =
+  return (
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +
-    (end < text.length ? "\u2026" : "");
-  return excerpt;
+    (end < text.length ? "\u2026" : "")
+  );
 }

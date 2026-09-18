@@ -62,9 +62,7 @@ export class RateLimitProvider implements Provider {
     // calls from bypassing the rate limit during the async gap.
     this.recordRequest();
 
-    const response = await this.inner.sendMessage(messages, options);
-
-    return response;
+    return this.inner.sendMessage(messages, options);
   }
 
   private enforceRequestRate(): void {
