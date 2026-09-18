@@ -36,6 +36,10 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
+  intersectChannelAllowlist,
+  readChannelAllowlist,
+} from "./channel-allowlist.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
@@ -48,10 +52,6 @@ import {
   resolveGuardianInstructionModeFromPayload,
   stripGuardianReplyMechanicsFromCopy,
 } from "./guardian-question-mode.js";
-import {
-  intersectChannelAllowlist,
-  readChannelAllowlist,
-} from "./channel-allowlist.js";
 import {
   nonEmpty,
   readPayloadObject,

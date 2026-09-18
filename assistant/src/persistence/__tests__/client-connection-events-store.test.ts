@@ -3,15 +3,15 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateCreateClientConnectionEvents } from "../migrations/382-create-client-connection-events.js";
 import {
   CLIENT_CONNECTION_EVENT_RETENTION_MS,
   CLIENT_CONNECTION_FLAP_WINDOW_MS,
+  type ClientConnectionEvent,
   coalesceClientConnectionSessions,
   listClientConnectionHistory,
   recordClientConnectionEvent,
-  type ClientConnectionEvent,
 } from "../client-connection-events-store.js";
+import { migrateCreateClientConnectionEvents } from "../migrations/382-create-client-connection-events.js";
 import * as schema from "../schema.js";
 
 function createTestDb() {

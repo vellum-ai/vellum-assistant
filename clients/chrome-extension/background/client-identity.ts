@@ -55,19 +55,26 @@ export async function getClientId(): Promise<string> {
  * Attach to SSE streaming connections so the event hub can track
  * connected clients and their capabilities.
  */
-export async function getClientRegistrationHeaders(): Promise<Record<string, string>> {
-  const headers: Record<string, string> = {
-    'X-Vellum-Client-Id': await getClientId(),
-    'X-Vellum-Interface-Id': CHROME_EXT_INTERFACE_ID,
-  };
-  const version = readManifestVersion();
+export function clientCapabilityHeaders(
+  version: string | undefined,
+  watchdogEnabled: boolean,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
   if (version) {
     headers['X-Vellum-Client-Version'] = version;
   }
-  if (SSE_WATCHDOG_ENABLED) {
+  if (watchdogEnabled) {
     headers['X-Vellum-Sse-Watchdog'] = '1';
   }
   return headers;
+}
+
+export async function getClientRegistrationHeaders(): Promise<Record<string, string>> {
+  return {
+    'X-Vellum-Client-Id': await getClientId(),
+    'X-Vellum-Interface-Id': CHROME_EXT_INTERFACE_ID,
+    ...clientCapabilityHeaders(readManifestVersion(), SSE_WATCHDOG_ENABLED),
+  };
 }
 
 function readManifestVersion(): string | undefined {

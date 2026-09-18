@@ -12,7 +12,8 @@ import { v4 as uuid } from "uuid";
 
 import type { InterfaceId } from "../channels/types.js";
 import { getLogger } from "../util/logger.js";
-import { type DrizzleDb, getDb, isDbOpen } from "./db-connection.js";
+import type { DrizzleDb } from "./db-connection.js";
+import * as dbConnection from "./db-connection.js";
 import { clientConnectionEvents } from "./schema/index.js";
 
 const log = getLogger("client-connection-events-store");
@@ -106,11 +107,16 @@ function resolveDb(database?: DrizzleDb): DrizzleDb | null {
   if (database) {
     return database;
   }
-  if (!isDbOpen()) {
+  // Namespace import so a test mock of db-connection that omits `isDbOpen`
+  // still loads. Incomplete mocks skip the probe and try `getDb()`.
+  if (
+    typeof dbConnection.isDbOpen === "function" &&
+    !dbConnection.isDbOpen()
+  ) {
     return null;
   }
   try {
-    return getDb();
+    return dbConnection.getDb();
   } catch (err) {
     log.debug({ err }, "client connection history skipped: database unready");
     return null;

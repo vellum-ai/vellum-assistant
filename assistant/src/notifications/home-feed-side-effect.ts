@@ -30,6 +30,7 @@ import {
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
+import { readChannelAllowlist } from "./channel-allowlist.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -38,7 +39,6 @@ import {
   isGuardianRequestSignalEvent,
   receiptGuardianFeedItemIfRequestTerminal,
 } from "./guardian-feed-projection.js";
-import { readChannelAllowlist } from "./channel-allowlist.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
