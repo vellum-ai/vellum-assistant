@@ -429,10 +429,18 @@ export function useCompanionMirror(): void {
     const unsubscribeDictation = useVoiceRecordingStore.subscribe(
       onDictationMaybeFlipped,
     );
-    // The key being touched. Its store moves once per tap and for nothing
-    // else, so it goes straight to `sync` with no gate in front of it. One push
-    // per tap is the cost, which is a tap of one key against an integer on a
-    // payload the surface is already being sent.
+    // The key being touched, which only the introduction has ever drawn. No
+    // gate here on purpose: the gate is upstream, on the count itself
+    // (`global-push-to-talk-bridge`), so the store moves only while a run is up
+    // and every move it makes is one the surface wants. A push is not the cheap
+    // thing it looks like, since `sync` reselects and remaps the whole context
+    // before it crosses two process boundaries and lands as a render, so the
+    // question is not what the payload costs but whether anybody asked for it.
+    //
+    // Gating here instead would leave the store climbing behind a closed
+    // publish, and the card baselines on what it is handed when the beat
+    // changes: the next run's first push would arrive carrying every tap made
+    // since, and open with the cap already filled.
     const unsubscribeTaps = useVoiceKeyTapStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published

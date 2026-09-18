@@ -2295,19 +2295,25 @@ export interface CompanionContext {
    */
   voicesPickable?: boolean;
   /**
-   * How many times the voice key has been tapped since the publishing window
-   * loaded.
+   * How many taps of the voice key landed while an introduction was running,
+   * since the publishing window loaded.
    *
    * Raw key edges reach only the window that claimed the binding, which is
    * never the surface's, so a tap is invisible to the one surface that has
    * anything to say about it: the introduction, which draws the key and asks
    * for it to be pressed.
    *
+   * That introduction is the only reader, so the publisher counts only while
+   * one is staged and this number stands still the rest of the time. A key that
+   * is also the globe key would otherwise spend the life of the install
+   * rebuilding this payload for a surface with nothing to do with it.
+   *
    * A running count rather than an event, the way `captureCount` is, and for
    * the same reason: a number that goes up is the only shape that survives the
    * crossing and still says "that was another one" to a renderer that repaints
    * on its own schedule. Never reset, so a reader measuring taps since some
-   * moment of its own subtracts the value it saw then.
+   * moment of its own subtracts the value it saw then, which is also what lets
+   * a second run open on the total the first one left standing.
    *
    * Optional and defaulted, the bargain `captureCount` makes: a publisher that
    * reports no taps has reported none.
@@ -2861,12 +2867,13 @@ export interface CompanionSurfaceState {
    */
   intro: CompanionIntroBeat | null;
   /**
-   * Taps of the voice key, counted by the window that holds the binding. See
-   * {@link CompanionContext.voiceKeyTaps}.
+   * Taps of the voice key, counted by the window that holds the binding while
+   * an introduction is running. See {@link CompanionContext.voiceKeyTaps}.
    *
    * What the introduction's drawn keycap answers with: the beat asks for the
    * real key, and a step in this number is the only evidence this window has
-   * that the user pressed it.
+   * that the user pressed it. Outside a run nothing steps it, since the card is
+   * the only thing that ever asked.
    *
    * Optional, and absence reads as no taps, the same bargain
    * {@link CompanionSurfaceState.captureCount} makes with absence.

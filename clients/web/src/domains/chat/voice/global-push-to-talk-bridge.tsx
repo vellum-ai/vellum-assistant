@@ -42,6 +42,7 @@ import { mintVoiceDraftConversation } from "@/domains/chat/voice/voice-draft-con
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
+import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
@@ -392,7 +393,25 @@ export function GlobalPushToTalkBridge({
     // Counted and nothing else. A tap asks for nothing here; the count is what
     // lets the companion's introduction show the key answering while it is
     // teaching that key.
+    //
+    // **Counted only while that introduction is up.** It is the count's one
+    // reader, and it runs once in the life of an install, while Fn is the globe
+    // key: the emoji picker and the input-source switch hang off it, so a user
+    // who never opens the companion again still touches it all day. Every move
+    // of the store is a `sync` that reselects and remaps the whole companion
+    // context, two IPC hops, and a render on the surface, so leaving it counting
+    // charges that to a key press the introduction stopped caring about.
+    //
+    // The gate is on the count rather than on the publish because the card
+    // baselines on the value it is given when the beat changes. A store still
+    // climbing behind a closed publish would hand the next run a total gathered
+    // while nothing was listening, which reads on the card as presses already
+    // made: the cap would open filled. Nothing moves the store outside a run, so
+    // there is nothing stale for a run to start from.
     onTap: () => {
+      if (!companionIntroStaged()) {
+        return;
+      }
       useVoiceKeyTapStore.getState().countTap();
     },
   });

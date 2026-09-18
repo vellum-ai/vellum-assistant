@@ -58,6 +58,7 @@ let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
   onHoldEnd: () => void;
   onDoubleTap: () => void;
+  onTap: () => void;
 } | null = null;
 mock.module("@/domains/chat/voice/use-voice-key", () => ({
   useVoiceKey: (options: {
@@ -66,6 +67,7 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
     }) => void;
     onHoldEnd: () => void;
     onDoubleTap: () => void;
+    onTap: () => void;
   }) => {
     // The hook hands the bridge a selection still being read; the tests
     // describe what it will resolve to.
@@ -74,8 +76,19 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
         options.onHoldStart({ selection: Promise.resolve(start.selection) }),
       onHoldEnd: options.onHoldEnd,
       onDoubleTap: options.onDoubleTap,
+      onTap: options.onTap,
     };
   },
+}));
+
+/**
+ * Whether the companion's introduction is staged, which is main's answer and
+ * the only thing that decides whether a tap is worth counting.
+ */
+let introStaged = false;
+mock.module("@/runtime/companion-intro-stage", () => ({
+  companionIntroStaged: () => introStaged,
+  useCompanionIntroStaged: () => introStaged,
 }));
 
 const askedTexts: string[] = [];
@@ -187,6 +200,8 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
+const { useVoiceKeyTapStore } =
+  await import("@/domains/chat/voice/voice-key-tap-store");
 
 const renderBridge = (assistantId: string | null = "assistant-1") => {
   // The bridge's voice mode shortcut navigates to the conversation surface
@@ -230,6 +245,7 @@ afterEach(() => {
   useConversationStore.getState().reset();
   useViewerStore.getState().reset();
   useAssistantIdentityStore.getState().clearIdentity();
+  introStaged = false;
   localStorage.clear();
 });
 
@@ -457,6 +473,98 @@ test("a double tap of the voice key is Talk", () => {
     expect.any(Function),
     "voice_key",
   );
+});
+
+/**
+ * A single tap is counted for the companion's introduction and for nothing
+ * else, and the introduction runs once.
+ *
+ * The store has no reset, on purpose (`voice-key-tap-store`), so these read the
+ * distance the count moved rather than where it landed.
+ */
+describe("counting taps for the introduction", () => {
+  /** How far the count moves while `body` runs. */
+  const tapsCountedDuring = (body: () => void): number => {
+    const before = useVoiceKeyTapStore.getState().taps;
+    body();
+    return useVoiceKeyTapStore.getState().taps - before;
+  };
+
+  test("does not count a tap with no run staged", () => {
+    renderBridge("a1");
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    // Fn is the globe key, so these are the emoji picker and the input-source
+    // switch as much as they are anything of ours. Nothing is drawing the count,
+    // so nothing pays for a push.
+    expect(counted).toBe(0);
+  });
+
+  test("counts a tap once a run is staged", () => {
+    renderBridge("a1");
+    introStaged = true;
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(counted).toBe(2);
+  });
+
+  /**
+   * The gate is read on the tap rather than held on the binding, so a run that
+   * starts under a bridge already mounted is counted without the key being
+   * rebound. Nothing counted while the run was down is waiting to be released
+   * into it: the card would read that backlog as presses already made.
+   */
+  test("counts nothing from before the run when one starts", () => {
+    renderBridge("a1");
+
+    const beforeRun = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+    introStaged = true;
+    const duringRun = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(beforeRun).toBe(0);
+    expect(duringRun).toBe(1);
+  });
+
+  /** And it closes again with the run, for the install's whole remaining life. */
+  test("stops counting when the run ends", () => {
+    renderBridge("a1");
+    introStaged = true;
+    act(() => {
+      holdHandlers?.onTap();
+    });
+    introStaged = false;
+
+    const counted = tapsCountedDuring(() => {
+      act(() => {
+        holdHandlers?.onTap();
+        holdHandlers?.onTap();
+      });
+    });
+
+    expect(counted).toBe(0);
+  });
 });
 
 /**
