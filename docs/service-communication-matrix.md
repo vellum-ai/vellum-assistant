@@ -42,11 +42,34 @@ This document enumerates every observed communication permutation between the th
 | 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
 | 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
 | 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 33 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 34 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 35 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel admission policy IPC |
+| 34 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Inbound trust verdict IPC |
+| 35 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian delivery IPC |
+| 36 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian requests IPC |
+| 37 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Invites IPC |
+| 38 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Verification sessions IPC |
+| 39 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel socket health IPC |
+| 40 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Credential request IPC |
+| 41 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Gateway log tail IPC |
+| 42 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Slack thread IPC |
+| 43 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Trust rules IPC |
+| 44 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Velay status IPC |
+| 45 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Webhook route IPC |
+| 46 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contacts mirror IPC |
+| 47 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contact info IPC |
+| 48 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Invite actions IPC |
+| 49 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Event emission IPC |
+| 50 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant database proxy IPC |
+| 51 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Credential write IPC |
+| 52 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Guardian form IPC |
+| 53 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
+| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
+| 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
+| 56 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 57 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 58 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 59 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 60 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -393,6 +416,150 @@ This document enumerates every observed communication permutation between the th
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
 
+### Contacts mirror IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway mirrors its contact writes into the assistant's contact store (contacts_mirror_apply, contacts_mirror_upsert_full, contacts_mirror_upsert_contact, contacts_mirror_upsert_channel, contacts_mirror_merge_contact, contacts_mirror_delete_contact).
+
+**Caller files:**
+- `gateway/src/auth/guardian-bootstrap.ts`
+- `gateway/src/db/contact-store.ts`
+- `gateway/src/http/routes/contact-prompt.ts`
+- `gateway/src/http/routes/contacts-control-plane-proxy.ts`
+- `gateway/src/verification/contact-helpers.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/contacts-mirror-ipc-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Contact info IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs (contacts-info-client.ts), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).
+
+**Caller files:**
+- `gateway/src/ipc/contacts-info-client.ts`
+- `gateway/src/http/routes/contact-prompt.ts`
+- `gateway/src/http/routes/contacts-control-plane-proxy.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/contacts-info-ipc-routes.ts`
+- `assistant/src/runtime/routes/contact-prompt-routes.ts`
+- `assistant/src/ipc/routes/guardian-label-ipc-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Invite actions IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway asks the assistant to compose an invite's presentation (invites_compose_presentation), place an invite call (invites_trigger_call), and act on a redeemed invite (invite_redeemed).
+
+**Caller files:**
+- `gateway/src/http/routes/contacts-control-plane-proxy.ts`
+- `gateway/src/verification/invite-redemption.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/invite-ipc-routes.ts`
+- `assistant/src/runtime/routes/contact-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Event emission IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway emits client events through the assistant's event hub (emit_event).
+
+**Caller files:**
+- `gateway/src/auth/guardian-bootstrap.ts`
+- `gateway/src/http/routes/contact-prompt.ts`
+- `gateway/src/http/routes/contacts-control-plane-proxy.ts`
+- `gateway/src/ipc/threshold-handlers.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/events-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Assistant database proxy IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway's one-time data migrations read from and drop tables in the assistant's SQLite database through the assistant (db_proxy). Allowlisted to the migrations; no runtime feature uses it.
+
+**Caller files:**
+- `gateway/src/db/assistant-db-proxy.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/db-proxy.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Credential write IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway stores a credential submitted through a credential request link (credentials_set).
+
+**Caller files:**
+- `gateway/src/http/routes/credential-requests.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/credential-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Guardian form IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway claims and resolves a guardian form submitted over HTTP (guardian_form_claim, resolve_guardian_form).
+
+**Caller files:**
+- `gateway/src/http/routes/guardian-form-submit.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/guardian-form-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Trust rule suggestion IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway asks the assistant to suggest a trust rule (suggest_trust_rule).
+
+**Caller files:**
+- `gateway/src/ipc/assistant-client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/suggest-trust-rule-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Runtime route proxy over IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway serves an HTTP request by calling the matching assistant route over IPC when the client sends X-Vellum-Proxy-Server: ipc, using the route schema it caches from get_route_schema.
+
+**Caller files:**
+- `gateway/src/http/routes/ipc-runtime-proxy.ts`
+- `gateway/src/ipc/route-schema-cache.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/route-adapter.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Assistant health IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway polls the assistant's health after startup (health).
+
+**Caller files:**
+- `gateway/src/post-assistant-ready.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/identity-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
 ## Assistant -> Gateway
 
 ### Feature flags IPC
@@ -438,13 +605,187 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `ipc-unix-ndjson`
 - **Auth:** none (local socket)
-- **Description:** Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.
+- **Description:** Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.
 
 **Caller files:**
 - `assistant/src/permissions/gateway-threshold-reader.ts`
 
 **Callee files:**
 - `gateway/src/ipc/threshold-handlers.ts`
+- `gateway/src/ipc/channel-permission-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Channel admission policy IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant reads a channel's admission policy from the gateway (get_channel_admission_policy).
+
+**Caller files:**
+- `assistant/src/calls/channel-admission-reader.ts`
+
+**Callee files:**
+- `gateway/src/ipc/admission-policy-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Inbound trust verdict IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant asks the gateway for the trust verdict on an inbound actor (resolve_inbound_trust).
+
+**Caller files:**
+- `assistant/src/calls/inbound-trust-reader.ts`
+
+**Callee files:**
+- `gateway/src/ipc/trust-verdict-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Guardian delivery IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant resolves where to deliver to the guardian on each channel (resolve_guardian_delivery).
+
+**Caller files:**
+- `assistant/src/contacts/guardian-delivery-reader.ts`
+
+**Callee files:**
+- `gateway/src/ipc/guardian-delivery-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Guardian requests IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant creates, reads, lists, updates, decides and expires gateway-owned guardian requests and their deliveries (the guardian_requests_* methods in GUARDIAN_REQUESTS_IPC_METHODS).
+
+**Caller files:**
+- `assistant/src/channels/gateway-guardian-requests.ts`
+
+**Callee files:**
+- `gateway/src/ipc/guardian-request-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Invites IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant lists, creates, revokes and redeems gateway-owned invites, including voice invites (the invites_* methods in INVITES_IPC_METHODS).
+
+**Caller files:**
+- `assistant/src/channels/gateway-invites.ts`
+- `assistant/src/calls/gateway-invite-reader.ts`
+
+**Callee files:**
+- `gateway/src/ipc/invite-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Verification sessions IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant creates and advances gateway-owned channel verification sessions (the methods in VERIFICATION_SESSIONS_IPC_METHODS).
+
+**Caller files:**
+- `assistant/src/channels/gateway-verification-sessions.ts`
+
+**Callee files:**
+- `gateway/src/ipc/verification-session-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Channel socket health IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant reads the health of the gateway's Slack and Discord socket connections (channel_socket_health).
+
+**Caller files:**
+- `assistant/src/channels/gateway-channel-socket-health.ts`
+
+**Callee files:**
+- `gateway/src/ipc/channel-socket-health-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Credential request IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant asks the gateway to create a credential request link (create_credential_request).
+
+**Caller files:**
+- `assistant/src/daemon/handlers/shared.ts`
+- `assistant/src/runtime/routes/credential-request-routes.ts`
+
+**Callee files:**
+- `gateway/src/ipc/credential-request-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Gateway log tail IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant tails the gateway's logs for the gateway logs route (gateway_logs_tail).
+
+**Caller files:**
+- `assistant/src/runtime/routes/gateway-log-routes.ts`
+
+**Callee files:**
+- `gateway/src/ipc/log-tail-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Slack thread IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant detaches a conversation from its active Slack thread (detach_slack_active_thread).
+
+**Caller files:**
+- `assistant/src/runtime/routes/conversation-cli-routes.ts`
+
+**Callee files:**
+- `gateway/src/ipc/slack-thread-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Trust rules IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant lists gateway-owned trust rules (trust_rules_list).
+
+**Caller files:**
+- `assistant/src/runtime/routes/trust-rules-routes.ts`
+
+**Callee files:**
+- `gateway/src/ipc/trust-rules-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Velay status IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant reads the Velay tunnel status for the gateway status route (get_velay_status).
+
+**Caller files:**
+- `assistant/src/ipc/gateway-client.ts`
+- `assistant/src/runtime/routes/gateway-status-routes.ts`
+
+**Callee files:**
+- `gateway/src/ipc/velay-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Webhook route IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant registers platform callback webhook routes with the gateway (register_webhook_route).
+
+**Caller files:**
+- `assistant/src/ipc/gateway-client.ts`
+- `assistant/src/inbound/platform-callback-registration.ts`
+
+**Callee files:**
+- `gateway/src/ipc/webhook-route-handlers.ts`
 - `gateway/src/ipc/server.ts`
 
 ## Assistant -> CES

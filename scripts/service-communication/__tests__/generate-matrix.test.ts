@@ -18,6 +18,7 @@ const VALID_PROTOCOLS: Protocol[] = [
   "http",
   "websocket",
   "ipc-unix-ndjson",
+  "ipc-unix-framed",
   "stdio-ndjson",
   "unix-socket-ndjson",
 ];
@@ -231,6 +232,51 @@ describe("service communication matrix", () => {
           "",
           "Add a Gateway -> Assistant entry in matrix-source.ts with a callerGlob",
           "that matches each file, or add it to ALLOWLIST if it is not a true callsite.",
+        ].join("\n"),
+      );
+    }
+  });
+
+  test("every gateway IPC handler file is covered by a matrix calleeGlob", () => {
+    /**
+     * Each non-test gateway/src/ipc/*-handlers.ts file registers methods on
+     * the gateway's IPC server (gateway/src/index.ts spreads them into
+     * GatewayIpcServer), so each is a callee some other process reaches over
+     * IPC and must appear in at least one entry whose callee is the gateway.
+     *
+     * Add to this list, with a comment, only a handler file whose methods no
+     * other service calls.
+     */
+    const ALLOWLIST = new Set<string>([]);
+
+    const coveredFiles = new Set<string>();
+    for (const entry of MATRIX_ENTRIES.filter((e) => e.callee === "gateway")) {
+      for (const pattern of entry.calleeGlobs) {
+        const glob = new Glob(pattern);
+        for (const match of glob.scanSync({ cwd: REPO_ROOT })) {
+          coveredFiles.add(match);
+        }
+      }
+    }
+
+    const handlerGlob = new Glob("gateway/src/ipc/*-handlers.ts");
+    const uncovered: string[] = [];
+    for (const relPath of handlerGlob.scanSync({ cwd: REPO_ROOT })) {
+      if (relPath.endsWith(".test.ts")) continue;
+      if (ALLOWLIST.has(relPath)) continue;
+      if (!coveredFiles.has(relPath)) {
+        uncovered.push(relPath);
+      }
+    }
+
+    if (uncovered.length > 0) {
+      throw new Error(
+        [
+          "The following gateway IPC handler files have no matrix entry:",
+          ...uncovered.sort().map((f) => `  ${f}`),
+          "",
+          "Add an entry in matrix-source.ts whose calleeGlobs match each file,",
+          "or add it to ALLOWLIST if no other service calls its methods.",
         ].join("\n"),
       );
     }

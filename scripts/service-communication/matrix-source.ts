@@ -20,6 +20,7 @@ export type Protocol =
   | "http"
   | "websocket"
   | "ipc-unix-ndjson"
+  | "ipc-unix-framed"
   | "stdio-ndjson"
   | "unix-socket-ndjson";
 
@@ -436,13 +437,404 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "ipc-unix-ndjson",
     auth: "none (local socket)",
     description:
-      "Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.",
+      "Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.",
     callerGlobs: [
       "assistant/src/permissions/gateway-threshold-reader.ts",
     ],
     calleeGlobs: [
       "gateway/src/ipc/threshold-handlers.ts",
+      "gateway/src/ipc/channel-permission-handlers.ts",
       "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Channel admission policy IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant reads a channel's admission policy from the gateway (get_channel_admission_policy).",
+    callerGlobs: [
+      "assistant/src/calls/channel-admission-reader.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/admission-policy-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Inbound trust verdict IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant asks the gateway for the trust verdict on an inbound actor (resolve_inbound_trust).",
+    callerGlobs: [
+      "assistant/src/calls/inbound-trust-reader.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/trust-verdict-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Guardian delivery IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant resolves where to deliver to the guardian on each channel (resolve_guardian_delivery).",
+    callerGlobs: [
+      "assistant/src/contacts/guardian-delivery-reader.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/guardian-delivery-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Guardian requests IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant creates, reads, lists, updates, decides and expires gateway-owned guardian requests and their deliveries (the guardian_requests_* methods in GUARDIAN_REQUESTS_IPC_METHODS).",
+    callerGlobs: [
+      "assistant/src/channels/gateway-guardian-requests.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/guardian-request-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Invites IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant lists, creates, revokes and redeems gateway-owned invites, including voice invites (the invites_* methods in INVITES_IPC_METHODS).",
+    callerGlobs: [
+      "assistant/src/channels/gateway-invites.ts",
+      "assistant/src/calls/gateway-invite-reader.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/invite-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Verification sessions IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant creates and advances gateway-owned channel verification sessions (the methods in VERIFICATION_SESSIONS_IPC_METHODS).",
+    callerGlobs: [
+      "assistant/src/channels/gateway-verification-sessions.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/verification-session-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Channel socket health IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant reads the health of the gateway's Slack and Discord socket connections (channel_socket_health).",
+    callerGlobs: [
+      "assistant/src/channels/gateway-channel-socket-health.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/channel-socket-health-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Credential request IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant asks the gateway to create a credential request link (create_credential_request).",
+    callerGlobs: [
+      "assistant/src/daemon/handlers/shared.ts",
+      "assistant/src/runtime/routes/credential-request-routes.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/credential-request-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Gateway log tail IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant tails the gateway's logs for the gateway logs route (gateway_logs_tail).",
+    callerGlobs: [
+      "assistant/src/runtime/routes/gateway-log-routes.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/log-tail-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Slack thread IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant detaches a conversation from its active Slack thread (detach_slack_active_thread).",
+    callerGlobs: [
+      "assistant/src/runtime/routes/conversation-cli-routes.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/slack-thread-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Trust rules IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant lists gateway-owned trust rules (trust_rules_list).",
+    callerGlobs: [
+      "assistant/src/runtime/routes/trust-rules-routes.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/trust-rules-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Velay status IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant reads the Velay tunnel status for the gateway status route (get_velay_status).",
+    callerGlobs: [
+      "assistant/src/ipc/gateway-client.ts",
+      "assistant/src/runtime/routes/gateway-status-routes.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/velay-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Webhook route IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant registers platform callback webhook routes with the gateway (register_webhook_route).",
+    callerGlobs: [
+      "assistant/src/ipc/gateway-client.ts",
+      "assistant/src/inbound/platform-callback-registration.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/webhook-route-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+
+  // =========================================================================
+  // Gateway -> Assistant (IPC Unix, length-prefixed framing)
+  // =========================================================================
+  {
+    label: "Contacts mirror IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway mirrors its contact writes into the assistant's contact store (contacts_mirror_apply, contacts_mirror_upsert_full, contacts_mirror_upsert_contact, contacts_mirror_upsert_channel, contacts_mirror_merge_contact, contacts_mirror_delete_contact).",
+    callerGlobs: [
+      "gateway/src/auth/guardian-bootstrap.ts",
+      "gateway/src/db/contact-store.ts",
+      "gateway/src/http/routes/contact-prompt.ts",
+      "gateway/src/http/routes/contacts-control-plane-proxy.ts",
+      "gateway/src/verification/contact-helpers.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/contacts-mirror-ipc-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Contact info IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs (contacts-info-client.ts), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).",
+    callerGlobs: [
+      "gateway/src/ipc/contacts-info-client.ts",
+      "gateway/src/http/routes/contact-prompt.ts",
+      "gateway/src/http/routes/contacts-control-plane-proxy.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/contacts-info-ipc-routes.ts",
+      "assistant/src/runtime/routes/contact-prompt-routes.ts",
+      "assistant/src/ipc/routes/guardian-label-ipc-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Invite actions IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway asks the assistant to compose an invite's presentation (invites_compose_presentation), place an invite call (invites_trigger_call), and act on a redeemed invite (invite_redeemed).",
+    callerGlobs: [
+      "gateway/src/http/routes/contacts-control-plane-proxy.ts",
+      "gateway/src/verification/invite-redemption.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/invite-ipc-routes.ts",
+      "assistant/src/runtime/routes/contact-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Event emission IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway emits client events through the assistant's event hub (emit_event).",
+    callerGlobs: [
+      "gateway/src/auth/guardian-bootstrap.ts",
+      "gateway/src/http/routes/contact-prompt.ts",
+      "gateway/src/http/routes/contacts-control-plane-proxy.ts",
+      "gateway/src/ipc/threshold-handlers.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/events-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Assistant database proxy IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway's one-time data migrations read from and drop tables in the assistant's SQLite database through the assistant (db_proxy). Allowlisted to the migrations; no runtime feature uses it.",
+    callerGlobs: [
+      "gateway/src/db/assistant-db-proxy.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/db-proxy.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Credential write IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway stores a credential submitted through a credential request link (credentials_set).",
+    callerGlobs: [
+      "gateway/src/http/routes/credential-requests.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/credential-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Guardian form IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway claims and resolves a guardian form submitted over HTTP (guardian_form_claim, resolve_guardian_form).",
+    callerGlobs: [
+      "gateway/src/http/routes/guardian-form-submit.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/guardian-form-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Trust rule suggestion IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway asks the assistant to suggest a trust rule (suggest_trust_rule).",
+    callerGlobs: [
+      "gateway/src/ipc/assistant-client.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/suggest-trust-rule-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Runtime route proxy over IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway serves an HTTP request by calling the matching assistant route over IPC when the client sends X-Vellum-Proxy-Server: ipc, using the route schema it caches from get_route_schema.",
+    callerGlobs: [
+      "gateway/src/http/routes/ipc-runtime-proxy.ts",
+      "gateway/src/ipc/route-schema-cache.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/route-adapter.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
+    label: "Assistant health IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway polls the assistant's health after startup (health).",
+    callerGlobs: [
+      "gateway/src/post-assistant-ready.ts",
+    ],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/identity-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
     ],
   },
 
