@@ -136,15 +136,13 @@ export class BrowserModeSessionProducer {
     }
 
     const handle = token.handle;
-    if (outcome.isError || outcome.cancelled) {
+    if (outcome.cancelled) {
       if (!handle || !this.#isCurrent(handle)) {
         return false;
       }
       return this.#retire(handle, {
         status: "interrupted",
-        endReason: outcome.cancelled
-          ? "browser_operation_cancelled"
-          : "browser_operation_failed",
+        endReason: "browser_operation_cancelled",
       });
     }
 
@@ -152,10 +150,12 @@ export class BrowserModeSessionProducer {
       if (!handle || !this.#isCurrent(handle)) {
         return false;
       }
-      return this.#retire(handle, {
-        status: "completed",
-        endReason: outcome.terminalReason ?? "browser_closed",
-      });
+      if (!outcome.isError) {
+        return this.#retire(handle, {
+          status: "completed",
+          endReason: outcome.terminalReason ?? "browser_closed",
+        });
+      }
     }
 
     return this.#coordinator.recordActivity(token.turnId, outcome.at);

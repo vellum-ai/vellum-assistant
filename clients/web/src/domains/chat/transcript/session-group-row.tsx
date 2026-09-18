@@ -24,10 +24,7 @@ const SESSION_RAIL_CLASS =
   "ml-[7px] border-l border-[var(--border-element)] pl-4";
 
 export type SessionGroupMode =
-  | "computerUse"
-  | "browser"
-  | "liveVision"
-  | "ambient";
+  "computerUse" | "browser" | "liveVision" | "ambient";
 
 const MODE_ICONS: Record<SessionGroupMode, LucideIcon> = {
   computerUse: Monitor,
@@ -299,7 +296,7 @@ export function SessionGroupRow({
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="flex items-center gap-2">
               <Typography
-                variant="label-small-default"
+                variant="body-medium-default"
                 className="truncate text-[var(--content-default)]"
               >
                 {title}

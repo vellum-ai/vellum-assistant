@@ -315,7 +315,47 @@ describe("BrowserModeSessionProducer", () => {
     expect(state.retired).toHaveLength(1);
   });
 
-  test("failure retires the exact run while accepted output remains on its captured turn", () => {
+  test("a failed close keeps the session active until a successful retry", () => {
+    const state = createCoordinator();
+    const producer = new BrowserModeSessionProducer(state.coordinator);
+    const action = producer.beginOperation({
+      turnId: "turn-1",
+      lifecycle: "action",
+      at: 100,
+    });
+    const close = producer.beginOperation({
+      turnId: "turn-1",
+      lifecycle: "terminal",
+      at: 110,
+    });
+    expect(
+      producer.finishOperation(close, {
+        at: 120,
+        isError: true,
+        cancelled: false,
+      }),
+    ).toBe(true);
+    expect(state.retired).toHaveLength(0);
+    expect(state.activity).toEqual([{ turnId: "turn-1", at: 120 }]);
+
+    const retry = producer.beginOperation({
+      turnId: "turn-1",
+      lifecycle: "terminal",
+      at: 130,
+    });
+    expect(retry?.handle).toEqual(action?.handle);
+    producer.finishOperation(retry, {
+      at: 140,
+      isError: false,
+      cancelled: false,
+    });
+    expect(state.retired[0]?.disposition).toEqual({
+      status: "completed",
+      endReason: "browser_closed",
+    });
+  });
+
+  test("cancellation retires the exact run while accepted output remains on its captured turn", () => {
     const state = createCoordinator();
     const producer = new BrowserModeSessionProducer(state.coordinator);
     const stale = producer.beginOperation({
@@ -327,12 +367,12 @@ describe("BrowserModeSessionProducer", () => {
       producer.finishOperation(stale, {
         at: 120,
         isError: true,
-        cancelled: false,
+        cancelled: true,
       }),
     ).toBe(true);
     expect(state.retired[0]?.disposition).toEqual({
       status: "interrupted",
-      endReason: "browser_operation_failed",
+      endReason: "browser_operation_cancelled",
     });
 
     state.clearOwner();

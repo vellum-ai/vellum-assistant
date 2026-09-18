@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { ModeSessionSummary } from "../api/mode-session.js";
 import type { ModeSessionWriteResult } from "../persistence/conversation-mode-sessions.js";
+import { BrowserModeSessionProducer } from "./browser-mode-session.js";
 import {
   ConversationModeSessionCoordinator,
   type ConversationModeSessionCoordinatorDependencies,
@@ -267,6 +268,54 @@ describe("ConversationModeSessionCoordinator", () => {
       activation: 2,
     });
   });
+
+  test.each([
+    ["completed", "turn_settled"],
+    ["interrupted", "error"],
+  ] as const)(
+    "uses the turn outcome after a browser command error (%s)",
+    (status, endReason) => {
+      const store = createDependencies();
+      const coordinator = new ConversationModeSessionCoordinator(
+        "conv-123",
+        store.dependencies,
+      );
+      const producer = new BrowserModeSessionProducer(coordinator);
+      const first = producer.beginOperation({
+        turnId: "turn-123",
+        lifecycle: "action",
+        at: 100,
+      });
+      coordinator.trackPersistedRow("turn-123", "assistant-123", 110);
+      producer.finishOperation(first, {
+        at: 120,
+        isError: true,
+        cancelled: false,
+      });
+      expect(coordinator.getTerminalDisposition("turn-123")).toBeUndefined();
+      expect(store.session()).toMatchObject({
+        mode: "browser",
+        status: "active",
+        lastActivityAt: 120,
+      });
+
+      const retry = producer.beginOperation({
+        turnId: "turn-123",
+        lifecycle: "action",
+        at: 130,
+      });
+      expect(retry?.handle).toEqual(first?.handle);
+      producer.finishOperation(retry, {
+        at: 140,
+        isError: false,
+        cancelled: false,
+      });
+      expect(store.session().lastActivityAt).toBe(140);
+      coordinator.releaseTurn("turn-123", { status, endReason });
+      expect(store.session()).toMatchObject({ status, endReason });
+      expect(coordinator.hasResidentWork()).toBe(false);
+    },
+  );
 
   test("claims once and backfills only successfully tracked rows", () => {
     const store = createDependencies();
