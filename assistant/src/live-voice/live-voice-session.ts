@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   type BargeInGuard,
@@ -26,6 +27,7 @@ import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
   createControlMarkerHoldback,
   TASK_STOP_MARKER,
+  TASK_UPDATE_SILENT_MARKER,
 } from "../calls/voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
@@ -95,6 +97,7 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import {
   liveVoiceEndScreen,
   liveVoiceSilenceReason,
@@ -173,6 +176,8 @@ import {
   requestedSessionControl,
   sessionControlTeaching,
 } from "./session-controls.js";
+import { VoiceSubagentNotifications } from "./subagent-notifications.js";
+import { VoiceInputDiagnostics } from "./voice-input-diagnostics.js";
 
 const log = getLogger("live-voice-session");
 
@@ -263,6 +268,7 @@ const PROVIDER_TURN_END_FALLBACK_MARGIN_MS = 1_000;
 // a segment is at most ~180 chars of speech (~10 s of 24 kHz mono PCM
 // ≈ 480 KB), so one buffered segment is an acceptable bound.
 const TTS_MAX_OPEN_SYNTHESIS_JOBS = 2;
+const TTS_MAX_PLAYBACK_LEAD_MS = 500;
 // Audible silence required before a finished background continuation's result
 // is spoken into a live call. Long enough that the announcement lands in a real
 // lull rather than on the heels of the turn that just ended; short enough that
@@ -510,12 +516,8 @@ interface UtteranceCycle {
   // server_vad has the turn detector for the same question, and never sets
   // this — its ingress is handleServerVadAudio.
   manualAudioCaptured: boolean;
-  // server_vad capture routed speech (not just pre-roll silence) into this
-  // cycle. Distinguishes an eagerly re-armed cycle holding only leading
-  // silence from one already carrying the user's utterance: the
-  // stale-language interception in handleServerVadAudio may retire the
-  // former, never the latter. turnId cannot answer this, because a
-  // silence-only pre-roll flush assigns it too.
+  // Local VAD or the provider detected speech. A language change may retire
+  // only a silence-only cycle; pre-roll can assign turnId before speech.
   speechRouted: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
@@ -601,6 +603,8 @@ type UtteranceStartResult =
 // client in job-list order.
 interface TtsSegmentJob {
   readonly text: string;
+  readonly isReply: boolean;
+  audioSent: boolean;
   // Per-segment language-hint override, preferred over the turn's language.
   // Set on fixed phrases whose localized table lacks the turn's language:
   // the English fallback text carries "en" so an enforcing provider never
@@ -681,6 +685,7 @@ interface ActiveAssistantTurn {
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
+  ttsFailed: boolean;
   finalized: boolean;
   // Unified front-door speculative dispatch: the leg is in flight but its
   // leading verdict (hold vs commit) has not arrived. The thinking
@@ -727,6 +732,8 @@ interface ActiveAssistantTurn {
   // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
+  subagentNotification: SubagentParentNotification | null;
+  notificationHandledSilently: boolean;
   // Set only on the turn that answers a look: which look it answers. The turn
   // has no user utterance behind it; the instruction rides the control prompt
   // (lookFollowUpNote).
@@ -976,6 +983,9 @@ function buildVoiceControlPrompt(
       turn.continuationDelivery.answer,
     )}`;
   }
+  if (turn.subagentNotification !== null) {
+    prompt += `\n\nThis turn is an internal background task update, not new words from the user. An earlier announcement may have been interrupted before it was heard. Use the latest conversation context to decide whether it adds something worth telling the user now. For routine progress, already-heard findings, cancelled work, or findings meant only for internal use, output only ${TASK_UPDATE_SILENT_MARKER}. Otherwise briefly speak the useful new outcome or blocker first, before optional tool calls or a visual summary. Include only what changed since the last announcement; do not just announce completion, read raw worker status, or repeat completed actions.`;
+  }
   return prompt;
 }
 
@@ -1197,6 +1207,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
+  private readonly pendingAssistantStarts = new Set<Promise<void>>();
   private sessionEndMetricsEmitted = false;
   /**
    * Protocol error code of the failure that killed the session, latched by
@@ -1256,6 +1267,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // what echoEnergyEma is for). Raises the base gate in a noisy room so the
   // room itself stops reading as speech.
   private readonly roomNoiseFloor = new RoomNoiseFloor();
+  private readonly inputDiagnostics = new VoiceInputDiagnostics();
+  private diagnosticEchoCorrelation: number | null = null;
+  private diagnosticTtsSampleRate: number | null = null;
   private readonly echoBargeInMargin: number;
   private readonly echoEmaHalfLifeMs: number;
   private readonly echoDrainSlackMs: number;
@@ -1294,6 +1308,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // The shared sustained-speech accounting (gap tolerance, duty-cycle
     // ceiling, threshold).
     guard: BargeInGuard;
+    armedAtMs: number;
+    resets: number;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -1324,6 +1340,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // back to the stash, so a lost delivery costs the announcement, not the
   // answer.
   private pendingAnnouncement: ContinuationDelivery | null = null;
+  private readonly subagentNotifications = new VoiceSubagentNotifications();
+  private subagentAnnouncementTimer: ReturnType<typeof setTimeout> | null =
+    null;
+  private subagentAnnouncementsDeferred = false;
+  private subagentNotificationsClosing = false;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
   // Host-backed work stays on the parent conversation across barge-ins. An
   // owned task belongs to the tool-capable turn doing the work; a suspended
@@ -1611,6 +1632,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // surfaces as a non-recoverable error frame instead of a start rejection.
     this.state = "active";
     this.reachedActive = true;
+    if (this.turnDetector) {
+      this.logInputDiagnostic("voice_input_started");
+    }
     void this.armUtterance().catch(() => {});
     this.metrics.markReady();
     await this.sendFrame({
@@ -1624,6 +1648,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       textInput: true,
       ...(this.audioInput ? {} : { audioInput: false }),
     });
+    this.scheduleSubagentAnnouncement();
   }
 
   async handleClientFrame(frame: LiveVoiceClientFrame): Promise<void> {
@@ -1926,6 +1951,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (frame.bargeInMinSpeechMs !== undefined) {
       this.bargeInMinSpeechMs = frame.bargeInMinSpeechMs;
     }
+    this.logInputDiagnostic("voice_input_config_updated");
   }
 
   async handleBinaryAudio(chunk: Uint8Array): Promise<void> {
@@ -1935,6 +1961,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) {
       return;
+    }
+
+    if (this.turnDetector) {
+      this.logInputDiagnostic("voice_input_closed", {
+        reason,
+        summary: this.inputDiagnostics.flush(),
+      });
     }
 
     // Recorded first, and independently of `shouldEmitSessionEndMetrics`
@@ -1985,6 +2018,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    this.subagentNotificationsClosing = true;
+    this.subagentNotifications.interruptPlayback(Date.now());
+    const turnTeardown = this.getTurnTeardown?.(this.conversationId);
     this.clearForegroundTask("session_closed");
     // Retire the island before the teardown below starts awaiting things. A
     // close can take a while (a pending continuation is delivered first), and
@@ -2012,6 +2048,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // turn to fold into, a continuation that finishes after this point delivers
     // into the conversation instead (see detachInterruptedTurn).
     await this.cancelAssistantTurn("session_closed");
+    await this.deliverSubagentNotificationsToConversation(turnTeardown);
     if (shouldEmitSessionEndMetrics) {
       await this.emitSessionEndMetrics();
     }
@@ -2254,6 +2291,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // server_vad capability; manual sessions keep single-utterance semantics
   // (no speculative post-turn transcriber).
   private scheduleRearmAfterTurn(): void {
+    this.scheduleSubagentAnnouncement();
     if (!this.turnDetector) {
       return;
     }
@@ -2372,16 +2410,108 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
 
-    for (const classified of this.classifyVadEnergy(chunk)) {
+    const receivedAtMs = Date.now();
+    const sampleRate = this.context.startFrame.audio.sampleRate;
+    const meanAmplitude = pcm16MeanAmplitude(chunk);
+    const before = {
+      baseThreshold: this.effectiveBaseThreshold(),
+      roomNoiseFloor: this.roomNoiseFloor.floor,
+      echoEnergy: this.echoEnergyEma,
+      echoOnsetLapsed: this.echoOnsetLapsed,
+      echoWindowMs: this.echoWindowTotalAudioMs,
+      echoGuardCarryover: this.echoWindowGuardCarryover,
+      echoReferenceMs: pcm16DurationMs(
+        this.echoReferenceAudio.byteLength,
+        sampleRate,
+      ),
+      playbackRemainingMs: Math.max(
+        0,
+        this.assistantPlaybackTailUntilMs - receivedAtMs,
+      ),
+      playbackEchoPossible: this.isAssistantPlaybackEchoPossible(),
+    };
+    this.diagnosticEchoCorrelation = null;
+    const classifiedChunks = this.classifyVadEnergy(chunk, meanAmplitude);
+    const durations = { speechMs: 0, silenceMs: 0, echoMs: 0 };
+    for (const classified of classifiedChunks) {
+      durations[`${classified.classification}Ms`] += pcm16DurationMs(
+        classified.chunk.byteLength,
+        sampleRate,
+      );
+    }
+    const summary = this.inputDiagnostics.observe({
+      receivedAtMs,
+      chunkMs: pcm16DurationMs(chunk.byteLength, sampleRate),
+      meanAmplitude,
+      ...before,
+      ...durations,
+      echoProbeMs: pcm16DurationMs(
+        this.echoProbeChunks.reduce(
+          (bytes, entry) => bytes + entry.byteLength,
+          0,
+        ),
+        sampleRate,
+      ),
+      echoCorrelation: this.diagnosticEchoCorrelation,
+    });
+    if (summary) {
+      this.logInputDiagnostic("voice_input_window", { summary });
+    }
+
+    for (const classified of classifiedChunks) {
       await this.handleClassifiedVadAudio(detector, classified);
     }
+  }
+
+  private logInputDiagnostic(
+    event: string,
+    details: Record<string, unknown> = {},
+  ): void {
+    if (!this.turnDetector) {
+      return;
+    }
+    const turn = this.activeAssistantTurn;
+    const task = this.foregroundTaskState;
+    log.info(
+      {
+        event,
+        sessionId: this.context.sessionId,
+        conversationId: this.conversationId,
+        speechGeneration: this.vadSpeechGeneration,
+        inputTurnId: this.currentUtterance?.turnId ?? null,
+        assistantTurnId: turn?.turnId ?? null,
+        assistantCompleted: turn?.assistantCompleted ?? null,
+        ttsAudioStarted: turn?.ttsAudioStarted ?? false,
+        foregroundTaskPhase: task?.phase ?? null,
+        hostToolStarted: task?.hostToolStarted ?? null,
+        inputSampleRate: this.context.startFrame.audio.sampleRate,
+        ttsSampleRate: this.diagnosticTtsSampleRate,
+        configuredThreshold:
+          this.speechEnergyThreshold ?? DEFAULT_SPEECH_ENERGY_THRESHOLD,
+        effectiveThreshold: this.effectiveBaseThreshold(),
+        roomNoiseFloor: this.roomNoiseFloor.floor,
+        noiseFloorMargin: this.noiseFloorMargin,
+        echoMargin: this.echoBargeInMargin,
+        echoEnergy: this.echoEnergyEma,
+        echoOnsetLapsed: this.echoOnsetLapsed,
+        playbackRemainingMs: Math.max(
+          0,
+          this.assistantPlaybackTailUntilMs - Date.now(),
+        ),
+        echoDrainSlackMs: this.echoDrainSlackMs,
+        bargeInMinSpeechMs: this.bargeInMinSpeechMs,
+        ...details,
+      },
+      "Live voice input diagnostics",
+    );
   }
 
   private async handleClassifiedVadAudio(
     detector: MediaTurnDetector,
     classified: VadClassifiedChunk,
   ): Promise<void> {
-    const { chunk, classification: energyClassification } = classified;
+    const { classification: energyClassification } = classified;
+    let { chunk } = classified;
     const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(energyClassification, chunk);
@@ -2389,11 +2519,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.localSpeechStopAtMs = Date.now();
     }
 
-    // Playback echo is neither user audio nor useful pre-roll. Dropping it
-    // prevents the assistant's reply from reaching transcription as a ghost
-    // follow-up turn.
+    // Flux needs elapsed audio through pauses. Confirmed playback echo keeps
+    // its duration but carries no speaker content into transcription.
     if (energyClassification === "echo") {
-      return;
+      if (!this.providerTurnEndActive) {
+        return;
+      }
+      chunk = Buffer.alloc(chunk.byteLength);
     }
     // Measured past the echo gate, so a greeting heard through the speaker
     // cannot stand in for the user on a silent close.
@@ -2402,10 +2534,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.peakChunkAmplitude = meanAmplitude;
     }
 
-    // Idle mic: hold silent chunks in the bounded pre-roll instead of
-    // collecting or streaming them; flushed on speech onset so the
-    // transcriber still gets leading context ahead of the first syllable.
-    if (!hasSpeech && !detector.isActive) {
+    // Locally endpointed streams keep idle audio in pre-roll. Provider-owned
+    // endpointing receives quiet audio too, including speech below our gate.
+    if (!hasSpeech && !detector.isActive && !this.providerTurnEndActive) {
       this.pushVadPreRoll(chunk, false);
       return;
     }
@@ -2437,7 +2568,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // keeps its old-language stream and the language change applies from
       // the following utterance.
       utterance.finalTranscriptSegments.length === 0 &&
-      utterance.latestPartialText === null &&
+      (utterance.latestPartialText?.trim() ?? "").length === 0 &&
       this.sharedStreamLanguageIsStale()
     ) {
       this.retireSharedTranscriberForRedial(sharedForLanguage);
@@ -2448,7 +2579,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance.released || utterance.completed) {
       // Parked speech makes silent chunks arm-worthy too: the parked
       // utterance must flush without requiring more speech.
-      if (!hasSpeech && !this.vadPreRollHasSpeech) {
+      if (
+        !hasSpeech &&
+        !this.vadPreRollHasSpeech &&
+        !this.providerTurnEndActive
+      ) {
         return;
       }
       if (!this.canArmNextUtterance(utterance)) {
@@ -2489,8 +2624,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * onset is neither learned as echo nor lost. Once seeded, the EMA follows
    * confirmed echo while speech above the learned margin remains frozen out.
    */
-  private classifyVadEnergy(chunk: Buffer): VadClassifiedChunk[] {
-    const meanAmplitude = pcm16MeanAmplitude(chunk);
+  private classifyVadEnergy(
+    chunk: Buffer,
+    meanAmplitude: number,
+  ): VadClassifiedChunk[] {
     const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
@@ -2612,12 +2749,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       chunk.byteLength,
       Math.ceil((sampleRate * ECHO_CORRELATION_PROBE_MS * 2) / 1_000),
     );
-    return (
-      pcm16MaxNormalizedCorrelation(
-        chunk.subarray(0, probeByteLength),
-        this.echoReferenceAudio,
-      ) >= ECHO_CORRELATION_THRESHOLD
+    const correlation = pcm16MaxNormalizedCorrelation(
+      chunk.subarray(0, probeByteLength),
+      this.echoReferenceAudio,
     );
+    this.diagnosticEchoCorrelation = correlation;
+    return correlation >= ECHO_CORRELATION_THRESHOLD;
   }
 
   private updateEchoEnergy(meanAmplitude: number, chunkMs: number): void {
@@ -2682,6 +2819,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private appendEchoReference(chunk: LiveVoiceTtsAudioChunk): void {
+    this.diagnosticTtsSampleRate = chunk.sampleRate ?? null;
     if (
       chunk.contentType.split(";", 1)[0]?.trim().toLowerCase() !==
         "audio/pcm" ||
@@ -2704,7 +2842,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     chunk: Buffer,
   ): Promise<void> {
-    this.collectUserAudio(utterance, chunk);
+    // Continuous idle input belongs to the STT stream, not an unbounded
+    // recording of the room before the caller starts a request.
+    if (utterance.speechRouted) {
+      this.collectUserAudio(utterance, chunk);
+    }
     if (this.vadSpeechStartPending) {
       this.vadSpeechStartPending = false;
       this.markSpeechStart(utterance);
@@ -2783,10 +2925,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     chunk: Buffer,
   ): Promise<void> {
     try {
-      utterance.transcriber?.sendAudio(
-        chunk,
-        this.context.startFrame.audio.mimeType,
-      );
+      if (utterance.transcriber) {
+        utterance.transcriber.sendAudio(
+          chunk,
+          this.context.startFrame.audio.mimeType,
+        );
+        this.inputDiagnostics.recordSttSubmission(
+          Date.now(),
+          pcm16DurationMs(
+            chunk.byteLength,
+            this.context.startFrame.audio.sampleRate,
+          ),
+        );
+      }
       await this.drainOutboundFrames();
     } catch (err) {
       await this.sendFrame({
@@ -2859,10 +3010,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.pendingBargeIn = {
         turn: bargeableTurn,
         guard: createBargeInGuard(this.bargeInMinSpeechMs),
+        armedAtMs: Date.now(),
+        resets: 0,
       };
+      this.logInputDiagnostic("voice_input_barge_in_armed");
       return;
     }
 
+    this.logInputDiagnostic("voice_input_speech_started", {
+      interruptsTurn: bargeableTurn !== null,
+      trace: this.inputDiagnostics.snapshot(Date.now()),
+    });
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     this.sendSpeechStarted();
@@ -2876,6 +3034,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    * camera frame that follows can be logged against the onset it answers.
    */
   private sendSpeechStarted(): void {
+    this.subagentNotifications.interruptPlayback(Date.now());
     this.lastSpeechStartedAtMs = Date.now();
     void this.sendFrame({ type: "speech_started" });
   }
@@ -2899,6 +3058,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     const step = pending.guard.track(classification, chunkMs);
     if (step === "reset") {
+      pending.resets += 1;
       if (this.echoWindowGuardCarryover) {
         this.echoWindowGuardCarryover = false;
         this.echoEnergyEma = 0;
@@ -2909,6 +3069,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (step !== "fired") {
       return;
     }
+    this.logInputDiagnostic("voice_input_barge_in_fired", {
+      armedAtMs: pending.armedAtMs,
+      guardResets: pending.resets,
+      accumulatedSpeechMs: pending.guard.speechMs,
+      trace: this.inputDiagnostics.snapshot(Date.now()),
+    });
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     this.sendSpeechStarted();
@@ -2919,6 +3085,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private bargeIn(turn: ActiveAssistantTurn): void {
+    this.subagentNotifications.interruptPlayback(Date.now());
     // Abort synchronously so no tts_audio frame can follow turn_cancelled,
     // and settle the cancelled turn's metrics so the next utterance's marks
     // do not collide with it in the collector. turn_cancelled flushes
@@ -3056,7 +3223,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // asking for it to be finished in the background — there is no pending
         // request behind an announcement turn to continue. Its answer is
         // already finished, so bargeIn returns it to the stash instead.
-        turn.continuationDelivery !== null
+        turn.continuationDelivery !== null || turn.subagentNotification !== null
         ? "announcement_turn"
         : // Nor over the answer to a look: there is no request behind it
           // either, and the user talking over it is them moving on.
@@ -3315,6 +3482,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private noteEscalatedForegroundTask(turn: ActiveAssistantTurn): void {
     if (
+      turn.subagentNotification !== null ||
       this.activeAssistantTurn?.token !== turn.token ||
       turn.discardRequested ||
       turn.abortController.signal.aborted
@@ -3339,6 +3507,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn: ActiveAssistantTurn,
     effectiveToolName: string,
   ): void {
+    if (turn.subagentNotification !== null) {
+      return;
+    }
     const current = this.foregroundTaskState;
     if (current?.phase === "owned" && current.ownerToken === turn.token) {
       if (!current.hostToolStarted) {
@@ -3684,6 +3855,111 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.clearContinuationAnnouncement();
   }
 
+  receiveSubagentNotification(
+    notification: SubagentParentNotification,
+  ): boolean {
+    if (this.isClosed && this.subagentNotificationsClosing) {
+      this.subagentNotifications.enqueue(notification);
+      return true;
+    }
+    if (this.isClosed || this.state === "failed" || !this.startVoiceTurn) {
+      return false;
+    }
+    this.subagentNotifications.acknowledgePlayback(Date.now());
+    this.subagentNotifications.enqueue(notification);
+    this.subagentAnnouncementsDeferred = false;
+    this.scheduleSubagentAnnouncement();
+    return true;
+  }
+
+  private clearSubagentAnnouncementTimer(): void {
+    if (this.subagentAnnouncementTimer !== null) {
+      clearTimeout(this.subagentAnnouncementTimer);
+      this.subagentAnnouncementTimer = null;
+    }
+  }
+
+  private scheduleSubagentAnnouncement(): void {
+    this.subagentNotifications.acknowledgePlayback(Date.now());
+    if (
+      !this.subagentNotifications.hasPending ||
+      this.subagentAnnouncementsDeferred ||
+      this.state === "initializing" ||
+      this.isClosed ||
+      this.state === "failed" ||
+      this.activeAssistantTurn !== null
+    ) {
+      this.clearSubagentAnnouncementTimer();
+      return;
+    }
+    this.subagentAnnouncementTimer = this.scheduleFloorCheck(
+      this.subagentAnnouncementTimer,
+      this.continuationAnnounceSilenceMs,
+      (blockedBy) => {
+        this.subagentAnnouncementTimer = null;
+        this.subagentNotifications.acknowledgePlayback(Date.now());
+        if (blockedBy === null) {
+          void this.announceSubagentNotification();
+        } else if (
+          blockedBy !== "turn_active" &&
+          blockedBy !== "session_unavailable"
+        ) {
+          this.scheduleSubagentAnnouncement();
+        }
+      },
+    );
+  }
+
+  private async announceSubagentNotification(): Promise<void> {
+    const notification = this.subagentNotifications.next();
+    if (notification === undefined) {
+      return;
+    }
+    let started = false;
+    try {
+      started = await this.launchAssistantTurn(
+        createSyntheticUtterance(),
+        notification.message,
+        {
+          subagentNotification: notification,
+          hiddenPrompt: true,
+          initialLeg: "escalated",
+        },
+      );
+    } catch (err) {
+      log.warn(
+        { err, taskId: notification.taskId },
+        "Voice subagent announcement failed to start",
+      );
+    }
+    if (!started) {
+      // A failed launch waits for the next user turn or update before retrying.
+      this.subagentAnnouncementsDeferred = true;
+      this.clearSubagentAnnouncementTimer();
+    }
+  }
+
+  private async deliverSubagentNotificationsToConversation(
+    turnTeardown?: Promise<void>,
+  ): Promise<void> {
+    this.clearSubagentAnnouncementTimer();
+    // Voice aborts discard the parent queue. Deliver only after its turn settles.
+    await Promise.allSettled(this.pendingAssistantStarts);
+    await turnTeardown;
+    await this.getTurnTeardown?.(this.conversationId);
+    const { injectMessageIntoParent } = await import("../subagent/notify.js");
+    const notifications = this.subagentNotifications.drain(Date.now());
+    this.subagentNotificationsClosing = false;
+    for (const notification of notifications) {
+      injectMessageIntoParent(
+        this.conversationId,
+        notification.message,
+        notification.metadata,
+        { cronRunId: notification.cronRunId, bypassLiveVoice: true },
+      );
+    }
+  }
+
   private clearContinuationAnnouncement(): void {
     this.pendingAnnouncement = null;
     if (this.announcementTimer) {
@@ -3989,6 +4265,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     this.activeAssistantTurn = null;
+    this.scheduleSubagentAnnouncement();
     if (
       this.pendingAnnouncement !== null &&
       !this.isClosed &&
@@ -4294,6 +4571,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.vadSpeechStartPending = false;
       // The detector turn is over: an untripped guard was noise, not
       // barge-in — leave playback untouched.
+      if (this.pendingBargeIn) {
+        this.logInputDiagnostic("voice_input_barge_in_expired", {
+          reason,
+          armedAtMs: this.pendingBargeIn.armedAtMs,
+          guardResets: this.pendingBargeIn.resets,
+          accumulatedSpeechMs: this.pendingBargeIn.guard.speechMs,
+        });
+      }
       this.pendingBargeIn = null;
       if (reason === "max-duration") {
         // A max-duration boundary always releases: drop any pending hold
@@ -4449,6 +4734,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     turnIndex: number | undefined,
   ): void {
+    this.logInputDiagnostic("voice_input_provider_turn_start", {
+      inputTurnId: this.ensureTurnId(utterance),
+      turnIndex: turnIndex ?? null,
+      sttProvider: utterance.dialedSttProvider,
+      localDetectorActive: this.turnDetector?.isActive ?? false,
+    });
+    if (
+      this.providerTurnEndActive &&
+      !utterance.released &&
+      !utterance.completed
+    ) {
+      utterance.speechRouted = true;
+      this.detectedSpeech = true;
+    }
     if (turnIndex === undefined) {
       return;
     }
@@ -4520,8 +4819,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   private async handleProviderTurnEnd(
     utterance: UtteranceCycle,
-    turnIndex: number | undefined,
+    event: Extract<SttStreamServerEvent, { type: "turn-end" }>,
   ): Promise<void> {
+    const { turnIndex } = event;
+    this.logInputDiagnostic("voice_input_provider_turn_end", {
+      inputTurnId: utterance.turnId,
+      sttProvider: utterance.dialedSttProvider,
+      turnIndex: turnIndex ?? null,
+      confidence: event.confidence ?? null,
+      trigger: event.trigger ?? null,
+      audioWindowEndSeconds: event.audioWindowEndSeconds ?? null,
+      transcriptChars: event.text.length,
+      localDetectorActive: this.turnDetector?.isActive ?? false,
+      msSinceLocalSpeechStop:
+        this.localSpeechStopAtMs === null
+          ? null
+          : this.msSinceLocalSpeechStop(),
+      providerTurnEndActive: this.providerTurnEndActive,
+      providerTurnEndTimedOut: utterance.providerTurnEndTimedOut,
+    });
     if (
       !this.providerTurnEndActive ||
       this.currentUtterance !== utterance ||
@@ -5052,7 +5368,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // follow-up.
         return;
       case "turn-end":
-        await this.handleProviderTurnEnd(utterance, event.turnIndex);
+        await this.handleProviderTurnEnd(utterance, event);
         return;
       case "error":
         await this.sendTranscriberErrorFrame(event);
@@ -5206,7 +5522,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // transcript owns the turn the provider just closed.
         const target = this.pendingTranscriptCycle();
         if (target) {
-          await this.handleProviderTurnEnd(target, event.turnIndex);
+          await this.handleProviderTurnEnd(target, event);
         }
         return;
       }
@@ -5378,6 +5694,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async interrupt(): Promise<void> {
+    this.subagentNotifications.interruptPlayback(Date.now());
+    this.subagentAnnouncementsDeferred = true;
+    this.clearSubagentAnnouncementTimer();
     if (this.isClosed || this.state === "failed") {
       return;
     }
@@ -5623,6 +5942,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set on an announcement turn: the finished continuation this turn exists
       // to deliver. Its answer goes in the control prompt, not in `content`.
       continuationDelivery?: ContinuationDelivery | null;
+      subagentNotification?: SubagentParentNotification;
       // Set on the turn that answers a look: which look. Its instruction goes
       // in the control prompt, not in `content`.
       lookFollowUp?: LookSessionControl;
@@ -5642,12 +5962,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       foregroundTaskEpoch?: number;
     },
   ): Promise<boolean> {
+    if (opts?.hiddenPrompt !== true) {
+      this.subagentNotifications.acknowledgePlayback(Date.now());
+      this.subagentAnnouncementsDeferred = false;
+    }
     utterance.assistantTurnStarted = true;
-    // The announcement turn IS the delivery of the pending continuation, so it
-    // must not also consume the stash — feeding it both would deliver the same
-    // answer twice. Every other turn is a real user turn and takes the context.
+    // Task announcements own their updates. Pending user-turn context stays
+    // available for the next user turn instead of being consumed by an update.
     const pending =
-      opts?.continuationDelivery == null
+      opts?.continuationDelivery == null && opts?.subagentNotification == null
         ? this.consumePendingTurnContext()
         : null;
     const token = Symbol("live-voice-assistant-turn");
@@ -5716,6 +6039,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       publishedApprovalRequestId: null,
       pendingApproval: null,
       ttsAudioStarted: false,
+      ttsFailed: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
       speculativeGeneration: this.vadSpeechGeneration,
@@ -5734,6 +6058,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
+      subagentNotification: opts?.subagentNotification ?? null,
+      notificationHandledSilently: false,
       lookFollowUp: opts?.lookFollowUp ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
       foregroundTaskEpoch,
@@ -5861,7 +6187,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       attachments?: readonly string[];
     },
   ): Promise<boolean> {
-    if (!this.startVoiceTurn) {
+    if (
+      !this.startVoiceTurn ||
+      this.isClosed ||
+      activeTurn.abortController.signal.aborted
+    ) {
       return false;
     }
     const { token, utterance, turnId } = activeTurn;
@@ -5947,6 +6277,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       activeTurn.frontDoor = coordinator;
     }
 
+    let finishStart!: () => void;
+    const startup = new Promise<void>((resolve) => {
+      finishStart = resolve;
+    });
+    this.pendingAssistantStarts.add(startup);
     try {
       // Latched before the await, not after: this flag only decides whether the
       // end event carries a silence classification, and the dashboard decides
@@ -6013,6 +6348,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
         signal: activeTurn.abortController.signal,
+        ...(activeTurn.subagentNotification !== null
+          ? { subagentNotification: activeTurn.subagentNotification }
+          : {}),
         // An announcement turn's content is a fixed marker, not user speech:
         // persist it hidden and suppress its echo so nothing renders as a user
         // bubble for a turn the user never started.
@@ -6117,6 +6455,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // or the escalated leg. A handed-off front-door leg returned
             // above, so its holding phrase can never end a call.
             if (msg.type === "message_complete") {
+              current.notificationHandledSilently =
+                current.subagentNotification !== null &&
+                rawText.trim() === TASK_UPDATE_SILENT_MARKER;
               const request = requestedSessionControl(
                 rawText,
                 this.sessionControls,
@@ -6351,6 +6692,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
       this.scheduleRearmAfterTurn();
       return false;
+    } finally {
+      this.pendingAssistantStarts.delete(startup);
+      finishStart();
     }
   }
 
@@ -6696,6 +7040,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const job: TtsSegmentJob = {
       text: segment,
+      isReply: options.countsAsFirstSegment ?? true,
+      audioSent: false,
       language: options.language,
       started: false,
       settled: false,
@@ -6813,6 +7159,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await job.frames;
 
       if (failed && this.isForwardingTts(token)) {
+        currentTurn.ttsFailed = true;
         // Per-segment failure: the turn (and session) continue, so the
         // error is recoverable for the client.
         await this.sendFrame(
@@ -6825,6 +7172,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           () => this.isForwardingTts(token),
         );
       }
+    } catch (err) {
+      const turn = this.activeAssistantTurn;
+      if (turn?.token === token) {
+        turn.ttsFailed = true;
+      }
+      throw err;
     } finally {
       job.settled = true;
       const settledTurn = this.activeAssistantTurn;
@@ -6849,16 +7202,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (activeTurn?.token !== token) {
       return;
     }
-    // Only retain the assistant TTS audio when it will be archived (see
-    // collectUserAudio); the mime/sample-rate are cheap and left unconditional.
-    if (this.archiveAudio) {
-      activeTurn.assistantAudioChunks.push(
-        Buffer.from(chunk.dataBase64, "base64"),
-      );
-    }
-    activeTurn.assistantAudioMimeType = chunk.contentType;
-    activeTurn.assistantAudioSampleRate = chunk.sampleRate;
     job.frames = job.frames.then(async () => {
+      // Pace audio before entering the shared outbound queue so control frames
+      // and cancellation remain immediate while prefetched speech waits.
+      const leadMs = this.assistantPlaybackTailUntilMs - Date.now();
+      if (
+        leadMs > TTS_MAX_PLAYBACK_LEAD_MS &&
+        !activeTurn.abortController.signal.aborted
+      ) {
+        try {
+          await delay(leadMs - TTS_MAX_PLAYBACK_LEAD_MS, undefined, {
+            signal: activeTurn.abortController.signal,
+          });
+        } catch (error) {
+          if (activeTurn.abortController.signal.aborted) {
+            return;
+          }
+          throw error;
+        }
+      }
       const sent = await this.sendFrame(
         {
           type: "tts_audio",
@@ -6868,13 +7230,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         () => this.isForwardingTts(token),
       );
-      // Skip a frame that wasn't actually written — a backed-up outbound
+      // Skip a frame that wasn't actually written. A backed-up outbound
       // queue hasn't reached the client, so it must not extend the
       // playback-tail estimate or latch first-audio state. Token match keeps
       // a stale turn's late send from latching a newer turn.
       if (!sent) {
         return;
       }
+      if (this.archiveAudio) {
+        activeTurn.assistantAudioChunks.push(
+          Buffer.from(chunk.dataBase64, "base64"),
+        );
+      }
+      activeTurn.assistantAudioMimeType = chunk.contentType;
+      activeTurn.assistantAudioSampleRate = chunk.sampleRate;
+      job.audioSent = true;
       // Extend the client playback-tail estimate by this chunk's PCM
       // duration (chunks queue gaplessly client-side, so the tail grows
       // from whichever is later: now or the current estimate).
@@ -6914,6 +7284,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.markUtteranceMetric(utterance, "speechStartAtMs", (turnId) =>
       this.metrics.markSpeechStart(turnId),
     );
+    this.logInputDiagnostic("voice_input_speech_routed", {
+      inputTurnId: utterance.turnId,
+    });
   }
 
   /**
@@ -6956,6 +7329,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private markFirstPartial(utterance: UtteranceCycle): void {
+    if ((utterance.latestPartialText?.trim() ?? "").length === 0) {
+      return;
+    }
     this.markUtteranceMetric(utterance, "firstPartialAtMs", (turnId) =>
       this.metrics.markFirstPartial(turnId),
     );
@@ -6965,6 +7341,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.markUtteranceMetric(utterance, "finalTranscriptAtMs", (turnId) =>
       this.metrics.markFinalTranscript(turnId),
     );
+    this.logInputDiagnostic("voice_input_transcript", {
+      inputTurnId: utterance.turnId,
+      sttProvider: utterance.dialedSttProvider,
+      transcriptChars: utterance.finalTranscriptSegments.join(" ").trim()
+        .length,
+    });
   }
 
   // Records the mark on the utterance's metrics turn, or — while a previous
@@ -7105,6 +7487,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     reason: string,
   ): Promise<void> {
+    this.logInputDiagnostic("voice_input_utterance_discarded", {
+      inputTurnId: utterance.turnId,
+      reason,
+      sttProvider: utterance.dialedSttProvider,
+      transcriptChars: utterance.finalTranscriptSegments.join(" ").trim()
+        .length,
+      hasPartialAtDiscard: utterance.latestPartialText !== null,
+    });
     // An utterance that finalizes here never became a turn (empty transcript,
     // client interrupt, transcriber close, error), so it ends the window a
     // barge-in's merge context was waiting to attach to. Drop that context so
@@ -7147,6 +7537,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     turn.finalized = true;
+    if (turn.subagentNotification !== null) {
+      if (
+        status === "completed" &&
+        !turn.ttsFailed &&
+        (turn.notificationHandledSilently ||
+          turn.ttsJobs.some((job) => job.isReply && job.audioSent))
+      ) {
+        this.subagentNotifications.finish(
+          turn.subagentNotification,
+          turn.notificationHandledSilently
+            ? Date.now()
+            : this.assistantPlaybackTailUntilMs,
+        );
+      } else if (reason !== "barge_in") {
+        this.subagentAnnouncementsDeferred = true;
+      }
+    }
     this.clearFillerTimers(turn);
     if (
       this.foregroundTaskState?.phase === "owned" &&

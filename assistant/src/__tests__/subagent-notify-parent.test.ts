@@ -41,18 +41,12 @@ const capturedMessages: string[] = [];
 /** Parent conversation ids that a notification was routed to (findConversation). */
 const capturedParentIds: string[] = [];
 
-/**
- * Cron attribution seen by each delivery path. The queued path hands it to
- * `enqueueMessage` (the drain applies it later); the immediate path hands it
- * straight to `runAgentLoop`.
- */
 const capturedEnqueueCronRunIds: (string | null | undefined)[] = [];
-const capturedLoopCronRunIds: (string | null | undefined)[] = [];
-
-/**
- * Whether the stub parent accepts an enqueue. `false` sends
- * `injectMessageIntoParent` down its immediate persist-and-run path.
- */
+const capturedQueueOptions: {
+  queueWhenIdle: boolean;
+  metadata?: Record<string, unknown>;
+}[] = [];
+const drainedParents: string[] = [];
 let parentAcceptsEnqueue = true;
 
 // Live subagent conversations, keyed by conversationId. notifyParentFromChild
@@ -74,19 +68,17 @@ mock.module("../daemon/conversation-registry.js", () => ({
       hasInFlightWork: () => false,
       enqueueMessage: (options: {
         content: string;
+        queueWhenIdle: boolean;
+        metadata?: Record<string, unknown>;
         cronRunId?: string | null;
       }) => {
         capturedMessages.push(options.content);
+        capturedQueueOptions.push(options);
         capturedEnqueueCronRunIds.push(options.cronRunId);
         return { queued: parentAcceptsEnqueue };
       },
-      persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
-      runAgentLoop: async (
-        _message: string,
-        _messageId: string,
-        options?: { cronRunId?: string | null },
-      ) => {
-        capturedLoopCronRunIds.push(options?.cronRunId);
+      kickDrainQueue: async () => {
+        drainedParents.push(id);
       },
     };
   },
@@ -111,11 +103,15 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
+import { beginTurnFinalization } from "../daemon/turn-finalization.js";
+import { setLiveVoiceSessionManagerForTesting } from "../live-voice/live-voice-manager.js";
+import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import type { SubagentRecord } from "../persistence/subagent-store.js";
 import {
   injectMessageIntoParent,
   notifyParentFromChild,
 } from "../subagent/notify.js";
+import type { SubagentParentNotification } from "../subagent/parent-notification.js";
 import {
   executeSubagentNotifyParent,
   notifyParentTool,
@@ -183,11 +179,107 @@ function lastCapturedMessage(): string {
 function clearCaptured(): void {
   capturedMessages.length = 0;
   capturedEnqueueCronRunIds.length = 0;
-  capturedLoopCronRunIds.length = 0;
+  capturedQueueOptions.length = 0;
+  drainedParents.length = 0;
   parentAcceptsEnqueue = true;
 }
 
 // ── Tool definition ────────────────────────────────────────────────
+
+describe("voice parent notification routing", () => {
+  test("only the matching active call claims task updates, without starting a generic parent turn", async () => {
+    clearCaptured();
+    const received: SubagentParentNotification[] = [];
+    let finishClose: (() => void) | undefined;
+    const manager = new LiveVoiceSessionManager({
+      createSession: (context) => ({
+        start: async () => {
+          await context.sendFrame({
+            type: "ready",
+            sessionId: context.sessionId,
+            conversationId: "parent-voice",
+          });
+        },
+        handleClientFrame: () => {},
+        handleBinaryAudio: () => {},
+        close: () =>
+          new Promise<void>((resolve) => {
+            finishClose = resolve;
+          }),
+        receiveSubagentNotification: (notification) => {
+          received.push(notification);
+          return true;
+        },
+      }),
+    });
+    setLiveVoiceSessionManagerForTesting(manager);
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        status: "completed",
+        conversationId: "child-1",
+      },
+    };
+    try {
+      await manager.startSession(
+        {
+          type: "start",
+          audio: { mimeType: "audio/pcm", sampleRate: 24_000, channels: 1 },
+        },
+        { sendFrame: () => {} },
+      );
+      injectMessageIntoParent("parent-voice", "Task completed", metadata, {
+        cronRunId: "run-123",
+      });
+      expect(received).toEqual([
+        {
+          taskId: "child-1",
+          message: "Task completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      ]);
+      expect(capturedMessages).toEqual([]);
+      expect(drainedParents).toEqual([]);
+
+      injectMessageIntoParent("parent-other", "Other task completed", metadata);
+      injectMessageIntoParent("parent-voice", "Generic event");
+      injectMessageIntoParent("parent-voice", "Hang-up fallback", metadata, {
+        bypassLiveVoice: true,
+        cronRunId: "run-123",
+      });
+      expect(received).toHaveLength(1);
+      expect(capturedMessages).toEqual([
+        "Other task completed",
+        "Generic event",
+        "Hang-up fallback",
+      ]);
+      expect(capturedEnqueueCronRunIds.at(-1)).toBe("run-123");
+
+      const closing = manager.endActiveSession("manager_shutdown");
+      injectMessageIntoParent(
+        "parent-voice",
+        "Finished during hang-up",
+        metadata,
+      );
+      expect(received.at(-1)?.message).toBe("Finished during hang-up");
+      expect(capturedMessages).not.toContain("Finished during hang-up");
+      finishClose?.();
+      await closing;
+      injectMessageIntoParent(
+        "parent-voice",
+        "Finished after hang-up",
+        metadata,
+      );
+      expect(capturedMessages.at(-1)).toBe("Finished after hang-up");
+    } finally {
+      finishClose?.();
+      await manager.endActiveSession("manager_shutdown");
+      setLiveVoiceSessionManagerForTesting(null);
+      clearCaptured();
+    }
+  });
+});
 
 describe("notify_parent tool definition", () => {
   test("has correct core tool definition", () => {
@@ -443,31 +535,46 @@ describe("injectMessageIntoParent cron attribution", () => {
     expect(capturedEnqueueCronRunIds).toEqual(["cron-run-7"]);
   });
 
-  test("the immediate delivery path carries the firing's run id", async () => {
+  test("queues simultaneous idle-parent deliveries until turn finalization", async () => {
     clearCaptured();
-    // A parent that is not processing rejects the enqueue, so the injection
-    // persists and runs the turn itself.
-    parentAcceptsEnqueue = false;
-
-    injectMessageIntoParent("parent-cron", "notification", undefined, {
-      cronRunId: "cron-run-7",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(capturedLoopCronRunIds).toEqual(["cron-run-7"]);
+    const finalize = beginTurnFinalization("parent-handoff");
+    try {
+      injectMessageIntoParent("parent-handoff", "first result", undefined, {
+        bypassLiveVoice: true,
+      });
+      injectMessageIntoParent("parent-handoff", "second result", undefined, {
+        bypassLiveVoice: true,
+      });
+      expect(capturedMessages).toEqual(["first result", "second result"]);
+      expect(capturedQueueOptions).toEqual([
+        expect.objectContaining({
+          queueWhenIdle: true,
+          metadata: { scripted: true },
+        }),
+        expect.objectContaining({
+          queueWhenIdle: true,
+          metadata: { scripted: true },
+        }),
+      ]);
+      expect(drainedParents).toEqual([]);
+    } finally {
+      finalize();
+    }
+    await Promise.resolve();
+    expect(drainedParents).toEqual(["parent-handoff", "parent-handoff"]);
   });
 
-  test("an unscheduled notification carries no run id on either path", async () => {
+  test("does not start an unqueued turn when the parent queue rejects delivery", () => {
     clearCaptured();
-
-    injectMessageIntoParent("parent-plain", "notification");
     parentAcceptsEnqueue = false;
-    injectMessageIntoParent("parent-plain", "notification");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    injectMessageIntoParent("parent-full", "notification");
+    expect(drainedParents).toEqual([]);
+  });
 
-    // Not merely falsy: the option is absent, so nothing downstream reads an
-    // attribution no firing produced.
-    expect(capturedEnqueueCronRunIds).toEqual([undefined, undefined]);
-    expect(capturedLoopCronRunIds).toEqual([undefined]);
+  test("an unscheduled notification carries no run id", () => {
+    clearCaptured();
+    injectMessageIntoParent("parent-plain", "notification");
+    expect(capturedEnqueueCronRunIds).toEqual([undefined]);
+    expect(drainedParents).toEqual(["parent-plain"]);
   });
 });

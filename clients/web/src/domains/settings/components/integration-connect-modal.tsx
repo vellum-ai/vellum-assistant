@@ -5,7 +5,6 @@ import {
   Copy,
   ExternalLink,
   Loader2,
-  MoreHorizontal,
   RefreshCw,
   Trash2,
   Wrench,
@@ -45,6 +44,8 @@ import {
   type ConnectionSummary,
 } from "../connect-plan";
 import type { McpToolsSummaryServer } from "../mcp/mcp-api";
+
+import { INTEGRATION_ACTION_SIZING } from "./integration-list-row";
 
 /** A connect attempt the caller has in flight, or the failure it ended in. */
 export interface ConnectAttempt {
@@ -820,7 +821,11 @@ function ConnectionsView({
               subtitle={subtitle(connection)}
               trailingInteractive
               trailing={
-                <div className="flex items-center gap-2">
+                // A thumb grows every control to 44px, which is more than a
+                // phone-width row can line up beside a title. Capped to the
+                // width of the two icon buttons there, the status and the
+                // reconnect wrap above them instead of pushing the title out.
+                <div className="flex flex-wrap items-center justify-end gap-2 touch-mobile:max-w-24">
                   <ConnectionStatusTag status={connection.status} />
                   {connection.canReconnect ? (
                     <Button
@@ -834,36 +839,26 @@ function ConnectionsView({
                         : t("integrationConnect.reconnect")}
                     </Button>
                   ) : null}
-                  <ActionMenu.Root>
-                    <ActionMenu.Trigger asChild>
-                      <Button
-                        variant="ghost"
-                        iconOnly={<MoreHorizontal />}
-                        aria-label={t("integrationConnect.moreActions", {
-                          label: connectionTitle(connection),
-                        })}
-                      />
-                    </ActionMenu.Trigger>
-                    <ActionMenu.Content
-                      title={t("integrationConnect.moreActions", {
+                  {isMcpMethodKind(connection.methodKind) ? (
+                    <Button
+                      variant="outlined"
+                      className={INTEGRATION_ACTION_SIZING}
+                      iconOnly={<Wrench />}
+                      aria-label={t("integrationConnect.toolsAndDetailsLabel", {
                         label: connectionTitle(connection),
                       })}
-                    >
-                      {isMcpMethodKind(connection.methodKind) ? (
-                        <ActionMenu.Item
-                          icon={Wrench}
-                          label={t("integrationConnect.toolsAndDetails")}
-                          onSelect={() => onOpenTools(connection)}
-                        />
-                      ) : null}
-                      <ActionMenu.Item
-                        icon={Trash2}
-                        tone="destructive"
-                        label={t("integrationConnect.remove")}
-                        onSelect={() => onRequestDisconnect(connection)}
-                      />
-                    </ActionMenu.Content>
-                  </ActionMenu.Root>
+                      onClick={() => onOpenTools(connection)}
+                    />
+                  ) : null}
+                  <Button
+                    variant="dangerOutline"
+                    className={INTEGRATION_ACTION_SIZING}
+                    iconOnly={<Trash2 />}
+                    aria-label={t("integrationConnect.removeLabel", {
+                      label: connectionTitle(connection),
+                    })}
+                    onClick={() => onRequestDisconnect(connection)}
+                  />
                 </div>
               }
             />

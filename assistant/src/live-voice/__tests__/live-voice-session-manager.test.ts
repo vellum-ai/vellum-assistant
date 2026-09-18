@@ -446,7 +446,11 @@ describe("LiveVoiceSessionManager", () => {
       (match) => match[1],
     );
 
-    expect(imports).toEqual(["node:crypto", "./protocol.js"]);
+    expect(imports).toEqual([
+      "node:crypto",
+      "../subagent/parent-notification.js",
+      "./protocol.js",
+    ]);
     for (const importPath of imports) {
       expect(importPath).not.toContain("runtime");
       expect(importPath).not.toContain("gateway");

@@ -140,8 +140,9 @@ describe("IntegrationConnectModal", () => {
   test("asks one plain question before removing an MCP server", async () => {
     modal({ plan: connectedPlan });
 
-    openMenu("More actions for Notion MCP server");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Notion MCP server" }),
+    );
 
     await screen.findByText("Remove Notion MCP server?");
     screen.getByText("Are you sure?");
@@ -152,14 +153,30 @@ describe("IntegrationConnectModal", () => {
   test("asks an account the same question, and removes it on confirm", async () => {
     modal({ plan: connectedPlan });
 
-    openMenu("More actions for user@example.com");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove user@example.com" }),
+    );
 
     await screen.findByText("Remove user@example.com?");
     screen.getByText("Are you sure?");
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(handlers.onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays open on the connections the answer leaves behind", async () => {
+    modal({ plan: connectedPlan });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove user@example.com" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+    // Answering the question closes the question, not the dialog that asked
+    // it: the other connection still has a row to act on.
+    expect(handlers.onClose).not.toHaveBeenCalled();
+    screen.getByText("Notion MCP server");
+    expect(screen.queryByText("Are you sure?")).toBeNull();
   });
 
   test("leaves out an MCP server a plugin has already installed", async () => {
@@ -170,6 +187,24 @@ describe("IntegrationConnectModal", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Notion MCP server" }),
     ).toBeNull();
+  });
+
+  test("stays open while Connect another shows its methods", async () => {
+    modal({ plan: connectedPlan });
+
+    // The sequence a browser produces here: the menu's layer sets the dialog
+    // content to `pointer-events: none`, so the press lands on the trigger and
+    // the click lands on the backdrop showing through it. A backdrop press is
+    // the only gesture that dismisses, and this is not one.
+    openMenu("Connect another");
+    await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
+
+    const overlay = document.body.querySelector('[data-slot="modal-overlay"]');
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay as Element);
+
+    expect(handlers.onClose).not.toHaveBeenCalled();
+    screen.getByRole("menuitem", { name: "Sign in through Vellum" });
   });
 
   test("drops Connect another when the only path is already connected", () => {
@@ -203,8 +238,7 @@ describe("IntegrationConnectModal", () => {
     modal({ plan: twoServers });
 
     // Siblings are told apart by their own ids, not by one shared label.
-    openMenu("More actions for ashby-jobs");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove ashby-jobs" }));
 
     await screen.findByText("Remove ashby-jobs?");
     screen.getByText("Are you sure?");
@@ -226,8 +260,9 @@ describe("IntegrationConnectModal", () => {
 
     // With no server of its own the row is named after the method, and it is
     // still the row that takes the plugin away.
-    openMenu("More actions for Ashby MCP server");
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Ashby MCP server" }),
+    );
 
     await screen.findByText("Remove Ashby MCP server?");
     screen.getByText("Are you sure?");
@@ -255,9 +290,10 @@ describe("IntegrationConnectModal", () => {
       },
     });
 
-    openMenu("More actions for Notion MCP server");
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Tools and details" }),
+      screen.getByRole("button", {
+        name: "Tools and details for Notion MCP server",
+      }),
     );
 
     await screen.findByText("https://mcp.example.com/notion-mcp");
@@ -272,9 +308,10 @@ describe("IntegrationConnectModal", () => {
       toolsByConnectionId: { "mcp:notion": { loading: true } },
     });
 
-    openMenu("More actions for Notion MCP server");
     fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Tools and details" }),
+      screen.getByRole("button", {
+        name: "Tools and details for Notion MCP server",
+      }),
     );
     await screen.findByRole("status");
     screen.getByText("Loading tools...");

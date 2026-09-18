@@ -3071,6 +3071,15 @@ paths:
           type: string
           pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
         required: true
+      - in: query
+        name: successor_assistant_id
+        schema:
+          type: string
+          format: uuid
+        description: Optional assistant that inherits the retiring assistant's managed
+          OAuth connections, e.g. the target of a teleport. Must be a live assistant
+          owned by the caller in the same organization. The rows are moved before
+          the retiring assistant's credentials are revoked.
       tags:
       - assistants
       security:
@@ -3730,6 +3739,15 @@ paths:
           format: uuid
         description: Required if using Cookie-based or X-Session-Token authentication
           methods.
+      - in: query
+        name: successor_assistant_id
+        schema:
+          type: string
+          format: uuid
+        description: Optional assistant that inherits the retiring assistant's managed
+          OAuth connections, e.g. the target of a teleport. Must be a live assistant
+          owned by the caller in the same organization. The rows are moved before
+          the retiring assistant's credentials are revoked.
       tags:
       - assistants
       security:
@@ -6249,7 +6267,7 @@ components:
           readOnly: true
           nullable: true
           description: When the current grant lapses. Set on every enable, 24 hours
-            out by default. Null when access is off or the grant predates expiry.
+            out by default. Null when access is off.
       required:
       - access_consent_expires_at
       - access_consented
@@ -6402,8 +6420,8 @@ components:
         access_consent_expires_at:
           type: string
           format: date-time
-          readOnly: true
           nullable: true
+          readOnly: true
       required:
       - access_consent_expires_at
       - access_consented
@@ -7153,6 +7171,7 @@ components:
       - insufficient_balance
       - daily_limit_reached
       - missing_price
+      - assistant_not_live
       type: string
       description: |-
         * `denied` - denied
@@ -7173,6 +7192,7 @@ components:
         * `insufficient_balance` - insufficient_balance
         * `daily_limit_reached` - daily_limit_reached
         * `missing_price` - missing_price
+        * `assistant_not_live` - assistant_not_live
     ComputeTierChangeRequestRequest:
       type: object
       properties:

@@ -1134,26 +1134,29 @@ describe("teardown", () => {
     expect(errors[0]!.reason).toBe("connection-failed");
   });
 
-  test("a retryable close before ready forwards the code instead of failing", async () => {
-    const client = makeClient();
-    const ws = await connectAndGetSocket(client);
-    ws.open();
+  test.each([1013, 4013])(
+    "retryable close %i before ready forwards the code",
+    async (code) => {
+      const client = makeClient();
+      const ws = await connectAndGetSocket(client);
+      ws.open();
 
-    const errors: unknown[] = [];
-    const closes: { code: number | null; reason: string }[] = [];
-    client.on("error", (e) => errors.push(e));
-    client.on("closed", (info) => closes.push(info));
+      const errors: unknown[] = [];
+      const closes: { code: number | null; reason: string }[] = [];
+      client.on("error", (e) => errors.push(e));
+      client.on("closed", (info) => closes.push(info));
 
-    // velay closes a reconnect's socket before `ready` because its tunnel is
-    // still re-registering — retryable, so the controller must see the code
-    // (and keep its reconnect budget), not a connection-failed error.
-    ws.emitClose(1013, "assistant tunnel disconnected");
+      // velay closes a reconnect's socket before `ready` because its tunnel is
+      // still re-registering. The controller must see the retryable code
+      // (and keep its reconnect budget), not a connection-failed error.
+      ws.emitClose(code, "assistant tunnel disconnected");
 
-    expect(errors).toHaveLength(0);
-    expect(closes).toEqual([
-      { code: 1013, reason: "assistant tunnel disconnected" },
-    ]);
-  });
+      expect(errors).toHaveLength(0);
+      expect(closes).toEqual([
+        { code, reason: "assistant tunnel disconnected" },
+      ]);
+    },
+  );
 
   test("forwards the far-side close code on the closed event", async () => {
     const client = makeClient();

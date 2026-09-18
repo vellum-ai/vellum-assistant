@@ -724,6 +724,44 @@ describe("startVoiceTurn camera-frame attachments", () => {
 });
 
 describe("startVoiceTurn hiddenSyntheticPrompt", () => {
+  test("task announcements retain metadata and cron attribution without a user echo", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    const loopOptions: unknown[] = [];
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      loopOptions.push(args[2]);
+    };
+    const metadata = {
+      subagentNotification: {
+        subagentId: "task-1",
+        label: "Compare options",
+        status: "completed",
+      },
+    };
+    const echoes = await collectUserMessageEchoes(async () => {
+      await startVoiceTurn({
+        ...makeTurnOptions(),
+        content: "Comparison completed",
+        hiddenSyntheticPrompt: true,
+        subagentNotification: {
+          taskId: "task-1",
+          message: "Comparison completed",
+          metadata,
+          cronRunId: "run-123",
+        },
+      });
+    });
+    expect(fake.lastPersistOpts()?.metadata).toMatchObject({
+      ...metadata,
+      hidden: true,
+      scripted: true,
+      voiceSessionTurn: true,
+    });
+    expect(loopOptions).toEqual([
+      expect.objectContaining({ cronRunId: "run-123" }),
+    ]);
+    expect(echoes).toEqual([]);
+  });
   // A caller whose internal instruction is composed per call carries no
   // sentinel for the content comparisons to recognize, so it declares itself.
   const SYNTHETIC_CONTENT =
