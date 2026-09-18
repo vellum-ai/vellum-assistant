@@ -11,8 +11,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventTargeting,
-  ReplaySubscriber,
-} from "../runtime/assistant-stream-state.js";
+  SubscriberIdentity,
+} from "../runtime/assistant-event-targeting.js";
 import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
@@ -334,28 +334,28 @@ describe("assistant-stream-state", () => {
   });
 
   describe("getReplayWindow — targeting filter", () => {
-    const MACOS_CLIENT: ReplaySubscriber = {
+    const MACOS_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "mac-1",
       interfaceId: "macos",
       capabilities: ["host_bash", "host_file", "host_cu", "host_browser"],
     };
 
-    const WEB_CLIENT: ReplaySubscriber = {
+    const WEB_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "web-1",
       interfaceId: "web",
       capabilities: [],
     };
 
-    const CHROME_EXT_CLIENT: ReplaySubscriber = {
+    const CHROME_EXT_CLIENT: SubscriberIdentity = {
       type: "client",
       clientId: "ext-1",
       interfaceId: "chrome-extension",
       capabilities: ["host_browser"],
     };
 
-    const PROCESS_SUB: ReplaySubscriber = { type: "process" };
+    const PROCESS_SUB: SubscriberIdentity = { type: "process" };
 
     test("untargeted events are replayed to all subscriber types", () => {
       /** Events without targeting metadata go to everyone. */

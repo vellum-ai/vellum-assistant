@@ -38,7 +38,7 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
-import type { ReplaySubscriber } from "../assistant-stream-state.js";
+import type { SubscriberIdentity } from "../assistant-event-targeting.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
@@ -600,7 +600,7 @@ function replaySubscriberFor(
   clientId: string | null,
   interfaceId: InterfaceId | null,
   actorPrincipalId: string | undefined,
-): ReplaySubscriber {
+): SubscriberIdentity {
   if (!clientId || !interfaceId) {
     return { type: "process" };
   }
