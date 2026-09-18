@@ -30,7 +30,7 @@
  */
 
 import { createRequire } from "node:module";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   Message,
@@ -39,6 +39,10 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
+import {
+  estimatePromptTokensWithTools,
+  estimateTextTokens,
+} from "../../../../../context/token-estimator.js";
 import { OpenRouterProvider } from "../../../../../providers/openrouter/client.js";
 import { ProviderError } from "../../../../../util/errors.js";
 import { stripOrphanedSurrogates } from "../../../../../util/unicode.js";
@@ -51,6 +55,13 @@ import type { MemoryRoutingTurn, Section } from "../types.js";
 // ---------------------------------------------------------------------------
 
 let providerStub: Provider | null = null;
+let selectorContextMockActive = false;
+let selectorMaxInputTokens = 200_000;
+const contextResolutionReal = {
+  ...(createRequire(import.meta.url)(
+    "../../../../../config/llm-context-resolution.js",
+  ) as Record<string, unknown>),
+};
 const registryReal = {
   ...(createRequire(import.meta.url)(
     "../../../../../providers/registry.js",
@@ -70,6 +81,26 @@ mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
 }));
 
+mock.module("../../../../../config/llm-context-resolution.js", () => ({
+  ...contextResolutionReal,
+  resolveEffectiveContextWindow: (...args: unknown[]) => {
+    const resolveReal = contextResolutionReal.resolveEffectiveContextWindow as (
+      ...values: unknown[]
+    ) => Record<string, unknown>;
+    const resolved = resolveReal(...args);
+    return selectorContextMockActive
+      ? {
+          ...resolved,
+          provider: providerStub?.name ?? resolved.provider,
+          model: providerStub?.defaultModel ?? resolved.model,
+          maxInputTokens: selectorMaxInputTokens,
+          modelMaxInputTokens: selectorMaxInputTokens,
+          defaultInputTokens: selectorMaxInputTokens,
+        }
+      : resolved;
+  },
+}));
+
 mock.module("../../../../../providers/registry.js", () => ({
   ...registryReal,
   getProviderRoutingSource: (providerName: string) =>
@@ -78,15 +109,20 @@ mock.module("../../../../../providers/registry.js", () => ({
 
 mock.module("../../../../../util/logger.js", () => ({
   getLogger: () => ({
+    info: () => {},
     warn: (...args: unknown[]) => warnCalls.push({ args }),
     child: () => ({
+      info: () => {},
       warn: (...args: unknown[]) => warnCalls.push({ args }),
     }),
   }),
 }));
 
-const { selectPool, MemoryV3RetrievalUnavailableError, TYPE_SAFE_POOL_KEEP_NOUL } =
-  await import("../pool-select.js");
+const {
+  selectPool,
+  MemoryV3RetrievalUnavailableError,
+  TYPE_SAFE_POOL_KEEP_NOUL,
+} = await import("../pool-select.js");
 type SelectorPool = Parameters<typeof selectPool>[0];
 
 // ---------------------------------------------------------------------------
@@ -222,8 +258,14 @@ function warnPayloads(): Array<Record<string, unknown>> {
 
 beforeEach(() => {
   providerStub = null;
+  selectorContextMockActive = true;
+  selectorMaxInputTokens = 200_000;
   providerCalls.length = 0;
   warnCalls.length = 0;
+});
+
+afterAll(() => {
+  selectorContextMockActive = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -505,6 +547,41 @@ describe("selectPool — request shape", () => {
       properties?: Record<string, unknown>;
     };
     expect(Object.keys(inputSchema.properties ?? {})).toEqual(["ids"]);
+  });
+
+  test("keeps forced-tool requests within 80% of the resolved context window", async () => {
+    selectorMaxInputTokens = 8_000;
+    const oversizedPool: SelectorPool = {
+      stable: Array.from({ length: 20 }, (_, index) => ({
+        slug: `stable-${index}`,
+        card: `stable card ${index} ${"x".repeat(4_000)}`,
+      })),
+      finder: Array.from({ length: 3 }, (_, index) => ({
+        slug: `finder-${index}`,
+        descriptor: `finder descriptor ${index}`,
+      })),
+    };
+    providerStub = makeProvider(toolUseResponse({ ids: [1] }));
+
+    const result = await selectPool(
+      oversizedPool,
+      makeTurn("preserve this generic current message"),
+    );
+
+    expect(providerCalls).toHaveLength(1);
+    const call = providerCalls[0]!;
+    const estimatedInputTokens = estimatePromptTokensWithTools(
+      call.messages,
+      call.options?.systemPrompt,
+      call.options?.tools ?? [],
+      providerStub.name,
+    );
+    expect(estimatedInputTokens).toBeLessThanOrEqual(6_400);
+    const sent = JSON.stringify(call.messages);
+    expect(sent).toContain("preserve this generic current message");
+    expect(sent).not.toContain("stable-0");
+    expect(sent).toContain("finder-2");
+    expect(result.pages[0]?.slug).not.toBe("stable-0");
   });
 
   test("stable prefix renders full cards in its own block carrying cache_control", async () => {
@@ -998,10 +1075,140 @@ function noulAnswer(noul: number): { type: "noul"; noul: number } {
 }
 
 describe("selectPool: TypeSafe System One", () => {
-  test.todo(
-    "keeps selector requests within 80% of the resolved context window while preserving the newest candidates",
-    () => {},
-  );
+  test("keeps selector requests within 80% of the resolved context window while preserving the newest candidates", async () => {
+    selectorMaxInputTokens = 32_000;
+    const oversizedPool: SelectorPool = {
+      stable: Array.from({ length: 40 }, (_, index) => ({
+        slug: `stable-${index}`,
+        card: `stable card ${index} ${"x".repeat(5_000)}`,
+      })),
+      finder: Array.from({ length: 4 }, (_, index) => ({
+        slug: `finder-${index}`,
+        descriptor: `finder descriptor ${index}`,
+      })),
+    };
+    let retainedSlugs: string[] = [];
+    providerStub = {
+      name: "typesafe",
+      defaultModel: "jev-latest",
+      sendMessage: async (messages, options) => {
+        providerCalls.push({ messages, options });
+        const payload = JSON.parse(
+          (messages[0]!.content[0] as { text: string }).text,
+        ) as {
+          state: {
+            candidates: Record<string, { slug: string; text: string }>;
+            current_message: string;
+          };
+          questions: Record<string, unknown>;
+        };
+        retainedSlugs = Object.values(payload.state.candidates).map(
+          (candidate) => candidate.slug,
+        );
+        const answers = Object.fromEntries(
+          retainedSlugs.map((_, index) => [
+            String(index + 1),
+            noulAnswer(
+              index === 0 || index === retainedSlugs.length - 1 ? 1 : 0,
+            ),
+          ]),
+        );
+        return typesafeResponse(answers);
+      },
+    };
+
+    const currentMessage = "preserve this current message";
+    const result = await selectPool(oversizedPool, makeTurn(currentMessage));
+
+    expect(providerCalls).toHaveLength(1);
+    const payloadText = (
+      providerCalls[0]!.messages[0]!.content[0] as { text: string }
+    ).text;
+    const payload = JSON.parse(payloadText) as {
+      state: {
+        candidates: Record<string, { slug: string; text: string }>;
+        current_message: string;
+      };
+      questions: Record<string, unknown>;
+    };
+    const estimatedWireTokens = estimateTextTokens(
+      JSON.stringify({
+        state: payload.state,
+        model: "jev-latest",
+        questions: payload.questions,
+      }),
+    );
+    expect(estimatedWireTokens).toBeLessThanOrEqual(25_600);
+    expect(payload.state.current_message).toBe(currentMessage);
+    expect(retainedSlugs.length).toBeLessThan(44);
+    expect(retainedSlugs).not.toContain("stable-0");
+    expect(retainedSlugs.slice(-4)).toEqual([
+      "finder-0",
+      "finder-1",
+      "finder-2",
+      "finder-3",
+    ]);
+    expect(Object.keys(payload.questions)).toHaveLength(retainedSlugs.length);
+    expect(result).toEqual({
+      pages: [
+        { slug: retainedSlugs[0], sections: [] },
+        { slug: "finder-3", sections: [] },
+      ],
+      keptAll: false,
+    });
+  });
+
+  test("preserves the current message and newest recent-context suffix when turn context is oversized", async () => {
+    selectorMaxInputTokens = 8_000;
+    let payload: {
+      state: {
+        candidates: Record<string, { slug: string; text: string }>;
+        current_message: string;
+        recent_context: string;
+        situation?: string;
+      };
+      questions: Record<string, unknown>;
+    } | null = null;
+    providerStub = {
+      name: "typesafe",
+      defaultModel: "jev-latest",
+      sendMessage: async (messages, options) => {
+        providerCalls.push({ messages, options });
+        payload = JSON.parse(
+          (messages[0]!.content[0] as { text: string }).text,
+        ) as typeof payload;
+        const ids = Object.keys(payload!.state.candidates);
+        return typesafeResponse(
+          Object.fromEntries(ids.map((id) => [id, noulAnswer(1)])),
+        );
+      },
+    };
+    const currentMessage = "keep the complete current message";
+    const recentSuffix = "RECENT-CONTEXT-END";
+    const turn = {
+      ...makeTurn(currentMessage),
+      recentContext: `${"r".repeat(40_000)}${recentSuffix}`,
+      situationalContext: `old situation ${"s".repeat(20_000)}`,
+    };
+
+    await selectPool(makePool(), turn);
+
+    expect(payload).not.toBeNull();
+    expect(payload!.state.current_message).toBe(currentMessage);
+    expect(payload!.state.recent_context).toEndWith(recentSuffix);
+    expect(payload!.state.recent_context.length).toBeLessThan(
+      turn.recentContext.length,
+    );
+    expect(payload!.state.situation).toBeUndefined();
+    const estimatedWireTokens = estimateTextTokens(
+      JSON.stringify({
+        state: payload!.state,
+        model: "jev-latest",
+        questions: payload!.questions,
+      }),
+    );
+    expect(estimatedWireTokens).toBeLessThanOrEqual(6_400);
+  });
 
   test("sends one noul per candidate and no select_pages tool", async () => {
     providerStub = makeTypesafeProvider(
@@ -1019,7 +1226,8 @@ describe("selectPool: TypeSafe System One", () => {
     const [call] = providerCalls;
     expect(call.options?.tools).toBeUndefined();
     expect(
-      (call.options?.config as Record<string, unknown> | undefined)?.tool_choice,
+      (call.options?.config as Record<string, unknown> | undefined)
+        ?.tool_choice,
     ).toBeUndefined();
     expect(
       (call.options?.config as Record<string, unknown> | undefined)?.callSite,

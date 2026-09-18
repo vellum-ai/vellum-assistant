@@ -59,6 +59,12 @@ import type {
 import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 import { z } from "zod";
 
+import { resolveEffectiveContextWindow } from "../../../../config/llm-context-resolution.js";
+import { getConfig } from "../../../../config/loader.js";
+import {
+  estimatePromptTokensWithTools,
+  estimateTextTokens,
+} from "../../../../context/token-estimator.js";
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
 import { redactLogString, truncate } from "../host-utils.js";
@@ -172,6 +178,7 @@ export interface SelectorPool {
 /** Tool name forced via `tool_choice`. Shared constant so tests can match it. */
 const SELECT_PAGES_TOOL_NAME = "select_pages";
 const MEMORY_V3_SELECT_CALL_SITE = "memoryV3SelectL2" as const;
+const SELECTOR_CONTEXT_BUDGET_RATIO = 0.8;
 
 /** Finder-line snippets are truncated to keep the dynamic tail compact. */
 const SNIPPET_MAX_CHARS = 300;
@@ -564,6 +571,223 @@ function typesafeKeepQuestion(id: string): TypesafeNoulQuestion {
   };
 }
 
+function buildTypesafeSelectorPayload(
+  pool: SelectorPool,
+  turn: MemoryRoutingTurn,
+  systemPrompt: string,
+): {
+  state: Record<string, unknown>;
+  questions: Record<string, TypesafeNoulQuestion>;
+} {
+  const candidates = typesafeCandidateEntries(pool);
+  const questions: Record<string, TypesafeNoulQuestion> = {};
+  for (const id of Object.keys(candidates)) {
+    questions[id] = typesafeKeepQuestion(id);
+  }
+  return {
+    state: {
+      selector_instructions: systemPrompt,
+      candidates,
+      ...(turn.situationalContext
+        ? { situation: turn.situationalContext }
+        : {}),
+      recent_context: turn.recentContext,
+      current_message: turn.currentMessage,
+    },
+    questions,
+  };
+}
+
+function buildGenericSelectorMessage(
+  pool: SelectorPool,
+  turn: MemoryRoutingTurn,
+): Message {
+  const content: ContentBlock[] = [];
+  if (pool.stable.length > 0) {
+    content.push(cachedTextBlock(renderCardSegment(pool.stable)));
+  }
+  const tailParts: string[] = [];
+  if (pool.finder.length > 0) {
+    tailParts.push(renderFinderSegment(pool.finder, pool.stable.length));
+  }
+  if (turn.situationalContext) {
+    tailParts.push(`<situation>${turn.situationalContext}</situation>`);
+  }
+  tailParts.push(`<recent_context>${turn.recentContext}</recent_context>`);
+  tailParts.push(`<current_message>${turn.currentMessage}</current_message>`);
+  content.push({ type: "text", text: tailParts.join("\n") });
+  return { role: "user", content };
+}
+
+function latestCandidateSuffix(
+  pool: SelectorPool,
+  retainedCount: number,
+): SelectorPool {
+  const finderCount = Math.min(retainedCount, pool.finder.length);
+  const stableCount = Math.max(0, retainedCount - finderCount);
+  return {
+    stable:
+      stableCount === 0
+        ? []
+        : pool.stable.slice(pool.stable.length - stableCount),
+    finder:
+      finderCount === 0
+        ? []
+        : pool.finder.slice(pool.finder.length - finderCount),
+  };
+}
+
+function latestTurnContextSuffix(
+  turn: MemoryRoutingTurn,
+  retainedChars: number,
+): MemoryRoutingTurn {
+  let remaining = retainedChars;
+  const takeSuffix = (value: string): string => {
+    const count = Math.min(remaining, value.length);
+    remaining -= count;
+    return safeStringSlice(value, value.length - count);
+  };
+  const currentMessage = takeSuffix(turn.currentMessage);
+  const recentContext = takeSuffix(turn.recentContext);
+  const situationalContext = turn.situationalContext
+    ? takeSuffix(turn.situationalContext)
+    : undefined;
+  return {
+    ...turn,
+    currentMessage,
+    recentContext,
+    situationalContext,
+  };
+}
+
+function turnContextChars(turn: MemoryRoutingTurn): number {
+  return (
+    turn.currentMessage.length +
+    turn.recentContext.length +
+    (turn.situationalContext?.length ?? 0)
+  );
+}
+
+function estimateSelectorInputTokens({
+  pool,
+  turn,
+  systemPrompt,
+  provider,
+  model,
+}: {
+  pool: SelectorPool;
+  turn: MemoryRoutingTurn;
+  systemPrompt: string;
+  provider: Provider;
+  model: string;
+}): number {
+  if (provider.name === TYPE_SAFE_PROVIDER_ID) {
+    const payload = buildTypesafeSelectorPayload(pool, turn, systemPrompt);
+    return estimateTextTokens(
+      JSON.stringify({
+        state: payload.state,
+        model,
+        questions: payload.questions,
+      }),
+    );
+  }
+  return estimatePromptTokensWithTools(
+    [buildGenericSelectorMessage(pool, turn)],
+    systemPrompt,
+    [SELECT_PAGES_TOOL],
+    provider.tokenEstimationProvider ?? provider.name,
+  );
+}
+
+interface SelectorPoolBudget {
+  pool: SelectorPool;
+  turn: MemoryRoutingTurn;
+  budgetTokens: number;
+  estimatedInputTokens: number;
+  originalEstimatedInputTokens: number;
+}
+
+function budgetSelectorPool({
+  pool,
+  turn,
+  systemPrompt,
+  provider,
+  model,
+  maxInputTokens,
+}: {
+  pool: SelectorPool;
+  turn: MemoryRoutingTurn;
+  systemPrompt: string;
+  provider: Provider;
+  model: string;
+  maxInputTokens: number;
+}): SelectorPoolBudget {
+  const budgetTokens = Math.max(
+    1,
+    Math.floor(maxInputTokens * SELECTOR_CONTEXT_BUDGET_RATIO),
+  );
+  const estimate = (
+    candidatePool: SelectorPool,
+    candidateTurn: MemoryRoutingTurn,
+  ): number =>
+    estimateSelectorInputTokens({
+      pool: candidatePool,
+      turn: candidateTurn,
+      systemPrompt,
+      provider,
+      model,
+    });
+  const originalEstimatedInputTokens = estimate(pool, turn);
+  if (originalEstimatedInputTokens <= budgetTokens) {
+    return {
+      pool,
+      turn,
+      budgetTokens,
+      estimatedInputTokens: originalEstimatedInputTokens,
+      originalEstimatedInputTokens,
+    };
+  }
+
+  const candidateCount = pool.stable.length + pool.finder.length;
+  const newestCandidatePool = latestCandidateSuffix(pool, 1);
+  let budgetedTurn = turn;
+  if (estimate(newestCandidatePool, budgetedTurn) > budgetTokens) {
+    let low = 0;
+    let high = turnContextChars(turn);
+    while (low < high) {
+      const retainedChars = Math.ceil((low + high) / 2);
+      const candidateTurn = latestTurnContextSuffix(turn, retainedChars);
+      if (estimate(newestCandidatePool, candidateTurn) <= budgetTokens) {
+        low = retainedChars;
+      } else {
+        high = retainedChars - 1;
+      }
+    }
+    budgetedTurn = latestTurnContextSuffix(turn, low);
+  }
+
+  let low = estimate(newestCandidatePool, budgetedTurn) <= budgetTokens ? 1 : 0;
+  let high = candidateCount;
+  while (low < high) {
+    const retainedCount = Math.ceil((low + high) / 2);
+    const candidatePool = latestCandidateSuffix(pool, retainedCount);
+    if (estimate(candidatePool, budgetedTurn) <= budgetTokens) {
+      low = retainedCount;
+    } else {
+      high = retainedCount - 1;
+    }
+  }
+
+  const budgetedPool = latestCandidateSuffix(pool, low);
+  return {
+    pool: budgetedPool,
+    turn: budgetedTurn,
+    budgetTokens,
+    estimatedInputTokens: estimate(budgetedPool, budgetedTurn),
+    originalEstimatedInputTokens,
+  };
+}
+
 function answersFromSelectorResponse(
   response: ProviderResponse,
 ): Record<string, unknown> | null {
@@ -590,28 +814,10 @@ async function selectPoolWithTypesafe(
   systemPrompt: string,
   provider: Provider,
 ): Promise<PoolSelection> {
-  const candidates = typesafeCandidateEntries(pool);
-  const questions: Record<string, TypesafeNoulQuestion> = {};
-  for (const id of Object.keys(candidates)) {
-    questions[id] = typesafeKeepQuestion(id);
-  }
-  const state = {
-    selector_instructions: systemPrompt,
-    candidates,
-    ...(turn.situationalContext
-      ? { situation: turn.situationalContext }
-      : {}),
-    recent_context: turn.recentContext,
-    current_message: turn.currentMessage,
-  };
+  const payload = buildTypesafeSelectorPayload(pool, turn, systemPrompt);
   const userMsg: Message = {
     role: "user",
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({ state, questions }),
-      },
-    ],
+    content: [{ type: "text", text: JSON.stringify(payload) }],
   };
 
   const failures: PoolSelectorAttemptFailure[] = [];
@@ -771,17 +977,19 @@ export async function selectPool(
   turn: MemoryRoutingTurn,
   systemPrompt: string = SYSTEM_PROMPT,
 ): Promise<PoolSelection> {
-  const ordered = orderedLines(pool);
-  if (ordered.length === 0) {
+  const originalCandidateCount = pool.stable.length + pool.finder.length;
+  if (originalCandidateCount === 0) {
     return { pages: [], keptAll: false };
   }
 
-  const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE);
+  const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE, {
+    selectionSeed: turn.conversationId,
+  });
   if (!provider) {
     log.warn(
       {
         callSite: MEMORY_V3_SELECT_CALL_SITE,
-        candidateCount: ordered.length,
+        candidateCount: originalCandidateCount,
         stableCount: pool.stable.length,
         finderCount: pool.finder.length,
       },
@@ -792,35 +1000,61 @@ export async function selectPool(
     );
   }
 
+  const effectiveContextWindow = resolveEffectiveContextWindow({
+    llm: getConfig().llm,
+    callSite: MEMORY_V3_SELECT_CALL_SITE,
+    selectionSeed: turn.conversationId,
+  });
+  const budget = budgetSelectorPool({
+    pool,
+    turn,
+    systemPrompt,
+    provider,
+    model: effectiveContextWindow.model,
+    maxInputTokens: effectiveContextWindow.maxInputTokens,
+  });
+  const budgetedPool = budget.pool;
+  const budgetedTurn = budget.turn;
+  const ordered = orderedLines(budgetedPool);
+  if (
+    ordered.length < originalCandidateCount ||
+    turnContextChars(budgetedTurn) < turnContextChars(turn)
+  ) {
+    log.info(
+      {
+        callSite: MEMORY_V3_SELECT_CALL_SITE,
+        providerName: provider.name,
+        model: effectiveContextWindow.model,
+        maxInputTokens: effectiveContextWindow.maxInputTokens,
+        budgetRatio: SELECTOR_CONTEXT_BUDGET_RATIO,
+        budgetTokens: budget.budgetTokens,
+        originalEstimatedInputTokens: budget.originalEstimatedInputTokens,
+        estimatedInputTokens: budget.estimatedInputTokens,
+        originalStableCount: pool.stable.length,
+        retainedStableCount: budgetedPool.stable.length,
+        originalFinderCount: pool.finder.length,
+        retainedFinderCount: budgetedPool.finder.length,
+        originalTurnContextChars: turnContextChars(turn),
+        retainedTurnContextChars: turnContextChars(budgetedTurn),
+      },
+      "trimmed pool selector input to the context budget",
+    );
+  }
+  if (ordered.length === 0) {
+    return { pages: [], keptAll: false };
+  }
+
   if (provider.name === TYPE_SAFE_PROVIDER_ID) {
     return selectPoolWithTypesafe(
-      pool,
-      turn,
+      budgetedPool,
+      budgetedTurn,
       ordered,
       systemPrompt,
       provider,
     );
   }
 
-  // Two content blocks: the stable prefix (cards) carries the cache
-  // breakpoint; the dynamic tail (finder lines + per-turn context) does not.
-  // See the module doc for the cache contract.
-  const content: ContentBlock[] = [];
-  if (pool.stable.length > 0) {
-    content.push(cachedTextBlock(renderCardSegment(pool.stable)));
-  }
-  const tailParts: string[] = [];
-  if (pool.finder.length > 0) {
-    tailParts.push(renderFinderSegment(pool.finder, pool.stable.length));
-  }
-  if (turn.situationalContext) {
-    tailParts.push(`<situation>${turn.situationalContext}</situation>`);
-  }
-  tailParts.push(`<recent_context>${turn.recentContext}</recent_context>`);
-  tailParts.push(`<current_message>${turn.currentMessage}</current_message>`);
-  content.push({ type: "text", text: tailParts.join("\n") });
-
-  const userMsg: Message = { role: "user", content };
+  const userMsg = buildGenericSelectorMessage(budgetedPool, budgetedTurn);
   const failures: PoolSelectorAttemptFailure[] = [];
   let attempt = 0;
   const recordFailure = (
@@ -838,8 +1072,8 @@ export async function selectPool(
       callSite: MEMORY_V3_SELECT_CALL_SITE,
       providerName: provider.name,
       candidateCount: ordered.length,
-      stableCount: pool.stable.length,
-      finderCount: pool.finder.length,
+      stableCount: budgetedPool.stable.length,
+      finderCount: budgetedPool.finder.length,
     };
     failures.push(diagnostic);
     log.warn(diagnostic, "pool selector attempt failed");
@@ -932,8 +1166,8 @@ export async function selectPool(
       log.warn(
         {
           candidateCount: ordered.length,
-          stableCount: pool.stable.length,
-          finderCount: pool.finder.length,
+          stableCount: budgetedPool.stable.length,
+          finderCount: budgetedPool.finder.length,
           callSite: MEMORY_V3_SELECT_CALL_SITE,
           providerName: provider.name,
           failures,
@@ -951,8 +1185,8 @@ export async function selectPool(
     log.warn(
       {
         candidateCount: ordered.length,
-        stableCount: pool.stable.length,
-        finderCount: pool.finder.length,
+        stableCount: budgetedPool.stable.length,
+        finderCount: budgetedPool.finder.length,
         callSite: MEMORY_V3_SELECT_CALL_SITE,
         providerName: provider.name,
         failures,
@@ -966,7 +1200,7 @@ export async function selectPool(
 
   // Omitted `ids` is the recall-safe "keep all candidates" signal.
   if (parsed.ids === undefined) {
-    return { pages: selectAllPoolCandidates(pool), keptAll: true };
+    return { pages: selectAllPoolCandidates(budgetedPool), keptAll: true };
   }
 
   // Map 1-based IDs over the concatenated numbering, dropping out-of-range
