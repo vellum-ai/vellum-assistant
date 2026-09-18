@@ -39,35 +39,35 @@ This document enumerates every observed communication permutation between the th
 | 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
 | 28 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
 | 29 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 34 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel admission policy IPC |
-| 35 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Inbound trust verdict IPC |
-| 36 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian delivery IPC |
-| 37 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Guardian requests IPC |
-| 38 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Invites IPC |
-| 39 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Verification sessions IPC |
-| 40 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Channel socket health IPC |
-| 41 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Credential request IPC |
-| 42 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Gateway log tail IPC |
-| 43 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Slack thread IPC |
-| 44 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Trust rules IPC |
-| 45 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Velay status IPC |
-| 46 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Webhook route IPC |
-| 47 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contacts mirror IPC |
-| 48 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Contact info IPC |
-| 49 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Invite actions IPC |
-| 50 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Event emission IPC |
-| 51 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant database proxy IPC |
-| 52 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Credential write IPC |
-| 53 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Guardian form IPC |
-| 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
-| 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
-| 56 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Plugin webhook WebSocket frame IPC |
-| 57 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Gateway reply delivery IPC |
-| 58 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
+| 30 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Feature flags IPC |
+| 31 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Contact data IPC |
+| 32 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Risk classification IPC |
+| 33 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Threshold IPC |
+| 34 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Channel admission policy IPC |
+| 35 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Inbound trust verdict IPC |
+| 36 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Guardian delivery IPC |
+| 37 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Guardian requests IPC |
+| 38 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Invites IPC |
+| 39 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Verification sessions IPC |
+| 40 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Channel socket health IPC |
+| 41 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Credential request IPC |
+| 42 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Gateway log tail IPC |
+| 43 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Slack thread IPC |
+| 44 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Trust rules IPC |
+| 45 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Velay status IPC |
+| 46 | Assistant -> Gateway | `ipc-local-ndjson` | none (local socket or named pipe) | Webhook route IPC |
+| 47 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Contacts mirror IPC |
+| 48 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Contact info IPC |
+| 49 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Invite actions IPC |
+| 50 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Event emission IPC |
+| 51 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Assistant database proxy IPC |
+| 52 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Credential write IPC |
+| 53 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Guardian form IPC |
+| 54 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Trust rule suggestion IPC |
+| 55 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Runtime route proxy over IPC |
+| 56 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Plugin webhook WebSocket frame IPC |
+| 57 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Gateway reply delivery IPC |
+| 58 | Gateway -> Assistant | `ipc-local-framed` | none (local socket or named pipe) | Assistant health IPC |
 | 59 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
 | 60 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
 | 61 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
@@ -436,8 +436,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Contacts mirror IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway mirrors its contact writes into the assistant's contact store (contacts_mirror_apply, contacts_mirror_upsert_full, contacts_mirror_upsert_contact, contacts_mirror_upsert_channel, contacts_mirror_merge_contact, contacts_mirror_delete_contact).
 
 **Caller files:**
@@ -453,12 +453,15 @@ This document enumerates every observed communication permutation between the th
 
 ### Contact info IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs through contacts-info-client.ts (contacts_info_batch, contact_channel_identity_lookup, contact_mirror_probe, contact_user_file_slugs), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).
 
 **Caller files:**
 - `gateway/src/ipc/contacts-info-client.ts`
+- `gateway/src/db/contact-store.ts`
+- `gateway/src/db/contacts-info-joiner.ts`
+- `gateway/src/verification/contact-helpers.ts`
 - `gateway/src/http/routes/contact-prompt.ts`
 - `gateway/src/http/routes/contacts-control-plane-proxy.ts`
 
@@ -470,8 +473,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Invite actions IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway asks the assistant to compose an invite's presentation (invites_compose_presentation), place an invite call (invites_trigger_call), and act on a redeemed invite (invite_redeemed).
 
 **Caller files:**
@@ -485,8 +488,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Event emission IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway emits client events through the assistant's event hub (emit_event).
 
 **Caller files:**
@@ -501,8 +504,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Assistant database proxy IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway's one-time data migrations read from and drop tables in the assistant's SQLite database through the assistant (db_proxy). Allowlisted to the migrations; no runtime feature uses it.
 
 **Caller files:**
@@ -514,8 +517,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Credential write IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway stores a credential submitted through a credential request link (credentials_set).
 
 **Caller files:**
@@ -527,8 +530,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Guardian form IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway claims and resolves a guardian form submitted over HTTP (guardian_form_claim, resolve_guardian_form).
 
 **Caller files:**
@@ -540,11 +543,12 @@ This document enumerates every observed communication permutation between the th
 
 ### Trust rule suggestion IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway asks the assistant to suggest a trust rule (suggest_trust_rule).
 
 **Caller files:**
+- `gateway/src/http/routes/trust-rules.ts`
 - `gateway/src/ipc/assistant-client.ts`
 
 **Callee files:**
@@ -553,8 +557,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Runtime route proxy over IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway serves an HTTP request by calling the matching assistant route over IPC when the client sends X-Vellum-Proxy-Server: ipc, using the route schema it caches from get_route_schema.
 
 **Caller files:**
@@ -567,8 +571,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Plugin webhook WebSocket frame IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway terminates plugin ingress WebSockets at the edge and hands each frame, in arrival order, to the plugin's route over IPC as a POST (user_route_post). Nothing travels back to the socket.
 
 **Caller files:**
@@ -580,8 +584,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Gateway reply delivery IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway hands its replies to invite and verification codes it intercepted at ingress, with the inbound message's callback URL, to the assistant, which sends them through the channel transport that URL names (deliver_gateway_reply).
 
 **Caller files:**
@@ -593,8 +597,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Assistant health IPC
 
-- **Protocol:** `ipc-unix-framed`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-framed`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Gateway polls the assistant's health after startup (health).
 
 **Caller files:**
@@ -608,9 +612,9 @@ This document enumerates every observed communication permutation between the th
 
 ### Feature flags IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
-- **Description:** Assistant fetches merged feature flags from the gateway via the Unix domain socket IPC (get_feature_flags method).
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
+- **Description:** Assistant fetches merged feature flags from the gateway over local IPC (get_feature_flags method).
 
 **Caller files:**
 - `assistant/src/ipc/gateway-client.ts`
@@ -621,8 +625,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Contact data IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant reads and writes gateway-owned contacts over IPC: rich reads (contacts_list_rich, contacts_get_rich), the mirror reconciler's identity snapshot (contacts_identity_snapshot), the guardian contact (get_guardian_contact), and contact writes relayed to the gateway store (create_contact, update_contact_channel, merge_contacts, upsert_verified_channel, mark_channel_revoked).
 
 **Caller files:**
@@ -639,8 +643,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Risk classification IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant classifies tool invocation risk via the persistent IPC connection to the gateway (classify_risk method).
 
 **Caller files:**
@@ -652,8 +656,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Threshold IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override), and writes a conversation's threshold when an inbound message requests one (set_conversation_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.
 
 **Caller files:**
@@ -667,8 +671,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Channel admission policy IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant reads a channel's admission policy from the gateway (get_channel_admission_policy).
 
 **Caller files:**
@@ -680,8 +684,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Inbound trust verdict IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant asks the gateway for the trust verdict on an inbound actor (resolve_inbound_trust).
 
 **Caller files:**
@@ -693,8 +697,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Guardian delivery IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant resolves where to deliver to the guardian on each channel (resolve_guardian_delivery).
 
 **Caller files:**
@@ -706,8 +710,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Guardian requests IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant creates, reads, lists, updates, decides and expires gateway-owned guardian requests and their deliveries (the guardian_requests_* methods in GUARDIAN_REQUESTS_IPC_METHODS).
 
 **Caller files:**
@@ -719,8 +723,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Invites IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant lists, creates, revokes and redeems gateway-owned invites, including voice invites (the invites_* methods in INVITES_IPC_METHODS).
 
 **Caller files:**
@@ -733,8 +737,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Verification sessions IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant creates and advances gateway-owned channel verification sessions (the methods in VERIFICATION_SESSIONS_IPC_METHODS).
 
 **Caller files:**
@@ -746,8 +750,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Channel socket health IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant reads the health of the gateway's Slack and Discord socket connections (channel_socket_health).
 
 **Caller files:**
@@ -759,8 +763,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Credential request IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant asks the gateway to create a credential request link (create_credential_request).
 
 **Caller files:**
@@ -773,8 +777,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Gateway log tail IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant tails the gateway's logs for the gateway logs route (gateway_logs_tail).
 
 **Caller files:**
@@ -786,8 +790,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Slack thread IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant detaches a conversation from its active Slack thread (detach_slack_active_thread).
 
 **Caller files:**
@@ -799,8 +803,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Trust rules IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant lists gateway-owned trust rules (trust_rules_list).
 
 **Caller files:**
@@ -812,8 +816,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Velay status IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant reads the Velay tunnel status for the gateway status route (get_velay_status).
 
 **Caller files:**
@@ -826,8 +830,8 @@ This document enumerates every observed communication permutation between the th
 
 ### Webhook route IPC
 
-- **Protocol:** `ipc-unix-ndjson`
-- **Auth:** none (local socket)
+- **Protocol:** `ipc-local-ndjson`
+- **Auth:** none (local socket or named pipe)
 - **Description:** Assistant registers platform callback webhook routes with the gateway (register_webhook_route).
 
 **Caller files:**

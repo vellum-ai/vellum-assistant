@@ -19,8 +19,8 @@ export type ServiceName = "assistant" | "gateway" | "ces";
 export type Protocol =
   | "http"
   | "websocket"
-  | "ipc-unix-ndjson"
-  | "ipc-unix-framed"
+  | "ipc-local-ndjson"
+  | "ipc-local-framed"
   | "stdio-ndjson"
   | "unix-socket-ndjson";
 
@@ -404,16 +404,16 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   },
 
   // =========================================================================
-  // Assistant -> Gateway (IPC Unix NDJSON)
+  // Assistant -> Gateway (local IPC, NDJSON: a Unix socket, or a named pipe on Windows)
   // =========================================================================
   {
     label: "Feature flags IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
-      "Assistant fetches merged feature flags from the gateway via the Unix domain socket IPC (get_feature_flags method).",
+      "Assistant fetches merged feature flags from the gateway over local IPC (get_feature_flags method).",
     callerGlobs: ["assistant/src/ipc/gateway-client.ts"],
     calleeGlobs: [
       "gateway/src/ipc/feature-flag-handlers.ts",
@@ -424,8 +424,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Contact data IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant reads and writes gateway-owned contacts over IPC: rich reads (contacts_list_rich, contacts_get_rich), the mirror reconciler's identity snapshot (contacts_identity_snapshot), the guardian contact (get_guardian_contact), and contact writes relayed to the gateway store (create_contact, update_contact_channel, merge_contacts, upsert_verified_channel, mark_channel_revoked).",
     callerGlobs: [
@@ -445,8 +445,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Risk classification IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant classifies tool invocation risk via the persistent IPC connection to the gateway (classify_risk method).",
     callerGlobs: ["assistant/src/ipc/gateway-client.ts"],
@@ -459,8 +459,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Threshold IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant reads auto-approve threshold configuration via gateway IPC (get_global_thresholds, get_conversation_threshold, get_contact_threshold, and resolve_channel_permission_threshold for a channel's permission override), and writes a conversation's threshold when an inbound message requests one (set_conversation_threshold). Contact ceiling writes use gateway IPC set_contact_threshold from the gateway contacts CLI, or POST /v1/contacts.",
     callerGlobs: [
@@ -477,8 +477,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Channel admission policy IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant reads a channel's admission policy from the gateway (get_channel_admission_policy).",
     callerGlobs: [
@@ -493,8 +493,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Inbound trust verdict IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant asks the gateway for the trust verdict on an inbound actor (resolve_inbound_trust).",
     callerGlobs: [
@@ -509,8 +509,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Guardian delivery IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant resolves where to deliver to the guardian on each channel (resolve_guardian_delivery).",
     callerGlobs: [
@@ -525,8 +525,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Guardian requests IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant creates, reads, lists, updates, decides and expires gateway-owned guardian requests and their deliveries (the guardian_requests_* methods in GUARDIAN_REQUESTS_IPC_METHODS).",
     callerGlobs: [
@@ -541,8 +541,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Invites IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant lists, creates, revokes and redeems gateway-owned invites, including voice invites (the invites_* methods in INVITES_IPC_METHODS).",
     callerGlobs: [
@@ -558,8 +558,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Verification sessions IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant creates and advances gateway-owned channel verification sessions (the methods in VERIFICATION_SESSIONS_IPC_METHODS).",
     callerGlobs: [
@@ -574,8 +574,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Channel socket health IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant reads the health of the gateway's Slack and Discord socket connections (channel_socket_health).",
     callerGlobs: [
@@ -590,8 +590,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Credential request IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant asks the gateway to create a credential request link (create_credential_request).",
     callerGlobs: [
@@ -607,8 +607,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Gateway log tail IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant tails the gateway's logs for the gateway logs route (gateway_logs_tail).",
     callerGlobs: [
@@ -623,8 +623,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Slack thread IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant detaches a conversation from its active Slack thread (detach_slack_active_thread).",
     callerGlobs: [
@@ -639,8 +639,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Trust rules IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant lists gateway-owned trust rules (trust_rules_list).",
     callerGlobs: [
@@ -655,8 +655,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Velay status IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant reads the Velay tunnel status for the gateway status route (get_velay_status).",
     callerGlobs: [
@@ -672,8 +672,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Webhook route IPC",
     caller: "assistant",
     callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
+    protocol: "ipc-local-ndjson",
+    auth: "none (local socket or named pipe)",
     description:
       "Assistant registers platform callback webhook routes with the gateway (register_webhook_route).",
     callerGlobs: [
@@ -687,14 +687,14 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   },
 
   // =========================================================================
-  // Gateway -> Assistant (IPC Unix, length-prefixed framing)
+  // Gateway -> Assistant (local IPC, length-prefixed framing: a Unix socket, or a named pipe on Windows)
   // =========================================================================
   {
     label: "Contacts mirror IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway mirrors its contact writes into the assistant's contact store (contacts_mirror_apply, contacts_mirror_upsert_full, contacts_mirror_upsert_contact, contacts_mirror_upsert_channel, contacts_mirror_merge_contact, contacts_mirror_delete_contact).",
     callerGlobs: [
@@ -713,12 +713,15 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Contact info IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway reads assistant-side contact data: batch contact info, channel identity lookups, mirror probes and user-file slugs through contacts-info-client.ts (contacts_info_batch, contact_channel_identity_lookup, contact_mirror_probe, contact_user_file_slugs), contact prompt flags (contact_prompt_flags), and the guardian display label (resolve_guardian_label).",
     callerGlobs: [
       "gateway/src/ipc/contacts-info-client.ts",
+      "gateway/src/db/contact-store.ts",
+      "gateway/src/db/contacts-info-joiner.ts",
+      "gateway/src/verification/contact-helpers.ts",
       "gateway/src/http/routes/contact-prompt.ts",
       "gateway/src/http/routes/contacts-control-plane-proxy.ts",
     ],
@@ -733,8 +736,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Invite actions IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway asks the assistant to compose an invite's presentation (invites_compose_presentation), place an invite call (invites_trigger_call), and act on a redeemed invite (invite_redeemed).",
     callerGlobs: [
@@ -751,8 +754,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Event emission IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway emits client events through the assistant's event hub (emit_event).",
     callerGlobs: [
@@ -770,8 +773,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Assistant database proxy IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway's one-time data migrations read from and drop tables in the assistant's SQLite database through the assistant (db_proxy). Allowlisted to the migrations; no runtime feature uses it.",
     callerGlobs: [
@@ -786,8 +789,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Credential write IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway stores a credential submitted through a credential request link (credentials_set).",
     callerGlobs: [
@@ -802,8 +805,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Guardian form IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway claims and resolves a guardian form submitted over HTTP (guardian_form_claim, resolve_guardian_form).",
     callerGlobs: [
@@ -818,11 +821,12 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Trust rule suggestion IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway asks the assistant to suggest a trust rule (suggest_trust_rule).",
     callerGlobs: [
+      "gateway/src/http/routes/trust-rules.ts",
       "gateway/src/ipc/assistant-client.ts",
     ],
     calleeGlobs: [
@@ -834,8 +838,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Runtime route proxy over IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway serves an HTTP request by calling the matching assistant route over IPC when the client sends X-Vellum-Proxy-Server: ipc, using the route schema it caches from get_route_schema.",
     callerGlobs: [
@@ -851,8 +855,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Plugin webhook WebSocket frame IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway terminates plugin ingress WebSockets at the edge and hands each frame, in arrival order, to the plugin's route over IPC as a POST (user_route_post). Nothing travels back to the socket.",
     callerGlobs: [
@@ -867,8 +871,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Gateway reply delivery IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway hands its replies to invite and verification codes it intercepted at ingress, with the inbound message's callback URL, to the assistant, which sends them through the channel transport that URL names (deliver_gateway_reply).",
     callerGlobs: ["gateway/src/verification/reply-delivery.ts"],
@@ -881,8 +885,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     label: "Assistant health IPC",
     caller: "gateway",
     callee: "assistant",
-    protocol: "ipc-unix-framed",
-    auth: "none (local socket)",
+    protocol: "ipc-local-framed",
+    auth: "none (local socket or named pipe)",
     description:
       "Gateway polls the assistant's health after startup (health).",
     callerGlobs: [

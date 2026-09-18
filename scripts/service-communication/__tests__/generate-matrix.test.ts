@@ -17,8 +17,8 @@ const VALID_SERVICES: ServiceName[] = ["assistant", "gateway", "ces"];
 const VALID_PROTOCOLS: Protocol[] = [
   "http",
   "websocket",
-  "ipc-unix-ndjson",
-  "ipc-unix-framed",
+  "ipc-local-ndjson",
+  "ipc-local-framed",
   "stdio-ndjson",
   "unix-socket-ndjson",
 ];
@@ -290,21 +290,37 @@ describe("service communication matrix", () => {
     }
   });
 
-  test("every gateway file importing the assistant IPC client is covered by a matrix callerGlob", async () => {
+  test("every gateway file calling the assistant over IPC is covered by a matrix callerGlob", async () => {
     /**
-     * A gateway module that imports ipcCallAssistant or ipcCallAssistantRaw
-     * from gateway/src/ipc/assistant-client.ts calls the assistant over IPC,
-     * whether directly or through an injected alias, so it must appear in the
-     * callerGlobs of some gateway -> assistant entry. Matching the import
-     * rather than call sites is what catches the aliased calls.
+     * The gateway reaches the assistant's IPC socket through client modules
+     * in gateway/src/ipc/: assistant-client.ts (ipcCallAssistant,
+     * ipcCallAssistantRaw) and typed wrappers built on it, in that file or in
+     * their own *-client.ts. Every exported function of those modules is a
+     * call helper, so a gateway module that imports one calls the assistant,
+     * directly or through an injected alias, and must appear in the
+     * callerGlobs of some gateway -> assistant entry. Error classes and
+     * type-only imports don't count.
      *
-     * Add to this list, with a comment, only a file that imports the client
+     * Add to this list, with a comment, only a file that imports a helper
      * without calling the assistant.
      */
     const ALLOWLIST = new Set<string>([]);
 
-    const IMPORT_PATTERN =
-      /import\s*\{[^}]*\bipcCallAssistant(?:Raw)?\b[^}]*\}\s*from\s*["'][^"']*assistant-client(?:\.js)?["']/;
+    const clientModules = new Map<string, Set<string>>();
+    for (const relPath of new Glob("gateway/src/ipc/*-client.ts").scanSync({
+      cwd: REPO_ROOT,
+    })) {
+      const content = await Bun.file(join(REPO_ROOT, relPath)).text();
+      const isTransport = relPath.endsWith("/assistant-client.ts");
+      if (!isTransport && !content.includes("ipcCallAssistant")) continue;
+      const helpers = new Set(
+        [...content.matchAll(/^export (?:async )?function (\w+)/gm)].map(
+          (m) => m[1],
+        ),
+      );
+      const name = relPath.split("/").pop()!.replace(/\.ts$/, "");
+      clientModules.set(name, helpers);
+    }
 
     const coveredFiles = new Set<string>();
     for (const entry of MATRIX_ENTRIES.filter(
@@ -318,14 +334,28 @@ describe("service communication matrix", () => {
       }
     }
 
-    const sourceGlob = new Glob("gateway/src/**/*.ts");
+    // Relative imports only: `@vellumai/assistant-client` is the HTTP proxy
+    // package, not the IPC client.
+    const IMPORT_RE =
+      /import\s+(type\s+)?\{([^}]*)\}\s*from\s*["'](?:\.{1,2}\/)+(?:[\w-]+\/)*([\w-]+-client)(?:\.js)?["']/g;
+
     const uncovered: string[] = [];
-    for (const relPath of sourceGlob.scanSync({ cwd: REPO_ROOT })) {
+    for (const relPath of new Glob("gateway/src/**/*.ts").scanSync({
+      cwd: REPO_ROOT,
+    })) {
       if (relPath.endsWith(".test.ts") || relPath.includes("/__tests__/")) {
         continue;
       }
       const content = await Bun.file(join(REPO_ROOT, relPath)).text();
-      if (!IMPORT_PATTERN.test(content)) continue;
+      const callsAssistant = [...content.matchAll(IMPORT_RE)].some((m) => {
+        const helpers = clientModules.get(m[3]);
+        if (m[1] || !helpers) return false;
+        return m[2]
+          .split(",")
+          .map((n) => n.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0])
+          .some((n) => helpers.has(n));
+      });
+      if (!callsAssistant) continue;
       if (ALLOWLIST.has(relPath)) continue;
       if (!coveredFiles.has(relPath)) {
         uncovered.push(relPath);
