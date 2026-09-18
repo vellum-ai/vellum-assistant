@@ -116,6 +116,16 @@ export function hasLexicalTokens(text: string): boolean {
  */
 export type ArchiveStatusFilter = "active" | "archived" | "all";
 
+/**
+ * Which bucket a listing covers.
+ *
+ * The persisted {@link ConversationType} values plus `"all"`, a read-side
+ * union that exists only here: no row carries it, and nothing writes it. It
+ * lets one paginated request span a user's whole history, which is what a
+ * full-history view needs and what three interleaved cursors cannot give it.
+ */
+export type ConversationListTypeFilter = ConversationType | "all";
+
 function archiveStatusClause(status: ArchiveStatusFilter) {
   switch (status) {
     case "active":
@@ -192,6 +202,25 @@ function surfacedVisibilitySql(alias = "conversations"): string {
   return (
     `(${alias}.surfaced_at IS NOT NULL` +
     ` AND ${alias}.conversation_type != 'private'` +
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
+  );
+}
+
+/**
+ * Raw SQL predicate for the background **umbrella**: background and scheduled
+ * rows together, matched on `conversation_type` or on the system group the
+ * producer filed them in, with subagent runs excluded so the sidebar never
+ * surfaces them.
+ *
+ * Shared by the `"background"` bucket of {@link conversationTypeClause} and by
+ * the `"all"` bucket, which is the union of that one with the standard
+ * listing, so the combined read can never admit a row either bucket alone
+ * would have withheld.
+ */
+function backgroundUmbrellaSql(alias = "conversations"): string {
+  return (
+    `((${alias}.conversation_type IN ('background', 'scheduled')` +
+    ` OR COALESCE(${alias}.group_id, 'system:all') IN ('system:background', 'system:scheduled'))` +
     ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
   );
 }
@@ -289,6 +318,11 @@ function ungroupedSql(alias = "conversations"): string {
  *   Background and Scheduled sidebar sections from one request.
  * - `"scheduled"` — scheduled rows only, so the Scheduled section can load
  *   independently of the broader background backlog without over-fetching it.
+ * - `"all"`: the union of `"standard"` and `"background"`, so one paginated
+ *   request covers a user's whole history instead of interleaving three. Not
+ *   a bypass of the visibility rules: it is exactly those two predicates
+ *   OR-ed, with the legacy `private` type excluded on top, so nothing reaches
+ *   it that neither bucket would have returned.
  *
  * `group_id` is matched alongside `conversationType` so conversations routed to
  * `system:background` / `system:scheduled` (heartbeat, reminders, schedule-job
@@ -296,7 +330,7 @@ function ungroupedSql(alias = "conversations"): string {
  * correct bucket. Subagent runs are excluded from the background/scheduled
  * buckets so the sidebar never surfaces them.
  */
-function conversationTypeClause(type: ConversationType) {
+function conversationTypeClause(type: ConversationListTypeFilter) {
   const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
   switch (type) {
     case "standard":
@@ -305,9 +339,20 @@ function conversationTypeClause(type: ConversationType) {
       // standardListingVisibilitySql for the full predicate semantics.
       return sql.raw(standardListingVisibilitySql());
     case "background":
-      return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
+      return sql.raw(backgroundUmbrellaSql());
     case "scheduled":
       return sql`(${conversations.conversationType} = 'scheduled' OR group_id = 'system:scheduled') AND ${notSubagent}`;
+    case "all":
+      /* `private` is excluded explicitly rather than left to the two arms.
+         The standard arm already drops it everywhere, but the umbrella
+         matches on the system group as well as on the type, so a legacy
+         private row filed in `system:background` would otherwise arrive
+         through it. Those rows exist transiently after an in-place snapshot
+         restore, before migration cleanup deletes them. */
+      return sql.raw(
+        `((${standardListingVisibilitySql()} OR ${backgroundUmbrellaSql()})` +
+          ` AND conversations.conversation_type != 'private')`,
+      );
   }
 }
 
@@ -321,7 +366,7 @@ function conversationTypeClause(type: ConversationType) {
  * transposition waiting to happen.
  */
 export interface ConversationListFilter {
-  conversationType?: ConversationType;
+  conversationType?: ConversationListTypeFilter;
   archiveStatus?: ArchiveStatusFilter;
   originChannel?: string;
   /**

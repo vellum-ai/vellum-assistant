@@ -559,6 +559,14 @@
       "label": "Assistant Inbox",
       "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. Off hides the entry and redirects the route to chat.",
       "defaultEnabled": false
+    },
+    {
+      "id": "sidebar-done",
+      "scope": "both",
+      "key": "sidebar-done",
+      "label": "Sidebar Done",
+      "description": "Turns archiving a chat into marking it done: the sidebar row carries a Done check instead of the overflow menu, an Old chats page lists the full history, and done chats stay findable in search by default. Off keeps today's Archive wording, the overflow menu, and search that hides archived rows unless the query asks for them.",
+      "defaultEnabled": false
     }
   ]
 }

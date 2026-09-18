@@ -7985,9 +7985,13 @@ paths:
             enum:
               - background
               - scheduled
+              - all
           description:
             Filter by conversation type. Pass "background" to list background and scheduled conversations together (the
-            back-compat umbrella), or "scheduled" to list only scheduled conversations.
+            back-compat umbrella), "scheduled" to list only scheduled conversations, or "all" for the union of the
+            standard listing and that umbrella, so one paginated cursor spans every type. Combine "all" with
+            archiveStatus=all for a whole-history read; rows are recency-ordered (COALESCE(last_message_at, updated_at)
+            descending) like every other list read, and pinned rows are never appended to it.
         - name: archiveStatus
           in: query
           required: false
