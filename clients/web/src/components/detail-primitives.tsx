@@ -14,6 +14,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -97,13 +98,23 @@ function Fold({
   const box = useOverflows<HTMLDivElement>();
   const measureFold = fold.ref;
   const measureBox = box.ref;
+  const boxRef = useRef<HTMLDivElement | null>(null);
   const ref = useCallback(
     (el: HTMLDivElement | null) => {
+      boxRef.current = el;
       measureFold(el);
       measureBox(el);
     },
     [measureFold, measureBox],
   );
+  const toggle = () => {
+    // Folding back shows the value from its start, not wherever it was
+    // scrolled to while open.
+    if (expanded && boxRef.current) {
+      boxRef.current.scrollTop = 0;
+    }
+    setExpanded(!expanded);
+  };
   const clamped = fold.overflows && !expanded;
   const scrolls = expanded && box.overflows;
 
@@ -140,7 +151,7 @@ function Fold({
       {fold.overflows && (
         <button
           type="button"
-          onClick={() => setExpanded((open) => !open)}
+          onClick={toggle}
           className="mt-2 w-full border-t border-[var(--border-base)] pt-2 text-left"
         >
           <Typography

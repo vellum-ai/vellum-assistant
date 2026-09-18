@@ -400,6 +400,18 @@ describe("ToolDetailPanel", () => {
       }
     });
 
+    test("folds back to its start after scrolling while open", () => {
+      const { getByRole, getByText } = openNote(1000);
+      const box = getByRole("region", { name: "note" });
+      box.scrollTop = 300;
+
+      act(() => {
+        fireEvent.click(getByText("Show less"));
+      });
+
+      expect(box.scrollTop).toBe(0);
+    });
+
     test("shows whole, with nothing to scroll, when it fits that height", () => {
       const { queryByRole, getByText } = openNote(300);
 
