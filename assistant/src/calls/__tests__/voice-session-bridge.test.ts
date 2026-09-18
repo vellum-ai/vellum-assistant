@@ -2996,7 +2996,9 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
       turn: { onEscalationTargetResolved },
     });
 
-    reportPreparedTarget(runOptions, "voice-mix");
+    // The leg is pinned to the chosen arm itself (see the mix pin test).
+    expect(runOptions.overrideProfile).toBe(selectedProfile);
+    reportPreparedTarget(runOptions, runOptions.overrideProfile as string);
 
     expect(selectedProfile).toBeDefined();
     expect(onEscalationTargetResolved).toHaveBeenCalledWith({
@@ -3120,6 +3122,36 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     expect(runOptions.overrideProfile).toBe("quality-optimized");
     expect(runOptions.forceOverrideProfile).toBe(true);
     expect(runOptions.inferenceCallSite).toBe("mainAgent");
+  });
+
+  test("a mix pins the arm serving this conversation, not the mix name", async () => {
+    // The image-fallback check judges the pinned profile, and a mix reads as
+    // vision-capable when any arm is. Pinning the chosen arm keeps a
+    // text-only arm from receiving raw images.
+    setConfig("llm", {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    });
+    let chosenArm: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        chosenArm = chosenProfile;
+      },
+    });
+    expect(chosenArm).toBeDefined();
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe(chosenArm);
+    expect(runOptions.forceOverrideProfile).toBe(true);
   });
 
   test("an explicit routing pin wins over the conversation profile", async () => {

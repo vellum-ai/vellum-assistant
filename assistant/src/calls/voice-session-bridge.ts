@@ -93,19 +93,31 @@ const log = getLogger("voice-session-bridge");
  * selected one and the ordinary call-agent resolution applies. Images in the
  * history need no special profile: a text-only model gets them captioned by
  * the `image-fallback` plugin, exactly as a typed turn does.
+ *
+ * A mix resolves to the arm this conversation's seed selects, not the mix's
+ * own name. Dispatch lands on that arm either way, but the image-fallback
+ * check judges the profile it is handed, and a mix reads as vision-capable
+ * when any arm is: a text-only chosen arm would get raw images.
  */
 function conversationProfileForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
 ): string | null {
   const overrideProfile = resolveOverrideProfile(conversation);
+  const mix: { arm?: { mixProfile: string; chosenProfile: string } } = {};
   const selection = selectWinningProfile("mainAgent", getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
     isResolvableProvider: dispatchProviderResolvable,
+    onMixSelected: (selected) => {
+      mix.arm = selected;
+    },
   });
-  return selection.source === "default"
-    ? null
-    : (selection.profileName ?? null);
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return mix.arm?.mixProfile === selection.profileName
+    ? mix.arm.chosenProfile
+    : selection.profileName;
 }
 
 /**
