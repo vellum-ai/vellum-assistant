@@ -164,12 +164,14 @@ describe("service communication matrix", () => {
     }
   });
 
-  test("all gateway route files that proxy to assistant are covered by a matrix callerGlob", async () => {
+  test("all gateway files that call the assistant over HTTP or WebSocket are covered by a matrix callerGlob", async () => {
     /**
-     * Patterns that identify a gateway route file as an assistant-upstream
-     * callsite. Any non-test .ts file in gateway/src/http/routes/ that
-     * contains one of these strings must appear in at least one callerGlob
-     * of a gateway->assistant matrix entry.
+     * Patterns that identify a gateway file as an assistant-upstream
+     * callsite. Any non-test .ts file under gateway/src/ that contains one of
+     * these strings must appear in at least one callerGlob of a
+     * gateway->assistant matrix entry. Callers live outside
+     * gateway/src/http/routes/ too (the backup worker, the telemetry poster),
+     * so the scan covers the whole tree.
      */
     const PROXY_PATTERNS = [
       "assistantRuntimeBaseUrl",
@@ -179,15 +181,19 @@ describe("service communication matrix", () => {
     ];
 
     /**
-     * Files in gateway/src/http/routes/ that reference assistant upstream
-     * patterns for reasons other than proxying (e.g., they are gateway-native
-     * endpoints that share utility helpers or type imports). Excluded from the
-     * coverage assertion with an explanation.
+     * Files under gateway/src/ that reference assistant upstream patterns for
+     * reasons other than calling the assistant. Excluded from the coverage
+     * assertion with an explanation.
      *
-     * Add to this list — with a comment — whenever a new file legitimately
-     * matches the proxy patterns but is NOT a callsite.
+     * Add to this list, with a comment, whenever a new file legitimately
+     * matches the patterns but is NOT a callsite.
      */
-    const ALLOWLIST = new Set<string>([]);
+    const ALLOWLIST = new Set<string>([
+      // Defines assistantRuntimeBaseUrl on GatewayConfig.
+      "gateway/src/config.ts",
+      // Mentions assistantRuntimeBaseUrl in a doc comment only.
+      "gateway/src/assistant-id.ts",
+    ]);
 
     // Collect all callerGlobs from gateway->assistant entries.
     const gatewayToAssistantEntries = MATRIX_ENTRIES.filter(
@@ -203,13 +209,15 @@ describe("service communication matrix", () => {
       }
     }
 
-    // Scan all non-test .ts files in gateway/src/http/routes/ for proxy patterns.
-    const routeGlob = new Glob("gateway/src/http/routes/*.ts");
+    // Scan all non-test .ts files under gateway/src/ for proxy patterns.
+    const routeGlob = new Glob("gateway/src/**/*.ts");
     const uncovered: string[] = [];
 
     for (const relPath of routeGlob.scanSync({ cwd: REPO_ROOT })) {
-      // Skip test files — they import proxy helpers for mocking, not for calling assistant.
-      if (relPath.endsWith(".test.ts")) continue;
+      // Skip test files; they import proxy helpers for mocking, not for calling assistant.
+      if (relPath.endsWith(".test.ts") || relPath.includes("/__tests__/")) {
+        continue;
+      }
 
       const fullPath = join(REPO_ROOT, relPath);
       const content = await Bun.file(fullPath).text();
@@ -226,7 +234,7 @@ describe("service communication matrix", () => {
     if (uncovered.length > 0) {
       throw new Error(
         [
-          "The following gateway route files proxy to assistant but have no matrix entry:",
+          "The following gateway files call the assistant but have no matrix entry:",
           ...uncovered.map((f) => `  ${f}`),
           "",
           "Add a Gateway -> Assistant entry in matrix-source.ts with a callerGlob",

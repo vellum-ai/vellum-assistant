@@ -31,21 +31,23 @@ This document enumerates every observed communication permutation between the th
 | 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
 | 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
 | 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
-| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
-| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
-| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
-| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
-| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
-| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 32 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 33 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 34 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Backup snapshot export |
+| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Internal telemetry relay |
+| 24 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Desktop setup proxy |
+| 25 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Process status probe |
+| 26 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Plugin webhook forwarding |
+| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 28 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Audio-stream WebSocket proxies |
+| 29 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Live voice WebSocket proxy |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 34 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 35 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 36 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 38 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -304,6 +306,33 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
+
+### Backup snapshot export
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway's backup worker fetches a .vbundle from the assistant's /v1/migrations/export to write a snapshot. backup-routes.ts starts manual snapshots (POST /v1/backups/create) through the same worker.
+
+**Caller files:**
+- `gateway/src/backup/backup-worker.ts`
+- `gateway/src/backup/backup-routes.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/migration-routes.ts`
+
+### Internal telemetry relay
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway relays its watchdog events and aggregated auth-fallback counts to the assistant's /v1/internal/telemetry/watchdog and /v1/internal/telemetry/auth-fallback through one shared poster.
+
+**Caller files:**
+- `gateway/src/internal-telemetry-client.ts`
+- `gateway/src/watchdog-reporter.ts`
+- `gateway/src/auth-fallback-reporter.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/internal-telemetry-routes.ts`
 
 ### Desktop setup proxy
 
