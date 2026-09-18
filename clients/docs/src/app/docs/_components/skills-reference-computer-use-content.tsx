@@ -25,7 +25,7 @@ export function SkillsReferenceComputerUseContent() {
             Controls a connected desktop directly. It observes the screen through accessibility
             APIs and screenshots, then clicks, types, and scrolls. Some actions depend on the
             desktop operating system. Platform-hosted web conversations default to the
-            streamed Virtual desktop using screenshots and coordinates. Native desktop
+            streamed Virtual desktop using accessibility elements and screenshots. Native desktop
             apps, including the Mac app connected to a platform-hosted assistant, use
             the connected computer unless explicitly directed to the virtual desktop.
             Explicit connected-computer targets override the web default.

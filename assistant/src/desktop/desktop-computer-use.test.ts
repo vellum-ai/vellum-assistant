@@ -127,7 +127,7 @@ describe("virtual desktop computer use", () => {
       await expect(
         executeDesktopComputerUse(
           "computer_use_click",
-          { element_id: 1 },
+          { element_id: -1 },
           {
             workingDir: "/tmp",
             conversationId: "conv-123",
@@ -135,7 +135,7 @@ describe("virtual desktop computer use", () => {
           },
           proxy,
         ),
-      ).rejects.toThrow("Accessibility element IDs");
+      ).rejects.toThrow("element_id must be an integer");
       expect(run).not.toHaveBeenCalled();
       expect(proxy.stepCount).toBe(0);
       expect(proxy.actionHistory).toHaveLength(0);
@@ -237,13 +237,13 @@ describe("virtual desktop computer use", () => {
         {
           actions: [
             { action: "click", x: 30, y: 40 },
-            { action: "click", element_id: 1 },
+            { action: "click", element_id: -1 },
           ],
         },
         signal(),
         backend,
       ),
-    ).rejects.toThrow("Accessibility element IDs");
+    ).rejects.toThrow("element_id must be an integer");
     expect(backend.input).not.toHaveBeenCalled();
     expect(backend.capture).not.toHaveBeenCalled();
   });

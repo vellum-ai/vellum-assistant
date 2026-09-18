@@ -14,6 +14,7 @@ import type {
 } from "../daemon/host-cu-proxy.js";
 import { safeTimeoutMs } from "../tools/execution-timeout.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { DesktopAccessibility } from "./desktop-accessibility.js";
 import { desktopAutomationLease } from "./desktop-automation-lease.js";
 import {
   DESKTOP_DISPLAY,
@@ -50,10 +51,19 @@ const KEY_ALIASES: Record<string, string> = {
   command: "super",
 };
 
-type Action = { args: string[]; drag?: boolean } | { wait: number };
+type Action =
+  | { args: string[]; drag?: boolean }
+  | { wait: number }
+  | { toolName: string; input: Record<string, unknown> };
 type DesktopComputerUseBackend = {
   input: (args: string[], signal?: AbortSignal) => Promise<void>;
   capture: (signal: AbortSignal) => Promise<CuObservationResult>;
+  resolveElement?: (
+    id: number,
+    observationId: string,
+    signal: AbortSignal,
+  ) => Promise<{ x: number; y: number }>;
+  bindObservation?: (id: string) => void;
 };
 
 async function run(
@@ -69,7 +79,11 @@ async function run(
   });
 }
 
+const accessibility = new DesktopAccessibility();
 const backend: DesktopComputerUseBackend = {
+  resolveElement: (id, observationId, signal) =>
+    accessibility.resolve(id, observationId, signal),
+  bindObservation: (id) => accessibility.bindObservation(id),
   input: (args, signal) => run("xdotool", args, signal),
   capture: async (signal) => {
     const dir = await mkdtemp(join(tmpdir(), "desktop-cu-"));
@@ -80,7 +94,12 @@ const backend: DesktopComputerUseBackend = {
         .jpeg({ quality: 80 })
         .toBuffer({ resolveWithObject: true });
       signal.throwIfAborted();
+      const tree = await accessibility.observe(
+        getDesktopSessionManager().accessibilityBusAddress,
+        signal,
+      );
       return {
+        ...tree,
         screenshot: data.toString("base64"),
         screenshotWidthPx: info.width,
         screenshotHeightPx: info.height,
@@ -119,16 +138,12 @@ function position(input: Record<string, unknown>, prefix = ""): string[] {
 
 function assertScreenTarget(input: Record<string, unknown>): void {
   if (
-    [
-      "element_id",
-      "to_element_id",
-      "capture_window_id",
-      "captureWindowId",
-      "captureDisplayId",
-    ].some((key) => input[key] !== undefined)
+    ["capture_window_id", "captureWindowId", "captureDisplayId"].some(
+      (key) => input[key] !== undefined,
+    )
   ) {
     throw new Error(
-      "Virtual desktop computer use supports full-screen screenshots and screen coordinates. Accessibility element IDs and scoped capture are unavailable.",
+      "Virtual desktop computer use supports full-screen capture only. Scoped capture is unavailable.",
     );
   }
 }
@@ -138,6 +153,35 @@ function planAction(
   input: Record<string, unknown>,
 ): Action[] {
   assertScreenTarget(input);
+  const targetKeys = ["element_id", "to_element_id"] as const;
+  if (targetKeys.some((key) => input[key] !== undefined)) {
+    const validationInput = { ...input };
+    for (const key of targetKeys) {
+      if (input[key] === undefined) {
+        continue;
+      }
+      integer(input[key], key, 1, Number.MAX_SAFE_INTEGER);
+      if (
+        !(key === "to_element_id"
+          ? toolName === "computer_use_drag"
+          : [
+              "computer_use_click",
+              "computer_use_double_click",
+              "computer_use_right_click",
+              "computer_use_scroll",
+              "computer_use_drag",
+            ].includes(toolName))
+      ) {
+        throw new Error(`${key} is unsupported for ${toolName}`);
+      }
+      const prefix = key === "to_element_id" ? "to_" : "";
+      delete validationInput[key];
+      validationInput[`${prefix}x`] = 0;
+      validationInput[`${prefix}y`] = 0;
+    }
+    planAction(toolName, validationInput);
+    return [{ toolName, input }];
+  }
   switch (toolName) {
     case "computer_use_observe":
       return [];
@@ -302,10 +346,38 @@ export async function performDesktopComputerUse(
   actions: Action[],
   signal: AbortSignal,
   driver: DesktopComputerUseBackend = backend,
+  observationId = "",
 ): Promise<CuObservationResult> {
   let executionError: string | undefined;
   try {
-    for (const action of actions) {
+    for (let action of actions) {
+      signal.throwIfAborted();
+      if ("toolName" in action) {
+        const input = { ...action.input };
+        for (const key of ["element_id", "to_element_id"] as const) {
+          if (input[key] === undefined) {
+            continue;
+          }
+          if (!driver.resolveElement) {
+            throw new Error(
+              "Accessibility is unavailable. Observe again and use screen coordinates.",
+            );
+          }
+          const point = await driver.resolveElement(
+            Number(input[key]),
+            observationId,
+            signal,
+          );
+          const prefix = key === "to_element_id" ? "to_" : "";
+          input[`${prefix}x`] = point.x;
+          input[`${prefix}y`] = point.y;
+          delete input[key];
+        }
+        action = planAction(action.toolName, input)[0]!;
+      }
+      if ("toolName" in action) {
+        throw new Error("Accessibility target could not be resolved");
+      }
       signal.throwIfAborted();
       if ("wait" in action) {
         await delay(action.wait, undefined, { signal });
@@ -397,14 +469,22 @@ export async function executeDesktopComputerUse(
             actions,
             signal,
             driver,
+            String(input.observation_id ?? ""),
           );
           signal.throwIfAborted();
+          const observationId =
+            observation.executionError == null
+              ? desktopAutomationLease.recordObservation()
+              : undefined;
+          if (observationId) {
+            driver.bindObservation?.(observationId);
+          }
           return {
             ...observation,
             executionResult:
               observation.executionError != null
                 ? "Target: assistant-desktop. Call computer_use_observe before continuing."
-                : `Target: assistant-desktop. observation_id: ${desktopAutomationLease.recordObservation()}`,
+                : `Target: assistant-desktop. observation_id: ${observationId}`,
           };
         }),
       false,

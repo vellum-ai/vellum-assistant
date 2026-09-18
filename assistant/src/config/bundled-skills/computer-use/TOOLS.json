@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "computer_use_observe",
-      "description": "Capture the current screen state. On a connected personal computer, returns the accessibility tree with [ID] element references and optionally a screenshot. The virtual desktop returns a full-screen screenshot without an accessibility tree; use screen coordinates there.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
+      "description": "Capture the current screen state. On a connected personal computer, returns the accessibility tree with [ID] element references and optionally a screenshot. The virtual desktop returns a full-screen screenshot and available accessibility elements. Use screen coordinates for elements not listed.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
@@ -21,7 +21,7 @@
           },
           "full_tree": {
             "type": "boolean",
-            "description": "Walk the accessibility tree to full depth. Observations list the tree to a limited depth and say when it was cut off; pass this when the element you need is not in the tree."
+            "description": "On connected personal computers, walk the accessibility tree to full depth. The virtual desktop uses a bounded tree; use screenshot coordinates when an element is not listed."
           },
           "target_client_id": {
             "type": "string",
@@ -40,7 +40,7 @@
     },
     {
       "name": "computer_use_click",
-      "description": "Click on screen. On a connected personal computer, prefer element_id from the accessibility tree. On the virtual desktop, supply x and y from its screenshot; element IDs are unavailable.",
+      "description": "Click on screen. On a connected personal computer, prefer element_id from the accessibility tree. On the virtual desktop, use element_id from its latest observation or x and y from its screenshot.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -158,7 +158,7 @@
     },
     {
       "name": "computer_use_scroll",
-      "description": "Scroll within a connected personal computer element by its [ID], or at screen coordinates. The virtual desktop supports coordinates or the current pointer position only.",
+      "description": "Scroll within an element by its [ID], at screen coordinates, or at the current pointer position. On the virtual desktop, use IDs from the latest observation.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -210,7 +210,7 @@
     },
     {
       "name": "computer_use_drag",
-      "description": "Drag from one element or position to another. The virtual desktop requires x, y, to_x, and to_y; element IDs are supported only on connected personal computers. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
+      "description": "Drag from one element or position to another. Use element_id and to_element_id from the latest observation, or x, y, to_x, and to_y. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -365,7 +365,7 @@
     },
     {
       "name": "computer_use_sequence",
-      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest connected personal desktop observation, so use them only before the screen changes. On the virtual desktop, use coordinates and keyboard shortcuts; open_app and element IDs are unsupported. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only while the referenced elements remain available. On the virtual desktop, open_app is unsupported. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {

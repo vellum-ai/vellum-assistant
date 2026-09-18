@@ -30,7 +30,7 @@ const DESKTOP_BINARIES = {
   python: ["python3"],
   compositor: ["xcompmgr"],
   panel: ["plank"],
-  panelSession: ["dbus-run-session"],
+  sessionBus: ["dbus-daemon"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
   wallpaper: ["feh"],

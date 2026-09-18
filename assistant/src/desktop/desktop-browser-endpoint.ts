@@ -129,6 +129,7 @@ export function desktopChromeArguments(
   return [
     "--no-sandbox",
     "--no-first-run",
+    "--force-renderer-accessibility",
     "--disable-dev-shm-usage",
     ...(shouldRestoreDesktopChromeSession(profileDir)
       ? ["--restore-last-session", "--hide-crash-restore-bubble"]

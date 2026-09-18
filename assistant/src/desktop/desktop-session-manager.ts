@@ -6,7 +6,9 @@
  * last one leaves so a reconnect is instant.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 
 import { readAvatarState } from "../avatar/avatar-manifest.js";
@@ -96,6 +98,7 @@ const BUSY_LOSS: DesktopLoss = {
 };
 
 export type DesktopChildRole =
+  | "session-bus"
   | "x-server"
   | "window-manager"
   | "compositor"
@@ -172,6 +175,7 @@ interface DesktopSessionManagerOptions {
   /** PATH lookup for the desktop binaries; `null` when one is missing. */
   readonly which?: (binary: string) => string | null;
   /** Whether the VNC server accepts connections on `port`. */
+  readonly probeSessionBus?: (address: string) => Promise<boolean>;
   readonly probeVncPort?: (port: number) => Promise<boolean>;
   /** Path of the installed Google Chrome binary. */
   readonly resolveChromePath?: () => Promise<string>;
@@ -218,7 +222,7 @@ export class DesktopSessionManager {
     chromiumPath: string;
     env: Record<string, string>;
   } | null = null;
-  private readonly retiredPanels = new Set<DesktopChild>();
+  private readonly retiredLaunchers = new Map<DesktopChild, DesktopChildRole>();
   private wallpaperStarting: {
     generation: number;
     refreshQueued: boolean;
@@ -288,6 +292,13 @@ export class DesktopSessionManager {
     }
   });
 
+  private busName = "";
+  private readonly probeSessionBus: (address: string) => Promise<boolean>;
+
+  get accessibilityBusAddress(): string {
+    return `unix:abstract=${this.busName}`;
+  }
+
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
   private readonly probeVncPort: NonNullable<
@@ -315,6 +326,7 @@ export class DesktopSessionManager {
     this.allocateDebugPort =
       options.allocateDebugPort ?? allocateDesktopDebugPort;
     this.spawn = options.spawn ?? spawnDetached;
+    this.probeSessionBus = options.probeSessionBus ?? probeSessionBus;
     this.which = options.which ?? Bun.which;
     this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
     this.resolveChromePath =
@@ -454,7 +466,28 @@ export class DesktopSessionManager {
     let env: Record<string, string>;
     try {
       this.binaries = resolveDesktopBinaries(this.which);
+      this.busName = `vellum-desktop-${randomUUID()}`;
       env = this.childEnv();
+      this.launch(
+        "session-bus",
+        [
+          this.binaries.sessionBus,
+          "--session",
+          "--nofork",
+          `--address=${this.accessibilityBusAddress}`,
+        ],
+        env,
+      );
+      const busDeadline = Date.now() + this.readyDeadlineMs;
+      while (!(await this.probeSessionBus(this.accessibilityBusAddress))) {
+        if (this.generation !== generation || Date.now() >= busDeadline) {
+          throw new Error("Desktop session bus did not start");
+        }
+        await sleep(VNC_PROBE_INTERVAL_MS);
+      }
+      if (this.generation !== generation) {
+        throw new Error("Desktop was torn down while starting");
+      }
       this.launch("x-server", xServerCommand(this.binaries.xServer), env);
       const ready = await this.waitForVnc(generation);
       if (this.generation !== generation) {
@@ -619,7 +652,7 @@ export class DesktopSessionManager {
         debugPort: this.debugPort,
         terminalPath: binaries.terminal,
       });
-      this.launch("panel", [binaries.panelSession, "--", binaries.panel], {
+      this.launch("panel", [binaries.panel], {
         ...env,
         XDG_CONFIG_HOME: this.panelConfigDir,
         XDG_DATA_HOME: this.panelConfigDir,
@@ -694,10 +727,13 @@ export class DesktopSessionManager {
     this.children.delete(role);
     if (role === "panel") {
       // Keep dock-launched applications alive until desktop teardown.
-      this.retiredPanels.add(child);
+      this.retiredLaunchers.set(child, role);
       log.warn({ outcome }, "Desktop dock exited, scheduling restart");
       this.schedulePanelRestart();
       return;
+    }
+    if (role === "session-bus") {
+      this.retiredLaunchers.set(child, role);
     }
     if (role === "wallpaper" && outcome === 0) {
       return;
@@ -737,8 +773,8 @@ export class DesktopSessionManager {
     }
     this.panelRestartAttempts = 0;
     this.panelLaunch = null;
-    const retiredPanels = [...this.retiredPanels];
-    this.retiredPanels.clear();
+    const retiredLaunchers = [...this.retiredLaunchers];
+    this.retiredLaunchers.clear();
     const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
@@ -755,8 +791,8 @@ export class DesktopSessionManager {
     const done: Promise<void> = Promise.all([
       this.tearingDown,
       this.killAll(children),
-      ...retiredPanels.map((child) =>
-        this.killAll(new Map([["panel", child]])),
+      ...retiredLaunchers.map(([child, role]) =>
+        this.killAll(new Map([[role, child]])),
       ),
     ])
       .then(() => undefined)
@@ -787,13 +823,16 @@ export class DesktopSessionManager {
         return child.exited.catch(() => 0).then(() => alive.delete(role));
       }),
     );
-    const panel = children.get("panel");
+    const hasServiceChildren =
+      children.has("panel") || children.has("session-bus");
     await this.waitForExits(
-      panel ? Promise.all([exits, sleep(this.killGraceMs)]) : exits,
+      hasServiceChildren
+        ? Promise.all([exits, sleep(this.killGraceMs)])
+        : exits,
     );
     for (const [role, child] of children) {
-      // A reaped panel does not prove its application process group is empty.
-      if (role === "panel" || alive.has(role)) {
+      // Launchers can leave descendants after their own exit.
+      if (role === "panel" || role === "session-bus" || alive.has(role)) {
         this.killProcessGroup(child, "SIGKILL");
       }
     }
@@ -843,6 +882,9 @@ export class DesktopSessionManager {
       }
     }
     env.DISPLAY = DESKTOP_DISPLAY;
+    env.DBUS_SESSION_BUS_ADDRESS = this.accessibilityBusAddress;
+    env.NO_AT_BRIDGE = "0";
+    env.GTK_A11Y = "atspi";
     return env;
   }
 }
@@ -947,6 +989,21 @@ async function probeLoopbackPort(port: number): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function probeSessionBus(address: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({
+      path: `\0${address.slice("unix:abstract=".length)}`,
+    });
+    const finish = (ready: boolean) => {
+      socket.destroy();
+      resolve(ready);
+    };
+    socket.setTimeout(200, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
 }
 
 // ---------------------------------------------------------------------------
