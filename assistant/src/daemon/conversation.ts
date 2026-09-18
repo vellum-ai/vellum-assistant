@@ -796,17 +796,14 @@ export class Conversation {
    */
   pendingInterruptActivityBridge = false;
   /**
-   * Set by `interruptRunningTurn` when the abort it ran landed with no tool
-   * call in flight, and consumed exactly once by the persist of the
-   * interrupting user message, which appends
-   * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
-   * and stamps `interruptedPriorTurn` on the row.
+   * Set by `interruptRunningTurn` on every handover it completes, and consumed
+   * exactly once by the persist of the interrupting user message, which
+   * appends {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing
+   * content and stamps `interruptedPriorTurn` on the row.
    *
-   * An interrupt caught mid-tool needs nothing here: the synthetic
-   * `tool_result` the loop or the repair writes already tells the model a
-   * message preempted it. Caught mid-provider-call there is no `tool_use` to
-   * answer, so the note is the only signal, and it rides on the message that
-   * did the interrupting.
+   * The note is the only place the behavior after an interrupt is spelled out.
+   * A synthetic `tool_result` states what happened to the one call it answers
+   * and nothing more, so an interrupt caught mid-tool arms this too.
    * @internal
    */
   pendingInterruptNote = false;

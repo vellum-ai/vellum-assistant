@@ -1593,9 +1593,8 @@ export async function persistQueuedMessageBody(
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
 
-    // An interrupt whose abort landed before the turn made a tool call left
-    // the model no `tool_result` saying it was cut off, so this message
-    // carries the notice instead. Consumed here, once: a second message must
+    // This message interrupted a turn, so it carries the note that tells the
+    // model what to do about that. Consumed here, once: a second message must
     // not repeat a note about a turn it did not interrupt. Stamped after the
     // insert, like the stored paths above, so a persist that never lands
     // leaves the flag armed for the send that replaces it.

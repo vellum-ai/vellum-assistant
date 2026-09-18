@@ -473,10 +473,10 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     /**
-     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
-     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
-     * `<interrupted_turn>` note from it; the row's own content is exactly what
-     * the user sent, so clients render nothing extra.
+     * Marks a role-`"user"` row whose arrival interrupted a running turn.
+     * `loadFromDb` rebuilds the LLM-facing `<interrupted_turn>` note from it;
+     * the row's own content is exactly what the user sent, so clients render
+     * nothing extra.
      */
     interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),
