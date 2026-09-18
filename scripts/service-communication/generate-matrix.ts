@@ -3,13 +3,14 @@
  * Renders docs/service-communication-matrix.md from the typed matrix source.
  *
  * Usage:
- *   bun run scripts/service-communication/generate-matrix.ts
+ *   bun run scripts/service-communication/generate-matrix.ts          # write
+ *   bun run scripts/service-communication/generate-matrix.ts --check  # fail on drift
  *
  * The output is deterministic — re-running produces the same file contents
  * given the same matrix-source.ts input, so diffs are additive and reviewable.
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { MATRIX_ENTRIES, type MatrixEntry } from "./matrix-source.js";
@@ -131,10 +132,26 @@ function main(): void {
   const outputPath = join(repoRoot, "docs", "service-communication-matrix.md");
 
   const content = renderMatrix(MATRIX_ENTRIES);
+
+  if (process.argv.includes("--check")) {
+    if (readFileSync(outputPath, "utf-8") !== content) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `${outputPath} is out of date with matrix-source.ts. Run: bun run scripts/service-communication/generate-matrix.ts`,
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
   writeFileSync(outputPath, content, "utf-8");
 
   // eslint-disable-next-line no-console
   console.log(`Wrote ${outputPath}`);
 }
 
-main();
+// The test imports renderMatrix from this module, so writing is gated on
+// running it as a script.
+if (import.meta.main) {
+  main();
+}

@@ -11,6 +11,8 @@ on:
       - 'packages/**'
       - 'meta/feature-flags/**'
       - 'meta/sync-bundled-copies.ts'
+      - 'scripts/service-communication/**'
+      - 'docs/service-communication-matrix.md'
       - '.github/workflows/pr-gateway.yaml'
 
 concurrency:
@@ -51,3 +53,15 @@ jobs:
 
       - name: Test
         run: bun run test
+
+      # The matrix records which gateway files call the assistant and which
+      # files serve them; a gateway change is where a new edge appears or a
+      # listed file disappears. The test runs from scripts/ because the
+      # repo-root `bun test` preload refuses root runs.
+      - name: Check service communication matrix is regenerated
+        working-directory: .
+        run: bun run scripts/service-communication/generate-matrix.ts --check
+
+      - name: Test service communication matrix
+        working-directory: scripts
+        run: bun test service-communication/__tests__/generate-matrix.test.ts

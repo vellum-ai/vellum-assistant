@@ -309,21 +309,42 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     ],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
+  {
+    label: "Desktop setup proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description: "Gateway proxies /v1/desktop/setup to the assistant.",
+    callerGlobs: ["gateway/src/http/routes/desktop-setup-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/routes/desktop-setup-routes.ts"],
+  },
+  {
+    label: "Process status probe",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway's GET /v1/ps calls the assistant's /v1/ps for its process tree and appends the gateway's own entry.",
+    callerGlobs: ["gateway/src/http/routes/ps.ts"],
+    calleeGlobs: ["assistant/src/runtime/routes/ps-routes.ts"],
+  },
+  {
+    label: "Plugin webhook forwarding",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway forwards signature-verified public webhook requests for servable plugin ingress routes to the assistant's /v1/x/plugins/<plugin>/<path>, and posts admission-denied notices to the plugin's notice path.",
+    callerGlobs: ["gateway/src/http/routes/plugin-webhook.ts"],
+    calleeGlobs: ["assistant/src/runtime/routes/user-routes.ts"],
+  },
 
   // =========================================================================
   // Gateway -> Assistant (WebSocket)
   // =========================================================================
-  {
-    label: "Browser relay WebSocket proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
-    description:
-      "Gateway proxies Chrome extension browser-relay WebSocket frames to the assistant's /v1/browser-relay endpoint.",
-    callerGlobs: ["gateway/src/http/routes/browser-relay-websocket.ts"],
-    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
-  },
   {
     label: "Twilio MediaStream WebSocket proxy",
     caller: "gateway",
@@ -336,33 +357,31 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     calleeGlobs: ["assistant/src/calls/media-stream-server.ts"],
   },
   {
-    label: "STT stream WebSocket proxy",
+    label: "Audio-stream WebSocket proxies",
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
     auth: "JWT Bearer (service token, query param)",
     description:
-      "Gateway proxies speech-to-text audio streams to the assistant's /v1/stt/stream WebSocket endpoint.",
-    callerGlobs: ["gateway/src/http/routes/stt-stream-websocket.ts"],
+      "Gateway proxies client audio-stream WebSockets to the assistant's /v1/stt/stream, /v1/watch/stream and /v1/desktop/stream endpoints through one shared gate and frame pump (runtime-audio-stream.ts).",
+    callerGlobs: [
+      "gateway/src/http/routes/runtime-audio-stream.ts",
+      "gateway/src/http/routes/stt-stream-websocket.ts",
+      "gateway/src/http/routes/watch-stream-websocket.ts",
+      "gateway/src/http/routes/desktop-stream-websocket.ts",
+    ],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
-
-  // =========================================================================
-  // Assistant -> Gateway (HTTP)
-  // =========================================================================
   {
-    label: "Trust rules CRUD",
-    caller: "assistant",
-    callee: "gateway",
-    protocol: "http",
-    auth: "JWT Bearer (edge relay token)",
+    label: "Live voice WebSocket proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "websocket",
+    auth: "JWT Bearer (service token, query param)",
     description:
-      "Assistant reads/writes trust rules via the gateway's /v1/trust-rules REST API (containerized mode).",
-    callerGlobs: ["assistant/src/permissions/trust-client.ts"],
-    calleeGlobs: [
-      "gateway/src/http/routes/trust-rules.ts",
-      "gateway/src/trust-store.ts",
-    ],
+      "Gateway proxies live voice conversation WebSockets to the assistant's /v1/live-voice endpoint.",
+    callerGlobs: ["gateway/src/http/routes/live-voice-websocket.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
 
   // =========================================================================
