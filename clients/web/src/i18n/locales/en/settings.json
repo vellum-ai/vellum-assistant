@@ -1,14 +1,19 @@
 {
   "accessConsentSetting": {
     "description": "When enabled, Vellum Staff will be able to access your assistant and its data for debugging purposes. It's suggested that you leave this off and only turn it on temporarily if you need Vellum Support's help in investigating an issue.",
+    "expireAgain": "Expire after 24 hours",
     "expiresAt": "Staff access ends {when}.",
     "extend": "Extend 24 hours",
+    "keepOn": "Keep on until I turn it off",
     "loadError": "Failed to load consent setting.",
     "loginNotice": "Log in to the Vellum platform to manage admin data access.",
+    "staysOn": "Staff access stays on until you turn it off.",
     "title": "Allow Staff Access",
     "toastDisabled": "Admin data access disabled.",
     "toastEnabled": "Admin data access enabled.",
+    "toastExpiring": "Admin data access will end in 24 hours.",
     "toastExtended": "Admin data access extended.",
+    "toastKeptOn": "Admin data access will stay on until you turn it off.",
     "toastUpdateFailed": "Failed to update log access consent."
   },
   "adjustPlanModal": {

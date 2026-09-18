@@ -53,6 +53,7 @@ import {
   handleToolResult,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ function makeDeps(): EventHandlerDeps {
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
+      modeSessions: mockUnownedModeSessions(),
     } as unknown as EventHandlerDeps["ctx"],
     onEvent: () => {},
     reqId: "test-req",

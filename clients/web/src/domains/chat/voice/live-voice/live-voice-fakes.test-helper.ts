@@ -26,7 +26,6 @@ import type {
   LiveVoiceClientEventMap,
   LiveVoiceClientEventName,
   LiveVoiceConnectArgs,
-  LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type {
   LiveVoiceAudioCaptureOptions,
@@ -354,7 +353,7 @@ export function makeControlsSpies() {
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
     sightFrame: mock(
-      (_attachmentId: string, _timing?: LiveVoiceSightFrameTiming) => true,
+      (..._args: Parameters<LiveVoiceSessionControls["sightFrame"]>) => true,
     ),
   } satisfies LiveVoiceSessionControls;
 }

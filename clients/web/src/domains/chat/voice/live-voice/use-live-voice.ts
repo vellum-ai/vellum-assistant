@@ -102,6 +102,7 @@ import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failur
 import type {
   LiveVoiceEntry,
   LiveVoiceSessionControlServerFrame,
+  LiveVoiceSightSource,
 } from "@/domains/chat/voice/live-voice/protocol";
 import {
   applyLiveVoiceSessionControl,
@@ -791,11 +792,31 @@ export function useLiveVoice(
    * would persist it and the moment it belonged to has passed.
    */
   const sightFrame = useCallback(
-    (attachmentId: string, timing?: LiveVoiceSightFrameTiming): boolean => {
+    (
+      attachmentId: string,
+      timing?: LiveVoiceSightFrameTiming,
+      lifecycle?: { cameraEpoch: number; source: LiveVoiceSightSource },
+    ): boolean => {
       return (
-        sessionRef.current?.client.sightFrame(attachmentId, timing) ?? false
+        sessionRef.current?.client.sightFrame(
+          attachmentId,
+          timing,
+          lifecycle,
+        ) ?? false
       );
     },
+    [],
+  );
+
+  const startSightSession = useCallback(
+    (cameraEpoch: number, source: LiveVoiceSightSource): boolean =>
+      sessionRef.current?.client.sightStart(cameraEpoch, source) ?? false,
+    [],
+  );
+
+  const endSightSession = useCallback(
+    (cameraEpoch: number): boolean =>
+      sessionRef.current?.client.sightEnd(cameraEpoch) ?? false,
     [],
   );
 
@@ -898,6 +919,8 @@ export function useLiveVoice(
         setOutputMuted,
         updateConfig,
         attachImage,
+        startSightSession,
+        endSightSession,
         sightFrame,
       });
 
@@ -1605,6 +1628,8 @@ export function useLiveVoice(
                 setOutputMuted,
                 updateConfig,
                 attachImage,
+                startSightSession,
+                endSightSession,
                 sightFrame,
               });
               console.warn(
@@ -1675,6 +1700,8 @@ export function useLiveVoice(
               setOutputMuted,
               updateConfig,
               attachImage,
+              startSightSession,
+              endSightSession,
               sightFrame,
             });
             console.warn(
@@ -1731,6 +1758,8 @@ export function useLiveVoice(
       setOutputMuted,
       updateConfig,
       attachImage,
+      startSightSession,
+      endSightSession,
       sightFrame,
       createPlayer,
     ],

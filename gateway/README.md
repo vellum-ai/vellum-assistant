@@ -290,15 +290,13 @@ curl -i -X POST http://localhost:7830/webhooks/telegram
 
 ## Outbound Attachments (Telegram)
 
-When the assistant includes attachments in a reply, the gateway downloads each attachment from the runtime API and delivers it to the Telegram chat:
+The gateway does not send attachments. When a reply carries attachments, the assistant's Telegram transport (`assistant/src/messaging/providers/telegram-bot/`) reads each one from the assistant's attachment store and uploads it to the Bot API itself:
 
-- **Images** (`image/*` MIME types) are sent via `sendPhoto` (multipart form upload).
-- **Other files** are sent via `sendDocument` (multipart form upload).
-- **Oversized** attachments (exceeding the hardcoded max attachment size, default 20 MB) are skipped and included in the partial-failure notice.
-- **Partial failures** are handled gracefully: each attachment is attempted independently. If any fail, a single summary notice is sent to the chat listing the undelivered filenames.
-- **Concurrency** is controlled by a hardcoded max concurrency limit (default 3).
+- **Images** (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) are sent via `sendPhoto`; **other files** via `sendDocument`.
+- **Oversized** attachments (over the 50 MB `sendDocument` limit) are skipped.
+- **Partial failures**: each attachment is attempted on its own, and if any fail, one summary notice lists the undelivered filenames.
 
-Text and attachments are sent separately — the text reply goes first via `sendMessage`, then each attachment follows.
+The text reply goes first via `sendMessage`, then each attachment follows in order.
 
 ## Health & Readiness Probes
 

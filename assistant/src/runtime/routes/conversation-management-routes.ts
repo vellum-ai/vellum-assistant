@@ -19,7 +19,6 @@
  * POST   /v1/conversations/:id/retry      — retry the last assistant turn
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
-
 import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
@@ -43,6 +42,7 @@ import {
   undoLastMessage,
 } from "../../daemon/handlers/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { bestEffortModeSessionTracking } from "../../daemon/mode-session-tracking.js";
 import { stripConversationIds } from "../../home/feed-writer.js";
 import {
   archiveConversation,
@@ -732,6 +732,9 @@ async function handleRetryLastAssistantTurn({
     if (!discarded) {
       throw new UnprocessableEntityError("No user message to retry from");
     }
+    bestEffortModeSessionTracking("conversation wait invalidation", () =>
+      conversation.modeSessions.invalidateAllStructuralWaits(),
+    );
   } catch (err) {
     if (conversation.abortController === abortController) {
       conversation.abortController = null;

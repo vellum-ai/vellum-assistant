@@ -32,6 +32,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
@@ -88,6 +89,7 @@ function createFakeConversation(conversationId: string): Conversation {
     conversationId,
     processing: false,
     currentRequestId: undefined as string | undefined,
+    modeSessions: mockUnownedModeSessions(),
     abortController: null as AbortController | null,
     trustContext: undefined as unknown,
     turnChannelContext: null as {

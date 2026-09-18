@@ -464,6 +464,43 @@ describe("HostCuProxy", () => {
       const result = await resultPromise;
       expect(result.isError).toBe(false);
     });
+
+    test("runs the lifecycle callback only for a validated dispatch", async () => {
+      setup(0);
+      const rejectedCallback = mock(() => {});
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const rejected = await proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        proxy.stepCount,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        rejectedCallback,
+      );
+      expect(rejected.isError).toBe(true);
+      expect(rejectedCallback).not.toHaveBeenCalled();
+
+      setup();
+      const acceptedCallback = mock(() => {});
+      const pending = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        acceptedCallback,
+      );
+      expect(acceptedCallback).toHaveBeenCalledTimes(1);
+      const requestId = (sentMessages[0] as { requestId: string }).requestId;
+      proxy.processObservation(requestId, { executionResult: "Clicked" });
+      await pending;
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -1333,7 +1370,13 @@ describe("HostCuProxy", () => {
       proxy.processObservation(requestId, { axTree: "Button [1]" });
       await resultPromise;
 
-      proxy.endTask("session-1");
+      const sourceId = proxy.sourceId;
+      expect(sourceId).not.toBe("");
+      expect(proxy.resetGeneration).toBe(0);
+
+      expect(proxy.endTask("session-1")).toBe(0);
+      expect(proxy.sourceId).toBe(sourceId);
+      expect(proxy.resetGeneration).toBe(1);
       const cancels = sentMessages.filter(
         (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
       ) as Array<Record<string, unknown>>;
@@ -1341,7 +1384,8 @@ describe("HostCuProxy", () => {
       expect(cancels[0].conversationId).toBe("session-1");
       expect(cancels[0].requestId).not.toBe(requestId);
 
-      proxy.endTask("session-1");
+      expect(proxy.endTask("session-1")).toBe(1);
+      expect(proxy.resetGeneration).toBe(2);
       expect(
         sentMessages.filter(
           (m) => (m as Record<string, unknown>).type === "host_cu_cancel",

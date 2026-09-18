@@ -3254,18 +3254,19 @@ const syncFrontmost = (): void => {
  * **A window that exists is not raised, and one that does not is created.** A
  * user reaching for a floating avatar has chosen not to go back to Vellum, and
  * what they asked for shows itself on this surface, so an existing window is
- * left exactly where it was. But closing the main window destroys it while this
- * surface stays on screen, and a command dispatched into that gap lands
- * nowhere: the press would read as broken. There is no way to act without a
- * renderer to act in, so that case builds one, which necessarily shows it.
+ * left exactly where it was, hidden or not. The close button only hides the
+ * main window, so it is missing only before the first one has been built, and
+ * a command dispatched into that gap lands nowhere: the press would read as
+ * broken. There is no way to act without a renderer to act in, so that case
+ * builds one, which necessarily shows it.
  *
  * **Answers whether the command reached a renderer**: true once it has been
  * sent, false when the build finished with no window to send to. A window
- * closed while it loads releases the wait on purpose, and the send is a no-op
- * there, which is the user closing the window and nothing happening. Almost
- * every press is done at the hand-off and ignores the answer; the
- * introduction's last beat reads it, because what it does next is only true of
- * a press a renderer actually has (see the `advanceIntro` handler).
+ * that goes away while it loads (a quit mid-load) releases the wait, and the
+ * send is a no-op there. Almost every press is done at the hand-off and
+ * ignores the answer; the introduction's last beat reads it, because what it
+ * does next is only true of a press a renderer actually has (see the
+ * `advanceIntro` handler).
  */
 export const dispatchWithoutRaising = (
   command: VellumCommand,

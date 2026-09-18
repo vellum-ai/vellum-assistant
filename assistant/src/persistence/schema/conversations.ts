@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -137,6 +138,72 @@ export const conversations = sqliteTable(
     ),
     index("idx_conversations_parent_conversation_id").on(
       table.parentConversationId,
+    ),
+  ],
+);
+
+export const conversationModeSessions = sqliteTable(
+  "conversation_mode_sessions",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    mode: text("mode", {
+      enum: ["computer_use", "browser", "live_vision", "ambient"],
+    }).notNull(),
+    status: text("status", {
+      enum: ["active", "completed", "interrupted"],
+    }).notNull(),
+    sourceStartedAt: integer("source_started_at").notNull(),
+    firstIncludedAt: integer("first_included_at"),
+    firstIncludedMessageId: text("first_included_message_id"),
+    lastActivityAt: integer("last_activity_at").notNull(),
+    lastOwnedMessageId: text("last_owned_message_id"),
+    endedAt: integer("ended_at"),
+    endReason: text("end_reason"),
+    revision: integer("revision").notNull().default(1),
+  },
+  (table) => [
+    check(
+      "conversation_mode_sessions_mode_check",
+      sql`${table.mode} IN ('computer_use', 'browser', 'live_vision', 'ambient')`,
+    ),
+    check(
+      "conversation_mode_sessions_status_check",
+      sql`${table.status} IN ('active', 'completed', 'interrupted')`,
+    ),
+    check(
+      "conversation_mode_sessions_revision_check",
+      sql`${table.revision} > 0`,
+    ),
+    check(
+      "conversation_mode_sessions_first_included_boundary_check",
+      sql`(${table.firstIncludedAt} IS NULL) = (${table.firstIncludedMessageId} IS NULL)`,
+    ),
+    check(
+      "conversation_mode_sessions_terminal_fields_check",
+      sql`(
+        (${table.status} = 'active' AND ${table.endedAt} IS NULL AND ${table.endReason} IS NULL)
+        OR (${table.status} = 'completed' AND ${table.endedAt} IS NOT NULL AND ${table.endReason} IS NOT NULL AND length(${table.endReason}) > 0)
+        OR (${table.status} = 'interrupted' AND ${table.endReason} IS NOT NULL AND length(${table.endReason}) > 0)
+      )`,
+    ),
+    check(
+      "conversation_mode_sessions_end_after_activity_check",
+      sql`${table.endedAt} IS NULL OR ${table.endedAt} >= ${table.lastActivityAt}`,
+    ),
+    check(
+      "conversation_mode_sessions_activity_after_source_check",
+      sql`${table.lastActivityAt} >= ${table.sourceStartedAt}`,
+    ),
+    check(
+      "conversation_mode_sessions_first_included_before_activity_check",
+      sql`${table.firstIncludedAt} IS NULL OR ${table.firstIncludedAt} <= ${table.lastActivityAt}`,
+    ),
+    index("idx_conversation_mode_sessions_conversation_status").on(
+      table.conversationId,
+      table.status,
     ),
   ],
 );

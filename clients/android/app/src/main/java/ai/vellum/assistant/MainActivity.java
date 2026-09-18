@@ -567,6 +567,7 @@ public class MainActivity extends BridgeActivity {
         private final Bridge bridge;
         private String mainFrameUrl;
         private boolean mainFrameFailed;
+        private boolean spaDidLoad;
 
         SelfHostedWebViewClient(Bridge bridge, MainActivity activity) {
             super(bridge);
@@ -588,9 +589,28 @@ public class MainActivity extends BridgeActivity {
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
             if (!mainFrameFailed) {
+                if (url != null && !url.startsWith("about:")) {
+                    spaDidLoad = true;
+                }
                 activity.finishPendingConnect(url);
                 activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_LOAD_FALLBACK_MS);
             }
+        }
+
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+            if (
+                request.isForMainFrame()
+                    && SelfHostedServer.shouldCancelInAppDocumentNavigation(
+                        request.getUrl().toString(),
+                        activity.effectiveServer,
+                        spaDidLoad,
+                        request.getMethod()
+                    )
+            ) {
+                return true;
+            }
+            return super.shouldOverrideUrlLoading(view, request);
         }
 
         @Override
@@ -618,7 +638,15 @@ public class MainActivity extends BridgeActivity {
             WebResourceResponse errorResponse
         ) {
             super.onReceivedHttpError(view, request, errorResponse);
-            if (request.isForMainFrame()) {
+            if (
+                request.isForMainFrame()
+                    && SelfHostedServer.shouldTreatHttpErrorAsUnreachable(
+                        errorResponse.getStatusCode(),
+                        request.getUrl().toString(),
+                        activity.effectiveServer,
+                        spaDidLoad
+                    )
+            ) {
                 fail(request.getUrl().toString());
             }
         }

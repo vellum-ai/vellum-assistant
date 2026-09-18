@@ -36,7 +36,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
       content,
       metadata: options?.metadata,
     });
-    return { id: `persisted-${addMessageCalls.length}` };
+    return { id: `persisted-${addMessageCalls.length}`, createdAt: 100 };
   },
   getConversation: () => null,
   provenanceFromTrustContext: () => ({}),
@@ -188,6 +188,40 @@ describe("client OS surface metadata persistence", () => {
       os: "ios",
       browser_family: "safari",
     });
+  });
+
+  test("strips caller ownership and tracks only the inserted structural row", async () => {
+    const acceptTurn = mock(() => ({
+      id: "session-123",
+      mode: "browser" as const,
+    }));
+    const trackPersistedRow = mock(() => {});
+    const ctx = Object.assign(createWebTurnContext("web"), {
+      modeSessions: { acceptTurn, trackPersistedRow },
+    });
+    await persistQueuedMessageBody(ctx, {
+      content: "continue",
+      requestId: "req-structural",
+      activeSurfaceId: "surface-123",
+      metadata: {
+        modeSession: { id: "spoofed", mode: "computer_use" },
+      },
+    });
+
+    expect(lastUserMetadata().modeSession).toBeUndefined();
+    expect(acceptTurn).toHaveBeenCalledWith("req-structural", {
+      kind: "surface",
+      responseId: "surface-123",
+    });
+    expect(trackPersistedRow).toHaveBeenCalledWith(
+      "req-structural",
+      "persisted-1",
+      100,
+      {
+        publishMessagesChanged: true,
+        startsDisplayBoundary: false,
+      },
+    );
   });
 });
 

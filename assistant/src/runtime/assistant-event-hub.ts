@@ -338,6 +338,9 @@ export class AssistantEventHub {
    * - if `targetInterfaceId` is set, only client subscribers whose
    *   `interfaceId` matches receive the event; process subscribers and
    *   non-matching clients are skipped.
+   * - if `targetActorPrincipalId` is set, only client subscribers whose
+   *   verified `actorPrincipalId` equals it receive the event; process
+   *   subscribers and clients without a principal are skipped.
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
    * delivery to remaining subscribers.
@@ -365,6 +368,7 @@ export class AssistantEventHub {
     const targetCapability = options?.targetCapability;
     const targetClientId = options?.targetClientId;
     const targetInterfaceId = options?.targetInterfaceId;
+    const targetActorPrincipalId = options?.targetActorPrincipalId;
     const excludeClientId = options?.excludeClientId;
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
@@ -392,6 +396,17 @@ export class AssistantEventHub {
         if (
           entry.type !== "client" ||
           entry.interfaceId !== targetInterfaceId
+        ) {
+          continue;
+        }
+      }
+
+      // Principal targeting: an event scoped to one person reaches only that
+      // person's own connections. Composes with every other rule.
+      if (targetActorPrincipalId != null) {
+        if (
+          entry.type !== "client" ||
+          entry.actorPrincipalId !== targetActorPrincipalId
         ) {
           continue;
         }
@@ -716,6 +731,12 @@ export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
  */
 let _hubChain = Promise.resolve();
 
+/** Targeting a caller of {@link broadcastMessage} may request. */
+export type BroadcastMessageOptions = Pick<
+  AssistantEventPublishOptions,
+  "targetClientId" | "targetInterfaceId" | "targetActorPrincipalId"
+>;
+
 /**
  * Wraps a `AssistantEvent` in an `AssistantEventEnvelope` envelope and publishes it
  * to the process-level hub.
@@ -735,11 +756,12 @@ let _hubChain = Promise.resolve();
 export function broadcastMessage(
   msg: AssistantEvent,
   conversationId?: string,
-  options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
+  options?: BroadcastMessageOptions,
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
   const targetInterfaceId = options?.targetInterfaceId;
+  const targetActorPrincipalId = options?.targetActorPrincipalId;
 
   const event = buildAssistantEvent(msg, resolvedConversationId);
   // A reconnect can overlap an older executor with the same device ID.
@@ -765,11 +787,13 @@ export function broadcastMessage(
     targetCapability != null ||
     targetClientId != null ||
     targetInterfaceId != null ||
+    targetActorPrincipalId != null ||
     excludeClientId != null
       ? {
           targetCapability,
           targetClientId,
           targetInterfaceId,
+          targetActorPrincipalId,
           excludeClientId,
         }
       : undefined;

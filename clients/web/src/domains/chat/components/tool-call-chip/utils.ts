@@ -32,7 +32,7 @@ function truncate(str: string, max: number): string {
  * Recognized browser operations from `assistant browser <operation>` commands.
  * Maps CLI operation names to a canonical browser action key.
  */
-type BrowserOperation =
+export type BrowserOperation =
   | "navigate"
   | "click"
   | "type"

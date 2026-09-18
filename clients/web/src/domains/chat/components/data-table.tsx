@@ -63,6 +63,11 @@ export interface DataTableProps {
    * type; a consumer whose cells are machine values passes `MachineText`.
    */
   renderCell?: (text: string) => ReactNode;
+  /**
+   * Draws the copy-as-markdown control above the table. Off for a consumer
+   * that offers copying its own way, such as a detail panel field.
+   */
+  copyable?: boolean;
 }
 
 function cellText(cell: DataTableCell | undefined): string {
@@ -107,6 +112,7 @@ export function DataTable({
   caption,
   selection,
   renderCell = renderPlainCell,
+  copyable = true,
 }: DataTableProps) {
   const { t } = useTranslation("chat");
   const { copy, copied } = useCopyToClipboard({
@@ -119,21 +125,23 @@ export function DataTable({
 
   return (
     <div>
-      <div className="mb-1 flex justify-end">
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-          aria-label={t("tableSurface.copyAria")}
-        >
-          {copied ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-          {copied ? t("tableSurface.copied") : t("tableSurface.copy")}
-        </button>
-      </div>
+      {copyable && (
+        <div className="mb-1 flex justify-end">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="flex items-center gap-1 rounded p-1 text-body-small-default text-[var(--content-quiet)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+            aria-label={t("tableSurface.copyAria")}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? t("tableSurface.copied") : t("tableSurface.copy")}
+          </button>
+        </div>
+      )}
       {/* The host arbitrates horizontal gestures on the scroll container. */}
       <Table
         density="compact"

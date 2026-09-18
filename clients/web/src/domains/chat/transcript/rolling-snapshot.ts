@@ -19,6 +19,7 @@ import {
   appendTextDelta,
   appendThinkingDelta,
   applyUserMessageEcho,
+  applyAssistantModeSessionBoundary,
   finalizeMessageComplete,
   finalizeOnIdle,
   handleConversationError,
@@ -67,6 +68,13 @@ export function appendEventToMessages(
   at: number,
 ): DisplayMessage[] {
   switch (event.type) {
+    case "assistant_turn_start":
+      return applyAssistantModeSessionBoundary(
+        messages,
+        event.messageId,
+        event.modeSession,
+        at,
+      );
     case "assistant_text_delta":
       return appendTextDelta(
         messages,
@@ -98,6 +106,7 @@ export function appendEventToMessages(
           messageId: event.messageId,
           clientMessageId: event.clientMessageId,
           cameraFrame: event.cameraFrame,
+          modeSession: event.modeSession,
         },
         at,
       );
@@ -147,7 +156,13 @@ export function appendEventToMessages(
           ? { previewStartedAt: event.previewStartedAt }
           : {}),
       };
-      return upsertToolCall(messages, toolCall, event.messageId, at);
+      return upsertToolCall(
+        messages,
+        toolCall,
+        event.messageId,
+        at,
+        event.modeSession,
+      );
     }
     case "tool_result":
       // A resolved ui_show retires its placeholder whether it produced a
@@ -176,6 +191,7 @@ export function appendEventToMessages(
             "completedAt" in event && typeof event.completedAt === "number"
               ? event.completedAt
               : at,
+          modeSession: event.modeSession,
         },
       );
     case "tool_output_chunk":

@@ -550,10 +550,10 @@ export function clearAllActiveConversations(): number {
 /**
  * Evict in-memory conversations after a config/prompt reload so the next
  * turn rebuilds them against the new config. Conversations with in-flight work
- * (a live turn, a queued successor, or an active subagent) are marked stale
- * and rebuilt by `getOrCreateConversation` once that work finishes. Idle
- * conversations are disposed and dropped. Also used when provider credentials
- * change.
+ * are marked stale and rebuilt by `getOrCreateConversation` once that work
+ * finishes. This includes live mode-session sources and process-local
+ * structural continuations. Idle conversations are disposed and dropped. Also
+ * used when provider credentials change.
  */
 export function evictConversationsForReload(): void {
   const subagentManager = getSubagentManager();

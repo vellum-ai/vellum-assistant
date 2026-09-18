@@ -30,6 +30,7 @@ import { cn } from "@vellumai/design-library";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
+import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import type { CharacterTraits } from "@/types/avatar";
@@ -63,8 +64,9 @@ const AVATAR_TRAITS: CharacterTraits = {
 /**
  * The exact hex `useAvatarAccentVar` would publish for these traits. The hook
  * lives in `RootLayout`, which stories do not mount, so the wrapper publishes
- * the var itself, but derived rather than hand-picked: the tint under review
- * is the one this avatar actually produces. (`?? undefined` only narrows the
+ * the accent vars itself through the same `avatarAccentVars`, derived rather
+ * than hand-picked: the tint and the accent-filled buttons under review are
+ * the ones this avatar actually produces. (`?? undefined` only narrows the
  * unreachable null arm; the trait color is a bundled palette id.)
  */
 const ACCENT =
@@ -220,7 +222,7 @@ function Scene({
           the leftover-space split between Chats and this section are both
           visible rather than implied. */}
       <div
-        style={{ height: 720, ["--avatar-accent" as string]: ACCENT }}
+        style={{ height: 720, ...avatarAccentVars(ACCENT) }}
         className={cn("flex flex-col", collapsed ? "w-fit" : "w-[264px]")}
       >
         <AssistantSideMenu
@@ -292,9 +294,9 @@ export const EmptySection: Story = {
 };
 
 /**
- * The collapsed rail: the assistant's tile with the New Chat tile beneath it,
- * and the section's own tile in the list below, where the row's toggle and
- * card have no row to stand on.
+ * The collapsed rail: the assistant's tile, the section toggle beneath it,
+ * then New Chat. The toggle keeps its colour and opens the section's threads
+ * in a flyout, since the rail has no row for the card to open under.
  */
 export const CollapsedRail: Story = {
   args: {

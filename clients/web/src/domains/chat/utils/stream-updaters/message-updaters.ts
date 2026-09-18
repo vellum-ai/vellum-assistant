@@ -19,6 +19,7 @@ import type {
   ConversationContentBlock,
   GenerationHandoffEvent,
   MessageCompleteEvent,
+  ModeSession,
 } from "@vellumai/assistant-api";
 import {
   tailIsAssistant,
@@ -382,6 +383,9 @@ export function finalizeMessageComplete(
   // persisted twin does with no refetch in between.
   const assistantTextVisibility = readAssistantTextVisibility(event);
   const visibility = assistantTextVisibility ? { assistantTextVisibility } : {};
+  const membership = event.modeSession
+    ? { modeSession: event.modeSession }
+    : {};
 
   if (last?.role !== "assistant") {
     if (!attachments) {
@@ -396,6 +400,7 @@ export function finalizeMessageComplete(
         timestamp: at,
         attachments,
         ...visibility,
+        ...membership,
       },
     ];
   }
@@ -410,6 +415,7 @@ export function finalizeMessageComplete(
       ...(attachments ? { attachments } : {}),
       ...(finalized ?? {}),
       ...visibility,
+      ...membership,
       // Deliberate silence, derived at fold time from the shared sentinel
       // contract: the daemon stamps the durable row after the turn, but the
       // live bubble would otherwise render the raw sentinel until a refetch.
@@ -500,19 +506,28 @@ export function applyUserMessageEcho(
     messageId?: string;
     clientMessageId?: string;
     cameraFrame?: true;
+    modeSession?: ModeSession;
   },
   at: number = Date.now(),
 ): DisplayMessage[] {
   const serverId = event.messageId;
 
   if (serverId !== undefined) {
-    const alreadyPresent = prev.some(
+    const alreadyPresentIndex = prev.findIndex(
       (m) =>
         m.role === "user" &&
         (m.id === serverId || m.mergedMessageIds?.includes(serverId)),
     );
-    if (alreadyPresent) {
-      return prev;
+    if (alreadyPresentIndex !== -1) {
+      if (!event.modeSession) {
+        return prev;
+      }
+      const next = [...prev];
+      next[alreadyPresentIndex] = {
+        ...prev[alreadyPresentIndex]!,
+        modeSession: event.modeSession,
+      };
+      return next;
     }
   }
 
@@ -531,6 +546,7 @@ export function applyUserMessageEcho(
       isOptimistic: false,
       queueStatus: undefined,
       queuePosition: undefined,
+      ...(event.modeSession ? { modeSession: event.modeSession } : {}),
     };
     return next;
   }
@@ -547,10 +563,49 @@ export function applyUserMessageEcho(
         : {}),
       role: "user",
       ...(event.cameraFrame ? { isCameraFrame: true } : {}),
+      ...(event.modeSession ? { modeSession: event.modeSession } : {}),
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text: event.text }],
       timestamp: at,
+    },
+  ];
+}
+
+/** Reserve or stamp the assistant row named by a session-owning boundary. */
+export function applyAssistantModeSessionBoundary(
+  prev: DisplayMessage[],
+  messageId: string,
+  modeSession: ModeSession | undefined,
+  at: number = Date.now(),
+): DisplayMessage[] {
+  if (!modeSession) {
+    return prev;
+  }
+  const idx = findAssistantRowIndexByMessageId(prev, messageId);
+  if (idx >= 0) {
+    if (prev[idx]?.modeSession?.id === modeSession.id) {
+      return prev;
+    }
+    const next = [...prev];
+    next[idx] = { ...prev[idx]!, modeSession };
+    return next;
+  }
+  if (tailIsAssistant(prev)) {
+    const next = [...prev];
+    next[next.length - 1] = {
+      ...withMergedAlias(next[next.length - 1]!, messageId),
+      modeSession,
+    };
+    return next;
+  }
+  return [
+    ...prev,
+    {
+      id: messageId,
+      role: "assistant",
+      timestamp: at,
+      modeSession,
     },
   ];
 }

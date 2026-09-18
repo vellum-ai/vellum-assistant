@@ -82,6 +82,7 @@ import type {
 import type { CurrentTurnSurface } from "../daemon/conversation-surface-state.js";
 import type { SurfaceStateEntry } from "../daemon/conversation-surface-state.js";
 import type { SurfaceType } from "../daemon/message-protocol.js";
+import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 const CONVERSATION_ID = "conv-in-flight-surface-1";
 const SURFACE_ID = "surface-in-flight-1";
@@ -112,6 +113,7 @@ function makeContext(): Conversation {
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    modeSessions: mockUnownedModeSessions(),
     pendingStandaloneSurfaces: new Map(),
     recentlyCompletedStandaloneSurfaces: new Map(),
     isProcessing: () => false,

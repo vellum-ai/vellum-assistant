@@ -238,6 +238,7 @@ export function mapToolEventToStep(
     title: label.title,
     info: label.info || content,
     activity: label.activity,
+    actionDisplayKey: label.actionDisplayKey,
     status: "running",
   };
 }

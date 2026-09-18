@@ -72,10 +72,12 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import {
   assembleUserContentBlocks,
   offloadLinkPlan,
@@ -230,6 +232,11 @@ export interface MessagingConversationContext {
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  currentActiveSurfaceId?: string;
+  readonly modeSessions?: Pick<
+    ConversationModeSessionCoordinator,
+    "acceptTurn" | "trackPersistedRow"
+  >;
   /** See {@link Conversation.currentTurnClientMessageId}. */
   currentTurnClientMessageId?: string;
   readonly queue: MessageQueue;
@@ -1005,6 +1012,10 @@ export interface PersistMessageOptions {
    * what a consumer that must not misattribute a turn to a surface needs.
    */
   requestClientOs?: string;
+  /** Existing structural surface whose accepted action created this turn. */
+  activeSurfaceId?: string;
+  /** Whether mode-session stamping publishes its own history invalidation. */
+  publishModeSessionChanges?: boolean;
   /**
    * Which of `attachments`, by the id the caller holds, arrived as ambient
    * camera frames rather than files the user picked. Stamps
@@ -1229,12 +1240,14 @@ export async function persistQueuedMessageBody(
       channelInbound: rawChannelInbound,
       scripted: rawScriptedFromMetadata,
       clientOsFromRequest: _rawClientOsFromRequest,
+      modeSession: _rawModeSession,
       ...metadataWithoutSlackInbound
     } = (metadata ?? {}) as Record<string, unknown> & {
       slackInbound?: SlackInboundMessageMetadata;
       channelInbound?: ProviderMessageMetadata;
       scripted?: unknown;
       clientOsFromRequest?: unknown;
+      modeSession?: unknown;
     };
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: rawSlackInbound,
@@ -1439,6 +1452,26 @@ export async function persistQueuedMessageBody(
       discardAttemptAttachments(portedAttachmentIds);
       return { id: persistedUserMessage.id, deduplicated: true };
     }
+
+    const activeSurfaceId =
+      options.activeSurfaceId ?? ctx.currentActiveSurfaceId;
+    bestEffortModeSessionTracking("persist_user_message", () => {
+      ctx.modeSessions?.acceptTurn(
+        requestId,
+        activeSurfaceId
+          ? { kind: "surface", responseId: activeSurfaceId }
+          : undefined,
+      );
+      ctx.modeSessions?.trackPersistedRow(
+        requestId,
+        persistedUserMessage.id,
+        persistedUserMessage.createdAt,
+        {
+          startsDisplayBoundary: false,
+          publishMessagesChanged: options.publishModeSessionChanges ?? true,
+        },
+      );
+    });
 
     if (turnCtx) {
       setConversationOriginChannelIfUnset(

@@ -28,16 +28,27 @@ const CLAMP_CHARS = 700;
 /** Collapsed height of a clamped block, in px. */
 const CLAMP_HEIGHT = 260;
 
+/** The bottom of a clamped body fades to nothing over this height. */
+const CLAMP_FADE = "3rem";
+
+/**
+ * The cut at the bottom of a clamped body: a mask rather than a painted
+ * gradient, so the content itself fades out and the clamp reads the same on
+ * whatever surface it sits on.
+ */
+const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FADE}), transparent)`;
+
 /**
  * Collapses `children` to a readable height when `length` exceeds the clamp,
  * with a fade over the cut and a Show more control. Callers pass the length of
  * the text they are rendering rather than the node, because the decision is
  * about how much there is to read, not how it is marked up.
  *
- * The fade is painted in `--surface-overlay`, which {@link DetailBlock} paints
- * behind it, so the gradient disappears into the block.
+ * It is what keeps a long value from running a detail panel on, wherever the
+ * value is drawn: inside a {@link DetailBlock}, as a field's inline text, or in
+ * a table cell.
  */
-function ClampedContent({
+export function ClampedContent({
   length,
   children,
 }: {
@@ -52,16 +63,18 @@ function ClampedContent({
   return (
     <>
       <div
-        className="relative overflow-hidden"
-        style={clamped ? { maxHeight: CLAMP_HEIGHT } : undefined}
+        className="overflow-hidden"
+        style={
+          clamped
+            ? {
+                maxHeight: CLAMP_HEIGHT,
+                maskImage: CLAMP_FADE_MASK,
+                WebkitMaskImage: CLAMP_FADE_MASK,
+              }
+            : undefined
+        }
       >
         {children}
-        {clamped && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[var(--surface-overlay)] to-transparent"
-          />
-        )}
       </div>
       {clampable && (
         <button
@@ -104,8 +117,7 @@ interface DetailBlockProps {
  * when it runs long, with a copy button in its top-right corner when there is
  * text to copy.
  *
- * It owns the conditions its parts depend on. The clamp's fade is painted in
- * `--surface-overlay`, so the block is that colour. The copy button is
+ * It owns the conditions its parts depend on. The copy button is
  * absolutely positioned, so the block is its containing block, and it reserves
  * the button's room so it neither covers text nor overhangs the block: 24px on
  * the right on desktop, and where the button grows to a 40px touch target,

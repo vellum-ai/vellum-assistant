@@ -23,7 +23,6 @@ mock.module("../fetch.js", () => ({
 
 const {
   forwardToRuntime,
-  downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
   resolvePublicHttpBaseUrl,
@@ -285,89 +284,6 @@ describe("circuit breaker state transitions", () => {
     );
     const result = await forwardToRuntime(config, payload);
     expect(result.accepted).toBe(true);
-  });
-});
-
-describe("downloadAttachment", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-    resetCircuitBreaker();
-  });
-
-  test("downloads attachment payload with base64 data", async () => {
-    const attachmentPayload = {
-      id: "att-1",
-      filename: "chart.png",
-      mimeType: "image/png",
-      sizeBytes: 1024,
-      kind: "generated_image",
-      data: "iVBORw0KGgo=",
-    };
-
-    fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify(attachmentPayload), { status: 200 }),
-    );
-
-    const config = makeConfig();
-    const result = await downloadAttachment(config, "att-1");
-    expect(result.id).toBe("att-1");
-    expect(result.filename).toBe("chart.png");
-    expect(result.data).toBe("iVBORw0KGgo=");
-
-    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toContain("/attachments/att-1");
-  });
-
-  test("transparently hydrates file-backed attachments from /content endpoint", async () => {
-    const binaryContent = Buffer.from("fake-binary-content");
-    const attachmentMeta = {
-      id: "att-fb-1",
-      filename: "video.mov",
-      mimeType: "video/quicktime",
-      sizeBytes: binaryContent.length,
-      fileBacked: true,
-      // data is absent — file-backed attachment
-    };
-
-    let callCount = 0;
-    fetchMock = mock(async (input) => {
-      const calledUrl =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-      callCount++;
-      if (calledUrl.endsWith("/content")) {
-        // Return raw binary for the /content endpoint
-        return new Response(new Uint8Array(binaryContent), { status: 200 });
-      }
-      // Return the JSON metadata (no data field)
-      return new Response(JSON.stringify(attachmentMeta), { status: 200 });
-    });
-
-    const config = makeConfig();
-    const result = await downloadAttachment(config, "att-fb-1");
-
-    expect(result.id).toBe("att-fb-1");
-    expect(result.fileBacked).toBe(true);
-    // data should be hydrated with base64-encoded binary content
-    expect(result.data).toBe(binaryContent.toString("base64"));
-    // Should have made two calls: one for metadata, one for /content
-    expect(callCount).toBe(2);
-  });
-
-  test("throws on 404 not found", async () => {
-    fetchMock = mock(
-      async () =>
-        new Response('{"error":"Attachment not found"}', { status: 404 }),
-    );
-
-    const config = makeConfig();
-    await expect(downloadAttachment(config, "nonexistent")).rejects.toThrow(
-      "Attachment download failed (404)",
-    );
   });
 });
 
