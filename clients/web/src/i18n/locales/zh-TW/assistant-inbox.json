@@ -53,7 +53,9 @@
     "perkReads": "{name} 為你閱讀、整理並回覆",
     "perkHistory": "每封郵件都保存在這裡，包括收件和寄件",
     "upgradeButton": "升級到 Super",
-    "seePlans": "查看方案"
+    "seePlans": "查看方案",
+    "titleNoName": "給你的助理一個收件匣",
+    "perkReadsNoName": "你的助理為你閱讀、整理並回覆"
   },
   "assistantInboxSetupCard": {
     "title": "助理電子郵件",
@@ -67,5 +69,10 @@
     "replyPrompt": "回覆你收件匣中 id 為 {id} 的郵件（來自 {sender}，主旨為「{subject}」）。請先用 `assistant email download {id}` 讀取它，然後草擬回覆並在寄出前給我看。",
     "mailFailed": "無法載入郵件。",
     "retry": "重試"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "助理收件匣已從側邊選單隱藏。",
+    "restoreButton": "重新加入",
+    "restoredToast": "助理收件匣已回到側邊選單。"
   }
 }

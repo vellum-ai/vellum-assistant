@@ -1,14 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
 import { useSideMenuCollapsed } from "@vellumai/design-library";
 
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
-import { LS_ASSISTANT_INBOX_HIDDEN } from "@/utils/local-settings-keys";
 import { routes } from "@/utils/routes";
 
 import { useAssistantInboxState } from "../hooks/use-assistant-inbox-state";
+import { useInboxRailHidden } from "../hooks/use-inbox-rail-hidden";
 import { AssistantInboxNavItem } from "./assistant-inbox-nav-item";
 
 export interface AssistantInboxRailEntryProps {
@@ -36,27 +35,20 @@ export function AssistantInboxRailEntry({
 /**
  * The entry once the flag allows it. Hidden while the inbox is unavailable
  * or still resolving. In the upgrade-required state the entry is a pitch,
- * so it carries a dismiss; the dismissal is remembered on this device and
- * stops applying the moment the org is entitled, since then there is an
- * inbox to open.
+ * so it carries a dismiss; the dismissal is remembered on this device, can
+ * be undone from the Channels page's Email section, and stops applying the
+ * moment the org is entitled, since then there is an inbox to open.
  */
 function EnabledRailEntry({ assistantId }: { assistantId: string }) {
   const collapsed = useSideMenuCollapsed();
   const navigate = useNavigate();
-  const [hidden, setHidden] = useState(
-    () => getLocalSetting(LS_ASSISTANT_INBOX_HIDDEN, "0") === "1",
-  );
+  const { hidden, hide } = useInboxRailHidden();
 
   const { status } = useAssistantInboxState(assistantId, "");
 
   const open = useCallback(() => {
     navigate(routes.assistantInbox);
   }, [navigate]);
-
-  const dismiss = useCallback(() => {
-    setLocalSetting(LS_ASSISTANT_INBOX_HIDDEN, "1");
-    setHidden(true);
-  }, []);
 
   if (status === "unavailable" || status === "loading") {
     return null;
@@ -71,7 +63,7 @@ function EnabledRailEntry({ assistantId }: { assistantId: string }) {
       assistantId={assistantId}
       collapsed={collapsed}
       onSelect={open}
-      onDismiss={upgradeOnly ? dismiss : undefined}
+      onDismiss={upgradeOnly ? hide : undefined}
     />
   );
 }

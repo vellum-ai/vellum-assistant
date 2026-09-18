@@ -53,7 +53,9 @@
     "perkReads": "{name} reads, sorts, and replies for you",
     "perkHistory": "Every message kept here, inbox and sent",
     "upgradeButton": "Upgrade to Super",
-    "seePlans": "See plans"
+    "seePlans": "See plans",
+    "titleNoName": "Give your assistant an inbox",
+    "perkReadsNoName": "Your assistant reads, sorts, and replies for you"
   },
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
@@ -67,5 +69,10 @@
     "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
     "mailFailed": "Couldn't load the mail.",
     "retry": "Try again"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "Assistant Inbox is hidden from your side menu.",
+    "restoreButton": "Add it back",
+    "restoredToast": "Assistant Inbox is back in your side menu."
   }
 }

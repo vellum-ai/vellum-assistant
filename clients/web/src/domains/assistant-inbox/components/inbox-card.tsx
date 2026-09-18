@@ -18,6 +18,8 @@ export interface InboxCardProps {
   footer?: ReactNode;
   /** Where the footer's actions sit. A single action reads best centred. */
   footerAlign?: "end" | "center";
+  /** A quiet line under the actions, for a secondary control. */
+  footnote?: ReactNode;
   className?: string;
 }
 
@@ -31,6 +33,7 @@ export function InboxCard({
   children,
   footer,
   footerAlign = "end",
+  footnote,
   className,
 }: InboxCardProps) {
   return (
@@ -66,6 +69,7 @@ export function InboxCard({
             {footer}
           </div>
         ) : null}
+        {footnote}
       </div>
     </div>
   );

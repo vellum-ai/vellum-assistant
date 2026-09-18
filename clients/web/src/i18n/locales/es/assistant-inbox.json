@@ -53,7 +53,9 @@
     "perkReads": "{name} lee, ordena y responde por ti",
     "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
     "upgradeButton": "Mejorar a Super",
-    "seePlans": "Ver planes"
+    "seePlans": "Ver planes",
+    "titleNoName": "Dale una bandeja de entrada a tu asistente",
+    "perkReadsNoName": "Tu asistente lee, ordena y responde por ti"
   },
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",
@@ -67,5 +69,10 @@
     "replyPrompt": "Responde al correo con id {id} de tu bandeja (de {sender}, asunto \"{subject}\"). Léelo primero con `assistant email download {id}`, redacta una respuesta y muéstramela antes de enviarla.",
     "mailFailed": "No se pudo cargar el correo.",
     "retry": "Reintentar"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "La bandeja del asistente está oculta en tu menú lateral.",
+    "restoreButton": "Volver a añadirla",
+    "restoredToast": "La bandeja del asistente vuelve a estar en tu menú lateral."
   }
 }

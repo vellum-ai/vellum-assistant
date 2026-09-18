@@ -53,7 +53,9 @@
     "perkReads": "{name} 为你阅读、整理并回复",
     "perkHistory": "每封邮件都保存在这里，包括收件和已发送",
     "upgradeButton": "升级到 Super",
-    "seePlans": "查看套餐"
+    "seePlans": "查看套餐",
+    "titleNoName": "给你的助手一个收件箱",
+    "perkReadsNoName": "你的助手为你阅读、整理并回复"
   },
   "assistantInboxSetupCard": {
     "title": "助手邮箱",
@@ -67,5 +69,10 @@
     "replyPrompt": "回复你收件箱中 id 为 {id} 的邮件（来自 {sender}，主题为“{subject}”）。请先用 `assistant email download {id}` 读取它，然后起草回复并在发送前给我看。",
     "mailFailed": "无法加载邮件。",
     "retry": "重试"
+  },
+  "inboxRailRestore": {
+    "hiddenNote": "助手收件箱已从侧边菜单中隐藏。",
+    "restoreButton": "重新添加",
+    "restoredToast": "助手收件箱已回到侧边菜单。"
   }
 }
