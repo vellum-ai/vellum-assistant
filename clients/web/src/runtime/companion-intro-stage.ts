@@ -55,6 +55,15 @@ async function askBridge(): Promise<boolean> {
 let staged = false;
 const watchers = new Set<() => void>();
 
+/**
+ * Whether a push has landed, which is what makes the ask below stale.
+ *
+ * A push carries the moment it describes; the ask's answer carries only the
+ * moment it was asked. Once one has arrived, the ask can no longer be the
+ * newer of the two.
+ */
+let pushed = false;
+
 function record(next: boolean): void {
   if (next === staged) {
     return;
@@ -71,14 +80,22 @@ function record(next: boolean): void {
 // the thing it belongs to is the document.
 //
 // Subscribed before the ask, so a change that lands while the ask is out is
-// not lost. The ask can then only be overtaken by a fresher answer, which is
-// the one to keep.
+// not lost, and so the ask can tell that it has been overtaken.
 if (isElectron()) {
-  subscribeToBridge(record);
+  subscribeToBridge((next) => {
+    pushed = true;
+    record(next);
+  });
   void askBridge().then((initial) => {
-    if (initial) {
-      record(true);
+    // Dropped once a push has spoken, because the ask describes the moment it
+    // went out and nothing will correct it: a run that ended while it was in
+    // flight has already sent the only `false` it is going to send, and taking
+    // the ask's `true` over it would leave every later voice entry reading a
+    // run that is long over.
+    if (pushed) {
+      return;
     }
+    record(initial);
   });
 }
 
