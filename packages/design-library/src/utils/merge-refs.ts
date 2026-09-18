@@ -31,9 +31,19 @@ export function mergeRefs<T>(...refs: (Ref<T> | undefined)[]): RefCallback<T> {
       }
       return undefined;
     });
+    // Every ref is detached even if one throws, since React sees one cleanup
+    // and cannot run the rest itself; the first error is rethrown after.
     return () => {
+      const errors: unknown[] = [];
       for (const cleanup of detach) {
-        cleanup?.();
+        try {
+          cleanup?.();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length > 0) {
+        throw errors[0];
       }
     };
   };

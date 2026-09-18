@@ -45,4 +45,18 @@ describe("mergeRefs", () => {
     detach?.();
     expect(object.current).toBeNull();
   });
+
+  test("detaches every ref when one cleanup throws, then rethrows", () => {
+    const object = createRef<Node>();
+    const failure = new Error("cleanup failed");
+    const detach = mergeRefs<Node>(
+      () => () => {
+        throw failure;
+      },
+      object,
+    )(node);
+
+    expect(() => detach?.()).toThrow(failure);
+    expect(object.current).toBeNull();
+  });
 });
