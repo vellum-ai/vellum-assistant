@@ -33,6 +33,17 @@ describe("supportsGuardianNotificationTargeting", () => {
     }
   });
 
+  test("is false for a local build, whatever its stamp", () => {
+    for (const version of [
+      "0.12.2-local.20260916144827.abcdef1",
+      "0.12.2-local.20260918200000.abcdef1",
+      "0.13.0-local.20261001000000.abcdef1",
+    ]) {
+      useAssistantIdentityStore.getState().setIdentity("Test", version, "asst-1");
+      expect(supportsGuardianNotificationTargeting("asst-1")).toBe(false);
+    }
+  });
+
   test("is false when the known version belongs to a different assistant", () => {
     useAssistantIdentityStore.getState().setIdentity("Test", "0.13.0", "asst-2");
     expect(supportsGuardianNotificationTargeting("asst-1")).toBe(false);

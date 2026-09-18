@@ -238,6 +238,22 @@ export function versionSupports(
 }
 
 /**
+ * Whether `version` names an assistant built from a source checkout: the
+ * `<pkg.version>-local.<timestamp>.<sha>` a `vel up` image reports. Its base
+ * is the checkout's package version, which only moves on release cuts, and
+ * its stamp is the build time, so neither says which commits it carries.
+ * {@link versionSupports} still orders it by stamp; a gate whose new path
+ * must never run on an assistant that lacks the change refuses it instead.
+ * The assistant draws the same line in `isLocalDevRuntimeVersion`.
+ */
+export function isLocalBuildVersion(
+  version: string | null | undefined,
+): boolean {
+  const pre = version ? parseSemver(version)?.pre : null;
+  return pre != null && /^local(?:\.|$)/.test(pre);
+}
+
+/**
  * A build pre-release, and when it was built.
  *
  * CI stamps `dev.YYYYMMDDHHMM.sha` and a `vel up` image stamps
