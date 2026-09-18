@@ -82,7 +82,11 @@ export type InviteRedemptionEngineResult =
 function failed(
   reason: InviteRedemptionFailureReason,
 ): InviteRedemptionEngineResult {
-  return { status: "failed", reason, replyText: INVITE_REPLY_TEMPLATES[reason] };
+  return {
+    status: "failed",
+    reason,
+    replyText: INVITE_REPLY_TEMPLATES[reason],
+  };
 }
 
 /** Sender identity fields shared by every redemption path. */
@@ -607,22 +611,12 @@ export async function tryInviteRedemptionIntercept(
 
   let pendingReplyText: string | undefined;
   if (replyCallbackUrl) {
-    // The claim and ACL side effect are already committed; a reply-delivery
-    // failure must not propagate, or the webhook errors and the provider
-    // retries the already-consumed code into the normal pipeline.
-    try {
-      await deliverVerificationReply({
-        replyCallbackUrl,
-        chatId: actorChatId,
-        text: result.replyText,
-        assistantId,
-      });
-    } catch (err) {
-      log.error(
-        { err, sourceChannel, status: result.status },
-        "Invite redemption reply delivery failed — intercept stands",
-      );
-    }
+    await deliverVerificationReply({
+      callbackUrl: replyCallbackUrl,
+      chatId: actorChatId,
+      text: result.replyText,
+      assistantId,
+    });
   } else {
     pendingReplyText = result.replyText;
   }

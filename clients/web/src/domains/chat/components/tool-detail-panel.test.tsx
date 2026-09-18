@@ -39,7 +39,11 @@ const { useChatSessionStore } =
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
-import { stubOverflow } from "@/hooks/overflow.test-helper";
+import {
+  stubContentHeight,
+  stubOverflow,
+  stubResizeObserver,
+} from "@/hooks/overflow.test-helper";
 
 /** Wrap messages into a materialized-snapshot page. */
 function snap(messages: DisplayMessage[]): PaginatedHistoryResult {
@@ -327,6 +331,86 @@ describe("ToolDetailPanel", () => {
 
     expect(getByText(note).tagName).not.toBe("PRE");
     expect(getAllByText("Show more")).toHaveLength(1);
+  });
+
+  describe("an opened value", () => {
+    const note = "word ".repeat(200).trim();
+    const detail = makeDetail({
+      toolName: "acme_notes_append",
+      input: { note },
+      result: "",
+    });
+
+    /**
+     * Opens the value in `openedDetail` that folds, given the height it draws
+     * at, and lays it out again as the browser would once it has opened.
+     */
+    function openValue(openedDetail: ToolDetailPayload, height: number) {
+      // Only the fold's box carries a max-height, so it is what measures.
+      restoreLayout = stubContentHeight((el) =>
+        el.style.maxHeight ? height : undefined,
+      );
+      const observer = stubResizeObserver();
+      try {
+        const view = render(
+          <ToolDetailPanel detail={openedDetail} onClose={noop} />,
+        );
+        act(() => {
+          fireEvent.click(view.getByText("Show more"));
+        });
+        act(observer.resize);
+        return view;
+      } finally {
+        observer.restore();
+      }
+    }
+
+    const openNote = (height: number) => openValue(detail, height);
+
+    test("stops at the expanded height and scrolls, named after its field", () => {
+      const { getByRole, getByText } = openNote(1000);
+
+      const box = getByRole("region", { name: "note" });
+      expect(box.style.maxHeight).toBe("480px");
+      expect(box.tabIndex).toBe(0);
+      expect(getByText("Show less")).toBeDefined();
+    });
+
+    test("names a whole output after its section", () => {
+      const rows = Array.from({ length: 40 }, (_, index) => ({
+        id: `row-${index + 1}`,
+        stage: "new",
+      }));
+      const { getByRole } = openValue(
+        makeDetail({
+          toolName: "acme_crm_list_contacts",
+          input: {},
+          result: JSON.stringify(rows),
+        }),
+        1000,
+      );
+
+      expect(getByRole("region", { name: "Output" })).toBeDefined();
+    });
+
+    test("folds back to its start after scrolling while open", () => {
+      const { getByRole, getByText } = openNote(1000);
+      const box = getByRole("region", { name: "note" });
+      box.scrollTop = 300;
+
+      act(() => {
+        fireEvent.click(getByText("Show less"));
+      });
+
+      expect(box.scrollTop).toBe(0);
+    });
+
+    test("shows whole, with nothing to scroll, when it fits that height", () => {
+      const { queryByRole, getByText } = openNote(300);
+
+      expect(queryByRole("region")).toBeNull();
+      expect(getByText("Show less")).toBeDefined();
+    });
   });
 
   test("folds a table taller than the fold as one value", () => {

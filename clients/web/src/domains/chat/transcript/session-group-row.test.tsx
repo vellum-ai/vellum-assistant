@@ -44,7 +44,7 @@ function ControlledRow({
 
 describe("SessionGroupRow", () => {
   test.each([
-    ["computerUse", "Computer use session"],
+    ["computerUse", "Computer session"],
     ["browser", "Browser session"],
     ["liveVision", "Live vision session"],
     ["ambient", "Ambient session"],

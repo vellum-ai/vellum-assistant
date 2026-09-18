@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "Computer use session",
+      "computerUse": "Computer session",
       "browser": "Browser session",
       "liveVision": "Live vision session",
       "ambient": "Ambient session"
@@ -1784,7 +1784,8 @@
     "copied": "Copied",
     "copy": "Copy",
     "copyAria": "Copy table as markdown",
-    "copyFailed": "Couldn't copy the table."
+    "copyFailed": "Couldn't copy the table.",
+    "table": "Table"
   },
   "taskPreferencesSurface": {
     "continue": "Continue",

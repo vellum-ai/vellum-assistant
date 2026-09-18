@@ -10,7 +10,14 @@
  * from here.
  */
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Typography, type TypographyAs } from "@vellumai/design-library";
 
@@ -25,6 +32,13 @@ import { cn } from "@/utils/misc";
  * above it stays on screen.
  */
 const CLAMP_HEIGHT = 260;
+
+/**
+ * Show more opens a folded value to at most this height, and it scrolls past
+ * it: tall enough to read a good stretch at once, short enough that a
+ * hundred-row table does not push the rest of the panel away.
+ */
+const EXPANDED_HEIGHT = 480;
 
 /** The bottom of a clamped body fades to nothing over this height. */
 const CLAMP_FADE = "3rem";
@@ -43,49 +57,90 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
  * lines folds as readily as one long paragraph, and content that fits never
  * offers to show more.
  *
- * It is what keeps a long value from running a detail panel on, whatever the
- * value is: a code block, a field's inline text, a table, a nested group.
+ * Show more opens it to at most {@link EXPANDED_HEIGHT}, and the rest scrolls
+ * inside the value, so a long value never runs a detail panel on, whatever it
+ * is: a code block, a field's inline text, a table, a nested group.
  *
  * One fold per value: inside another fold, it draws its content as it is. A
  * group that folds would otherwise hide a folded field's own Show more under
  * its cut, and the field would take two to open.
  */
-export function ClampedContent({ children }: { children: ReactNode }) {
+export function ClampedContent({
+  label,
+  children,
+}: {
+  /** Names the value while it scrolls; defaults to a generic name. */
+  label?: string;
+  children: ReactNode;
+}) {
   if (useContext(InsideFold)) {
     return children;
   }
-  return <Fold>{children}</Fold>;
+  return <Fold label={label}>{children}</Fold>;
 }
 
 /** Whether content is already inside a fold, which owns folding it. */
 const InsideFold = createContext(false);
 
-function Fold({ children }: { children: ReactNode }) {
+function Fold({
+  label,
+  children,
+}: {
+  label: string | undefined;
+  children: ReactNode;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   // Measured against the fold height rather than the box, so the measure holds
   // while expanded too and content swapped in that fits drops the control.
-  const { ref, overflows } = useOverflows<HTMLDivElement>({
-    limit: CLAMP_HEIGHT,
-  });
-  const clamped = overflows && !expanded;
+  const fold = useOverflows<HTMLDivElement>({ limit: CLAMP_HEIGHT });
+  // Against the box itself: whether the expanded value still has more below.
+  const box = useOverflows<HTMLDivElement>();
+  const measureFold = fold.ref;
+  const measureBox = box.ref;
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      boxRef.current = el;
+      measureFold(el);
+      measureBox(el);
+    },
+    [measureFold, measureBox],
+  );
+  const toggle = () => {
+    // Folding back shows the value from its start, not wherever it was
+    // scrolled to while open.
+    if (expanded && boxRef.current) {
+      boxRef.current.scrollTop = 0;
+    }
+    setExpanded(!expanded);
+  };
+  const clamped = fold.overflows && !expanded;
+  const scrolls = expanded && box.overflows;
 
   return (
     <>
       <div
         ref={ref}
-        className="overflow-hidden"
-        style={
-          expanded
-            ? undefined
-            : {
-                maxHeight: CLAMP_HEIGHT,
-                ...(clamped && {
-                  maskImage: CLAMP_FADE_MASK,
-                  WebkitMaskImage: CLAMP_FADE_MASK,
-                }),
-              }
+        // A keyboard scrolls the expanded value only once it can focus it,
+        // and anything focusable needs a role and a name (WCAG 2.1.1, 4.1.2).
+        // The ring is inset: the box clips anything drawn outside it.
+        role={scrolls ? "region" : undefined}
+        aria-label={
+          scrolls ? (label ?? t("detailPrimitives.expandedValue")) : undefined
         }
+        tabIndex={scrolls ? 0 : undefined}
+        className={cn(
+          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]",
+          expanded ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden",
+        )}
+        style={{
+          maxHeight: expanded ? EXPANDED_HEIGHT : CLAMP_HEIGHT,
+          ...(clamped && {
+            maskImage: CLAMP_FADE_MASK,
+            WebkitMaskImage: CLAMP_FADE_MASK,
+          }),
+        }}
       >
         {/* One child for the observer to follow as the content grows under
             the cap, which does not move the capped box itself. */}
@@ -93,10 +148,10 @@ function Fold({ children }: { children: ReactNode }) {
           <InsideFold value={true}>{children}</InsideFold>
         </div>
       </div>
-      {overflows && (
+      {fold.overflows && (
         <button
           type="button"
-          onClick={() => setExpanded((open) => !open)}
+          onClick={toggle}
           className="mt-2 w-full border-t border-[var(--border-base)] pt-2 text-left"
         >
           <Typography
@@ -124,6 +179,8 @@ interface DetailBlockProps {
   variant?: keyof typeof DETAIL_BLOCK_VARIANT_CLASSES;
   /** Text the copy button copies. Without it the block has no copy button. */
   copyText?: string;
+  /** Names the content while it scrolls, once opened past the fold. */
+  label?: string;
   children: ReactNode;
 }
 
@@ -141,6 +198,7 @@ interface DetailBlockProps {
 export function DetailBlock({
   variant = "outlined",
   copyText,
+  label,
   children,
 }: DetailBlockProps) {
   const { t } = useTranslation();
@@ -154,7 +212,7 @@ export function DetailBlock({
         hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
       )}
     >
-      <ClampedContent>{children}</ClampedContent>
+      <ClampedContent label={label}>{children}</ClampedContent>
       {hasCopy && (
         <CopyButton
           text={copyText}
@@ -247,13 +305,16 @@ export function CodePre({
 export function CodeBlock({
   text,
   tone = "default",
+  label,
 }: {
   text: string;
   /** `error` tints the text, so a failed result reads as one at a glance. */
   tone?: "default" | "error";
+  /** Names the block while it scrolls, once opened past the fold. */
+  label?: string;
 }) {
   return (
-    <DetailBlock copyText={text}>
+    <DetailBlock copyText={text} label={label}>
       <CodePre text={text} tone={tone} />
     </DetailBlock>
   );

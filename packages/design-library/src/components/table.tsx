@@ -1,5 +1,7 @@
-import { createContext, useContext, type ComponentProps } from "react";
+import { createContext, useContext, useMemo, type ComponentProps } from "react";
 
+import { scrollEdgeMask, useScrollEdges } from "../hooks/use-scroll-edges";
+import { mergeRefs } from "../utils/merge-refs";
 import { cn } from "../utils/cn";
 
 /**
@@ -12,7 +14,15 @@ import { cn } from "../utils/cn";
  * the rules go (`dividers`), so a consumer states its layout once instead of
  * repeating padding on each cell. Sorting, selection state and virtualization
  * belong to the consumer; a long list is `VirtualList`'s job.
+ *
+ * A table wider than its host scrolls sideways in its own container, which
+ * fades whichever side has more columns past it and becomes a focusable
+ * region, so the columns out of view read as there and a keyboard can scroll
+ * to them.
  */
+
+/** How far the container fades at a side with columns past it. */
+const EDGE_FADE = 24;
 
 /** Vertical cell padding: 8px, 10px or 12px rows. */
 export type TableDensity = "compact" | "default" | "relaxed";
@@ -59,7 +69,9 @@ export interface TableProps extends ComponentProps<"table"> {
   /**
    * Props for the scroll container the table sits in. It scrolls
    * horizontally when the table is wider than its host, so a host that
-   * arbitrates horizontal gestures marks it here.
+   * arbitrates horizontal gestures marks it here. While it scrolls it is a
+   * focusable region, which needs a name: pass `aria-label` or
+   * `aria-labelledby` here.
    */
   containerProps?: ComponentProps<"div"> & {
     [dataAttribute: `data-${string}`]: string | undefined;
@@ -75,15 +87,42 @@ export function Table({
   containerProps,
   ...props
 }: TableProps) {
+  const { ref: measureRef, edges } =
+    useScrollEdges<HTMLDivElement>("horizontal");
+  const containerRef = containerProps?.ref;
+  const setContainer = useMemo(
+    () => mergeRefs(measureRef, containerRef),
+    [measureRef, containerRef],
+  );
+  const scrolls = edges.start || edges.end;
+  const mask = scrolls ? scrollEdgeMask("horizontal", EDGE_FADE, edges) : null;
+
   return (
     <TableContext.Provider value={{ density, inset, dividers }}>
       <div
         {...containerProps}
+        ref={setContainer}
         data-slot="table-container"
+        // A keyboard reaches the columns out of view only through a
+        // focusable container, and anything focusable needs a role and name
+        // (WCAG 2.1.1 and 4.1.2). Only while it scrolls: a table that fits
+        // adds no tab stop. The focus ring is inset because the edge mask
+        // clips anything drawn outside the container.
+        role={scrolls ? "region" : containerProps?.role}
+        tabIndex={scrolls ? 0 : containerProps?.tabIndex}
         className={cn(
-          "relative w-full overflow-x-auto",
+          "relative w-full overflow-x-auto outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]",
           containerProps?.className,
         )}
+        style={
+          mask
+            ? {
+                ...containerProps?.style,
+                maskImage: mask,
+                WebkitMaskImage: mask,
+              }
+            : containerProps?.style
+        }
       >
         <table
           {...props}

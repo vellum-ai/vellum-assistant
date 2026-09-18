@@ -692,7 +692,9 @@ describe("telegramTransport.streamReply", () => {
 });
 
 describe("sendTelegramAttachments", () => {
-  // The Bot API's sendDocument upload cap; the sender skips anything larger.
+  // The Bot API's multipart upload limits: a photo, and any other file. The
+  // sender skips anything over the second.
+  const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
   const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
   function attachment(
@@ -757,6 +759,33 @@ describe("sendTelegramAttachments", () => {
     expect(document.name).toBe("report.pdf");
     expect(document.type).toBe("application/pdf");
     expect(await document.text()).toBe("pdf");
+  });
+
+  test("sends an image over the photo limit with sendDocument", async () => {
+    storeHolds({
+      "att-1": Buffer.alloc(MAX_PHOTO_BYTES),
+      "att-2": Buffer.alloc(MAX_PHOTO_BYTES + 1),
+    });
+
+    const result = await sendTelegramAttachments("123", [
+      attachment("att-1", "fits.png", "image/png", MAX_PHOTO_BYTES),
+      attachment("att-2", "scan.png", "image/png", MAX_PHOTO_BYTES + 1),
+    ]);
+
+    expect(multipartCalls().map((c) => c.method)).toEqual([
+      "sendPhoto",
+      "sendDocument",
+    ]);
+    const document = multipartCalls()[1]?.form.get("document") as File;
+    expect(document.name).toBe("scan.png");
+    expect(document.type).toBe("image/png");
+    expect(document.size).toBe(MAX_PHOTO_BYTES + 1);
+    expect(noticeTexts()).toEqual([]);
+    expect(result).toEqual({
+      allFailed: false,
+      failureCount: 0,
+      totalCount: 2,
+    });
   });
 
   test("targets the topic on both the upload and the failure notice", async () => {

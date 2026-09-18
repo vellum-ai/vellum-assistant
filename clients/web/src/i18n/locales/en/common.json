@@ -315,6 +315,7 @@
   },
   "detailPrimitives": {
     "copy": "Copy",
+    "expandedValue": "Expanded value",
     "showLess": "Show less",
     "showMore": "Show more"
   },

@@ -313,6 +313,7 @@
   },
   "detailPrimitives": {
     "copy": "Copiar",
+    "expandedValue": "Valor expandido",
     "showLess": "Mostrar menos",
     "showMore": "Mostrar más"
   },

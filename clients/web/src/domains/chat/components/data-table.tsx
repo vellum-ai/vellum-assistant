@@ -56,6 +56,11 @@ export interface DataTableProps {
   columns: readonly DataTableColumn[];
   rows: readonly DataTableRow[];
   caption?: string;
+  /**
+   * Names the table's scroll area, which a keyboard can focus while the table
+   * is too wide to show every column. Defaults to the caption.
+   */
+  label?: string;
   /** Row selection, when the table is a choice rather than a readout. */
   selection?: DataTableSelection;
   /**
@@ -110,6 +115,7 @@ export function DataTable({
   columns,
   rows,
   caption,
+  label,
   selection,
   renderCell = renderPlainCell,
   copyable = true,
@@ -145,7 +151,14 @@ export function DataTable({
       {/* The host arbitrates horizontal gestures on the scroll container. */}
       <Table
         density="compact"
-        containerProps={{ "data-owns-horizontal-scroll": "" }}
+        containerProps={{
+          "data-owns-horizontal-scroll": "",
+          // The first name with something in it: a surface title or caption
+          // can arrive blank, which would name the region nothing.
+          "aria-label":
+            [label, caption].find((name) => name?.trim()) ??
+            t("tableSurface.table"),
+        }}
       >
         {caption && <TableCaption>{caption}</TableCaption>}
         <TableHeader>

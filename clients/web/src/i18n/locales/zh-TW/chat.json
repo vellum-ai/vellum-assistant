@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "電腦操作工作階段",
+      "computerUse": "電腦工作階段",
       "browser": "瀏覽器工作階段",
       "liveVision": "即時視覺工作階段",
       "ambient": "環境工作階段"
@@ -1773,7 +1773,8 @@
     "copied": "已複製",
     "copy": "複製",
     "copyAria": "將表格複製為 Markdown",
-    "copyFailed": "無法複製表格。"
+    "copyFailed": "無法複製表格。",
+    "table": "表格"
   },
   "taskPreferencesSurface": {
     "continue": "繼續",

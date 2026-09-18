@@ -73,7 +73,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "Сеанс управления компьютером",
+      "computerUse": "Сеанс работы с компьютером",
       "browser": "Сеанс браузера",
       "liveVision": "Сеанс видеопросмотра",
       "ambient": "Фоновый сеанс"
@@ -986,6 +986,9 @@
     "loadCount": "{count, plural, one {1 загрузка} few {# загрузки} many {# загрузок} other {# загрузки}}",
     "summaryStats": "{uniqueCount, plural, one {# уникальный навык} few {# уникальных навыка} many {# уникальных навыков} other {# уникальных навыка}} · {totalLoads, plural, one {# вызов загрузки} few {# вызова загрузки} many {# вызовов загрузки} other {# вызова загрузки}}",
     "summaryTitle": "Навыки, загруженные в этом диалоге"
+  },
+  "tableSurface": {
+    "table": "Таблица"
   },
   "toolDefinitionsContent": {
     "defaultValue": "по умолчанию: {value}",

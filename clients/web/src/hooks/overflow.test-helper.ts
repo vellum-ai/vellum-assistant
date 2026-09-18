@@ -7,31 +7,65 @@
  * the real getters; call it in `afterEach` or a `finally`.
  */
 export function stubOverflow(isTall: (el: HTMLElement) => boolean): () => void {
-  const scroll = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    "scrollHeight",
+  return stubHeights(
+    (el) => (isTall(el) ? 400 : 100),
+    () => 100,
   );
-  const client = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    "clientHeight",
-  );
-  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-    configurable: true,
-    get() {
-      return 100;
+}
+
+/**
+ * Lays out the elements `contentHeight` gives a height, the way a browser
+ * would with a `max-height` on them: `scrollHeight` is the content's height
+ * and `clientHeight` the content capped at the element's own `max-height`.
+ * Every other element measures 0. For a test where it matters whether content
+ * fits a capped box, which `stubOverflow`'s fixed heights cannot say. Returns
+ * the function that restores the real getters.
+ */
+export function stubContentHeight(
+  contentHeight: (el: HTMLElement) => number | undefined,
+): () => void {
+  return stubHeights(
+    (el) => contentHeight(el) ?? 0,
+    (el) => {
+      const height = contentHeight(el) ?? 0;
+      const cap = Number.parseFloat(el.style.maxHeight);
+      return Number.isNaN(cap) ? height : Math.min(height, cap);
     },
-  });
+  );
+}
+
+/**
+ * Replaces the `scrollHeight` and `clientHeight` getters on
+ * `HTMLElement.prototype`, returning the function that puts the real ones back.
+ */
+function stubHeights(
+  scrollHeight: (el: HTMLElement) => number,
+  clientHeight: (el: HTMLElement) => number,
+): () => void {
+  const originals = {
+    scrollHeight: Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollHeight",
+    ),
+    clientHeight: Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientHeight",
+    ),
+  };
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return isTall(this) ? 400 : 100;
+      return scrollHeight(this);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return clientHeight(this);
     },
   });
   return () => {
-    for (const [name, descriptor] of [
-      ["scrollHeight", scroll],
-      ["clientHeight", client],
-    ] as const) {
+    for (const [name, descriptor] of Object.entries(originals)) {
       if (descriptor) {
         Object.defineProperty(HTMLElement.prototype, name, descriptor);
       } else {

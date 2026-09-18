@@ -119,7 +119,7 @@
   },
   "sessionGroupRow": {
     "mode": {
-      "computerUse": "Sesión de uso del ordenador",
+      "computerUse": "Sesión de ordenador",
       "browser": "Sesión del navegador",
       "liveVision": "Sesión de visión en directo",
       "ambient": "Sesión ambiental"
@@ -1735,7 +1735,8 @@
     "copied": "Copiado",
     "copy": "Copiar",
     "copyAria": "Copiar tabla como markdown",
-    "copyFailed": "No se pudo copiar la tabla."
+    "copyFailed": "No se pudo copiar la tabla.",
+    "table": "Tabla"
   },
   "taskPreferencesSurface": {
     "continue": "Continuar",

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, waitFor } from "storybook/test";
 
 import {
   Table,
@@ -60,6 +61,13 @@ export const Default: Story = {
       </TableBody>
     </Table>
   ),
+  // A table that fits fades nothing and adds no tab stop.
+  play: async ({ canvasElement }) => {
+    const container = tableContainer(canvasElement);
+    await expect(container.getAttribute("role")).toBeNull();
+    await expect(container.hasAttribute("tabindex")).toBe(false);
+    await expect(container.style.maskImage).toBe("");
+  },
 };
 
 /**
@@ -88,12 +96,16 @@ export const SelectableRows: Story = {
   ),
 };
 
-/** Wider than its host: the container scrolls sideways, the page does not. */
+/**
+ * Wider than its host: the container scrolls sideways, the page does not. It
+ * fades the side with columns past it, and is a named, focusable region so a
+ * keyboard can scroll to them.
+ */
 export const Overflowing: Story = {
   parameters: { controls: { disable: true } },
   render: (args) => (
     <div style={{ width: 320 }}>
-      <Table {...args}>
+      <Table {...args} containerProps={{ "aria-label": "Weekly metrics" }}>
         <TableHeader>
           <TableRow>
             {["Week", "Users", "Sessions", "Retention", "Revenue"].map(
@@ -119,6 +131,19 @@ export const Overflowing: Story = {
       </Table>
     </div>
   ),
+  play: async ({ canvasElement }) => {
+    const container = tableContainer(canvasElement);
+    await waitFor(() => expect(container.getAttribute("role")).toBe("region"));
+    await expect(container.tabIndex).toBe(0);
+    await expect(container.getAttribute("aria-label")).toBe("Weekly metrics");
+    // At rest only the end fades: the columns past it are the hidden ones.
+    await expect(fadedSides(container)).toEqual({ start: false, end: true });
+
+    container.scrollLeft = container.scrollWidth;
+    await waitFor(() =>
+      expect(fadedSides(container)).toEqual({ start: true, end: false }),
+    );
+  },
 };
 
 /**
@@ -177,3 +202,22 @@ export const FixedColumns: Story = {
     </Table>
   ),
 };
+
+function tableContainer(canvasElement: HTMLElement): HTMLElement {
+  const container = canvasElement.querySelector<HTMLElement>(
+    '[data-slot="table-container"]',
+  );
+  if (!container) {
+    throw new Error("The story renders no table container.");
+  }
+  return container;
+}
+
+/** Which sides of the container's mask are transparent, in reading order. */
+function fadedSides(container: HTMLElement): { start: boolean; end: boolean } {
+  const mask = container.style.maskImage;
+  return {
+    start: mask.startsWith("linear-gradient(to right, transparent"),
+    end: mask.endsWith("transparent)"),
+  };
+}
