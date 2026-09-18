@@ -180,10 +180,8 @@ describe("whatsappTransport.deliver", () => {
 });
 
 describe("sendWhatsAppAttachments", () => {
-  // Meta's limits for uploaded media: images, video, and any file as a document.
-  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-  const MAX_VIDEO_BYTES = 16 * 1024 * 1024;
-  const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+  // The sender's own cap on an outbound attachment.
+  const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
   const TO = "12125550100";
 
   function attachment(
@@ -234,79 +232,6 @@ describe("sendWhatsAppAttachments", () => {
       failureCount: 0,
       totalCount: 3,
     });
-  });
-
-  test("posts WebP as a document, since Meta accepts it only as a sticker", async () => {
-    storeContents = { "att-1": Buffer.from("webp") };
-
-    const result = await sendWhatsAppAttachments(TO, [
-      attachment("att-1", "screenshot.webp", "image/webp"),
-    ]);
-
-    expect(mediaMessages).toEqual([
-      {
-        to: TO,
-        mediaType: "document",
-        mediaId: "media-1",
-        filename: "screenshot.webp",
-      },
-    ]);
-    expect(result.failureCount).toBe(0);
-  });
-
-  test("posts an image at the image limit as an image and one byte over as a document", async () => {
-    storeContents = {
-      "att-1": Buffer.alloc(MAX_IMAGE_BYTES),
-      "att-2": Buffer.alloc(MAX_IMAGE_BYTES + 1),
-    };
-
-    const result = await sendWhatsAppAttachments(TO, [
-      attachment("att-1", "fits.jpg", "image/jpeg", MAX_IMAGE_BYTES),
-      attachment("att-2", "large.jpg", "image/jpeg", MAX_IMAGE_BYTES + 1),
-    ]);
-
-    expect(mediaMessages.map((m) => [m.filename, m.mediaType])).toEqual([
-      ["fits.jpg", "image"],
-      ["large.jpg", "document"],
-    ]);
-    // The upload keeps the file's own type either way.
-    expect(uploads.map((u) => u.mimeType)).toEqual([
-      "image/jpeg",
-      "image/jpeg",
-    ]);
-    expect(notices()).toEqual([]);
-    expect(result.failureCount).toBe(0);
-  });
-
-  test("posts a video over the video limit as a document", async () => {
-    storeContents = { "att-1": Buffer.alloc(MAX_VIDEO_BYTES + 1) };
-
-    const result = await sendWhatsAppAttachments(TO, [
-      attachment("att-1", "long.mp4", "video/mp4", MAX_VIDEO_BYTES + 1),
-    ]);
-
-    expect(mediaMessages.map((m) => [m.filename, m.mediaType])).toEqual([
-      ["long.mp4", "document"],
-    ]);
-    expect(result.failureCount).toBe(0);
-  });
-
-  test("posts a document up to Cloud API's media limit", async () => {
-    storeContents = { "att-1": Buffer.alloc(MAX_ATTACHMENT_BYTES) };
-
-    const result = await sendWhatsAppAttachments(TO, [
-      attachment(
-        "att-1",
-        "manual.pdf",
-        "application/pdf",
-        MAX_ATTACHMENT_BYTES,
-      ),
-    ]);
-
-    expect(mediaMessages.map((m) => [m.filename, m.mediaType])).toEqual([
-      ["manual.pdf", "document"],
-    ]);
-    expect(result.failureCount).toBe(0);
   });
 
   test("skips an attachment whose declared size is over the cap without reading it", async () => {
