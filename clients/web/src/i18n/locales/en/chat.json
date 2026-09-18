@@ -822,6 +822,7 @@
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {
+    "collapse": "Collapse",
     "titleFallback": "Dynamic content"
   },
   "exportProgressModal": {
@@ -861,6 +862,7 @@
     "accepted": "Accepted: {types}",
     "dropHint": "Drag and drop files here, or click to browse",
     "maxSize": "Max size: {size}",
+    "removeFile": "Remove {name}",
     "upload": "Upload",
     "uploading": "Uploading..."
   },

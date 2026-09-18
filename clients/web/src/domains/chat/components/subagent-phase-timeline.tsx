@@ -398,6 +398,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
         type="button"
         data-testid="subagent-phase-header"
         disabled={!isExpandable}
+        aria-expanded={isExpandable ? expanded : undefined}
         onClick={isExpandable ? () => onToggle(sectionKeyValue) : undefined}
         // Fixed 22px height (not py-based) so the bullet's centre is ALWAYS 11px
         // from the row top regardless of trailing content. A row with a duration

@@ -96,10 +96,27 @@ function ClaimRow({
       style={{ animation: "fadeInUp 0.35s ease-out both" }}
     >
       <div
-        className={`flex items-center gap-2.5 px-4 py-2.5 ${
+        className={`flex items-center gap-2.5 rounded-lg px-4 py-2.5 outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)] ${
           canExpand ? "cursor-pointer" : ""
         }`}
         onClick={canExpand ? () => setExpanded((v) => !v) : undefined}
+        role={canExpand ? "button" : undefined}
+        tabIndex={canExpand ? 0 : undefined}
+        aria-expanded={canExpand ? expanded : undefined}
+        onKeyDown={
+          canExpand
+            ? (e) => {
+                // Keys pressed on the remove control inside the row are its own.
+                if (e.target !== e.currentTarget) {
+                  return;
+                }
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpanded((v) => !v);
+                }
+              }
+            : undefined
+        }
       >
         <span
           className={`text-[15px] leading-snug text-[var(--content-default)] ${

@@ -648,6 +648,7 @@ function PromptEditor({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
           className="text-label-medium-default"
           style={{
             color: "var(--content-secondary)",
@@ -965,6 +966,7 @@ function RawExchangePanel({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
           className="text-label-medium-default"
           style={{
             color: "var(--content-secondary)",

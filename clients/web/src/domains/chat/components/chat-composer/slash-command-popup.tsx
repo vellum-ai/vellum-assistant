@@ -58,6 +58,7 @@ function SlashCommandRow({
   return (
     <PanelItem asChild active={isSelected}>
       <button
+        type="button"
         role="option"
         aria-selected={isSelected}
         onClick={onSelect}

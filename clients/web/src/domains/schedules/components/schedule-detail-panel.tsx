@@ -404,7 +404,7 @@ function RunRow({
           aria-label={t("scheduleDetail.openRunConversationAria", {
             time: formatTimestamp(run.startedAt),
           })}
-          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
+          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]"
         >
           {body}
         </button>
@@ -423,7 +423,7 @@ function RunRow({
           })}
           aria-expanded={isExpanded}
           aria-controls={detailsId}
-          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none"
+          className="flex w-full cursor-pointer items-center gap-3 px-2 py-3 text-left shadow-none transition-colors hover:bg-[var(--surface-hover)] focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]"
         >
           {body}
         </button>

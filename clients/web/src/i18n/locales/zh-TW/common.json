@@ -480,7 +480,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "詢問 Vellum 任何問題…"
+    "placeholder": "詢問 Vellum 任何問題…",
+    "send": "傳送訊息"
   },
   "referralContent": {
     "copied": "已複製！",

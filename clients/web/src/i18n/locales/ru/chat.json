@@ -1082,5 +1082,11 @@
     "skip": "Пропустить",
     "showMore": "Показать больше",
     "showLess": "Показать меньше"
+  },
+  "dynamicPageSurface": {
+    "collapse": "Свернуть"
+  },
+  "fileUploadSurface": {
+    "removeFile": "Удалить {name}"
   }
 }

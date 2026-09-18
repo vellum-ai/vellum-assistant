@@ -261,6 +261,7 @@ export function InlineConfirmationCard({
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
             // typography: off-scale — 11px tertiary disclosure per the Figma spec
             className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
@@ -646,6 +647,7 @@ export function ToolCallChip({
       {/* Header row */}
       <button
         type="button"
+        aria-expanded={canExpand ? expanded : undefined}
         onClick={() => {
           if (canExpand) {
             toggleExpanded(!expanded);

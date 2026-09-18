@@ -811,6 +811,7 @@
     "notFound": "未找到文档。"
   },
   "dynamicPageSurface": {
+    "collapse": "收起",
     "titleFallback": "动态内容"
   },
   "exportProgressModal": {
@@ -850,6 +851,7 @@
     "accepted": "接受：{types}",
     "dropHint": "将文件拖放到此处，或点击浏览",
     "maxSize": "最大大小：{size}",
+    "removeFile": "移除 {name}",
     "upload": "上传",
     "uploading": "正在上传..."
   },

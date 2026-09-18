@@ -67,6 +67,7 @@ function ClampedContent({
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
           className="mt-2 w-full border-t border-[var(--border-base)] pt-2 text-left"
         >
           <Typography
