@@ -13,6 +13,9 @@ import {
   fileReadMissingDetail,
   fileWriteDetail,
   largeOutputDetail,
+  manyShortLinesDetail,
+  tallNestedParameterDetail,
+  tallTableParameterDetail,
   longTextParameterDetail,
   managedWorkspaceDetail,
   mcpDetail,
@@ -91,6 +94,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Error | BashError, FileReadError, SkillLoadError | The panel styles an error result identically to a successful one; only the text says it failed. |
  * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
+ * | Taller than the fold | ManyShortLinesOutput, TallTableParameter, TallNestedParameter | Any value taller than the fold folds behind Show more, measured at the width it is drawn at: many short lines as readily as one long paragraph, and a table or nested group as one value. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
  * | Long and multi-line text | LongTextParameter | A value on one line reads inline however long it is, and folds behind Show more once it runs long; text with line breaks keeps its lines in a code block. |
@@ -258,6 +262,24 @@ export const UnknownThirdPartyTool: Story = {
 // ---------------------------------------------------------------------------
 // Content-shape edges
 // ---------------------------------------------------------------------------
+
+/**
+ * Forty short lines of output. Short in characters but taller than the fold,
+ * so it folds by the height it is drawn at.
+ */
+export const ManyShortLinesOutput: Story = {
+  args: { detail: manyShortLinesDetail },
+};
+
+/** A table parameter of twenty rows, folded as one value. */
+export const TallTableParameter: Story = {
+  args: { detail: tallTableParameterDetail },
+};
+
+/** A nested parameter group of twelve fields, folded as one value. */
+export const TallNestedParameter: Story = {
+  args: { detail: tallNestedParameterDetail },
+};
 
 /**
  * A long result, clamped behind Show more. Tool results reach the panel at up
