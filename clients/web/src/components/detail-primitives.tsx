@@ -10,7 +10,7 @@
  * from here.
  */
 
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 import { Typography, type TypographyAs } from "@vellumai/design-library";
 
@@ -45,8 +45,22 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
  *
  * It is what keeps a long value from running a detail panel on, whatever the
  * value is: a code block, a field's inline text, a table, a nested group.
+ *
+ * One fold per value: inside another fold, it draws its content as it is. A
+ * group that folds would otherwise hide a folded field's own Show more under
+ * its cut, and the field would take two to open.
  */
 export function ClampedContent({ children }: { children: ReactNode }) {
+  if (useContext(InsideFold)) {
+    return children;
+  }
+  return <Fold>{children}</Fold>;
+}
+
+/** Whether content is already inside a fold, which owns folding it. */
+const InsideFold = createContext(false);
+
+function Fold({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   // Measured against the fold height rather than the box, so the measure holds
@@ -75,7 +89,9 @@ export function ClampedContent({ children }: { children: ReactNode }) {
       >
         {/* One child for the observer to follow as the content grows under
             the cap, which does not move the capped box itself. */}
-        <div>{children}</div>
+        <div>
+          <InsideFold value={true}>{children}</InsideFold>
+        </div>
       </div>
       {overflows && (
         <button
