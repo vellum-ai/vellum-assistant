@@ -169,6 +169,13 @@ describe("doesSupportVision", () => {
     expect(doesSupportVision(profile("managed-text"))).toBe(false);
   });
 
+  test("resolves a vellum-routed gpt-6-astra profile as vision-capable (JARVIS-1756)", () => {
+    setMockConfig({
+      "os-beta": { provider: "vellum", model: "gpt-6-astra" },
+    });
+    expect(doesSupportVision(profile("os-beta"))).toBe(true);
+  });
+
   test("fails safe to false for a profile without a model", () => {
     // A model-less entry is not a usable resolution target, so vision
     // resolution treats it as "can't show images" (caption instead).
@@ -366,6 +373,10 @@ describe("doesSupportVision with connection entry-name providers", () => {
 describe("doesSupportVision with a bare string", () => {
   test("returns true for a known vision-capable model id", () => {
     expect(doesSupportVision("claude-opus-4-6")).toBe(true);
+  });
+
+  test("returns true for gpt-6-astra (catalog gap that caused JARVIS-1756)", () => {
+    expect(doesSupportVision("gpt-6-astra")).toBe(true);
   });
 
   test("returns false for a known text-only model id", () => {
