@@ -23,6 +23,7 @@ import type {
   ProviderResponse,
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("voice-escalation-judge");
 
@@ -98,7 +99,9 @@ export function recentConversationForJudge(
       continue;
     }
     const speaker = message.role === "user" ? "caller" : "assistant";
-    lines.push(`${speaker}: ${text.slice(0, HISTORY_TURN_MAX_CHARS)}`);
+    lines.push(
+      `${speaker}: ${safeStringSlice(text, 0, HISTORY_TURN_MAX_CHARS)}`,
+    );
   }
   const current = `caller: ${utterance.replace(/\s+/g, " ").trim()}`;
   if (lines.length > 0 && lines[lines.length - 1] === current) {

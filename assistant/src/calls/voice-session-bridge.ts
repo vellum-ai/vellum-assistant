@@ -1842,12 +1842,46 @@ export async function startVoiceTurn(
    */
   const broadcastLegEvent = (msg: AssistantEvent): void => {
     if (frontDoorStreamGate === null || msg.type !== "assistant_text_delta") {
-      broadcastMessage(msg);
+      emitHubEvent(msg);
       return;
     }
     const released = frontDoorStreamGate.push(msg.text);
     if (released.length > 0) {
-      broadcastMessage({ ...msg, text: released });
+      // Answer text while the escalation judge is out: hold it, and every
+      // leg event after it, until the verdict says the caller hears it.
+      if (
+        frontDoorStreamGate.answering &&
+        !escalationJudgeSettled &&
+        hubHold === null
+      ) {
+        hubHold = [];
+      }
+      emitHubEvent({ ...msg, text: released });
+    }
+  };
+
+  // Hub events held while the escalation judge decides whether the
+  // front-door answer is spoken. Null when nothing is held.
+  let hubHold: AssistantEvent[] | null = null;
+  let escalationJudgeSettled = true;
+  const emitHubEvent = (msg: AssistantEvent): void => {
+    if (hubHold !== null) {
+      hubHold.push(msg);
+      return;
+    }
+    broadcastMessage(msg);
+  };
+  // Release held hub events once the judge settles. An overruled answer's
+  // text is dropped: the caller never heard it, and its row is deleted.
+  const releaseHubHold = (): void => {
+    escalationJudgeSettled = true;
+    const held = hubHold ?? [];
+    hubHold = null;
+    for (const msg of held) {
+      if (overruled && msg.type === "assistant_text_delta") {
+        continue;
+      }
+      broadcastMessage(msg);
     }
   };
 
@@ -2012,6 +2046,18 @@ export async function startVoiceTurn(
           return judgement.escalate;
         })
       : undefined;
+  if (escalationJudgement !== undefined) {
+    escalationJudgeSettled = false;
+    // A clear verdict releases at once; an escalate verdict waits a macrotask
+    // so the driver's overrule, reacting to the same promise, lands first.
+    void escalationJudgement.then((escalate) => {
+      if (escalate) {
+        setTimeout(releaseHubHold, 0);
+      } else {
+        releaseHubHold();
+      }
+    });
+  }
 
   // Fire-and-forget the agent loop
   void (async () => {
@@ -2307,6 +2353,17 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth--;
       }
       cleanup();
+      // A judge verdict that lands after the model finished can still
+      // overrule the answer. Wait for it (bounded by the judge's own budget)
+      // so the overrule's row cleanup runs here, before the escalated leg,
+      // blocked on this teardown, reads history.
+      if (
+        escalationJudgement !== undefined &&
+        !discarded &&
+        (await escalationJudgement)
+      ) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       await finalizeVoiceLegTranscript();
       settleTurnTeardown();
     }

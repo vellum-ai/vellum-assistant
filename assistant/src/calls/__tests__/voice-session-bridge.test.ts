@@ -35,9 +35,14 @@ mock.module("../../daemon/conversation-store.js", () => ({
 // The escalation judge's verdict for front-door legs, scripted per test.
 let judgeEscalationCalls: Array<{ utterance: string }> = [];
 let judgeEscalationVerdict = false;
+// When set, the judge's verdict waits on this before resolving.
+let judgeEscalationGate: Promise<void> | null = null;
 mock.module("../voice-escalation-judge.js", () => ({
   judgeEscalation: async (args: { utterance: string }) => {
     judgeEscalationCalls.push({ utterance: args.utterance });
+    if (judgeEscalationGate) {
+      await judgeEscalationGate;
+    }
     return {
       escalate: judgeEscalationVerdict,
       outcome: judgeEscalationVerdict ? "escalate" : "clear",
@@ -2457,6 +2462,51 @@ describe("front-door hub stream gate", () => {
     expect(texts.join("")).toBe("It is Tuesday, and it is sunny.");
   });
 
+  test("an answer waits on the escalation judge before reaching the hub", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = false;
+    makeStreamingConversation(["Sure, ", "it's Tuesday."]);
+    try {
+      const whilePending = await collectBroadcastText(() =>
+        startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" }),
+      );
+      expect(whilePending).toEqual([]);
+
+      const afterClear = await collectBroadcastText(async () => {
+        openGate();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+      expect(afterClear.join("")).toBe("Sure, it's Tuesday.");
+    } finally {
+      judgeEscalationGate = null;
+    }
+  });
+
+  test("an overruled answer never reaches the hub", async () => {
+    judgeEscalationVerdict = true;
+    makeStreamingConversation(["Yeah okay, ", "I'll do it."]);
+
+    const texts = await collectBroadcastText(async () => {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      // What the driver does with an escalate verdict on a held answer.
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+
+    expect(texts).toEqual([]);
+    judgeEscalationVerdict = false;
+  });
+
   test("an answer that merely opens with a bracket is released in full", async () => {
     // "[" alone could still become the escalate token, so the gate holds it;
     // the next delta disproves the token and the whole prefix must come out.
@@ -2621,6 +2671,40 @@ describe("transcript hygiene (teardown pass)", () => {
     // Only the unheard answer goes: the user row stays for the escalated leg.
     expect(crudLog.deletes).toEqual(["assistant-row-1"]);
     expect(events).toContain("loadFromDb");
+  });
+
+  test("a verdict that lands after the model finished still deletes the overruled row", async () => {
+    let openGate!: () => void;
+    judgeEscalationGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    judgeEscalationVerdict = true;
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () => makeRow("Yeah okay, I'll do it.");
+    try {
+      const handle = await startVoiceTurn({
+        ...makeTurnOptions(),
+        routingLeg: "front-door",
+      });
+      void handle.escalationJudgement?.then((escalate) => {
+        if (escalate) {
+          handle.overrule?.();
+        }
+      });
+      // The loop has finished; teardown hygiene waits on the verdict.
+      await flushMicrotasks();
+      expect(crudLog.deletes).toEqual([]);
+
+      openGate();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await flushMicrotasks();
+
+      expect(crudLog.deletes).toEqual(["assistant-row-1"]);
+      expect(events).toContain("loadFromDb");
+    } finally {
+      judgeEscalationGate = null;
+      judgeEscalationVerdict = false;
+    }
   });
 
   test("a committed front-door answer (no verdict token) is left untouched", async () => {

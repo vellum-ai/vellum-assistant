@@ -5973,7 +5973,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         this.claimSuspendedForegroundTask(current);
       }
       // A speculative leg that finished without a single delta (empty
-      // output, provider hiccup) carries no verdict — fail open to a
+      // output, provider hiccup) carries no verdict, so fail open to a
       // committed turn so the utterance releases and finalizes like a
       // normal empty completion instead of dangling un-released.
       if (current.speculativePending) {
@@ -5994,7 +5994,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           return;
         }
       }
-      // A held "[…"-tail that never completed a marker is real text —
+      // A held "[…"-tail that never completed a marker is real text:
       // force-flush it before assistantCompleted closes the TTS buffer
       // and completeTtsForTurn signals the drain, so it is spoken and
       // emitted rather than dropped.
