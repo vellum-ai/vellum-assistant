@@ -864,6 +864,20 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     ],
   },
   {
+    label: "Gateway reply delivery IPC",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "ipc-unix-framed",
+    auth: "none (local socket)",
+    description:
+      "Gateway hands its replies to invite and verification codes it intercepted at ingress, with the inbound message's callback URL, to the assistant, which sends them through the channel transport that URL names (deliver_gateway_reply).",
+    callerGlobs: ["gateway/src/verification/reply-delivery.ts"],
+    calleeGlobs: [
+      "assistant/src/ipc/routes/channel-reply-ipc-routes.ts",
+      "assistant/src/ipc/assistant-server.ts",
+    ],
+  },
+  {
     label: "Assistant health IPC",
     caller: "gateway",
     callee: "assistant",

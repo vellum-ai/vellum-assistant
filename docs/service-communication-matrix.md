@@ -66,12 +66,13 @@ This document enumerates every observed communication permutation between the th
 | 54 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Trust rule suggestion IPC |
 | 55 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Runtime route proxy over IPC |
 | 56 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Plugin webhook WebSocket frame IPC |
-| 57 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
-| 58 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 59 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 60 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 61 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 62 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 57 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Gateway reply delivery IPC |
+| 58 | Gateway -> Assistant | `ipc-unix-framed` | none (local socket) | Assistant health IPC |
+| 59 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 60 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 61 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 62 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 63 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -575,6 +576,19 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `assistant/src/runtime/routes/user-routes.ts`
+- `assistant/src/ipc/assistant-server.ts`
+
+### Gateway reply delivery IPC
+
+- **Protocol:** `ipc-unix-framed`
+- **Auth:** none (local socket)
+- **Description:** Gateway hands its replies to invite and verification codes it intercepted at ingress, with the inbound message's callback URL, to the assistant, which sends them through the channel transport that URL names (deliver_gateway_reply).
+
+**Caller files:**
+- `gateway/src/verification/reply-delivery.ts`
+
+**Callee files:**
+- `assistant/src/ipc/routes/channel-reply-ipc-routes.ts`
 - `assistant/src/ipc/assistant-server.ts`
 
 ### Assistant health IPC
