@@ -5,10 +5,10 @@ import { useTranslation } from "@/i18n";
  * leading with a 32px disc painted solid in that colour with the avatar's
  * eyes in it, inset 2px from the pill's edge, and the name 6px after the
  * disc in the emphasised ink), and a "New Chat" button on the same row: a
- * disc the size of the eyes' one, standing after the section toggle, on the
- * same wash with the plus glyph in the avatar's colour. On the collapsed rail
- * the pill and the button each become an icon-only tile in the rail's column
- * (Figma 7257:135811).
+ * disc the size of the eyes' one, standing after the section toggle and
+ * painted solid in the avatar's colour as the toggle is. On the collapsed
+ * rail the pill, the toggle, and the button each become an icon-only tile in
+ * the rail's column, in that order (Figma 7257:135811).
  *
  * The eyes hold their place in the leading slot and blink there periodically.
  * They do not travel: the pill is sized to the assistant's name, so there is
@@ -129,8 +129,8 @@ const jitter = (base: number, spread: number): number =>
   base + Math.random() * spread;
 
 /**
- * The New Chat button: the sidebar's icon tile with the plus in the
- * assistant's accent, at two sizes. The eyes' disc size on the assistant
+ * The New Chat button: the sidebar's icon tile painted in the assistant's
+ * colour, at two sizes. The eyes' disc size on the assistant
  * row, where it stands after the section toggle as a third disc of the
  * row's family, and the rail's tile size on the collapsed rail, where it is
  * a circle in the column of circles. Its tooltip carries the shortcut.
@@ -140,12 +140,14 @@ function NewChatButton({
   tooltipSide,
   onSelect,
   style,
+  className,
 }: {
   size: number;
   tooltipSide: "right" | "top";
   onSelect: () => void;
-  /** The wash and the plus's accent, or nothing for the plain surface. */
+  /** The tile's colour and the plus's ink, or nothing for the plain surface. */
   style?: CustomPropertyStyle;
+  className?: string;
 }) {
   const { t } = useTranslation("chat");
   const hint = useCommandShortcutHint("newConversation");
@@ -164,6 +166,7 @@ function NewChatButton({
       size={size}
       onSelect={onSelect}
       style={style}
+      className={className}
       data-tour-id="new-chat"
     />
   );
@@ -183,7 +186,7 @@ interface AssistantNavItemProps {
   onSelect?: () => void;
   /**
    * Renders the New Chat button: on the assistant row after the `aside`, or
-   * as its own tile beneath the assistant's on the collapsed rail. It stays
+   * as its own tile beneath the `aside`'s on the collapsed rail. It stays
    * through the tour, which lands a beat on it; it leaves the row with the
    * `aside` while an `expansion` holds it.
    */
@@ -203,9 +206,11 @@ interface AssistantNavItemProps {
   /**
    * Stands beside the pill on its own row, a step after the name (the
    * toggle for the assistant's own section), with the New Chat button a
-   * step after it. Off the collapsed rail, whose tile has no row, and out of
-   * the tour's drained nav, like `trailingAction`; and gone while an
-   * `expansion` holds the row.
+   * step after it. On the collapsed rail, whose tile has no row, it stands
+   * in the column between the assistant's tile and New Chat's, so the
+   * caller hands in the rail's form of the control there. Out of the tour's
+   * drained nav, like `trailingAction`; and gone while an `expansion` holds
+   * the row.
    */
   aside?: ReactNode;
   /**
@@ -336,20 +341,21 @@ export function AssistantNavItem({
     };
   }, [reduce, navTourActive, collapsed, eyesControls]);
 
-  /* A wash of the assistant's colour under the New Chat button, at the same
-     depth the pinned apps below it wear, so the column's tinted surfaces
-     agree. Without an avatar colour there is no hue to mix and nothing is
-     declared, leaving the plain surface the button falls back to; while the
-     tour owns the nav the wash drains with the identity pill's fill. */
+  /* The New Chat button painted solid in the assistant's colour, the
+     section toggle's own treatment, so the discs that act for the assistant
+     read as one family: the pill's wash is the identity, and the solid discs
+     are what it does. The plus takes the avatar surfaces' contrast ink.
+     Every state holds the colour (the tile's hover would otherwise swap in a
+     wash), and hover brightens it as the toggle's does. Without an avatar
+     colour nothing is declared, leaving the plain surface the button falls
+     back to; while the tour owns the nav the colour drains with the identity
+     pill's fill. */
   const newConversationTint: CustomPropertyStyle | undefined =
     !navTourActive && hex
       ? {
-          ...panelItemWashStyle(hex),
-          // The plus glyph reads as the assistant's own accent, not the
-          // row's usual tertiary-gray icon: the row's other icons are
-          // decorative wayfinding, but this one's action is "start a chat
-          // with this assistant", so it wears the assistant's colour.
-          "--panel-item-icon-fg": hex,
+          "--panel-item-bg": hex,
+          "--panel-item-hover": hex,
+          "--panel-item-icon-fg": toneForBg(hex).fg,
         }
       : undefined;
   const newChatButton = onNewConversation ? (
@@ -358,10 +364,15 @@ export function AssistantNavItem({
       tooltipSide={collapsed ? "right" : "top"}
       onSelect={onNewConversation}
       style={newConversationTint}
+      className={
+        newConversationTint
+          ? "transition-[filter,transform] [@media(hover:hover)]:hover:brightness-105"
+          : undefined
+      }
     />
   ) : null;
   /* Where the button stands: on the collapsed rail as its own tile beneath
-     the assistant's, since a tile has no row to share; expanded, on the
+     the aside's, since a tile has no row to share; expanded, on the
      assistant's row after the aside. */
   const railNewChat = collapsed ? newChatButton : null;
   const rowNewChat = collapsed ? null : newChatButton;
@@ -392,6 +403,7 @@ export function AssistantNavItem({
     !collapsed && !navTourActive ? (expansion ?? null) : null;
   const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
   const rowAside = !collapsed && !navTourActive ? aside : undefined;
+  const railAside = collapsed && !navTourActive ? aside : undefined;
   const rowBeneath = !collapsed && !navTourActive ? beneath : undefined;
   /* The pill keeps hugging its label and the aside and the New Chat button
      follow it at the stack's own gap, so the three read as one cluster
@@ -522,6 +534,7 @@ export function AssistantNavItem({
           ))
         )}
         {rowBeneath}
+        {railAside}
         {railNewChat}
       </div>
     );
@@ -708,6 +721,7 @@ export function AssistantNavItem({
     <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
       {activeExpansion ?? withCompanions(assistantRow)}
       {rowBeneath}
+      {railAside}
       {railNewChat}
     </div>
   );

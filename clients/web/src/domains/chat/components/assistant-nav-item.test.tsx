@@ -19,6 +19,7 @@ import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
+import { toneForBg } from "@/utils/avatar-tone";
 
 /* The hook reads through React Query, which static rendering has no client
    for. Mocked through a mutable value rather than a fixed one: a module mock
@@ -175,13 +176,17 @@ describe("AssistantNavItem switcher slots", () => {
     expect(asideAt).toBeGreaterThan(pillEnd);
   });
 
-  test("the collapsed tile drops the aside and the beneath slot", () => {
+  test("the collapsed rail stands the aside between the assistant's tile and New Chat's, and drops the beneath slot", () => {
     const html = renderWithSlots({
       aside: ASIDE,
       beneath: BENEATH,
       collapsed: true,
     });
-    expect(html).not.toContain('data-testid="section-toggle"');
+    const tileAt = html.indexOf('data-tour-id="assistant-page"');
+    const asideAt = html.indexOf('data-testid="section-toggle"');
+    const newChatAt = html.indexOf('data-tour-id="new-chat"');
+    expect(asideAt).toBeGreaterThan(tileAt);
+    expect(newChatAt).toBeGreaterThan(asideAt);
     expect(html).not.toContain('data-testid="section-card"');
   });
 
@@ -268,6 +273,18 @@ describe("AssistantNavItem New Chat button", () => {
     expect(html.indexOf('data-tour-id="new-chat"')).toBeGreaterThan(
       html.indexOf('data-tour-id="assistant-page"'),
     );
+  });
+
+  test("it is painted solid in the avatar's colour, with the contrast ink, not a wash", () => {
+    for (const collapsed of [false, true]) {
+      const tag = newChatTag(renderNewChat(collapsed));
+      const bg = /--panel-item-bg:(#[0-9a-fA-F]{6})[;"]/.exec(tag)?.[1];
+      expect(bg).toBeDefined();
+      // Hover holds the colour rather than swapping in a wash.
+      expect(tag).toContain(`--panel-item-hover:${bg}`);
+      expect(tag).toContain(`--panel-item-icon-fg:${toneForBg(bg!).fg}`);
+      expect(tag).not.toContain("color-mix");
+    }
   });
 
   test("the button stays on the row while the tour owns the nav", () => {

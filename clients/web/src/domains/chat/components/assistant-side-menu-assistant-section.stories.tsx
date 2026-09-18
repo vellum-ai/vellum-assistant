@@ -292,9 +292,9 @@ export const EmptySection: Story = {
 };
 
 /**
- * The collapsed rail: the assistant's tile with the New Chat tile beneath it,
- * and the section's own tile in the list below, where the row's toggle and
- * card have no row to stand on.
+ * The collapsed rail: the assistant's tile, the section toggle beneath it,
+ * then New Chat. The toggle keeps its colour and opens the section's threads
+ * in a flyout, since the rail has no row for the card to open under.
  */
 export const CollapsedRail: Story = {
   args: {

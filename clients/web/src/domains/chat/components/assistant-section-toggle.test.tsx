@@ -14,6 +14,7 @@ import {
 } from "@/domains/chat/components/conversation-list-context";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
+import { SIDE_MENU_TILE_SIZE } from "@vellumai/design-library";
 
 let accentHex: string | null = "#0e9b8b";
 let conversations: Conversation[] = [];
@@ -40,8 +41,19 @@ mock.module("@/domains/chat/use-section-conversations", () => ({
   }),
 }));
 
-const { AssistantSectionToggle } =
-  await import("@/domains/chat/components/assistant-section-toggle");
+/* The flyout's rows need the whole conversation-row stack; what the rail
+   toggle owns is which rows reach it. */
+mock.module("@/domains/chat/components/conversation-rail-flyout", () => ({
+  CollapsedGroupFlyout: ({
+    conversations: rows,
+  }: {
+    conversations: Conversation[];
+  }) => <div data-testid="rail-flyout">{rows.length} rows</div>,
+}));
+
+const { AssistantSectionRailToggle, AssistantSectionToggle } = await import(
+  "@/domains/chat/components/assistant-section-toggle"
+);
 
 const SECTION: SidebarSection = {
   type: "assistant",
@@ -146,5 +158,50 @@ describe("AssistantSectionToggle", () => {
     renderToggle(false, onToggle);
     fireEvent.click(screen.getByRole("button"));
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AssistantSectionRailToggle", () => {
+  function renderRail() {
+    const ctx = {
+      processingConversationIds: new Set<string>(),
+      attentionConversationIds: attention,
+    } as unknown as ConversationListContextValue;
+    return render(
+      <ConversationListProvider value={ctx}>
+        <AssistantSectionRailToggle assistantId="a1" section={SECTION} />
+      </ConversationListProvider>,
+    );
+  }
+
+  test("the same disc at the rail's tile size, named for the section", () => {
+    renderRail();
+    const button = screen.getByRole("button", { name: "From me" });
+    expect(button.getAttribute("data-slot")).toBe("assistant-section-toggle");
+    expect(button.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(button.style.width).toBe(`${SIDE_MENU_TILE_SIZE}px`);
+    expect(button.style.backgroundColor).toBe("#0e9b8b");
+  });
+
+  test("a press opens the threads in a flyout, and the dot steps aside", () => {
+    conversations = [{ conversationId: "c1" } as Conversation];
+    attention = new Set(["c1"]);
+    const { container } = renderRail();
+    expect(
+      container.querySelector("[data-slot='group-indicator-dot']"),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "From me" }));
+    expect(screen.getByTestId("rail-flyout").textContent).toBe("1 rows");
+    expect(
+      container.querySelector("[data-slot='group-indicator-dot']"),
+    ).toBeNull();
+  });
+
+  test("at zero the flyout says what the card would", () => {
+    renderRail();
+    fireEvent.click(screen.getByRole("button", { name: "From me" }));
+    expect(screen.queryByTestId("rail-flyout")).toBeNull();
+    expect(screen.getByText("Nothing on my mind yet.")).toBeTruthy();
   });
 });
