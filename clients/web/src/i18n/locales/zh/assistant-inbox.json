@@ -57,7 +57,8 @@
     "upgradeButton": "升级到 Super",
     "seePlans": "查看套餐",
     "titleNoName": "给你的助手一个收件箱",
-    "perkReadsNoName": "你的助手为你阅读、整理并回复"
+    "perkReadsNoName": "你的助手为你阅读、整理并回复",
+    "changeHandle": "更改用户名"
   },
   "assistantInboxSetupCard": {
     "title": "助手邮箱",

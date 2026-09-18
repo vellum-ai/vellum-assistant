@@ -10,6 +10,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AssistantInboxPage } from "@/domains/assistant-inbox/components/assistant-inbox-page";
+import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { AssistantInboxSetupCard } from "@/domains/assistant-inbox/components/assistant-inbox-setup-card";
 import { AssistantInboxShell } from "@/domains/assistant-inbox/components/assistant-inbox-shell";
 import { AssistantInboxUpgradeState } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-state";
@@ -147,6 +148,9 @@ export function AssistantInboxPageRoute() {
   const state = useAssistantInboxState(assistantId, identityName ?? "");
   const [settling, setSettling] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  /* The upgrade pitch's "Change handle": the same modal the assistant page
+     opens from its @handle line. */
+  const handleModal = useAssistantHandleModal(assistantId);
 
   const createDomain = useMutation(assistantsDomainsCreateMutation());
   const createAddress = useMutation(assistantsEmailAddressesCreateMutation());
@@ -275,14 +279,18 @@ export function AssistantInboxPageRoute() {
       return <InboxLoading label={t("assistantInboxRoute.loading")} />;
     case "upgrade":
       return (
-        <AssistantInboxUpgradeState
-          assistantId={assistantId}
-          assistantName={state.assistantName}
-          handle={state.handle}
-          rootDomain={state.rootDomain}
-          onUpgrade={() => navigate(routes.plans)}
-          onSeePlans={() => navigate(routes.plans)}
-        />
+        <>
+          <AssistantInboxUpgradeState
+            assistantId={assistantId}
+            assistantName={state.assistantName}
+            handle={state.handle}
+            rootDomain={state.rootDomain}
+            onEditHandle={handleModal.openModal ?? undefined}
+            onUpgrade={() => navigate(routes.plans)}
+            onSeePlans={() => navigate(routes.plans)}
+          />
+          {handleModal.modal}
+        </>
       );
     case "setup":
       return (

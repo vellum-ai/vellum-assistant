@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantHandleModal } from "@/components/assistant-handle-modal";
 import { AssistantInboxUpgradeBody } from "@/domains/assistant-inbox/components/assistant-inbox-upgrade-body";
 import { InboxRailRestore } from "@/domains/assistant-inbox/components/inbox-rail-restore";
 import { DomainField } from "@/domains/channels/components/domain-field";
@@ -224,6 +225,7 @@ export function EmailManagedContent({
   const activeAssistantId = useActiveAssistantId();
   const assistantName = useAssistantIdentityStore.use.name();
   const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const handleModal = useAssistantHandleModal(activeAssistantId);
   const refreshReadinessMutateAsync = refreshReadiness.mutateAsync;
   const refreshChannelReadiness = useCallback(() => {
     void refreshReadinessMutateAsync({
@@ -423,16 +425,20 @@ export function EmailManagedContent({
        Behind the inbox's flag: the pitch promises an inbox, which only
        exists for people who have the flag. */
     return (
-      <AssistantInboxUpgradeBody
-        assistantId={activeAssistantId}
-        assistantName={assistantName ?? ""}
-        handle={assistantHandle ?? ""}
-        rootDomain={emailRootDomain}
-        onUpgrade={() => navigate(routes.plans)}
-        onSeePlans={() => navigate(routes.plans)}
-        footnote={<InboxRailRestore align="start" />}
-        align="start"
-      />
+      <>
+        <AssistantInboxUpgradeBody
+          assistantId={activeAssistantId}
+          assistantName={assistantName ?? ""}
+          handle={assistantHandle ?? ""}
+          rootDomain={emailRootDomain}
+          onEditHandle={handleModal.openModal ?? undefined}
+          onUpgrade={() => navigate(routes.plans)}
+          onSeePlans={() => navigate(routes.plans)}
+          footnote={<InboxRailRestore align="start" />}
+          align="start"
+        />
+        {handleModal.modal}
+      </>
     );
   }
 

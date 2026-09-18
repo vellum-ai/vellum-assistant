@@ -357,6 +357,7 @@ export function IdentityOverview({ assistantId }: IdentityOverviewProps) {
         </div>
       ) : (
         <OverviewBento
+          assistantId={assistantId}
           components={components}
           traits={traits}
           customImageUrl={customImageUrl}
@@ -814,6 +815,7 @@ export function SectionCard({
 
 /** Greeting + avatar for the stacked (small-viewport) layout. */
 function CenterCell({
+  assistantId,
   components,
   traits,
   customImageUrl,
@@ -822,6 +824,7 @@ function CenterCell({
   isRenaming,
   onEdit,
 }: {
+  assistantId: string;
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
@@ -833,7 +836,11 @@ function CenterCell({
   const { t } = useTranslation("intelligence");
   return (
     <div className="relative z-[1] flex flex-col items-center justify-center gap-5">
-      <AssistantNameEditor name={name} isRenaming={isRenaming} />
+      <AssistantNameEditor
+        assistantId={assistantId}
+        name={name}
+        isRenaming={isRenaming}
+      />
       <button
         type="button"
         aria-label={t("identityOverview.updateAvatarAndName")}
@@ -877,6 +884,7 @@ function CenterCell({
  * on the card's center-facing edge.
  */
 function OverviewBento({
+  assistantId,
   components,
   traits,
   customImageUrl,
@@ -888,6 +896,7 @@ function OverviewBento({
   isRenaming,
   onOpenAvatarModal,
 }: {
+  assistantId: string;
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
@@ -1036,6 +1045,7 @@ function OverviewBento({
 
   const centerCell = (
     <CenterCell
+      assistantId={assistantId}
       components={components}
       traits={traits}
       customImageUrl={customImageUrl}
@@ -1360,6 +1370,7 @@ function OverviewBento({
         style={{ gridArea: "greeting" }}
       >
         <AssistantNameEditor
+          assistantId={assistantId}
           name={name}
           isRenaming={isRenaming}
           overrideText={greetingOverride}

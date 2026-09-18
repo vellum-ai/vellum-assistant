@@ -20,6 +20,12 @@ export interface AssistantInboxUpgradeBodyProps {
    */
   handle: string;
   rootDomain: string;
+  /**
+   * Opens the handle modal. Present, it puts a fine-print "Change handle"
+   * under the example address, for a reader who would want the address on a
+   * different name before paying for it.
+   */
+  onEditHandle?: () => void;
   onUpgrade: () => void;
   onSeePlans?: () => void;
   /** Sits under the actions: the Channels page's "add it back" control. */
@@ -50,6 +56,7 @@ export function AssistantInboxUpgradeBody({
   assistantName,
   handle,
   rootDomain,
+  onEditHandle,
   onUpgrade,
   onSeePlans,
   footnote,
@@ -84,10 +91,30 @@ export function AssistantInboxUpgradeBody({
       {/* The address the upgrade would create, drawn as the assistant so
           the pitch shows the thing itself rather than describing it. */}
       {handle ? (
-        <AddressPill
-          assistantId={assistantId}
-          address={`${t("emailAddressFields.prefixPlaceholder")}@${handle}.${rootDomain}`}
-        />
+        <div
+          className={cn(
+            "flex max-w-full flex-col gap-1.5",
+            centred ? "items-center" : "items-start",
+          )}
+        >
+          <AddressPill
+            assistantId={assistantId}
+            address={`${t("emailAddressFields.prefixPlaceholder")}@${handle}.${rootDomain}`}
+          />
+          {onEditHandle ? (
+            <button
+              type="button"
+              onClick={onEditHandle}
+              className={cn(
+                "cursor-pointer rounded px-1 text-body-small-lighter text-[var(--content-tertiary)] underline decoration-[var(--border-element)] underline-offset-2",
+                "transition-colors duration-150 hover:text-[var(--content-default)]",
+                "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+              )}
+            >
+              {t("assistantInboxUpgradeState.changeHandle")}
+            </button>
+          ) : null}
+        </div>
       ) : null}
       <ul className="flex max-w-full flex-col gap-3">
         {perks.map((perk) => (

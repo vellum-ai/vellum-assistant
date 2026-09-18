@@ -950,5 +950,10 @@
     "everyHours": "每 {count} 小时",
     "everyMinutes": "每 {count} 分钟",
     "retrospectiveSubtitle": "在对话活动后触发"
+  },
+  "assistantHandleModal": {
+    "title": "助手用户名",
+    "description": "你的助手的公开名称，它的邮箱地址也基于这个名称。",
+    "helper": "小写字母、数字、连字符和下划线。"
   }
 }

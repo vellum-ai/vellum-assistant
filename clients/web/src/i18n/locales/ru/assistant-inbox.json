@@ -57,7 +57,8 @@
     "upgradeButton": "Перейти на Super",
     "seePlans": "Посмотреть тарифы",
     "titleNoName": "Дайте ассистенту почтовый ящик",
-    "perkReadsNoName": "Ассистент читает, сортирует и отвечает за вас"
+    "perkReadsNoName": "Ассистент читает, сортирует и отвечает за вас",
+    "changeHandle": "Изменить имя"
   },
   "assistantInboxSetupCard": {
     "title": "Почта ассистента",

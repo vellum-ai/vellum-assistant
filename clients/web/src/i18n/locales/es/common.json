@@ -914,5 +914,10 @@
     "managedLabel": "Administrado",
     "modeToggleAriaLabel": "Modo de servicio",
     "yourOwnLabel": "Propio"
+  },
+  "assistantHandleModal": {
+    "title": "Identificador del asistente",
+    "description": "El nombre público de tu asistente. También es el nombre sobre el que se crea su dirección de correo.",
+    "helper": "Minúsculas, números, guiones y guiones bajos."
   }
 }

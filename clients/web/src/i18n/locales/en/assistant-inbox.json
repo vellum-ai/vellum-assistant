@@ -57,7 +57,8 @@
     "upgradeButton": "Upgrade to Super",
     "seePlans": "See plans",
     "titleNoName": "Give your assistant an inbox",
-    "perkReadsNoName": "Your assistant reads, sorts, and replies for you"
+    "perkReadsNoName": "Your assistant reads, sorts, and replies for you",
+    "changeHandle": "Change handle"
   },
   "assistantInboxSetupCard": {
     "title": "Assistant Email",

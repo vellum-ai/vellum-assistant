@@ -96,6 +96,9 @@ describe("EmailManagedContent · not entitled", () => {
     expect(
       screen.queryByText("Give your assistant its own email address"),
     ).toBeNull();
+    // Handles live on the platform; with no platform session there is no
+    // handle modal to open, so the pitch offers none.
+    expect(screen.queryByRole("button", { name: "Change handle" })).toBeNull();
     // Nothing to restore: the entry was never hidden.
     expect(screen.queryByRole("button", { name: "Add it back" })).toBeNull();
   });

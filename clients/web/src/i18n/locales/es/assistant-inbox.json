@@ -57,7 +57,8 @@
     "upgradeButton": "Mejorar a Super",
     "seePlans": "Ver planes",
     "titleNoName": "Dale una bandeja de entrada a tu asistente",
-    "perkReadsNoName": "Tu asistente lee, ordena y responde por ti"
+    "perkReadsNoName": "Tu asistente lee, ordena y responde por ti",
+    "changeHandle": "Cambiar identificador"
   },
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",

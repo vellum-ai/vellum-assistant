@@ -194,6 +194,7 @@ export const UpgradeRequired: Story = {
       assistantName={MOCK_ASSISTANT_NAME}
       handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
+      onEditHandle={fn().mockName("onEditHandle")}
       onUpgrade={fn().mockName("onUpgrade")}
       onSeePlans={fn().mockName("onSeePlans")}
     />
