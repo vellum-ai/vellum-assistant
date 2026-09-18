@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, notInArray, or } from "drizzle-orm";
+import { and, desc, eq, like, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -13,6 +13,7 @@ import {
   callSessions,
 } from "../persistence/schema/index.js";
 import {
+  type PhoneCallDirection,
   phoneCallEndScreen,
   phoneCallSilenceReason,
   phoneCallStartScreen,
@@ -94,6 +95,12 @@ export function createCallSession(opts: {
   provider: string;
   fromNumber: string;
   toNumber: string;
+  /**
+   * Which way the call is being placed, for the funnel stamp. Stated rather
+   * than derived: a verification or invite call carries no task and is still
+   * outbound, so task presence is not a direction.
+   */
+  direction: PhoneCallDirection;
   task?: string;
   callMode?: string;
   verificationSessionId?: string;
@@ -136,10 +143,7 @@ export function createCallSession(opts: {
   // connects is exactly the one the funnel needs to count.
   recordPhoneCallStarted({
     callSessionId: row.id,
-    screen: phoneCallStartScreen(
-      row.task === null ? "inbound" : "outbound",
-      row.callMode,
-    ),
+    screen: phoneCallStartScreen(opts.direction, row.callMode),
   });
   return { ...row, skipDisclosure };
 }
@@ -267,27 +271,51 @@ export function updateCallSession(
 // ── Recovery queries ─────────────────────────────────────────────────
 
 /**
- * Emit the call's funnel end event, classifying a call that never took a
- * caller turn by how far it got. Both signals come from one query over the
- * call's own event log: `call_connected` is written when the media stream
- * opens, `caller_spoke` once per transcribed caller utterance.
+ * Whether the call's own event log holds an event of this type. Existence
+ * only: the row itself is never read.
  */
-function recordCallEndedEvent(id: string, status: CallStatus): void {
+function hasCallEvent(
+  id: string,
+  eventType: CallEventType,
+  payloadContains?: string,
+): boolean {
   const db = getDb();
-  const marks = db
-    .selectDistinct({ eventType: callEvents.eventType })
+  const row = db
+    .select({ id: callEvents.id })
     .from(callEvents)
     .where(
       and(
         eq(callEvents.callSessionId, id),
-        inArray(callEvents.eventType, ["call_connected", "caller_spoke"]),
+        eq(callEvents.eventType, eventType),
+        ...(payloadContains
+          ? [like(callEvents.payloadJson, `%${payloadContains}%`)]
+          : []),
       ),
     )
-    .all();
-  const seen = new Set(marks.map((mark) => mark.eventType));
-  const silence = seen.has("caller_spoke")
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
+/**
+ * Emit the call's funnel end event, classifying a call that never took a
+ * caller turn by how far it got. Both signals come from the call's own event
+ * log: `call_connected` is written when the media stream opens, and
+ * `caller_spoke` when the caller is heard.
+ *
+ * `caller_spoke` carries two senses, though: a transcribed utterance
+ * (`transcript`) and a single DTMF digit (`dtmfDigit`). Only the first is a
+ * conversational turn, so the payload discriminates them. Splitting DTMF into
+ * an event type of its own would be the real fix, but that vocabulary is read
+ * by other consumers and is not this change's to alter.
+ */
+function recordCallEndedEvent(id: string, status: CallStatus): void {
+  const spoke = hasCallEvent(id, "caller_spoke", '"transcript"');
+  const silence = spoke
     ? null
-    : phoneCallSilenceReason({ connected: seen.has("call_connected") });
+    : phoneCallSilenceReason({
+        connected: hasCallEvent(id, "call_connected"),
+      });
 
   recordPhoneCallEnded({
     callSessionId: id,

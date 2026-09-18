@@ -51,13 +51,16 @@ function makeConversation(): string {
   return id;
 }
 
-function startCall(opts?: { task?: string; callMode?: string }): string {
+function startCall(opts?: {
+  direction?: "inbound" | "outbound";
+  callMode?: string;
+}): string {
   const session = createCallSession({
     conversationId: makeConversation(),
     provider: "twilio",
+    direction: opts?.direction ?? "inbound",
     fromNumber: "+15550100",
     toNumber: "+15550101",
-    ...(opts?.task !== undefined ? { task: opts.task } : {}),
     ...(opts?.callMode !== undefined ? { callMode: opts.callMode } : {}),
   });
   return session.id;
@@ -81,14 +84,13 @@ describe("call funnel start rows", () => {
     });
   });
 
-  test("a task makes the call outbound", () => {
-    startCall({
-      task: "Ask the clinic for an appointment",
-      callMode: "normal",
-    });
+  test("an outbound call is stamped by the direction it states", () => {
+    // Stated, not inferred: a verification or invite call dials out and
+    // carries no task, so task presence would misread as inbound.
+    startCall({ direction: "outbound", callMode: "verification" });
 
     expect(recordPhoneCallStarted).toHaveBeenCalledWith(
-      expect.objectContaining({ screen: "started_outbound:normal" }),
+      expect.objectContaining({ screen: "started_outbound:verification" }),
     );
   });
 
@@ -106,7 +108,10 @@ describe("call funnel end rows", () => {
     const callSessionId = startCall({ callMode: "normal" });
     updateCallSession(callSessionId, { status: "in_progress" });
     recordCallEvent(callSessionId, "call_connected");
-    recordCallEvent(callSessionId, "caller_spoke", { text: "hello" });
+    recordCallEvent(callSessionId, "caller_spoke", {
+      transcript: "hello",
+      transport: "media-stream",
+    });
 
     updateCallSession(callSessionId, { status: "completed" });
 
@@ -136,6 +141,23 @@ describe("call funnel end rows", () => {
     const callSessionId = startCall({ callMode: "normal" });
     updateCallSession(callSessionId, { status: "in_progress" });
     recordCallEvent(callSessionId, "call_connected");
+
+    updateCallSession(callSessionId, { status: "completed" });
+
+    expect(recordPhoneCallEnded).toHaveBeenCalledWith(
+      expect.objectContaining({ screen: "ended_completed:silent_no_turn" }),
+    );
+  });
+
+  test("a call where only digits were pressed took no turn", () => {
+    // DTMF digits ride `caller_spoke` too; only a transcript is a turn.
+    const callSessionId = startCall({ callMode: "normal" });
+    updateCallSession(callSessionId, { status: "in_progress" });
+    recordCallEvent(callSessionId, "call_connected");
+    recordCallEvent(callSessionId, "caller_spoke", {
+      dtmfDigit: "4",
+      transport: "media-stream",
+    });
 
     updateCallSession(callSessionId, { status: "completed" });
 

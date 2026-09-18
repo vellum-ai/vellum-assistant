@@ -732,9 +732,10 @@ export class CallController {
       await this.handleTurnCompletion(outcome);
     } catch (err: unknown) {
       this.currentTurnHandle = null;
-      // Settles the turn whichever branch below claims the error; a turn an
-      // interrupt already cancelled stays as it was.
-      this.cancelMetricsTurn("turn_error");
+      // Only this run's turn: a turn whose abort outlives the teardown wait
+      // rejects after its replacement has already opened, and settling by
+      // "whatever is open" would cancel the healthy turn's marks.
+      this.cancelMetricsTurnForRun(runVersion, "turn_error");
       // Aborted requests are expected (interruptions, rapid utterances)
       if (this.isExpectedAbortError(err) || runSignal.aborted) {
         log.debug(
@@ -2029,7 +2030,7 @@ export class CallController {
    */
   private openMetricsTurn(runVersion: number): void {
     this.cancelMetricsTurn("superseded");
-    const turnId = `${this.callSessionId}#${runVersion}`;
+    const turnId = this.metricsTurnIdForRun(runVersion);
     const finalTranscriptAtMs = this.pendingFinalTranscriptAtMs;
     this.pendingFinalTranscriptAtMs = null;
     this.metricsTurnId = turnId;
@@ -2064,6 +2065,27 @@ export class CallController {
     this.settleMetricsTurn(reason, (turnId) =>
       this.metrics.cancelTurn(reason, turnId),
     );
+  }
+
+  /** The turn id a given run's marks belong to. */
+  private metricsTurnIdForRun(runVersion: number): string {
+    return `${this.callSessionId}#${runVersion}`;
+  }
+
+  /**
+   * Cancel the open turn only if it is the one this run opened.
+   *
+   * Defensive: the abort listener resolves a superseded leg rather than
+   * rejecting it, and a genuine rejection is processed before the replacement
+   * turn opens, so no path today reaches the error handler holding a newer
+   * turn. Scoping the settle to its own run keeps that true by construction
+   * rather than by the ordering of two other code paths.
+   */
+  private cancelMetricsTurnForRun(runVersion: number, reason: string): void {
+    if (this.metricsTurnId !== this.metricsTurnIdForRun(runVersion)) {
+      return;
+    }
+    this.cancelMetricsTurn(reason);
   }
 
   /**

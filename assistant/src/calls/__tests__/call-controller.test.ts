@@ -421,6 +421,7 @@ function setupController(
 ) {
   ensureConversation("conv-ctrl-test");
   const session = createCallSession({
+    direction: "inbound",
     conversationId: "conv-ctrl-test",
     provider: "twilio",
     fromNumber: "+15551111111",
@@ -471,6 +472,7 @@ function setupControllerWithOrigin(task?: string) {
   ensureConversation("conv-ctrl-voice");
   ensureConversation("conv-ctrl-origin");
   const session = createCallSession({
+    direction: "inbound",
     conversationId: "conv-ctrl-voice",
     provider: "twilio",
     fromNumber: "+15551111111",
