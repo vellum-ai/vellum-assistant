@@ -283,6 +283,30 @@ describe("ToolDetailPanel", () => {
     expect(writeText).toHaveBeenCalledWith(JSON.stringify(contacts, null, 2));
   });
 
+  test("reveals only the hovered field's copy button inside a group", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_upsert_contact",
+      input: {
+        record: {
+          stage: "qualified",
+          address: { city: "Lisbon", country: "Portugal" },
+        },
+      },
+    });
+    const { container, getByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // Hover reaches every row around the pointer, so a row that held
+    // another row would reveal its own button along with the inner one.
+    expect(
+      container.querySelectorAll("[data-reveal-row] [data-reveal-row]"),
+    ).toHaveLength(0);
+    for (const label of ["Copy record", "Copy stage", "Copy address"]) {
+      expect(getByLabelText(label).closest("[data-reveal-row]")).not.toBeNull();
+    }
+  });
+
   test("folds a long one-line value behind Show more", () => {
     const note = "word ".repeat(200).trim();
     const detail = makeDetail({
