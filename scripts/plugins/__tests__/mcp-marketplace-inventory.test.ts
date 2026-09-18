@@ -93,6 +93,10 @@ describe("bundled MCP marketplace inventory", () => {
         version: plugin.version,
       });
       expect(entry.integration).toBeDefined();
+      expect(
+        entry.integration!.category,
+        `${entry.name} category`,
+      ).toBeDefined();
       expect(readValidatedPluginIcon(pluginRoot).hasIcon).toBe(true);
       const icon = readFileSync(join(pluginRoot, "icon.png"));
       // Integration rows display 32 CSS pixels, including on 2x screens.

@@ -26,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { INTEGRATION_CATEGORIES } from "@vellumai/service-contracts/integration-categories";
 import { z } from "zod";
 
 import {
@@ -226,6 +227,10 @@ const mcpPluginIntegrationSchema = z.object({
   }),
   logo: z.string(),
   oauthProvider: z.string().optional(),
+  category: z
+    .enum(INTEGRATION_CATEGORIES)
+    .optional()
+    .describe("Where the integrations catalog files the entry."),
 });
 
 const pluginSearchMatchSchema = z.object({

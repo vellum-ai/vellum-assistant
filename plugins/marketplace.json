@@ -599,7 +599,8 @@
           "mode": "oauth",
           "instructions": "Sign in with the Fathom account whose meetings you want to use."
         },
-        "logo": "fathom-mcp.png"
+        "logo": "fathom-mcp.png",
+        "category": "meetings"
       }
     },
     {
@@ -622,7 +623,8 @@
           "mode": "oauth",
           "instructions": "A Brex admin must enable AI assistant access and accept the Developer API agreement."
         },
-        "logo": "brex-mcp.png"
+        "logo": "brex-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -645,7 +647,8 @@
           "mode": "manual",
           "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
         },
-        "logo": "ramp-mcp.png"
+        "logo": "ramp-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -669,6 +672,7 @@
           "instructions": "Choose the Linear workspace to authorize; access follows your account permissions."
         },
         "logo": "linear-mcp.png",
+        "category": "engineering",
         "oauthProvider": "linear"
       }
     },
@@ -693,6 +697,7 @@
           "instructions": "Authorize the Notion workspace and content you want to use."
         },
         "logo": "notion-mcp.png",
+        "category": "productivity",
         "oauthProvider": "notion"
       }
     },
@@ -716,7 +721,8 @@
           "mode": "oauth",
           "instructions": "Sign in to Sentry and authorize the organizations you want to use."
         },
-        "logo": "sentry-mcp.png"
+        "logo": "sentry-mcp.png",
+        "category": "engineering"
       }
     },
     {
@@ -739,7 +745,8 @@
           "mode": "oauth",
           "instructions": "Authorize the intended Stripe account and environment; your administrator may need to enable MCP access."
         },
-        "logo": "stripe-mcp.png"
+        "logo": "stripe-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -762,7 +769,8 @@
           "mode": "oauth",
           "instructions": "Requires an Atlassian Cloud site and access allowed by your organization."
         },
-        "logo": "atlassian-mcp.png"
+        "logo": "atlassian-mcp.png",
+        "category": "engineering"
       }
     },
     {
@@ -785,7 +793,8 @@
           "mode": "oauth",
           "instructions": "Sign in to the Amplemarket workspace you want to use."
         },
-        "logo": "amplemarket-mcp.png"
+        "logo": "amplemarket-mcp.png",
+        "category": "sales"
       }
     },
     {
@@ -808,7 +817,8 @@
           "mode": "oauth",
           "instructions": "An organization admin must enable MCP. Analytics-only organizations are not supported."
         },
-        "logo": "ashby-mcp.png"
+        "logo": "ashby-mcp.png",
+        "category": "recruiting"
       }
     },
     {
@@ -831,7 +841,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Attio workspace you want to use."
         },
-        "logo": "attio-mcp.png"
+        "logo": "attio-mcp.png",
+        "category": "sales"
       }
     },
     {
@@ -855,6 +866,7 @@
           "instructions": "Sign in to Calendly. Available actions depend on your plan and account permissions."
         },
         "logo": "calendly-mcp.png",
+        "category": "meetings",
         "oauthProvider": "calendly"
       }
     },
@@ -878,7 +890,8 @@
           "mode": "oauth",
           "instructions": "Sign in with the Circleback account whose meetings you want to use."
         },
-        "logo": "circleback-mcp.png"
+        "logo": "circleback-mcp.png",
+        "category": "meetings"
       }
     },
     {
@@ -901,7 +914,8 @@
           "mode": "oauth",
           "instructions": "Requires workspace access. A workspace admin may need to allow MCP connections."
         },
-        "logo": "clay-mcp.png"
+        "logo": "clay-mcp.png",
+        "category": "sales"
       }
     },
     {
@@ -924,7 +938,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Craft workspace and documents you want to use."
         },
-        "logo": "craft-mcp.png"
+        "logo": "craft-mcp.png",
+        "category": "productivity"
       }
     },
     {
@@ -947,7 +962,8 @@
           "mode": "oauth",
           "instructions": "An account admin must enable MCP and choose permissions. This endpoint serves US-region accounts."
         },
-        "logo": "customer-io-mcp.png"
+        "logo": "customer-io-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -970,7 +986,8 @@
           "mode": "oauth",
           "instructions": "Some tools are experimental or require an Enterprise plan."
         },
-        "logo": "fireflies-mcp.png"
+        "logo": "fireflies-mcp.png",
+        "category": "meetings"
       }
     },
     {
@@ -993,7 +1010,8 @@
           "mode": "oauth",
           "instructions": "Requires a Gamma account. Generations consume account credits."
         },
-        "logo": "gamma-mcp.png"
+        "logo": "gamma-mcp.png",
+        "category": "productivity"
       }
     },
     {
@@ -1016,7 +1034,8 @@
           "mode": "oauth",
           "instructions": "Sign in to the Guru workspace you want to search."
         },
-        "logo": "guru-mcp.png"
+        "logo": "guru-mcp.png",
+        "category": "knowledge"
       }
     },
     {
@@ -1039,7 +1058,8 @@
           "mode": "oauth",
           "instructions": "Authorize one Interactive Brokers account. This integration is unavailable to customers in India or Japan."
         },
-        "logo": "interactive-brokers-mcp.png"
+        "logo": "interactive-brokers-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -1062,7 +1082,8 @@
           "mode": "oauth",
           "instructions": "This endpoint serves US-hosted Intercom workspaces. Australian workspaces are not supported."
         },
-        "logo": "intercom-mcp.png"
+        "logo": "intercom-mcp.png",
+        "category": "sales"
       }
     },
     {
@@ -1085,7 +1106,8 @@
           "mode": "oauth",
           "instructions": "A workspace admin must install the Jotform MCP app before individual authorization."
         },
-        "logo": "jotform-mcp.png"
+        "logo": "jotform-mcp.png",
+        "category": "productivity"
       }
     },
     {
@@ -1108,7 +1130,8 @@
           "mode": "oauth",
           "instructions": "Requires a paid Juicebox plan. Some exports count against plan limits."
         },
-        "logo": "juicebox-mcp.png"
+        "logo": "juicebox-mcp.png",
+        "category": "recruiting"
       }
     },
     {
@@ -1131,7 +1154,8 @@
           "mode": "oauth",
           "instructions": "Requires an Owner, Admin, or Manager role in Klaviyo."
         },
-        "logo": "klaviyo-mcp.png"
+        "logo": "klaviyo-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -1154,7 +1178,8 @@
           "mode": "oauth",
           "instructions": "Authorize the MailerLite account you want to use."
         },
-        "logo": "mailerlite-mcp.png"
+        "logo": "mailerlite-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -1177,7 +1202,8 @@
           "mode": "oauth",
           "instructions": "Your Meltwater subscription must include the MCP package."
         },
-        "logo": "meltwater-mcp.png"
+        "logo": "meltwater-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -1200,7 +1226,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Mem account and content you want to use."
         },
-        "logo": "mem-mcp.png"
+        "logo": "mem-mcp.png",
+        "category": "knowledge"
       }
     },
     {
@@ -1223,7 +1250,8 @@
           "mode": "oauth",
           "instructions": "Sign in to the Mercury organization whose financial data you want to use."
         },
-        "logo": "mercury-mcp.png"
+        "logo": "mercury-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -1246,7 +1274,8 @@
           "mode": "oauth",
           "instructions": "A Navan admin must enable MCP for your organization."
         },
-        "logo": "navan-mcp.png"
+        "logo": "navan-mcp.png",
+        "category": "finance"
       }
     },
     {
@@ -1269,7 +1298,8 @@
           "mode": "oauth",
           "instructions": "Sign in with the Otter account whose conversations you want to use."
         },
-        "logo": "otter-mcp.png"
+        "logo": "otter-mcp.png",
+        "category": "meetings"
       }
     },
     {
@@ -1292,7 +1322,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Profound workspace you want to analyze."
         },
-        "logo": "profound-mcp.png"
+        "logo": "profound-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -1315,7 +1346,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Readwise library you want to use."
         },
-        "logo": "readwise-mcp.png"
+        "logo": "readwise-mcp.png",
+        "category": "knowledge"
       }
     },
     {
@@ -1338,7 +1370,8 @@
           "mode": "oauth",
           "instructions": "Your Semrush plan must include API units. Requests consume those units."
         },
-        "logo": "semrush-mcp.png"
+        "logo": "semrush-mcp.png",
+        "category": "marketing"
       }
     },
     {
@@ -1362,6 +1395,7 @@
           "instructions": "Authorize the Todoist account whose tasks and projects you want to use."
         },
         "logo": "todoist-mcp.png",
+        "category": "productivity",
         "oauthProvider": "todoist"
       }
     },
@@ -1385,7 +1419,8 @@
           "mode": "oauth",
           "instructions": "This endpoint serves standard Typeform accounts. EU-hosted accounts use a separate regional endpoint."
         },
-        "logo": "typeform-mcp.png"
+        "logo": "typeform-mcp.png",
+        "category": "productivity"
       }
     },
     {
@@ -1408,7 +1443,8 @@
           "mode": "oauth",
           "instructions": "Sign in to the Upwork account you want to use."
         },
-        "logo": "upwork-mcp.png"
+        "logo": "upwork-mcp.png",
+        "category": "recruiting"
       }
     },
     {
@@ -1431,7 +1467,8 @@
           "mode": "oauth",
           "instructions": "Authorize specific accounts and capabilities. Hong Kong accounts use a separate regional endpoint."
         },
-        "logo": "webull-mcp.png"
+        "logo": "webull-mcp.png",
+        "category": "finance"
       }
     }
   ]

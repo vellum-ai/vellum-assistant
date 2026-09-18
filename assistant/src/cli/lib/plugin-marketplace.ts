@@ -22,6 +22,7 @@
  * {@link ./search-plugins} and {@link ./install-from-github}.
  */
 
+import { INTEGRATION_CATEGORIES } from "@vellumai/service-contracts/integration-categories";
 import { z } from "zod";
 
 import type { FetchLike } from "./fetch-like.js";
@@ -127,6 +128,12 @@ export const mcpIntegrationSchema = z.object({
   }),
   /** Filename under the web client's bundled integration-image directory. */
   logo: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/),
+  /**
+   * Where the integrations catalog files the entry. Optional on the wire so a
+   * daemon listing an older catalog ref keeps its entries; the bundled
+   * inventory test requires it of every entry in this repo.
+   */
+  category: z.enum(INTEGRATION_CATEGORIES).optional(),
   /** Existing main OAuth provider used to group a related MCP connection. */
   oauthProvider: z.string().regex(PLUGIN_NAME_RE).optional(),
 });

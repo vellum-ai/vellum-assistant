@@ -24508,6 +24508,22 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          category:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - productivity
+                                  - communication
+                                  - meetings
+                                  - sales
+                                  - marketing
+                                  - finance
+                                  - commerce
+                                  - engineering
+                                  - knowledge
+                                  - recruiting
+                              - type: "null"
+                            description: Where the integrations catalog files the provider; null for a provider without a seed entry.
                           tenant_host:
                             anyOf:
                               - type: object
@@ -24540,6 +24556,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - category
                           - tenant_host
                           - acts_as
                         additionalProperties: false
@@ -25059,6 +25076,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        category:
+                          anyOf:
+                            - type: string
+                              enum:
+                                - productivity
+                                - communication
+                                - meetings
+                                - sales
+                                - marketing
+                                - finance
+                                - commerce
+                                - engineering
+                                - knowledge
+                                - recruiting
+                            - type: "null"
+                          description: Where the integrations catalog files the provider; null for a provider without a seed entry.
                         tenant_host:
                           anyOf:
                             - type: object
@@ -25091,6 +25124,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - category
                         - tenant_host
                         - acts_as
                       additionalProperties: false
@@ -27656,6 +27690,20 @@ paths:
                               type: string
                             oauthProvider:
                               type: string
+                            category:
+                              description: Where the integrations catalog files the entry.
+                              type: string
+                              enum:
+                                - productivity
+                                - communication
+                                - meetings
+                                - sales
+                                - marketing
+                                - finance
+                                - commerce
+                                - engineering
+                                - knowledge
+                                - recruiting
                           required:
                             - kind
                             - displayName

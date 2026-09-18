@@ -281,6 +281,7 @@ function provider(overrides: Partial<OAuthProvider> = {}): OAuthProvider {
     supports_managed_mode: true,
     managed_service_is_paid: false,
     feature_flag: null,
+    category: "productivity",
     tenant_host: null,
     acts_as: "user",
     ...overrides,
@@ -330,6 +331,7 @@ function catalogMatch(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
       verification: "documentation-only",
       setup: { mode: "oauth", instructions: "Sign in to Example." },
       logo: "example.png",
+      category: "meetings",
     },
     ...overrides,
   };
@@ -747,6 +749,47 @@ describe("IntegrationsPage", () => {
     );
     await waitFor(() => expect(screen.queryByText("Notion")).toBeNull());
     screen.getByText("example-integration");
+  });
+
+  test("category chips narrow the catalog and clear on a second click", async () => {
+    seededProviders = [provider()];
+    seededCatalog = [catalogMatch()];
+    seededServers = [server()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+    await screen.findByText("Notion");
+    await screen.findByText("Example");
+
+    const chips = screen.getByRole("group", { name: "Filter by category" });
+    // The catalog's order, not the page's, and only what it files something under.
+    expect(
+      Array.from(chips.querySelectorAll("button")).map((chip) => chip.textContent),
+    ).toEqual(["Productivity1", "Meetings1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
+    await waitFor(() => expect(screen.queryByText("Notion")).toBeNull());
+    screen.getByText("Example");
+    // A custom server is filed nowhere, so a chip hides it too.
+    expect(screen.queryByText("example-integration")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Meetings 1" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
+    await screen.findByText("Notion");
+    screen.getByText("example-integration");
+  });
+
+  test("a chip with a search that matches nothing says which category is empty", async () => {
+    seededProviders = [provider()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+    await screen.findByText("Notion");
+
+    fireEvent.click(screen.getByRole("button", { name: "Productivity 1" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Search integrations" }),
+      { target: { value: "nothing matches this" } },
+    );
+    await screen.findByText('No integrations matched "nothing matches this"');
   });
 
   test("provider deep links ask a per-tenant provider for its host", async () => {
