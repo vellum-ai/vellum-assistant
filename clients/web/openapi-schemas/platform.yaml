@@ -6267,9 +6267,15 @@ components:
           readOnly: true
           nullable: true
           description: When the current grant lapses. Set on every enable, 24 hours
-            out by default. Null when access is off.
+            out by default. Null when access is off or never expires.
+        access_consent_never_expires:
+          type: boolean
+          readOnly: true
+          description: True when the owner chose to keep access on until they turn
+            it off, in which case access_consent_expires_at is null.
       required:
       - access_consent_expires_at
+      - access_consent_never_expires
       - access_consented
     AcknowledgeRequest:
       type: object
@@ -6422,8 +6428,12 @@ components:
           format: date-time
           nullable: true
           readOnly: true
+        access_consent_never_expires:
+          type: boolean
+          readOnly: true
       required:
       - access_consent_expires_at
+      - access_consent_never_expires
       - access_consented
       - avatar_url
       - created
@@ -9425,6 +9435,11 @@ components:
             owner can revoke at any time, which blocks new access and further commands
             in open admin terminal sessions. A grant lapses on its own at access_consent_expires_at;
             reads report False once it has.'
+        never_expires:
+          type: boolean
+          writeOnly: true
+          description: 'Only with access_consented=true: keep access on until the
+            owner turns it off, instead of for expires_in_hours.'
         expires_in_hours:
           type: integer
           maximum: 168
