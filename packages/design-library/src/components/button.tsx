@@ -20,6 +20,12 @@ import { Tooltip } from "./tooltip";
  * button inherits app light/dark theming automatically.
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
+ * - `shape` sets the corners, independent of both. `default` defers to the
+ *   design system: the Figma radius for the size (8px regular, 6px compact),
+ *   and a circle for a ghost icon-only button on a touch phone. `pill` rounds
+ *   the ends fully, which on a square icon-only button is a circle. The same
+ *   axis as SwiftUI's `buttonBorderShape` (`automatic` / `capsule`) and
+ *   Radix Themes' `radius`, named `pill` as `PanelItem`'s shape is.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
  * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
  *   square icon-only button (the icon is centered at the correct size for the
@@ -111,8 +117,13 @@ const buttonVariants = cva(
         ].join(" "),
       },
       size: {
-        regular: "h-8 px-2.5 text-body-medium-default rounded-md",
-        compact: "h-6 px-2 text-body-small-default rounded-[6px]",
+        regular: "h-8 px-2.5 text-body-medium-default",
+        compact: "h-6 px-2 text-body-small-default",
+      },
+      shape: {
+        // Radius by size; see the compound variants.
+        default: "",
+        pill: "rounded-full",
       },
       iconOnly: {
         true: "p-0",
@@ -132,6 +143,10 @@ const buttonVariants = cva(
       },
     },
     compoundVariants: [
+      // The default shape's radius per size. A `link` squares it (below);
+      // an explicit `pill` is honoured on every variant.
+      { shape: "default", size: "regular", class: "rounded-md" },
+      { shape: "default", size: "compact", class: "rounded-[6px]" },
       {
         iconOnly: true,
         size: "regular",
@@ -223,12 +238,18 @@ const buttonVariants = cva(
       },
       {
         variant: "link",
-        class: "h-auto p-0 rounded-none text-[length:inherit] leading-[inherit]",
+        class: "h-auto p-0 text-[length:inherit] leading-[inherit]",
+      },
+      {
+        variant: "link",
+        shape: "default",
+        class: "rounded-none",
       },
     ],
     defaultVariants: {
       variant: "primary",
       size: "regular",
+      shape: "default",
       iconOnly: false,
       fullWidth: false,
       active: false,
@@ -241,12 +262,20 @@ type ButtonVariantProps = VariantProps<typeof buttonVariants>;
 
 export type ButtonVariant = NonNullable<ButtonVariantProps["variant"]>;
 export type ButtonSize = NonNullable<ButtonVariantProps["size"]>;
+export type ButtonShape = NonNullable<ButtonVariantProps["shape"]>;
 
 export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
   ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /**
+   * The corners: `default` (the design system's radius for the size and
+   * platform) or `pill` (fully rounded; a circle on an icon-only button).
+   * Use this, not a `rounded-*` class, so the shape is named where it is
+   * chosen.
+   */
+  shape?: ButtonShape;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
   /**
@@ -306,6 +335,7 @@ export function Button({
   ref,
   variant = "primary",
   size = "regular",
+  shape = "default",
   leftIcon,
   rightIcon,
   iconOnly,
@@ -379,7 +409,7 @@ export function Button({
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
       title={title}
       className={cn(
-        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
+        buttonVariants({ variant, size, shape, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
         className,
       )}
       style={composedStyle}

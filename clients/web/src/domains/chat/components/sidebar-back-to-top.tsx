@@ -41,6 +41,7 @@ export function SidebarBackToTop({ visible, onClick }: SidebarBackToTopProps) {
     <div className="pointer-events-none sticky bottom-2 z-10 -mt-2 flex h-0 items-end justify-center">
       <Button
         variant="ghost"
+        shape="pill"
         leftIcon={<ArrowUp className="h-4 w-4" />}
         onClick={onClick}
         aria-hidden={!visible}
@@ -50,7 +51,7 @@ export function SidebarBackToTop({ visible, onClick }: SidebarBackToTopProps) {
            6% wash meant to layer onto something, so it would read as the
            button going transparent on hover. */
         className={cn(
-          "rounded-full bg-[var(--surface-lift)] shadow-md",
+          "bg-[var(--surface-lift)] shadow-md",
           "hover:bg-[var(--surface-active)]",
           "transition-opacity duration-150",
           visible ? "pointer-events-auto" : "pointer-events-none opacity-0",

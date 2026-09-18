@@ -166,7 +166,8 @@ describe("LibraryView import affordance", () => {
     expect(importButton.className).toContain(
       "max-md:bg-[var(--surface-active)]",
     );
-    expect(importButton.className).toContain("rounded-full");
+    // Round at every width, not only the touch circle.
+    expect(importButton.className.split(/\s+/)).toContain("rounded-full");
   });
 
   test("constrains the picker to .vellum on a fine-pointer device", () => {

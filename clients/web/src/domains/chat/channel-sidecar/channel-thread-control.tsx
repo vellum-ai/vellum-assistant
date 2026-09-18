@@ -72,10 +72,10 @@ export function ChannelThreadControl({ target }: ChannelThreadControlProps) {
   return (
     <Button
       variant="ghost"
+      shape="pill"
       active={isOpen}
       leftIcon={icon}
       rightIcon={<PanelRight />}
-      className="rounded-full"
       tintColor="var(--content-default)"
       aria-expanded={isOpen}
       aria-label={ariaLabel}

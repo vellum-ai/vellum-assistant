@@ -248,6 +248,47 @@ describe("Button class output", () => {
     expect(html).toContain("disabled:border-[var(--primary-disabled)]");
   });
 
+  test("the default shape takes the size's radius", () => {
+    expect(renderToStaticMarkup(<Button>R</Button>)).toContain("rounded-md");
+    expect(renderToStaticMarkup(<Button size="compact">C</Button>)).toContain(
+      "rounded-[6px]",
+    );
+  });
+
+  test("shape=pill rounds the ends fully in place of the size's radius", () => {
+    for (const size of ["regular", "compact"] as const) {
+      const html = renderToStaticMarkup(
+        <Button shape="pill" size={size}>
+          P
+        </Button>,
+      );
+      expect(html).toContain("rounded-full");
+      expect(html).not.toContain("rounded-md");
+      expect(html).not.toContain("rounded-[6px]");
+    }
+  });
+
+  test("shape=pill on an icon-only button is a circle", () => {
+    const html = renderToStaticMarkup(
+      <Button shape="pill" iconOnly={<span />} aria-label="Add" />,
+    );
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("h-8 w-8");
+  });
+
+  test("a link squares its corners by default, and honours an explicit pill", () => {
+    expect(renderToStaticMarkup(<Button variant="link">L</Button>)).toContain(
+      "rounded-none",
+    );
+    const pill = renderToStaticMarkup(
+      <Button variant="link" shape="pill">
+        L
+      </Button>,
+    );
+    expect(pill).toContain("rounded-full");
+    expect(pill).not.toContain("rounded-none");
+  });
+
   test("danger variant uses --system-negative-strong background", () => {
     const html = renderToStaticMarkup(<Button variant="danger">D</Button>);
     expect(html).toContain("bg-[var(--system-negative-strong)]");

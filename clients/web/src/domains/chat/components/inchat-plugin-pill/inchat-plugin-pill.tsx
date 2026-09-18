@@ -109,9 +109,9 @@ export function InChatPluginPill({
   ) : (
     <Button
       variant="ghost"
+      shape="pill"
       active
       leftIcon={<Plug />}
-      className="rounded-full"
       tintColor="var(--content-default)"
       aria-label={ariaLabel}
     >

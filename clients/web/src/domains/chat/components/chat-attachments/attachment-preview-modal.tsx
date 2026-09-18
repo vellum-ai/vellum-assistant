@@ -397,6 +397,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         actions={
           <Button
             variant="ghost"
+            shape="pill"
             iconOnly={<Download />}
             expandOnMobile={false}
             onClick={handleDownload}
@@ -404,7 +405,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             aria-label={t("attachmentPreviewModal.downloadAria", {
               filename: attachment.filename,
             })}
-            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="h-11 w-11 bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         }
@@ -414,20 +415,22 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
           <Button
             variant="ghost"
+            shape="pill"
             iconOnly={<ChevronLeft />}
             expandOnMobile={false}
             onClick={goToPrev}
             aria-label={t("attachmentPreviewModal.previousAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto h-11 w-11 bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
           <Button
             variant="ghost"
+            shape="pill"
             iconOnly={<ChevronRight />}
             expandOnMobile={false}
             onClick={goToNext}
             aria-label={t("attachmentPreviewModal.nextAttachmentAria")}
-            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            className="pointer-events-auto h-11 w-11 bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
         </div>

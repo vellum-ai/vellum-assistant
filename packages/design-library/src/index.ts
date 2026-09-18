@@ -4,6 +4,7 @@ export {
   type ButtonProps,
   type ButtonVariant,
   type ButtonSize,
+  type ButtonShape,
 } from "./components/button";
 export { SplitButton, type SplitButtonProps } from "./components/split-button";
 export {

@@ -15,6 +15,10 @@ const meta: Meta<typeof Button> = {
       control: "select",
       options: ["regular", "compact"],
     },
+    shape: {
+      control: "inline-radio",
+      options: ["default", "pill"],
+    },
     disabled: { control: "boolean" },
     fullWidth: { control: "boolean" },
     active: { control: "boolean" },
@@ -85,6 +89,23 @@ export const IconOnly: Story = {
       <Button variant="outlined" iconOnly={<Settings />} aria-label="Settings" />
       <Button variant="ghost" iconOnly={<X />} aria-label="Close" />
       <Button size="compact" iconOnly={<X />} aria-label="Dismiss" />
+    </div>
+  ),
+};
+
+/**
+ * `shape="pill"` rounds the ends fully: a pill on a labelled button, a circle
+ * on an icon-only one. `default` keeps the size's radius.
+ */
+export const Pill: Story = {
+  args: { shape: "pill", children: "Pill" },
+  render: (args) => (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+      <Button {...args} />
+      <Button {...args} variant="outlined" leftIcon={<Plus />} />
+      <Button {...args} variant="ghost" iconOnly={<X />} aria-label="Close" />
+      <Button {...args} iconOnly={<Plus />} aria-label="Add" />
+      <Button {...args} size="compact" iconOnly={<X />} aria-label="Dismiss" />
     </div>
   ),
 };

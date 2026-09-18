@@ -40,11 +40,12 @@ export function PreviewModalHeader({
         {actions}
         <Button
           variant="ghost"
+          shape="pill"
           iconOnly={<X />}
           expandOnMobile={false}
           onClick={onClose}
           aria-label={t("attachmentPreviewModal.closePreviewAria")}
-          className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+          className="h-11 w-11 bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
           tintColor="currentColor"
         />
       </div>

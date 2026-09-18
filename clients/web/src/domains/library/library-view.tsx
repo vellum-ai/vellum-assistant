@@ -174,10 +174,11 @@ export function LibraryView({
       isMobile ? (
         <Button
           variant="ghost"
+          shape="pill"
           iconOnly={importIcon}
           aria-label={t("libraryView.import")}
           tooltip={t("libraryView.import")}
-          className="rounded-full max-md:bg-[var(--surface-active)]"
+          className="max-md:bg-[var(--surface-active)]"
           onClick={() => fileInputRef.current?.click()}
           disabled={isImporting}
         />
