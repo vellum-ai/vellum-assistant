@@ -797,13 +797,21 @@ export class Conversation {
   pendingInterruptActivityBridge = false;
   /**
    * Set by `interruptRunningTurn` on every handover it completes, and consumed
-   * exactly once by the persist of the interrupting user message, which
-   * appends {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing
-   * content and stamps `interruptedPriorTurn` on the row.
+   * exactly once by the first user message persisted after it, which appends
+   * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
+   * and stamps `interruptedPriorTurn` on the row.
    *
    * The note is the only place the behavior after an interrupt is spelled out.
    * A synthetic `tool_result` states what happened to the one call it answers
    * and nothing more, so an interrupt caught mid-tool arms this too.
+   *
+   * It belongs to the history position, not to the send that armed it. That
+   * first row is the one sitting directly under the work the handover stopped,
+   * so it is the row whose note the model reads in the right place. Normally it
+   * is the interrupting message itself. When that send loses the lock race and
+   * queues, the message that persists first was also sent while the assistant
+   * was working, and the note is true of it; the queued one drains after a
+   * completed turn, where the same note would be stale.
    * @internal
    */
   pendingInterruptNote = false;

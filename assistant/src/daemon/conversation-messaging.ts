@@ -1593,9 +1593,12 @@ export async function persistQueuedMessageBody(
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
 
-    // This message interrupted a turn, so it carries the note that tells the
-    // model what to do about that. Consumed here, once: a second message must
-    // not repeat a note about a turn it did not interrupt. Stamped after the
+    // This is the first user row after a handover, so it carries the note that
+    // tells the model what to do about the work the handover stopped. The note
+    // goes on this row because that work sits directly above it in the history,
+    // which is also why it is usually the interrupting message and never has to
+    // be the one that armed the flag. Consumed here, once: a later message sits
+    // under a completed turn, where the note would be stale. Stamped after the
     // insert, like the stored paths above, so a persist that never lands
     // leaves the flag armed for the send that replaces it.
     const carriesInterruptNote = ctx.pendingInterruptNote === true;
