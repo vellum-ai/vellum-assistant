@@ -12,9 +12,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCategories.register()
 
         // A QR scan that launches the terminated app delivers the connect URL
-        // here as well as through `application(_:open:)`. Persist the origin
-        // now, synchronously, so the bridge boots straight to it — by the time
-        // the `open:` call lands, `instanceDescriptor()` may already have run.
+        // here as well as through `application(_:open:)`. Parse it into a
+        // pending confirmation only; persistence waits on an explicit Connect.
         // A launch URL came from outside the process, so it may not carry the
         // in-process provenance marker; strip before storing so the dedupe
         // below compares like with like, and drop a URL that cannot be
@@ -105,10 +104,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     // MARK: - Self-hosted connect deep link
 
-    /// A pair-page navigation waiting for the bridge web view to come up. Set on
-    /// a cold launch (before the view controller exists) and consumed once it is
-    /// ready.
-    private var pendingConnectPairURL: URL?
+    /// A parsed connect deep link waiting for explicit confirmation, then for
+    /// the bridge web view to come up.
+    private var pendingConnect: (base: URL, pairURL: URL, name: String?)?
+    private var connectConfirmAlert: UIAlertController?
 
     /// Handle `<scheme>://connect?url=<https-base>&code=<device-code>` (with an
     /// optional `name=<label>`), the custom-scheme QR path that pairs the shell
@@ -122,14 +121,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     /// `connect` host distinguishes it from the OAuth-completion deep link (host
     /// `oauth-complete`), which Capacitor's `appUrlOpen` routes.
     ///
-    /// The base is persisted synchronously so that on a cold launch
-    /// `MyViewController.instanceDescriptor()` — which runs after this returns
-    /// but before the web view loads — boots straight to it. The pair-page
-    /// navigation is stashed and applied once the web view is live (immediately
-    /// for a warm open; from the freshly launched view controller's
-    /// `viewDidAppear` for a cold launch). Returns `true` for any `connect` link
-    /// (handled or ignored) so it isn't also routed to the OAuth handler;
-    /// `false` for everything else.
+    /// The link is parsed into pending in-memory state only. Persistence and
+    /// pair-page navigation wait on an explicit Connect confirmation so a
+    /// hostile QR or custom-scheme open cannot silently retarget the shell.
+    /// Returns `true` for any `connect` link (handled or ignored) so it isn't
+    /// also routed to the OAuth handler; `false` for everything else.
     private func handleConnectDeepLink(_ url: URL) -> Bool {
         guard url.host?.lowercased() == "connect" else {
             return false
@@ -139,26 +135,59 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             return true
         }
 
-        SelfHostedServer.store(connect.base)
-        SelfHostedServer.append(url: connect.base, name: connect.name)
-        pendingConnectPairURL = connect.pairURL
+        pendingConnect = connect
         deliverPendingConnectNavigation()
         return true
     }
 
-    /// Load a stashed connect pair page once the bridge web view exists. Safe to
-    /// call before the view controller is created (a cold launch defers to the
-    /// first `viewDidAppear`) and idempotent once the navigation is delivered.
+    /// Show connect confirmation once a presenter exists, then load the pair
+    /// page after Connect. Safe to call before the view controller is created
+    /// (a cold launch defers to the first `viewDidAppear`).
     func deliverPendingConnectNavigation() {
-        guard let pairURL = pendingConnectPairURL,
-              let bridgeVC = currentBridgeViewController(),
+        guard let connect = pendingConnect,
+              let presenter = currentBridgeViewController(),
+              presenter.webView != nil
+        else {
+            return
+        }
+        if connectConfirmAlert != nil {
+            return
+        }
+        let host = connect.base.host ?? connect.base.absoluteString
+        let scheme = connect.base.scheme ?? "https"
+        let alert = UIAlertController(
+            title: "Connect to this assistant?",
+            message: "\(scheme)://\(host) will become this app's server. Nothing is saved until you confirm.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            guard let self else { return }
+            self.connectConfirmAlert = nil
+            self.pendingConnect = nil
+        })
+        alert.addAction(UIAlertAction(title: "Connect", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.connectConfirmAlert = nil
+            self.finishConfirmedConnect()
+        })
+        connectConfirmAlert = alert
+        presenter.present(alert, animated: true)
+    }
+
+    private func finishConfirmedConnect() {
+        guard let connect = pendingConnect else {
+            return
+        }
+        guard let bridgeVC = currentBridgeViewController(),
               let webView = bridgeVC.webView
         else {
             return
         }
-        pendingConnectPairURL = nil
+        SelfHostedServer.store(connect.base)
+        SelfHostedServer.append(url: connect.base, name: connect.name)
+        pendingConnect = nil
         (bridgeVC as? MyViewController)?.bindServerTrackingToConfiguredOrigin()
-        webView.load(URLRequest(url: pairURL))
+        webView.load(URLRequest(url: connect.pairURL))
     }
 
     /// Parse `<scheme>://connect?url=&code=` into the validated https server
@@ -208,7 +237,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     /// A `<scheme>://voice?mode=…` or `<scheme>://thread/…` command (or any
     /// other non-`connect` launch URL) waiting for the bridge web view to
-    /// come up, mirroring `pendingConnectPairURL` above. Only the most recent
+    /// come up, mirroring `pendingConnect` above. Only the most recent
     /// one is kept: a superseded command is stale by definition.
     private var pendingCommandURL: URL?
 
