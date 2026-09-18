@@ -22,6 +22,7 @@ import { Bolt } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { useTranslation } from "@/i18n";
@@ -137,14 +138,13 @@ function WebStepPill({
 }: ToolStepPillWebProps) {
   const { t } = useTranslation("chat");
   return (
-    <a
+    <ExternalAnchor
       href={url}
-      target="_blank"
-      rel="noopener noreferrer"
       data-testid="tool-step-pill"
       data-variant="web"
       aria-label={ariaLabel ?? t("toolStepPill.openAria", { label })}
       className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${IDLE_COLOR_CLASSES}`}
+      glyph={false}
     >
       <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
       <Typography
@@ -153,7 +153,7 @@ function WebStepPill({
       >
         {label}
       </Typography>
-    </a>
+    </ExternalAnchor>
   );
 }
 

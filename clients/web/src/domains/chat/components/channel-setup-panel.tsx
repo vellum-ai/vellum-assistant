@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, Phone, Send } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import { Trans, useTranslation } from "@/i18n";
@@ -236,11 +237,10 @@ function TwilioCredentialForm({
           i18nKey="channelSetupPanel.twilioIntro"
           components={{
             consoleLink: (
-              <a
+              <ExternalAnchor
                 href="https://console.twilio.com"
-                target="_blank"
-                rel="noopener noreferrer"
                 className="text-[color:var(--content-link)] hover:underline"
+                glyph={false}
               />
             ),
           }}

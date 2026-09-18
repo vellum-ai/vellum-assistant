@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import {
   PLUGIN_INSTALL_ERROR,
   PLUGIN_REMOVE_ERROR,
@@ -148,16 +149,15 @@ export function PluginDetailMetadata({
             style={{ color: "var(--content-secondary)" }}
           >
             {row.href ? (
-              <a
+              <ExternalAnchor
                 href={row.href}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 underline"
                 style={{ color: "var(--primary-base, #60a5fa)" }}
+                glyph={false}
               >
                 {row.value}
                 <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
+              </ExternalAnchor>
             ) : (
               row.value
             )}

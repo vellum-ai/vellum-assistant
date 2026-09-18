@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { DiscordLogo } from "@/components/icons/discord-logo";
 import { GitHubLogo } from "@/components/icons/github-logo";
 import { XLogo } from "@/components/icons/x-logo";
@@ -178,11 +179,10 @@ function ResourceCard({
   href,
 }: ResourceCardProps) {
   return (
-    <a
+    <ExternalAnchor
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
       className="flex flex-1 cursor-pointer"
+      glyph={false}
     >
       <Card className="flex-1 transition-shadow hover:shadow-md" padding="lg">
         <div className="flex flex-col gap-4">
@@ -209,7 +209,7 @@ function ResourceCard({
           </div>
         </div>
       </Card>
-    </a>
+    </ExternalAnchor>
   );
 }
 

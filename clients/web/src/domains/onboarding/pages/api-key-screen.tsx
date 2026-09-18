@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import {
@@ -211,14 +212,13 @@ export function ApiKeyScreen() {
               {entry.docsUrl && (
                 <p className="self-start text-body-medium-lighter text-[var(--content-tertiary)]">
                   {t("apiKeyScreen.noKeyPrompt")}{" "}
-                  <a
+                  <ExternalAnchor
                     href={entry.docsUrl}
-                    target="_blank"
-                    rel="noreferrer"
                     className="text-[var(--content-default)] underline"
+                    glyph={false}
                   >
                     {t("apiKeyScreen.getKeyLink")}
-                  </a>
+                  </ExternalAnchor>
                 </p>
               )}
             </div>

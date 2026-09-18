@@ -15,6 +15,7 @@ import { useMemo, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock } from "@/components/detail-primitives";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
@@ -108,11 +109,10 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
   const host = hostnameOf(url);
   const ok = status ? /^\s*2\d\d/.test(status) : false;
   return (
-    <a
+    <ExternalAnchor
       href={url}
-      target="_blank"
-      rel="noopener noreferrer"
       className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 transition-colors hover:border-[var(--border-hover)]"
+      glyph={false}
     >
       <SiteFavicon domain={host} title={host} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -142,7 +142,7 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
           {status}
         </span>
       )}
-    </a>
+    </ExternalAnchor>
   );
 }
 

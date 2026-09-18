@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { SettingRow } from "@/components/setting-row";
 import { legalUrl, routes } from "@/utils/routes";
 import { Card } from "@vellumai/design-library/components/card";
@@ -67,11 +68,10 @@ function ConsentCheckbox({
             values={{ policy: link.text }}
             components={{
               link: (
-                <a
+                <ExternalAnchor
                   href={legalUrl(link.href)}
-                  target="_blank"
-                  rel="noreferrer"
                   className="underline"
+                  glyph={false}
                 />
               ),
             }}

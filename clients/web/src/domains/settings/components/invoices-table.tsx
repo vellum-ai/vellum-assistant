@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { organizationsBillingInvoicesRetrieveInfiniteQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   organizationsBillingInvoicesDownloadRetrieve,
@@ -347,13 +348,12 @@ export function InvoicesTable() {
                                 <ExternalLink className="h-3.5 w-3.5" />
                               }
                             >
-                              <a
+                              <ExternalAnchor
                                 href={invoice.hosted_invoice_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                glyph={false}
                               >
                                 {t("invoicesTable.view")}
-                              </a>
+                              </ExternalAnchor>
                             </Button>
                           )}
                           {invoice.invoice_pdf && (

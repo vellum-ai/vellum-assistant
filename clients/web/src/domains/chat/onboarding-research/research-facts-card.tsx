@@ -18,6 +18,7 @@ import { Ban } from "lucide-react";
 import { Popover } from "@vellumai/design-library/components/popover";
 import { Tag } from "@vellumai/design-library/components/tag";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import {
   confidenceBadge,
   domainFromUrl,
@@ -169,16 +170,15 @@ function ClaimRow({
             {t("researchFactsCard.sources")}
           </span>
           {links.map(({ domain, url }) => (
-            <a
+            <ExternalAnchor
               key={domain}
               href={url}
-              target="_blank"
-              rel="noreferrer"
               className="flex items-center gap-2 text-sm text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
+              glyph={false}
             >
               <SourceFavicon src={resolveFavicon(domain)} domain={domain} />
               {domain}
-            </a>
+            </ExternalAnchor>
           ))}
         </div>
       ) : null}

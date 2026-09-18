@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useInboxPitchCopy } from "@/domains/assistant-inbox/hooks/use-inbox-pitch-copy";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
@@ -170,17 +171,16 @@ export function EmailChannelSection() {
             }}
           />
         </span>
-        <a
+        <ExternalAnchor
           href={selectedByoProvider.docsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          glyph={false}
         >
           {t("emailChannelSection.openProvider", {
             providerName: selectedByoProvider.displayName,
           })}
           <ExternalLink className="h-3 w-3" />
-        </a>
+        </ExternalAnchor>
       </div>
     </div>
   );
@@ -225,17 +225,16 @@ export function EmailChannelSection() {
               />
             </span>
           </div>
-          <a
+          <ExternalAnchor
             href={selectedByoProvider.docsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-body-small-default text-[var(--system-positive-strong)] underline hover:opacity-80"
+            glyph={false}
           >
             {t("emailChannelSection.openProvider", {
               providerName: selectedByoProvider.displayName,
             })}
             <ExternalLink className="h-3 w-3" />
-          </a>
+          </ExternalAnchor>
         </div>
       ) : (
         byoSetupInstructions

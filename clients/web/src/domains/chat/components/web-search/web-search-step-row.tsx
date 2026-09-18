@@ -15,6 +15,7 @@ import { useState } from "react";
 import { Popover, Typography } from "@vellumai/design-library";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { useTranslation } from "@/i18n";
@@ -34,20 +35,18 @@ function monogramLetter(item: WebSearchResultItem): string {
  * A single source row inside the overflow popover. Renders the site favicon
  * (with a monogram fallback that survives image load errors), the page title,
  * and the domain, all wrapped in an external link that opens the source in a
- * new tab. Mirrors the chat's existing external-link convention (plain
- * `target="_blank"` anchors, as used by `ChatMarkdownMessage` and the
- * surface views) rather than introducing bespoke navigation.
+ * new tab. Goes through `ExternalAnchor`, the shared external-link
+ * convention, rather than introducing bespoke navigation.
  */
 function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
   const [imageFailed, setImageFailed] = useState(false);
   const hasFavicon = Boolean(item.faviconUrl) && !imageFailed;
 
   return (
-    <a
+    <ExternalAnchor
       href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
       className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 hover:bg-[var(--surface-hover)]"
+      glyph={false}
     >
       <span
         aria-hidden="true"
@@ -83,7 +82,7 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
           {item.domain}
         </Typography>
       </span>
-    </a>
+    </ExternalAnchor>
   );
 }
 

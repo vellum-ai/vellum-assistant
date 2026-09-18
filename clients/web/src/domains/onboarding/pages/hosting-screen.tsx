@@ -2,6 +2,7 @@ import { ArrowLeft, Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
@@ -150,14 +151,13 @@ export function HostingScreen() {
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
           {t("hostingScreen.body")}{" "}
-          <a
+          <ExternalAnchor
             href={docsUrl(routes.docs.hostingOptions)}
-            target="_blank"
-            rel="noreferrer"
             className="underline transition-colors hover:text-[var(--content-default)]"
+            glyph={false}
           >
             {t("hostingScreen.needHelp")}
-          </a>
+          </ExternalAnchor>
         </p>
 
         {loginError && (

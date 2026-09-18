@@ -32,6 +32,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
@@ -1137,11 +1138,10 @@ export function ShareFeedbackModal({
                     i18nKey="shareFeedbackModal.bugTip"
                     components={{
                       discordLink: (
-                        <a
+                        <ExternalAnchor
                           href={VELLUM_COMMUNITY_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
                           className="underline text-[var(--content-default)]"
+                          glyph={false}
                         />
                       ),
                     }}
@@ -1156,11 +1156,10 @@ export function ShareFeedbackModal({
                     i18nKey="shareFeedbackModal.featureTip"
                     components={{
                       roadmapLink: (
-                        <a
+                        <ExternalAnchor
                           href="https://vellum.ai/roadmap"
-                          target="_blank"
-                          rel="noopener noreferrer"
                           className="underline text-[var(--content-default)]"
+                          glyph={false}
                         />
                       ),
                     }}
