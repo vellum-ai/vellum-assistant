@@ -201,6 +201,7 @@ import {
 } from "./summarize-boundary.js";
 
 const log = getLogger("conversation");
+const PROMPT_CACHE_WARM_MAX_TOKENS = 16;
 
 /**
  * First text block of a persisted message row's content, mirroring
@@ -1237,7 +1238,7 @@ export class Conversation {
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
-   * Non-rejecting LLM call with max_tokens=1 to populate the selected
+   * Non-rejecting LLM call with a minimal output budget to populate the selected
    * provider's prompt cache (system prompt + tools).
    */
   async warmPromptCache(options?: {
@@ -1289,7 +1290,7 @@ export class Conversation {
         tools: tools.length > 0 ? tools : undefined,
         ...(systemPrompt !== undefined ? { systemPrompt } : {}),
         config: {
-          max_tokens: 1,
+          max_tokens: PROMPT_CACHE_WARM_MAX_TOKENS,
           callSite,
           ...providerConfig,
           conversationId: this.conversationId,
