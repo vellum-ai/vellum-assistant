@@ -447,6 +447,15 @@ export async function streamCommitImport(
       }
 
       const expectedEntry = expected.get(archivePath);
+      if (expectedEntry && archivePath.startsWith("gateway/")) {
+        // A debug bundle's gateway archive is for Vellum staff to open on a
+        // debug clone. It is never part of a workspace, so an import
+        // drains it and moves on.
+        entry.body.resume();
+        seen.add(archivePath);
+        entryIndex += 1;
+        continue;
+      }
       if (!expectedEntry) {
         // Bundle contains a file the manifest didn't declare. Destroy the
         // body so the extractor aborts promptly.

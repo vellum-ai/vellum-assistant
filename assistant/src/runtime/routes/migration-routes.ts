@@ -20,11 +20,13 @@ import { createReadStream } from "node:fs";
 import { hostname } from "node:os";
 import { PassThrough, Readable } from "node:stream";
 
+import { GatewayDebugExportIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { z } from "zod";
 
 import { invalidateConfigCache } from "../../config/loader.js";
 import { resolvePlatformAssistantId } from "../../config/platform-identity.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { runAsyncSqlite } from "../../persistence/db-async-query.js";
 import {
   getDb,
@@ -470,7 +472,39 @@ const EXPORT_TO_GCS_PUT_TIMEOUT_MS = 60 * 60 * 1000;
 const MigrationExportToGcsBody = z.object({
   upload_url: z.string().url(),
   description: z.string().optional(),
+  /**
+   * `debug`: a bundle for Vellum staff to inspect. Adds the gateway's
+   * database and recent logs under `gateway/`. `migration` is the default.
+   */
+  profile: z.enum(["migration", "debug"]).default("migration"),
 });
+
+/** Archive path of the gateway's contribution to a debug bundle. */
+export const GATEWAY_DEBUG_EXPORT_PATH = "gateway/export.tar.gz";
+
+/**
+ * Ask the gateway for its debug archive over the local socket. The daemon
+ * cannot read the gateway's files itself: in local mode they sit in the
+ * protected directory beside the encryption keys, and in Docker on a volume
+ * the daemon does not mount.
+ */
+async function collectGatewayDebugExport(): Promise<{
+  archivePath: string;
+  data: Uint8Array;
+}> {
+  const raw = await ipcCallPersistent(
+    "gateway_debug_export",
+    {},
+    GATEWAY_DEBUG_EXPORT_TIMEOUT_MS,
+  );
+  const parsed = GatewayDebugExportIpcResponseSchema.parse(raw);
+  return {
+    archivePath: GATEWAY_DEBUG_EXPORT_PATH,
+    data: new Uint8Array(Buffer.from(parsed.archive_base64, "base64")),
+  };
+}
+
+const GATEWAY_DEBUG_EXPORT_TIMEOUT_MS = 120_000;
 
 /**
  * Collected credentials plus warning markers if the credential store was
@@ -559,9 +593,10 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   const parsed = MigrationExportToGcsBody.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(
-      "Request body must be { upload_url: string, description?: string } with a valid URL",
+      "Request body must be { upload_url: string, description?: string, profile?: 'migration' | 'debug' } with a valid URL",
     );
   }
+  const isDebugProfile = parsed.data.profile === "debug";
 
   // ── 2. Validate the upload URL. Never log `parsed.data.upload_url`.
   const validated = validateGcsSignedUrl(
@@ -632,6 +667,26 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
     collected.perAccountUnreachable,
   );
 
+  // A debug bundle without the gateway's data is not what staff asked for,
+  // so this fails the request rather than shipping a partial bundle.
+  let extraFiles: Array<{ archivePath: string; data: Uint8Array }> = [];
+  if (isDebugProfile) {
+    try {
+      extraFiles = [await collectGatewayDebugExport()];
+    } catch (err) {
+      log.error({ err }, "Failed to collect the gateway's debug export");
+      throw new RouteError(
+        "The gateway did not provide its debug export; the bundle was not sent.",
+        "gateway_debug_export_failed",
+        502,
+      );
+    }
+    manifestInputs = {
+      ...manifestInputs,
+      exportOptions: { ...manifestInputs.exportOptions, include_gateway: true },
+    };
+  }
+
   // ── 4. Enqueue the job. The runner captures the collected credentials.
   let job;
   try {
@@ -643,6 +698,7 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
           ...manifestInputs,
           secretsRedacted,
           credentials: collected.credentials,
+          extraFiles,
           checkpoint: checkpointDbsForExport,
         });
 

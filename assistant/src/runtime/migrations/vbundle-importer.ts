@@ -324,6 +324,10 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     if (fileEntry.path.startsWith("credentials/")) {
       continue;
     }
+    // A debug bundle's gateway archive is never written into a workspace.
+    if (fileEntry.path.startsWith("gateway/")) {
+      continue;
+    }
 
     const diskPath = pathResolver.resolve(fileEntry.path);
 

@@ -242,6 +242,16 @@ export function getGatewayDb(): GatewayDb {
 }
 
 /**
+ * Write a consistent copy of the gateway database to `destPath`.
+ *
+ * `VACUUM INTO` reads through the live connection, so committed rows still
+ * sitting in the WAL are included and the copy needs no -wal/-shm files.
+ */
+export function snapshotGatewayDb(destPath: string): void {
+  getRawDb(getGatewayDb()).run("VACUUM INTO ?", [destPath]);
+}
+
+/**
  * Extract the underlying bun:sqlite Database from a Drizzle instance.
  * Internal helper — not exported. Production code should use getGatewayDb()
  * with Drizzle's query API. Only needed for data migrations and test cleanup.

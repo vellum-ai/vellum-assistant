@@ -416,4 +416,54 @@ describe("vbundle import parity (buffer vs streaming)", () => {
     expect(bufferMap.has("marker.txt")).toBe(true);
     expect(streamMap.has("marker.txt")).toBe(true);
   });
+
+  test("F — debug-profile gateway entry: both importers drain it and write nothing", async () => {
+    const configJson = JSON.stringify({ version: 1 });
+    const { archive } = buildVBundle({
+      files: [
+        { path: "workspace/data/db/assistant.db", data: new Uint8Array(8) },
+        {
+          path: "workspace/config.json",
+          data: new TextEncoder().encode(configJson),
+        },
+        {
+          path: "gateway/export.tar.gz",
+          data: new TextEncoder().encode("not-a-real-tarball"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    mkdirSync(bufferWs, { recursive: true });
+    mkdirSync(streamWs, { recursive: true });
+
+    const bufferResult = commitImport({
+      archiveData: archive,
+      pathResolver: new DefaultPathResolver(bufferWs),
+      workspaceDir: bufferWs,
+    });
+    const streamResult = await streamCommitImport({
+      source: Readable.from([Buffer.from(archive)]),
+      pathResolver: new DefaultPathResolver(streamWs),
+      workspaceDir: streamWs,
+    });
+    if (!bufferResult.ok || !streamResult.ok) {
+      throw new Error("import unexpectedly failed");
+    }
+
+    const bufferMap = walkDiskTree(bufferWs);
+    const streamMap = walkDiskTree(streamWs);
+
+    expect(streamMap).toEqual(bufferMap);
+    expect(bufferMap.has("config.json")).toBe(true);
+    expect(bufferMap.has("data/db/assistant.db")).toBe(true);
+    for (const relPath of bufferMap.keys()) {
+      expect(relPath.startsWith("gateway")).toBe(false);
+    }
+    // Silent, like credentials/: no "no known disk target" noise.
+    for (const { report } of [bufferResult, streamResult]) {
+      expect(report.warnings.some((w) => w.includes("gateway/"))).toBe(false);
+      expect(report.summary.files_skipped).toBe(0);
+    }
+  });
 });
