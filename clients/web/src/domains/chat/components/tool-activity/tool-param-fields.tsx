@@ -176,10 +176,16 @@ export function ToolParamFields({
         {list.fields.map((field) => (
           <div
             key={field.label}
-            data-reveal-row
+            data-reveal-row={field.kind === "nested" ? undefined : ""}
             className="flex min-w-0 flex-col gap-0.5"
           >
-            <dt className="flex min-w-0 items-center justify-between gap-2">
+            {/* A group's own row is its label line: hovering a field inside
+                the group puts every row around it in :hover, which would
+                reveal each enclosing group's copy button with the field's. */}
+            <dt
+              data-reveal-row={field.kind === "nested" ? "" : undefined}
+              className="flex min-w-0 items-center justify-between gap-2"
+            >
               <span className="text-label-medium-default leading-4 [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
                 {field.label}
               </span>
