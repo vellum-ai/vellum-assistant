@@ -237,6 +237,7 @@
     "offerDiscard": "Descartar",
     "offerHeard": "{app} pegó eso",
     "offerNowhere": "No hay dónde ponerlas",
+    "offerPasteFailed": "No se pudieron pegar",
     "offerQuit": "Salir de {app}",
     "offerUse": "Usar la de Vellum",
     "offerVersion": "Vellum oyó",

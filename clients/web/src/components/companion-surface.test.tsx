@@ -1728,6 +1728,23 @@ describe("the offer of Vellum's dictation", () => {
     expect(container.textContent).toContain("Nowhere to put these");
     expect(container.textContent).not.toContain("pasted that");
   });
+
+  /** The paste failed, so the line must not claim there was nowhere to go. */
+  test("says the paste failed when it did", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="offer"
+        dictationOffer={{
+          reason: "paste-failed",
+          id: "offer-3",
+          text: "onions, tomatoes, and a bag of rice",
+        }}
+        offer={<div data-testid="offer-card" />}
+      />,
+    );
+    expect(container.textContent).toContain("Couldn't paste these");
+    expect(container.textContent).not.toContain("Nowhere to put these");
+  });
 });
 
 describe("the summary a finished watch session leaves on the surface", () => {

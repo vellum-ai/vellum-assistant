@@ -239,6 +239,7 @@
     "offerDiscard": "Discard",
     "offerHeard": "{app} pasted that",
     "offerNowhere": "Nowhere to put these",
+    "offerPasteFailed": "Couldn't paste these",
     "offerQuit": "Quit {app}",
     "offerUse": "Use Vellum's",
     "offerVersion": "Vellum heard",

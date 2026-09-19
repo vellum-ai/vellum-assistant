@@ -235,6 +235,7 @@
     "offerDiscard": "丢弃",
     "offerHeard": "{app} 已粘贴了那段",
     "offerNowhere": "没有地方可以放",
+    "offerPasteFailed": "无法粘贴这些内容",
     "offerQuit": "退出 {app}",
     "offerUse": "使用 Vellum 的版本",
     "offerVersion": "Vellum 听到的是",

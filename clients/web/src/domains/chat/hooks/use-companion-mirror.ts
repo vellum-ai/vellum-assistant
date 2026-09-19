@@ -172,8 +172,8 @@ function currentOffer(): CompanionDictationOffer | undefined {
   if (offer === null) {
     return undefined;
   }
-  if (offer.reason === "no-text-field") {
-    return { reason: "no-text-field", id: offer.id, text: offer.text };
+  if (offer.reason !== "claimed") {
+    return { reason: offer.reason, id: offer.id, text: offer.text };
   }
   return {
     reason: "claimed",

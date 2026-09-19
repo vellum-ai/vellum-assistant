@@ -264,6 +264,41 @@ describe("GlobalPushToTalkBridge", () => {
     );
   });
 
+  /**
+   * The user is in the application the paste was meant for. The composer
+   * behind this window, in whatever conversation was last selected, is not
+   * somewhere they will think to look, so the words go up on the companion
+   * with a reason that says the paste failed.
+   */
+  test("offers the transcript on the companion when the paste fails", async () => {
+    nextTextInsertionStatus = "blocked";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("fallback text");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "fallback text",
+    });
+  });
+
+  test("offers the transcript when Automation is denied", async () => {
+    nextTextInsertionStatus = "automation-denied";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("fallback text");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "fallback text",
+    });
+    expect(useComposerStore.getState().input).toBe("fallback text");
+  });
+
   test("lands a soft-landed transcript in the conversation already selected", async () => {
     // Dictation is text the user is composing, so it belongs in the chat they
     // are already in. Reading the selection first is also what keeps a press

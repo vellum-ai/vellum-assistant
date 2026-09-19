@@ -530,6 +530,11 @@ export const companionContextSchema = z.object({
         id: z.string().max(64),
         text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
       }),
+      z.object({
+        reason: z.literal("paste-failed"),
+        id: z.string().max(64),
+        text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+      }),
     ])
     .optional(),
   // Optional for the reason `dictationOffer` is. Caught rather than refused:

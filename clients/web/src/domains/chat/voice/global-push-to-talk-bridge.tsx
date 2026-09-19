@@ -196,6 +196,11 @@ function showVoiceErrorToast(code: string): void {
  * away says so once, with a stable id, and marks the recording so the overlay
  * shows the failure rather than a check.
  *
+ * A failed paste also puts the words up on the companion. The user is in the
+ * application the paste was meant for, not in this one, and the composer
+ * they would otherwise have to go and find belongs to whatever conversation
+ * happened to be selected, which can be one they left hours ago.
+ *
  * A front application with nowhere to put the words is not a failure and is
  * not announced as one. Nothing is pasted, nothing is denied, and the user is
  * not in the app to read a message about it: the words go up on the companion
@@ -218,11 +223,13 @@ async function landInFrontApp(
   if (frontAppInsertion.status === "no-text-field") {
     setUnplacedDictationOffer(text);
   } else if (frontAppInsertion.status === "automation-denied") {
+    setUnplacedDictationOffer(text, "paste-failed");
     showVoiceErrorToast("dictation-automation-denied");
     useVoiceRecordingStore
       .getState()
       .flagDictationInsertionError("dictation-automation-denied");
   } else if (frontAppInsertion.status === "blocked") {
+    setUnplacedDictationOffer(text, "paste-failed");
     showVoiceErrorToast("dictation-paste-blocked");
     useVoiceRecordingStore
       .getState()

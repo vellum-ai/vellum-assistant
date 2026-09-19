@@ -54,6 +54,7 @@ import type {
 } from "@vellumai/ipc-contract";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { unplacedOfferLabelKey } from "@/components/companion-dictation-offer";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
@@ -2248,7 +2249,7 @@ function DictatingBody({
  * The pill's line while a dictation's words are on offer beside it.
  *
  * Only why they are being offered: the other app that pasted its own version,
- * or that nothing in front would take them. The words and the answers are on
+ * that nothing in front would take them, or that the paste failed. The words and the answers are on
  * the card ({@link CompanionSurfaceProps.offer}), since the pill is one line
  * tall and the words have to be read whole.
  */
@@ -2263,7 +2264,7 @@ function OfferBody({ offer }: { offer: CompanionDictationOffer }) {
       >
         {offer.reason === "claimed"
           ? t("companionSurface.offerHeard", { app: offer.app })
-          : t("companionSurface.offerNowhere")}
+          : t(unplacedOfferLabelKey(offer.reason))}
       </span>
     </div>
   );

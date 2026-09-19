@@ -228,6 +228,7 @@
     "offerDiscard": "捨棄",
     "offerHeard": "{app} 已貼上那段",
     "offerNowhere": "沒有地方可以放",
+    "offerPasteFailed": "無法貼上這些內容",
     "offerQuit": "結束 {app}",
     "offerUse": "使用 Vellum 的版本",
     "offerVersion": "Vellum 聽到的是",
