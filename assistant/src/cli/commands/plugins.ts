@@ -244,6 +244,7 @@ export function registerPluginsCommand(program: Command): void {
                     await libs.catalogCache.getPluginCatalog(
                       DEFAULT_PLUGIN_REF,
                       { fetch: globalThis.fetch.bind(globalThis) },
+                      { fresh: true },
                     )
                   ).matches.find((candidate) => candidate.name === nameOrUrl);
                 } catch {
@@ -605,6 +606,7 @@ export function registerPluginsCommand(program: Command): void {
             const catalog = await libs.catalogCache.getPluginCatalog(
               DEFAULT_PLUGIN_REF,
               { fetch: globalThis.fetch.bind(globalThis) },
+              { fresh: true },
             );
             const matches = libs.search.filterPluginCatalog(catalog, query);
             const result = { query, ref: catalog.ref, matches };

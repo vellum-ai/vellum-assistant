@@ -8,6 +8,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
+import type { GetPluginCatalogOptions } from "../../lib/plugin-catalog-cache.js";
 import { PLUGINS_SEARCH_INSTALL_HINT } from "../plugins.help.js";
 import { runCliCommand } from "./cli-test-harness.js";
 
@@ -27,8 +28,18 @@ const catalog = {
   ],
 };
 
+/** Read options each `getPluginCatalog` call was made with, newest last. */
+const catalogReadOptions: (GetPluginCatalogOptions | undefined)[] = [];
+
 mock.module("../../lib/plugin-catalog-cache.js", () => ({
-  getPluginCatalog: async () => catalog,
+  getPluginCatalog: async (
+    _ref: string,
+    _deps: unknown,
+    options?: GetPluginCatalogOptions,
+  ) => {
+    catalogReadOptions.push(options);
+    return catalog;
+  },
 }));
 
 const { registerPluginsCommand } = await import("../plugins.js");
@@ -41,6 +52,12 @@ function runSearch(args: string[]): Promise<{
 }
 
 describe("plugins search", () => {
+  test("reads the catalog fresh: a one-shot CLI has no warm cache to serve", async () => {
+    await runSearch(["search", "imessage"]);
+
+    expect(catalogReadOptions.at(-1)).toEqual({ fresh: true });
+  });
+
   test("human output ends with the marketplace-name install hint", async () => {
     const { exitCode, stdout } = await runSearch(["search", "imessage"]);
 

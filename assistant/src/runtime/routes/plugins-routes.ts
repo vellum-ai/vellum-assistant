@@ -69,6 +69,7 @@ import {
   assertValidSearchPattern,
   filterPluginCatalog,
   InvalidSearchPatternError,
+  type PluginCatalog,
   PluginCatalogUnavailableError,
   type PluginSearchMatch,
 } from "../../cli/lib/search-plugins.js";
@@ -777,7 +778,7 @@ const log = getLogger("plugins-routes");
  * The catalog fetcher (`plugin-catalog-platform.ts`) throws
  * `PluginCatalogUnavailableError` without logging, and the transport adapters
  * return the resulting `RouteError` (a 503) without any Sentry capture — so an
- * outage on the platform-first paths (`search`, `install`, the remote-only
+ * outage on the platform-first paths (`install`, the remote-only
  * detail view) otherwise leaves no trace beyond the daemon access-log status
  * code, and the real upstream status / URL is lost. Log at `error` so the
  * outage is time-correlatable in the daemon log and surfaces in Sentry;
@@ -947,66 +948,36 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 const UNCATEGORIZED = "system";
 
 /**
- * Time budget for the marketplace category lookup on the installed list.
- * The installed list is a fast local read; the catalog is a remote GitHub
- * fetch that can hang on a cold cache. Bounding the lookup keeps `GET
- * /v1/plugins` responsive during a marketplace slowdown.
+ * Read the catalog for a display surface: the cached copy (or the bundled
+ * manifest) is returned immediately and a refresh runs in the background,
+ * so neither `GET /v1/plugins` nor `GET /v1/plugins/search` waits on the
+ * platform. When that refresh changes what the catalog serves, clients are
+ * told to refetch their plugin lists.
  */
-const CATEGORY_LOOKUP_TIMEOUT_MS = 1500;
+function readCatalogForDisplay(ref: string): Promise<PluginCatalog> {
+  return getPluginCatalog(
+    ref,
+    { fetch: globalThis.fetch.bind(globalThis) },
+    { onChanged: () => publishPluginsChanged() },
+  );
+}
 
 /**
- * Resolve the marketplace category map, racing the catalog fetch against a
- * timer so a slow/hanging GitHub fetch can't block the installed list: on a
- * rejection or a timeout past {@link CATEGORY_LOOKUP_TIMEOUT_MS} it degrades to
- * an empty map (every `category` resolves to `null`). `timeoutMs` is injectable
- * so tests can exercise the bound without the full production budget.
+ * Resolve the marketplace category map for the installed list. Degrades to an
+ * empty map (every `category` resolves to `null`) rather than failing the list.
  */
-export async function loadCategoryMapBounded(
-  timeoutMs: number = CATEGORY_LOOKUP_TIMEOUT_MS,
-): Promise<Map<string, string | null>> {
-  // Clear the timer once the race settles so a catalog-wins path doesn't leave
-  // the timer pending per request (matters for shutdown / test handles).
-  let timer: ReturnType<typeof setTimeout> | undefined;
+export async function loadCategoryMap(): Promise<Map<string, string | null>> {
   try {
-    const catalog = await Promise.race([
-      getPluginCatalog(DEFAULT_PLUGIN_REF, {
-        fetch: globalThis.fetch.bind(globalThis),
-      }),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), timeoutMs);
-      }),
-    ]);
-    if (!catalog) {
-      // Timed out past the budget: the installed list degrades to no
-      // categories rather than stalling. Non-fatal, but log it so a slow
-      // marketplace is diagnosable and not silently invisible.
-      log.warn(
-        { timeoutMs, platformBaseUrl: getPlatformBaseUrl() },
-        "Plugin catalog lookup timed out; listing without categories",
-      );
-      return new Map();
-    }
+    const catalog = await readCatalogForDisplay(DEFAULT_PLUGIN_REF);
     return new Map(catalog.matches.map((m) => [m.name, m.category]));
   } catch (err) {
-    // The installed list must never fail on a catalog outage, so this degrades
-    // to no categories — but log it (warn: the request still succeeds) so the
-    // same platform outage that hard-fails search/install is not invisible on
-    // the list path. `upstreamStatus` is preserved when the failure carries one.
+    // The installed list must never fail on the catalog read, so this degrades
+    // to no categories and logs it (warn: the request still succeeds).
     log.warn(
-      {
-        err,
-        platformBaseUrl: getPlatformBaseUrl(),
-        ...(err instanceof PluginCatalogUnavailableError
-          ? { upstreamStatus: err.status }
-          : {}),
-      },
+      { err },
       "Plugin catalog lookup failed; listing without categories",
     );
     return new Map();
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
   }
 }
 
@@ -1024,16 +995,16 @@ async function handleListPlugins({
   const projected = installed.map(projectPlugin);
 
   // Nothing installed → `categoryCounts`/`totalCount` are deterministically
-  // empty and there is nothing to categorize, so skip the network-bound catalog
-  // lookup entirely (no wasted GitHub request or bounded stall wait).
+  // empty and there is nothing to categorize, so skip the catalog lookup
+  // entirely (no wasted platform refresh).
   if (projected.length === 0) {
     return { plugins: [], categoryCounts: {}, totalCount: 0 };
   }
 
-  // Categories live only in the catalog. A marketplace outage OR slowdown must
-  // never block the installed list, so the lookup is bounded: it degrades to an
-  // empty map (every category becomes `null`) on a rejection or a stall.
-  const categoryMap = await loadCategoryMapBounded();
+  // Categories live only in the catalog. The lookup serves the cached or
+  // bundled copy and refreshes in the background, and degrades to an empty map
+  // (every category becomes `null`) when even that read fails.
+  const categoryMap = await loadCategoryMap();
 
   // Normalize raw marketplace slugs to the shared Skills taxonomy once per
   // request: a raw slug with no Skills row (e.g. `developer`, `memory`) would
@@ -1089,12 +1060,10 @@ async function handleSearchPlugins({
     // Reject a malformed regex before any network I/O so a user typo is a
     // cheap deterministic 400 rather than a wasted catalog fetch.
     assertValidSearchPattern(query);
-    // getPluginCatalog is platform-first (or the bundled manifest when platform
-    // features are disabled) and fails hard on a platform error — never served
-    // stale. Filtering by the query is in-memory over the resolved catalog.
-    const catalog = await getPluginCatalog(ref, {
-      fetch: globalThis.fetch.bind(globalThis),
-    });
+    // The catalog read answers from cache (or the bundled manifest) and
+    // refreshes in the background, so the tiles render without waiting on the
+    // platform. Filtering by the query is in-memory over the served catalog.
+    const catalog = await readCatalogForDisplay(ref);
     const matches = filterPluginCatalog(catalog, query);
     // Resolve the valid Skills slugs once per request, then normalize each
     // match's marketplace category against them so "Available" filters
@@ -1111,14 +1080,6 @@ async function handleSearchPlugins({
   } catch (err) {
     if (err instanceof InvalidSearchPatternError) {
       throw new BadRequestError(err.message);
-    }
-    // A rate-limited or unavailable platform (no stale catalog to fall back
-    // on) is transient and retryable — surface it as 503 rather than a
-    // misleading 500 so the client can show a "temporarily unavailable"
-    // state and retry later.
-    if (err instanceof PluginCatalogUnavailableError) {
-      logPluginCatalogUnavailable("search", err);
-      throw new ServiceUnavailableError(err.message);
     }
     throw new InternalError(
       err instanceof Error ? err.message : "plugin catalog search failed",
