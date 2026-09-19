@@ -124,8 +124,12 @@ export function buildMenuProps(
  * The trailing actions ellipsis and the swipe-reveal buttons are real
  * `<button>` / `<a>` elements that own their own taps. The row itself is only
  * a `role="button"` div, so this arms on the row but not on those.
+ *
+ * Exported for the other conversation-row surfaces (the Old chats page), so
+ * every long-press sheet over a conversation row arms on the same targets.
+ * Module scope keeps the handlers `useLongPressSheet` returns stable.
  */
-const skipNestedControls = (target: Element | null) =>
+export const skipNestedControls = (target: Element | null) =>
   Boolean(target?.closest("button, a"));
 
 /**

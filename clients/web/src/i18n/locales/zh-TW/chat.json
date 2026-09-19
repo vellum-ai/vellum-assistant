@@ -117,6 +117,28 @@
     "navigate": "導覽",
     "terminal": "執行命令"
   },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "過去 30 天",
+      "previous7Days": "過去 7 天",
+      "today": "今天",
+      "yesterday": "昨天"
+    },
+    "chip": {
+      "all": "全部",
+      "background": "背景",
+      "done": "已完成"
+    },
+    "doneMeta": "已完成 · {time}",
+    "empty": "這裡還沒有聊天。",
+    "filterAria": "篩選聊天",
+    "loadError": "無法載入你的聊天。",
+    "loading": "正在載入聊天",
+    "noMatches": "沒有與「{query}」相符的聊天。",
+    "retry": "重試",
+    "searchPlaceholder": "搜尋聊天",
+    "title": "舊聊天"
+  },
   "sessionGroupRow": {
     "mode": {
       "computerUse": "電腦工作階段",
@@ -700,6 +722,7 @@
     "delete": "刪除",
     "forkConversation": "分支對話",
     "inspect": "分析對話",
+    "markAsDone": "標記為已完成",
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
@@ -709,6 +732,7 @@
     "refresh": "重新整理",
     "removeFromGroup": "從群組中移除",
     "rename": "重新命名",
+    "reopen": "重新開啟",
     "shareFeedback": "分享意見回饋",
     "triggerAriaLabel": "對話動作",
     "unarchive": "取消歸檔",

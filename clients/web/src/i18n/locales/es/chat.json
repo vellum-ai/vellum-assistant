@@ -117,6 +117,28 @@
     "navigate": "Navegando",
     "terminal": "Ejecutando un comando"
   },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "Últimos 30 días",
+      "previous7Days": "Últimos 7 días",
+      "today": "Hoy",
+      "yesterday": "Ayer"
+    },
+    "chip": {
+      "all": "Todos",
+      "background": "En segundo plano",
+      "done": "Hecho"
+    },
+    "doneMeta": "Hecho · {time}",
+    "empty": "Aún no hay chats aquí.",
+    "filterAria": "Filtrar chats",
+    "loadError": "No se pudieron cargar tus chats.",
+    "loading": "Cargando chats",
+    "noMatches": "Ningún chat coincide con «{query}».",
+    "retry": "Reintentar",
+    "searchPlaceholder": "Buscar chats",
+    "title": "Chats antiguos"
+  },
   "sessionGroupRow": {
     "mode": {
       "computerUse": "Sesión de ordenador",
@@ -703,6 +725,7 @@
     "delete": "Eliminar",
     "forkConversation": "Bifurcar conversación",
     "inspect": "Analizar conversación",
+    "markAsDone": "Marcar como hecho",
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
@@ -712,6 +735,7 @@
     "refresh": "Actualizar",
     "removeFromGroup": "Quitar del grupo",
     "rename": "Cambiar nombre",
+    "reopen": "Reabrir",
     "shareFeedback": "Enviar comentarios",
     "triggerAriaLabel": "Acciones de conversación",
     "unarchive": "Desarchivar",

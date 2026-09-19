@@ -117,6 +117,28 @@
     "navigate": "导航",
     "terminal": "运行命令"
   },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "过去 30 天",
+      "previous7Days": "过去 7 天",
+      "today": "今天",
+      "yesterday": "昨天"
+    },
+    "chip": {
+      "all": "全部",
+      "background": "后台",
+      "done": "已完成"
+    },
+    "doneMeta": "已完成 · {time}",
+    "empty": "这里还没有聊天。",
+    "filterAria": "筛选聊天",
+    "loadError": "无法加载你的聊天。",
+    "loading": "正在加载聊天",
+    "noMatches": "没有与“{query}”匹配的聊天。",
+    "retry": "重试",
+    "searchPlaceholder": "搜索聊天",
+    "title": "旧聊天"
+  },
   "sessionGroupRow": {
     "mode": {
       "computerUse": "计算机会话",
@@ -700,6 +722,7 @@
     "delete": "删除",
     "forkConversation": "派生对话",
     "inspect": "分析对话",
+    "markAsDone": "标记为已完成",
     "markRead": "标记为已读",
     "markUnread": "标记为未读",
     "moveToGroup": "移动到群组",
@@ -709,6 +732,7 @@
     "refresh": "刷新",
     "removeFromGroup": "从群组中移除",
     "rename": "重命名",
+    "reopen": "重新打开",
     "shareFeedback": "分享反馈",
     "triggerAriaLabel": "对话操作",
     "unarchive": "取消归档",

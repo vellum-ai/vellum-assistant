@@ -117,6 +117,28 @@
     "navigate": "Navigating",
     "terminal": "Running a command"
   },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "Previous 30 days",
+      "previous7Days": "Previous 7 days",
+      "today": "Today",
+      "yesterday": "Yesterday"
+    },
+    "chip": {
+      "all": "All",
+      "background": "Background",
+      "done": "Done"
+    },
+    "doneMeta": "Done · {time}",
+    "empty": "No chats here yet.",
+    "filterAria": "Filter chats",
+    "loadError": "Could not load your chats.",
+    "loading": "Loading chats",
+    "noMatches": "No chats match “{query}”.",
+    "retry": "Try again",
+    "searchPlaceholder": "Search chats",
+    "title": "Old chats"
+  },
   "sessionGroupRow": {
     "mode": {
       "computerUse": "Computer session",
@@ -711,6 +733,7 @@
     "delete": "Delete",
     "forkConversation": "Fork Conversation",
     "inspect": "Analyze Conversation",
+    "markAsDone": "Mark as done",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
@@ -720,6 +743,7 @@
     "refresh": "Refresh",
     "removeFromGroup": "Remove from group",
     "rename": "Rename",
+    "reopen": "Reopen",
     "shareFeedback": "Share Feedback",
     "triggerAriaLabel": "Conversation actions",
     "unarchive": "Unarchive",
