@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { HoverCapabilityOverride } from "@vellumai/design-library/utils/hover-capability";
 import { expect, screen, userEvent } from "storybook/test";
 
 import {
@@ -160,9 +161,44 @@ export const LoginRequired: Story = {
   },
 };
 
-/** Sign-in has moved to the browser, and the tile holds the user's place. */
+/**
+ * Sign-in has moved to the browser, and the tile holds the user's place: the
+ * spinner is where the plus was, the body is the body it had at rest, and the
+ * wait costs the tile nothing in height.
+ */
 export const Waiting: Story = {
   args: { plan: notionPlan, state: { phase: "waiting", canCancel: true } },
+};
+
+/**
+ * The same wait with the pointer on it. The spinner is a button: it shows the
+ * X it will act on before it will take a click, so the only way to lose a
+ * sign-in is to aim at a control that is already saying "cancel".
+ */
+export const WaitingHovered: Story = {
+  args: { plan: notionPlan, state: { phase: "waiting", canCancel: true } },
+  play: async () => {
+    await userEvent.hover(
+      await screen.findByRole("button", { name: "Cancel connecting Notion" }),
+    );
+  },
+};
+
+/**
+ * The same wait on a device that cannot hover, where a tooltip mounts
+ * nothing. The message takes the description's two reserved lines instead of
+ * a line of its own, so a thumb can read it and the tile is the height it was.
+ * Pressing the square reveals the X; pressing it again calls the sign-in off.
+ */
+export const WaitingOnTouch: Story = {
+  args: { plan: notionPlan, state: { phase: "waiting", canCancel: true } },
+  decorators: [
+    (Story) => (
+      <HoverCapabilityOverride hoverCapable={false}>
+        <Story />
+      </HoverCapabilityOverride>
+    ),
+  ],
 };
 
 /** The grant landed; the server is coming up, and there is nothing to cancel. */
@@ -171,19 +207,40 @@ export const Connecting: Story = {
 };
 
 /**
- * A failure costs one line and turns the connect action into a retry. The
- * provider's own setup guide carries what it requires, and the paths that
- * were hidden until now are under "Try another way".
+ * A failure spends the description's two lines rather than asking for lines
+ * of its own, and turns the connect action into a retry. The provider's setup
+ * guide and every other way in are behind the chevron beside it.
  */
 export const FailedMcp: Story = {
   args: { plan: linearMcpPlan, state: mcpFailure },
   play: async () => {
     await userEvent.click(
-      await screen.findByRole("button", { name: "Try another way" }),
+      await screen.findByRole("button", {
+        name: "Other ways to connect Linear",
+      }),
     );
-    await expect(
-      await screen.findByRole("menuitem", { name: "Sign in through Vellum" }),
-    ).toBeInTheDocument();
+    for (const label of ["Setup guide", "Sign in through Vellum"]) {
+      await expect(
+        await screen.findByRole("menuitem", { name: label }),
+      ).toBeInTheDocument();
+    }
+  },
+};
+
+/**
+ * A provider that sent a paragraph back. It is clamped to the two lines the
+ * description had, with the whole of it on the `title`, so a wordy failure
+ * costs its neighbours in the grid row nothing.
+ */
+export const FailedLongMessage: Story = {
+  args: {
+    plan: linearMcpPlan,
+    state: {
+      ...mcpFailure,
+      error:
+        "Linear rejected the sign-in because the workspace administrator " +
+        "has not granted this application access to the workspace yet.",
+    },
   },
 };
 
