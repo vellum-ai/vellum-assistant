@@ -900,7 +900,7 @@ export async function executeBrowserNavigate(
     // authoritative — otherwise a pin from an earlier navigate would
     // still capture the command and route it to the dedicated tab.
     clearPinnedTab(context.conversationId, targetClientId);
-    cdp.setCdpSessionId?.(undefined);
+    cdp.setCdpSessionId?.("active");
   } else if (cdp.kind === "extension") {
     const alreadyPinned =
       getPinnedTab(context.conversationId, targetClientId) !== undefined;
@@ -921,24 +921,20 @@ export async function executeBrowserNavigate(
             ? result.clientId
             : undefined;
         if (!tabId) {
-          // Malformed createTab response (no tabId). We're nominally falling
-          // back to active-tab routing — but the live `cdp` instance was
-          // already constructed with whatever pin was in scope for this
-          // conversation, AND the pin store still holds it for future
-          // client construction. Clear both: the pin store (so the next
-          // executeBrowserNavigate builds a clean client) AND the current
-          // cdp instance's session (so the Page.navigate that runs in a
-          // few lines targets the active tab rather than the stale pin).
-          // Without the setCdpSessionId(undefined) call, the warn message
-          // is a lie: navigation would still route to the dead tab via the
-          // already-injected cdpSessionId and likely fail with
-          // cdp_session_not_found.
           clearPinnedTab(context.conversationId, targetClientId);
-          cdp.setCdpSessionId?.(undefined);
-          log.warn(
-            { conversationId: context.conversationId, result },
-            "Vellum.createTab returned no tabId; cleared stale pin and live session, falling back to active-tab routing",
-          );
+          try {
+            cdp.dispose();
+          } catch (disposeErr) {
+            log.warn(
+              { conversationId: context.conversationId, err: disposeErr },
+              "Failed to dispose CDP client after Vellum.createTab returned no tabId",
+            );
+          }
+          return {
+            content:
+              "Error: Failed to open a new tab for navigation: Vellum.createTab returned no tabId. Pass --use-active-tab to navigate the currently-active tab instead.",
+            isError: true,
+          };
         } else {
           cdp.setCdpSessionId?.(tabId);
           setPinnedTab(context.conversationId, tabId, clientId);

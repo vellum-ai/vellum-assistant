@@ -18,9 +18,29 @@ import {
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import { BadRequestError, ForbiddenError } from "./errors.js";
 
+export function assertHostProxyConnectionBinding(args: {
+  targetClientId?: string;
+  targetConnectionId?: string;
+}): void {
+  if (!args.targetConnectionId) {
+    return;
+  }
+  if (
+    !assistantEventHub.hasActiveClientConnection(
+      args.targetConnectionId,
+      args.targetClientId,
+    )
+  ) {
+    throw new ForbiddenError(
+      "This host-proxy result is bound to a connection that is no longer active.",
+    );
+  }
+}
+
 export async function assertHostProxyResultBinding(args: {
   headers?: Record<string, string | undefined>;
   targetClientId?: string;
+  targetConnectionId?: string;
   targetActorPrincipalId?: string;
   op: SameActorOp;
   missingClientIdMessage: string;
@@ -42,6 +62,11 @@ export async function assertHostProxyResultBinding(args: {
       );
     }
   }
+
+  assertHostProxyConnectionBinding({
+    targetClientId: args.targetClientId,
+    targetConnectionId: args.targetConnectionId,
+  });
 
   if (!args.targetClientId && !args.targetActorPrincipalId) {
     return;

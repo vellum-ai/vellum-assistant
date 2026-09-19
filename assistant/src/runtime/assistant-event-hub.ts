@@ -439,6 +439,29 @@ export class AssistantEventHub {
   }
 
   /**
+   * Whether `connectionId` is still an active client subscription, optionally
+   * required to belong to `clientId`.
+   */
+  hasActiveClientConnection(
+    connectionId: string,
+    clientId?: string,
+  ): boolean {
+    for (const entry of this.subscribers) {
+      if (entry.connectionId !== connectionId) {
+        continue;
+      }
+      if (!entry.active || entry.type !== "client") {
+        return false;
+      }
+      if (clientId != null && entry.clientId !== clientId) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Return the verified actor principal id captured at SSE subscription time
    * for the given client, or `undefined` if the client is unknown or
    * connected without a principal (e.g. legacy/service tokens).

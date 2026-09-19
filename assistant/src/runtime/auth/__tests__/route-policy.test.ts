@@ -223,7 +223,7 @@ describe("enforcePolicy", () => {
 // An oauth_proxy_v1 grant is printed for a user to export into a stock
 // third-party CLI's environment, so it sits outside this install's trust
 // boundary. `policy: null` admits any valid token, which for this grant means
-// mutating routes it was never minted for (integrations/a2a/invite/accept).
+// mutating routes it was never minted for.
 // ---------------------------------------------------------------------------
 
 /** The context an exported OAuth proxy grant produces. */

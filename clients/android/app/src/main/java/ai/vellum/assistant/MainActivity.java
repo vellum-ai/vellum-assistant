@@ -49,6 +49,7 @@ public class MainActivity extends BridgeActivity {
 
     private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
+    private AlertDialog connectConfirmDialog;
     private URI effectiveServer;
     private URI pendingAppLink;
     private ConnectDeepLink pendingConnect;
@@ -95,13 +96,11 @@ public class MainActivity extends BridgeActivity {
             },
             null
         );
-        URI selectedServer = pendingConnect == null
-            ? NativeFailureGuard.get(
-                "Unable to read the saved self-hosted server",
-                () -> SelfHostedServer.configured(this),
-                null
-            )
-            : pendingConnect.server();
+        URI selectedServer = NativeFailureGuard.get(
+            "Unable to read the saved self-hosted server",
+            () -> SelfHostedServer.configured(this),
+            null
+        );
         configureServer(selectedServer);
         pendingAppLink = NativeFailureGuard.get(
             "Unable to read the Android app link",
@@ -325,16 +324,7 @@ public class MainActivity extends BridgeActivity {
         String raw = intent.getDataString();
         intent.setData(null);
         setIntent(withoutData(intent));
-        ConnectDeepLink connect = ConnectDeepLink.parse(raw, getString(R.string.vellum_auth_scheme));
-        if (connect != null) {
-            // Remember the origin the moment the link arrives, as iOS does: a
-            // tunnel already down never reaches onPageFinished, so one recorded
-            // only on success is one the chooser can never offer back. What
-            // pairing still has to earn stays deferred, so an unreachable server
-            // neither displaces the active one nor relabels a card it already has.
-            SelfHostedServer.appendIfAbsent(this, connect.server(), connect.name());
-        }
-        return connect;
+        return ConnectDeepLink.parse(raw, getString(R.string.vellum_auth_scheme));
     }
 
     private boolean isConnectIntent(Intent intent) {
@@ -370,10 +360,37 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void deliverPendingConnect() {
-        if (pendingConnect == null || bridge == null || effectiveServer == null) {
+        if (pendingConnect == null || isFinishing() || isDestroyed()) {
             return;
         }
+        if (connectConfirmDialog != null && connectConfirmDialog.isShowing()) {
+            return;
+        }
+        String origin = pendingConnect.displayOrigin();
+        connectConfirmDialog = new AlertDialog.Builder(this)
+            .setTitle("Connect to this assistant?")
+            .setMessage(
+                origin +
+                " will become this app's server. Nothing is saved until you confirm."
+            )
+            .setPositiveButton("Connect", (dialog, which) -> confirmPendingConnect())
+            .setNegativeButton("Cancel", (dialog, which) -> cancelPendingConnect())
+            .setOnCancelListener(dialog -> cancelPendingConnect())
+            .setOnDismissListener(dialog -> connectConfirmDialog = null)
+            .create();
+        connectConfirmDialog.show();
+    }
+
+    private void confirmPendingConnect() {
+        if (pendingConnect == null || bridge == null) {
+            return;
+        }
+        SelfHostedServer.appendIfAbsent(this, pendingConnect.server(), pendingConnect.name());
         bridge.getWebView().loadUrl(pendingConnect.pairPage().toASCIIString());
+    }
+
+    private void cancelPendingConnect() {
+        pendingConnect = null;
     }
 
     private void deliverPendingAppLink() {

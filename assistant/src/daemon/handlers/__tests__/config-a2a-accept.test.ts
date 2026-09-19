@@ -21,7 +21,11 @@ import {
 } from "../../../contacts/contact-store.js";
 import { getSqlite } from "../../../persistence/db-connection.js";
 import { initializeDb } from "../../../persistence/db-init.js";
-import { acceptA2AInvite, createA2AInvite } from "../config-a2a.js";
+import {
+  acceptA2AInvite,
+  assertSafeSenderGatewayUrl,
+  createA2AInvite,
+} from "../config-a2a.js";
 
 await initializeDb();
 
@@ -486,5 +490,43 @@ describe("acceptA2AInvite", () => {
 
     const contacts = searchContacts({ channelType: "a2a" });
     expect(contacts).toHaveLength(0);
+  });
+
+  test("rejects http, credentials, and loopback or metadata hosts", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      throw new Error("fetch should not run");
+    }) as typeof fetch;
+
+    try {
+      for (const url of [
+        "http://sender.example.com",
+        "https://user:pass@sender.example.com",
+        "https://127.0.0.1",
+        "https://localhost",
+        "https://169.254.169.254",
+        "https://metadata.google.internal",
+      ]) {
+        const result = await acceptA2AInvite({
+          senderGatewayUrl: url,
+          senderAssistantId: SENDER_ASSISTANT_ID,
+          token: "any-token",
+        });
+        expect(result.success).toBe(false);
+        expect(result.errorCode).toBe("invalid_sender_url");
+      }
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("allows https LAN peers used by self-hosted accept", () => {
+    expect(assertSafeSenderGatewayUrl("https://192.168.1.20:8787").ok).toBe(
+      true,
+    );
+    expect(assertSafeSenderGatewayUrl("https://peer.ts.net").ok).toBe(true);
   });
 });
