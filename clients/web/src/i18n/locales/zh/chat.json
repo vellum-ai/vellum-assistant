@@ -1,4 +1,8 @@
 {
+  "conversationDoneToast": {
+    "message": "已完成",
+    "undo": "撤销"
+  },
   "documentChat": {
     "saveFailed": "无法保存文档。你的消息仍在这里。请重新发送。",
     "viewConversation": "查看对话",
@@ -60,6 +64,11 @@
     "summarizeTitle": "总结到此处？",
     "takingLonger": "您的助手响应时间超出预期。",
     "tryAgain": "重试"
+  },
+  "markAllDoneConfirmDialog": {
+    "confirm": "全部标记为已完成",
+    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“旧聊天”中，您可以在那里重新打开它们。}}",
+    "title": "全部标记为已完成"
   },
   "mobileDetailSheet": {
     "title": "活动详情"
@@ -483,6 +492,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
+    "done": "[已完成]",
     "newChat": "新建聊天"
   },
   "chatInfoPanel": {
@@ -720,6 +730,7 @@
     "copyConversation": "复制完整对话",
     "copyConversationId": "复制对话ID",
     "delete": "删除",
+    "done": "完成",
     "forkConversation": "派生对话",
     "inspect": "分析对话",
     "markAsDone": "标记为已完成",
@@ -970,6 +981,7 @@
     "deleteGroup": "删除群组",
     "deleteGroupWithConversations": "删除群组…",
     "groupByChannel": "按渠道分组",
+    "markAllAsDone": "全部标记为已完成…",
     "markAllRead": "全部标记为已读",
     "moveSectionDown": "下移分区",
     "moveSectionUp": "上移分区",
@@ -1696,6 +1708,9 @@
   },
   "sidebarListContextMenu": {
     "newGroup": "新建群组…"
+  },
+  "sidebarSectionViewAll": {
+    "label": "查看所有聊天"
   },
   "singleActivity": {
     "webSearch": "网页搜索"

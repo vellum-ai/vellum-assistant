@@ -42,6 +42,9 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { haptic } from "@/utils/haptics";
+import { useTranslation } from "@/i18n";
+import { useSidebarDoneEnabled } from "@/utils/done-labels";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import type { Conversation } from "@/types/conversation-types";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
@@ -239,6 +242,8 @@ export function useConversationActions({
   prePinGroupIdsRef,
 }: UseConversationActionsParams) {
   const queryClient = useQueryClient();
+  const { t } = useTranslation("chat");
+  const sidebarDone = useSidebarDoneEnabled();
 
   /* The latest optimistic placement of each conversation, so a move that
      settles can tell whether its own write is still the one showing. A ref
@@ -560,6 +565,20 @@ export function useConversationActions({
   // Handlers — thin wrappers that compute UI side effects, then fire mutate
   // -------------------------------------------------------------------------
 
+  const handleUnarchiveConversation = useCallback(
+    (conversation: Conversation) => {
+      if (!assistantId) {
+        return;
+      }
+      unarchiveMutation.mutate({
+        assistantId,
+        conversationId: conversation.conversationId,
+        previousArchivedAt: conversation.archivedAt,
+      });
+    },
+    [assistantId, unarchiveMutation],
+  );
+
   const handleArchiveConversation = useCallback(
     (conversation: Conversation) => {
       if (!assistantId) {
@@ -580,11 +599,37 @@ export function useConversationActions({
         }
       }
 
-      archiveMutation.mutate({
-        assistantId,
-        conversationId: conversation.conversationId,
-        previousArchivedAt: conversation.archivedAt,
-      });
+      archiveMutation.mutate(
+        {
+          assistantId,
+          conversationId: conversation.conversationId,
+          previousArchivedAt: conversation.archivedAt,
+        },
+        {
+          /* The row is gone from the list the moment it is checked, so the
+             toast is the only place the action can be taken back. Raised on
+             success rather than beside the request, for two reasons: a
+             failed archive rolls back silently instead of leaving a "Done"
+             standing over a conversation that is still open, and Undo cannot
+             be pressed until the archive has landed, so the two writes can
+             never reach the daemon out of order. Keyed on the conversation,
+             so checking one row twice replaces its toast rather than
+             stacking a second one beside it. */
+          onSuccess: () => {
+            if (!sidebarDone) {
+              return;
+            }
+            toast(t("conversationDoneToast.message"), {
+              id: `conversation-done:${conversation.conversationId}`,
+              description: conversation.title ?? undefined,
+              action: {
+                label: t("conversationDoneToast.undo"),
+                onClick: () => handleUnarchiveConversation(conversation),
+              },
+            });
+          },
+        },
+      );
     },
     [
       activeConversationId,
@@ -593,21 +638,10 @@ export function useConversationActions({
       switchConversation,
       startNewConversation,
       archiveMutation,
+      handleUnarchiveConversation,
+      sidebarDone,
+      t,
     ],
-  );
-
-  const handleUnarchiveConversation = useCallback(
-    (conversation: Conversation) => {
-      if (!assistantId) {
-        return;
-      }
-      unarchiveMutation.mutate({
-        assistantId,
-        conversationId: conversation.conversationId,
-        previousArchivedAt: conversation.archivedAt,
-      });
-    },
-    [assistantId, unarchiveMutation],
   );
 
   const handleDeleteConversation = useCallback(

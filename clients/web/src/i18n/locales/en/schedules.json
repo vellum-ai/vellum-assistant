@@ -36,6 +36,7 @@
     "conversations": "Conversations",
     "conversation": "Conversation",
     "conversationArchived": "(archived)",
+    "conversationDone": "(done)",
     "conversationUnavailable": "(unavailable)",
     "output": "Output",
     "error": "Error",

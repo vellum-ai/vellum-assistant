@@ -16,11 +16,15 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { fixedT } from "@/i18n";
+import { conversationDoneLabels } from "@/utils/done-labels";
 
 // The builders take a namespace-bound `t`, the same thing
 // `useTranslation("chat")` hands their component callers. The unbound `t`
 // resolves against `common` and returns the key instead of the copy.
 const t = fixedT("chat");
+// The archive wording the flag-off catalogue carries; the flag-on set has its
+// own test below.
+const doneLabels = conversationDoneLabels(t, false);
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -157,6 +161,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onPinToggle: () => {},
           onRename: () => {},
         })}
@@ -172,6 +177,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           isPinned: true,
           onPinToggle: () => {},
         })}
@@ -187,6 +193,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onArchive: () => {},
         })}
       </>,
@@ -200,6 +207,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onDelete: () => {},
         })}
       </>,
@@ -213,6 +221,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onArchive: () => {},
         })}
       </>,
@@ -227,6 +236,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           isReadonly: true,
           onArchive: () => {},
           onDelete: () => {},
@@ -245,6 +255,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           isArchived: true,
           onUnarchive: () => {},
         })}
@@ -259,6 +270,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           isReadonly: true,
           onArchive: () => {},
           onMarkUnread: () => {},
@@ -275,6 +287,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",
@@ -293,6 +306,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           variant: "header",
           onPinToggle: () => {},
         })}
@@ -307,6 +321,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           variant: "header",
           onCopyConversation: () => {},
           onForkConversation: () => {},
@@ -344,6 +359,7 @@ describe("renderConversationMenuItems", () => {
           {renderConversationMenuItems({
             Primitive: Menu as unknown as ConversationMenuPrimitive,
             t,
+            doneLabels,
             variant,
             onCopyConversationId: () => {},
           })}
@@ -359,6 +375,7 @@ describe("renderConversationMenuItems", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onRename: () => {},
         })}
       </>,
@@ -378,6 +395,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onPinToggle: () => {},
         })}
       </>,
@@ -391,6 +409,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           moveToGroups: [],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -407,6 +426,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           moveToGroups: [
             { id: "g_research", name: "Research" },
             { id: "g_ideas", name: "Ideas" },
@@ -427,6 +447,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -441,6 +462,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -455,6 +477,7 @@ describe("renderConversationMenuItems — Move to group submenu", () => {
       <>
         {renderConversationMenuItemsAsPanelItems({
           t,
+          doneLabels,
           moveToGroups: [{ id: "g_research", name: "Research" }],
           onMoveToGroup: () => {},
           onCreateGroupInto: () => {},
@@ -519,6 +542,7 @@ describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
         {renderConversationMenuItems({
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
+          doneLabels,
           onMarkRead: () => {},
           onMarkUnread: () => {},
         })}
@@ -542,6 +566,7 @@ describe("renderConversationMenuItems: read-state iconography", () => {
     const html = menuHtml({
       Primitive: Menu as unknown as ConversationMenuPrimitive,
       t,
+      doneLabels,
       onMarkRead: () => {},
     });
     expect(html).toContain("Mark as read");
@@ -553,6 +578,7 @@ describe("renderConversationMenuItems: read-state iconography", () => {
     const html = menuHtml({
       Primitive: Menu as unknown as ConversationMenuPrimitive,
       t,
+      doneLabels,
       onMarkUnread: () => {},
     });
     expect(html).toContain("Mark as unread");
@@ -594,6 +620,7 @@ describe("renderConversationMenuItems: keyboard shortcut routing", () => {
   const everyAction = {
     Primitive: Menu as unknown as ConversationMenuPrimitive,
     t,
+    doneLabels,
     onPinToggle: () => {},
     onRename: () => {},
     onMarkUnread: () => {},
@@ -837,6 +864,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
       <>
         {renderConversationMenuItemsAsPanelItems({
           t,
+          doneLabels,
           onPinToggle: () => {},
           onRename: () => {},
           onArchive: () => {},
@@ -856,6 +884,7 @@ describe("renderConversationMenuItemsAsPanelItems", () => {
       <>
         {renderConversationMenuItemsAsPanelItems({
           t,
+          doneLabels,
           variant: "header",
           channelSourceLink: {
             href: "https://slack.com/archives/C01ABC/p1700000000000100",
