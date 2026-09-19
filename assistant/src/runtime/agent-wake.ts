@@ -559,10 +559,9 @@ async function defaultResolveTarget(
     // snapshot reads. Without this, fork-based memory retrospectives see
     // an empty history because loadFromDb ran with trustClass="unknown"
     // and filtered out every guardian-provenance message.
-    const conversation = await getOrCreateConversation(conversationId, {
+    return await getOrCreateConversation(conversationId, {
       trustContext: opts.trustContext,
     });
-    return conversation;
   } catch (err) {
     log.warn(
       { err, conversationId },

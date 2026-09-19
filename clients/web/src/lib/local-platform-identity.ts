@@ -651,13 +651,12 @@ async function ensureRegistration(
   organizationId: string,
   clientInstallationId: string,
 ): Promise<EnsureRegistrationResponse> {
-  const body = await platformPost<EnsureRegistrationResponse>(
+  return platformPost<EnsureRegistrationResponse>(
     "/v1/assistants/self-hosted-local/ensure-registration/",
     assistant,
     organizationId,
     clientInstallationId,
   );
-  return body;
 }
 
 async function reprovisionApiKey(

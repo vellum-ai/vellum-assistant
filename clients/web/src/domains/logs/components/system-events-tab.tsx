@@ -246,11 +246,7 @@ export function SystemEventsTab({ assistantId }: SystemEventsTabProps) {
       if (!lastPage.next) {
         return undefined;
       }
-      const loaded = allPages.reduce(
-        (acc, page) => acc + page.results.length,
-        0,
-      );
-      return loaded;
+      return allPages.reduce((acc, page) => acc + page.results.length, 0);
     },
   });
 

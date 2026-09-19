@@ -362,7 +362,7 @@ export const repositionDictationOverlayWindow = (): void => {
 };
 
 const ensureOverlayWindow = (): BrowserWindow => {
-  const win = createFloatingWindow({
+  return createFloatingWindow({
     kind: OVERLAY_KIND,
     route: OVERLAY_PATH,
     width: OVERLAY_WIDTH,
@@ -379,8 +379,6 @@ const ensureOverlayWindow = (): BrowserWindow => {
       hasShadow: false,
     },
   });
-
-  return win;
 };
 
 const showOverlay = (): void => {
