@@ -54,6 +54,7 @@ export function writeDesktopPanelConfig(
   const applicationsDir = join(configDir, "applications");
   mkdirSync(applicationsDir, { recursive: true });
   const chromiumEntry = join(applicationsDir, "google-chrome.desktop");
+  // Saved dock pins reference this stable launcher path.
   const terminalEntry = join(applicationsDir, "xterm.desktop");
   const minesEntry = join(applicationsDir, "org.gnome.Mines.desktop");
   writeFileSync(
@@ -80,11 +81,9 @@ export function writeDesktopPanelConfig(
     terminalEntry,
     desktopEntry({
       name: "Terminal",
-      windowClass: "XTerm",
+      windowClass: "terminology",
       icon: terminalIcon,
-      // `-fa` picks a scalable font through fontconfig; xterm otherwise falls
-      // back to the `fixed` bitmap, which is unreadable at this geometry.
-      exec: `"${request.terminalPath}" -fa Monospace -fs 11 -bg '#1c1c22' -fg '#e6e6ea' -title Terminal`,
+      exec: `"${request.terminalPath}" --no-wizard=true --font=Monospace/11 --title=Terminal`,
     }),
   );
 

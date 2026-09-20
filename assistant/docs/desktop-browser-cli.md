@@ -16,6 +16,8 @@ flowchart LR
   Chrome --> Stream[Existing desktop stream]
 ```
 
+The Terminal dock launcher opens [Terminology](https://www.enlightenment.org/about-terminology), with tabs, split panes and graphical settings. Right-click inside the terminal to open its controls. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Desktop setup installs Terminology automatically when it is missing.
+
 Chrome and its dock launcher share the managed profile and loopback debug port. For Chrome reopened from the dock, the profile singleton lock identifies a candidate PID, validated against the installed executable, profile and loopback debug arguments. Discovery checks `/proc` socket ownership against that browser PID, refuses redirects and validates the returned browser WebSocket endpoint. The connection stays within the container. No CDP endpoint or token is exposed to the renderer.
 
 The desktop client bypasses personal-browser discovery, extension reconnect waits and backend fallback. It reuses the existing AX snapshot, DOM element resolution, mouse, keyboard, extraction and credential-fill implementations. Operation-scoped clients borrow the lease's connection; disposing one does not release the lease. `detach`, `close`, turn completion, cancellation, errors and idle expiry release control. Turn completion clears the activity indicator immediately and queues browser cleanup before the next automation session; it leaves Chrome and the current page open for the user. Only `tabs close` closes a Chrome tab.
