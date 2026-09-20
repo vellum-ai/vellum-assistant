@@ -882,6 +882,8 @@ export class DesktopSessionManager {
       }
     }
     env.DISPLAY = DESKTOP_DISPLAY;
+    // D-Bus-activated window matching must see the same launchers as Plank.
+    env.XDG_DATA_HOME = this.panelConfigDir;
     env.DBUS_SESSION_BUS_ADDRESS = this.accessibilityBusAddress;
     env.NO_AT_BRIDGE = "0";
     env.GTK_A11Y = "atspi";

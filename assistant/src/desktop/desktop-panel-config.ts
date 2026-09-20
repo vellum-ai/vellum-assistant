@@ -9,7 +9,12 @@ import {
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { desktopChromeArguments } from "./desktop-browser-endpoint.js";
+import {
+  DESKTOP_CHROME_WINDOW_CLASS,
+  desktopChromeArguments,
+} from "./desktop-browser-endpoint.js";
+
+const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
 
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
@@ -50,6 +55,26 @@ export function writeDesktopPanelConfig(
     "product_logo_64.png",
   );
   writeFileSync(terminalIcon, Buffer.from(TERMINAL_ICON_BASE64, "base64"));
+  const terminalConfig = join(configDir, "wezterm.lua");
+  seedFile(
+    terminalConfig,
+    `local wezterm = require 'wezterm'
+return {
+  front_end = 'Software',
+  enable_wayland = false,
+  check_for_updates = false,
+  hide_tab_bar_if_only_one_tab = false,
+  font_size = 11,
+  color_scheme = 'Catppuccin Mocha',
+  initial_cols = 110,
+  initial_rows = 28,
+  keys = {
+    { key = 'd', mods = 'CTRL|SHIFT', action = wezterm.action.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+    { key = 'e', mods = 'CTRL|SHIFT', action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' } },
+  },
+}
+`,
+  );
 
   const applicationsDir = join(configDir, "applications");
   mkdirSync(applicationsDir, { recursive: true });
@@ -61,29 +86,31 @@ export function writeDesktopPanelConfig(
     chromiumEntry,
     desktopEntry({
       name: "Google Chrome",
-      // Chrome includes its profile path in WM_CLASS.
-      windowClass: `google-chrome (${request.chromiumProfileDir})`,
+      windowClass: DESKTOP_CHROME_WINDOW_CLASS,
       icon: browserIcon,
-      exec: [
+      exec: desktopCommand([
         request.chromiumPath,
         ...desktopChromeArguments(
           request.chromiumProfileDir,
           request.debugPort,
         ),
-      ]
-        .map(
-          (arg) => `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`,
-        )
-        .join(" "),
+      ]),
     }),
   );
   writeFileSync(
     terminalEntry,
     desktopEntry({
       name: "Terminal",
-      windowClass: "terminology",
+      windowClass: TERMINAL_WINDOW_CLASS,
       icon: terminalIcon,
-      exec: `"${request.terminalPath}" --no-wizard=true --font=Monospace/11 --title=Terminal`,
+      exec: desktopCommand([
+        request.terminalPath,
+        "--config-file",
+        terminalConfig,
+        "start",
+        "--new-tab",
+        `--class=${TERMINAL_WINDOW_CLASS}`,
+      ]),
     }),
   );
 
@@ -124,6 +151,12 @@ export function writeDesktopPanelConfig(
 
 function dockItem(launcher: string): string {
   return `[PlankDockItemPreferences]\nLauncher=${pathToFileURL(launcher).href}\n`;
+}
+
+function desktopCommand(args: string[]): string {
+  return args
+    .map((arg) => `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`)
+    .join(" ");
 }
 
 function seedFile(path: string, contents: string): void {

@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { shouldRestoreDesktopChromeSession } from "./desktop-chrome-session.js";
 
+export const DESKTOP_CHROME_WINDOW_CLASS = "vellum-desktop-chrome";
+
 export async function allocateDesktopDebugPort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -129,6 +131,7 @@ export function desktopChromeArguments(
   return [
     "--no-sandbox",
     "--no-first-run",
+    `--class=${DESKTOP_CHROME_WINDOW_CLASS}`,
     "--force-renderer-accessibility",
     "--disable-dev-shm-usage",
     ...(shouldRestoreDesktopChromeSession(profileDir)

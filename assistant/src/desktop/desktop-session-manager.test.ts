@@ -219,6 +219,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
     expect(x[x.indexOf("-geometry") + 1]).toBe("1600x900");
     for (const role of [
+      "session-bus",
       "window-manager",
       "compositor",
       "clipboard",
@@ -229,6 +230,7 @@ describe("DesktopSessionManager process tree", () => {
         HOME: "/data",
         LANG: "C.UTF-8",
         DISPLAY: ":99",
+        XDG_DATA_HOME: panelConfigDir,
         DBUS_SESSION_BUS_ADDRESS: h.manager.accessibilityBusAddress,
         NO_AT_BRIDGE: "0",
         GTK_A11Y: "atspi",
@@ -280,7 +282,7 @@ describe("DesktopSessionManager process tree", () => {
         "plank",
         "tigervncconfig",
         "vncconfig",
-        "terminology",
+        "wezterm",
       ],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
@@ -306,7 +308,7 @@ describe("DesktopSessionManager process tree", () => {
       join(panelConfigDir, "applications", "xterm.desktop"),
       "utf8",
     );
-    expect(terminal).toContain(`Exec="/usr/bin/terminology"`);
+    expect(terminal).toContain(`Exec="/usr/bin/wezterm"`);
     expect(terminal).toContain(`Icon=${join(panelConfigDir, "terminal.png")}`);
 
     const bytes = readFileSync(join(panelConfigDir, "terminal.png"));

@@ -16,7 +16,9 @@ flowchart LR
   Chrome --> Stream[Existing desktop stream]
 ```
 
-The Terminal dock launcher opens [Terminology](https://www.enlightenment.org/about-terminology), with tabs, split panes and graphical settings. Right-click inside the terminal to open its controls. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Desktop setup installs Terminology automatically when it is missing.
+The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a visible tab bar, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Setup installs an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
+
+Chrome and WezTerm use explicit desktop window classes shared with their launcher entries. The desktop session bus and Plank share `XDG_DATA_HOME` so the D-Bus-activated window matcher can resolve the generated launchers and group running windows under their pinned icons.
 
 Chrome and its dock launcher share the managed profile and loopback debug port. For Chrome reopened from the dock, the profile singleton lock identifies a candidate PID, validated against the installed executable, profile and loopback debug arguments. Discovery checks `/proc` socket ownership against that browser PID, refuses redirects and validates the returned browser WebSocket endpoint. The connection stays within the container. No CDP endpoint or token is exposed to the renderer.
 
