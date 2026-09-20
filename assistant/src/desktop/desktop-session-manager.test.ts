@@ -219,6 +219,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
     expect(x[x.indexOf("-geometry") + 1]).toBe("1600x900");
     for (const role of [
+      "session-bus",
       "window-manager",
       "compositor",
       "clipboard",
@@ -229,6 +230,8 @@ describe("DesktopSessionManager process tree", () => {
         HOME: "/data",
         LANG: "C.UTF-8",
         DISPLAY: ":99",
+        XDG_CONFIG_HOME: panelConfigDir,
+        XDG_DATA_HOME: panelConfigDir,
         DBUS_SESSION_BUS_ADDRESS: h.manager.accessibilityBusAddress,
         NO_AT_BRIDGE: "0",
         GTK_A11Y: "atspi",

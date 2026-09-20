@@ -33,16 +33,21 @@ const DESKTOP_BINARIES = {
   sessionBus: ["dbus-daemon"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
+  fileManager: ["thunar"],
   wallpaper: ["feh"],
   input: ["xdotool"],
   capture: ["scrot"],
 } as const;
 
 const DESKTOP_PACKAGES = [
+  "adwaita-icon-theme",
   "at-spi2-core",
   "dbus-x11",
   "feh",
   "gnome-mines",
+  "gvfs",
+  "thunar",
+  "tumbler",
   "openbox",
   "python3",
   "python3-dbus",
@@ -115,6 +120,12 @@ export class DesktopDependencyInstaller {
             existsSync(desktopChromePath() + ".ready") &&
             existsSync(desktopChromePath()) &&
             existsSync("/usr/games/gnome-mines") &&
+            existsSync(
+              "/usr/share/dbus-1/services/org.gtk.vfs.Daemon.service",
+            ) &&
+            existsSync(
+              "/usr/share/dbus-1/services/org.xfce.Tumbler.Thumbnailer1.service",
+            ) &&
             existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
             existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service") &&
             existsSync("/usr/share/dbus-1/services/org.a11y.Bus.service") &&

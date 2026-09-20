@@ -34,6 +34,8 @@ test("initializes the dock and preserves user changes across restarts", () => {
     chromiumPath: "/opt/chrome-v1/chrome",
     chromiumProfileDir: profileDir,
     terminalPath: "/usr/bin/xterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   };
   writeDesktopPanelConfig(request);
   const settingsPath = join(configDir, "glib-2.0", "settings", "keyfile");
@@ -90,6 +92,8 @@ test("initialization recovers partial pin creation", () => {
     chromiumPath: "/opt/chrome/chrome",
     chromiumProfileDir: join(workspace, "data", "desktop-profile"),
     terminalPath: "/usr/bin/xterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   });
   expect(readFileSync(join(pinsDir, "chrome.dockitem"), "utf8")).toBe(
     "existing pin",
@@ -112,6 +116,8 @@ test("a failed settings write leaves initialization retryable", () => {
     chromiumPath: "/opt/chrome/chrome",
     chromiumProfileDir: join(workspace, "data", "desktop-profile"),
     terminalPath: "/usr/bin/xterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   };
   const write = fs.writeFileSync;
   const interrupted = spyOn(fs, "writeFileSync").mockImplementation(

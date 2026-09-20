@@ -54,3 +54,17 @@ Browser commands, user handoff, errors, and interruption require a fresh
 observation before returning to native input. Browser commands and computer use
 share session ownership, cancellation, and the user-help reservation. Use
 browser commands for page-level operations and computer use for desktop UI.
+
+## File explorer
+
+Open **Files** in the virtual desktop dock to browse the assistant workspace in
+Thunar, with a Workspace sidebar shortcut and a dark theme. It supports tabs,
+split views, search, hidden files, drag and drop,
+copy/paste, bulk renaming, and file properties. GVfs provides Trash support and
+Tumbler provides thumbnails. Use Ctrl+L to enter a path, Ctrl+T for a new tab,
+Ctrl+H to toggle hidden files, and F3 for split view.
+
+Files manages the assistant's files. Files on your personal computer must first
+be uploaded or otherwise copied into the assistant workspace. Existing desktops
+receive the Files dock shortcut once during upgrade; removing or rearranging it
+is preserved across restarts.
