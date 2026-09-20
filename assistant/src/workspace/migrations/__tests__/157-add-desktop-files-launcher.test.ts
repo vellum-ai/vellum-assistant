@@ -11,7 +11,11 @@ import { dirname, join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 
 import { writeDesktopPanelConfig } from "../../../desktop/desktop-panel-config.js";
-import { addDesktopFilesLauncherMigration as migration } from "../157-add-desktop-files-launcher.js";
+import { WORKSPACE_MIGRATIONS } from "../registry.js";
+
+const migration = WORKSPACE_MIGRATIONS.find(
+  (entry) => entry.id === "157-add-desktop-files-launcher",
+)!;
 
 const workspaces: string[] = [];
 afterEach(() => {
