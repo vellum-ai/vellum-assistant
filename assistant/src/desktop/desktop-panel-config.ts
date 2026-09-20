@@ -55,7 +55,8 @@ export function writeDesktopPanelConfig(
     "product_logo_64.png",
   );
   writeFileSync(terminalIcon, Buffer.from(TERMINAL_ICON_BASE64, "base64"));
-  const terminalConfig = join(configDir, "wezterm.lua");
+  const terminalConfig = join(configDir, "wezterm", "wezterm.lua");
+  mkdirSync(dirname(terminalConfig), { recursive: true });
   seedFile(
     terminalConfig,
     `local wezterm = require 'wezterm'
@@ -105,8 +106,6 @@ return {
       icon: terminalIcon,
       exec: desktopCommand([
         request.terminalPath,
-        "--config-file",
-        terminalConfig,
         "start",
         "--new-tab",
         `--class=${TERMINAL_WINDOW_CLASS}`,
