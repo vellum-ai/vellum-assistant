@@ -118,7 +118,7 @@ Before an adapter sends a notification, `pairDeliveryWithConversation()` (in `co
 
 - **Vellum (`start_new_conversation`)**:
   - A signal that sets `requiresConversation` gets a conversation of its own, created with its seed message before the send (`standard` unless the producer overrides `conversationType`). An explicit `reuse_existing` action appends to a valid target instead, and falls back to a new conversation (`conversationFallbackUsed: true`) when the target is stale.
-  - A signal that does not set it creates no conversation, except that with `assistant-initiated-threads` on, an `assistant.share` from a background or scheduled run (and with no `conversationMetadata.source` of its own) is promoted to one (`withAssistantInitiatedThread()`). Otherwise its body is appended to the conversation that produced it (resolved from `sourceContextId`). A `chat.assistant_reply` appends nothing, because the full reply is already in that transcript.
+  - A signal that does not set it creates no conversation, except that with `assistant-initiated-threads` on, an `assistant.share` with no `conversationMetadata.source` of its own is promoted to one when its producing conversation is a background or scheduled run, or does not resolve (`withAssistantInitiatedThread()`). Otherwise its body is appended to the conversation that produced it (resolved from `sourceContextId`). A `chat.assistant_reply` appends nothing, because the full reply is already in that transcript.
 - **External channels (`continue_existing_conversation`)**: only the chat's home conversation is resolved, and nothing is written. The broadcaster records the delivered post as an assistant row once the channel acknowledges it (`recordDeliveredChannelPost`), so a failed or pending delivery never reads as something the assistant said.
 - **`push_only`** (platform) and **`not_deliverable`**: nothing is paired. Platform push deep-links through the vellum delivery's conversation.
 - **Guardian-request deliveries to channels** pair nothing either: they are projections of a canonical request, and only their vellum delivery carries a conversation (see `notifications/AGENTS.md`).
@@ -203,7 +203,7 @@ When a vellum notification conversation **is** newly created (strategy `start_ne
 
 The payload is `NotificationConversationCreatedEventSchema` in `api/events/notification-conversation-created.ts`.
 
-No first-party client acts on this event today: the shared web renderer (browser, desktop app, mobile apps) lists it as a no-op in `use-stream-event-handler.ts`.
+No first-party client acts on this event: the shared web renderer (browser, desktop app, mobile apps) lists it as a no-op in `use-stream-event-handler.ts`.
 
 ### Per-Dispatch Conversation Callback
 
@@ -383,9 +383,9 @@ Each guardian request is assigned a unique 6-character hex code (e.g. `A1B2C3`) 
 
 ### Reply Routing and Disambiguation
 
-Every guardian reply, typed in the app or on a channel, goes through `routeGuardianReply()` in `runtime/guardian-reply-router.ts`: from `conversation-process.ts` and `conversation-routes.ts` for the app, and from `inbound-stages/guardian-reply-intercept.ts` for channels. In priority order it tries:
+Every guardian reply typed in the app, and every reply or button press arriving on a channel, goes through `routeGuardianReply()` in `runtime/guardian-reply-router.ts`: from `conversation-process.ts` and `conversation-routes.ts` for the app, and from `inbound-stages/guardian-reply-intercept.ts` for channels. Buttons on the app's own cards skip the router: `surface-action-routes.ts` and `guardian-action-routes.ts` call `processGuardianDecision()` directly. In priority order the router tries:
 
-1. A button callback (`apr:<requestId>:<action>`).
+1. A channel button callback (`apr:<requestId>:<action>`).
 2. A request-code prefix on the reply. Matching is case-insensitive.
 3. `open invite flow` while an access request is pending, which passes through to the normal assistant turn.
 4. A bare-text answer, when exactly one question is pending in the conversation it was asked in.
@@ -492,7 +492,7 @@ The ack populates three columns on `notification_deliveries`:
 | `client_delivery_error`  | TEXT    | Error description when the post failed (e.g. authorization denied)                                        |
 | `client_delivery_at`     | INTEGER | Epoch ms timestamp of when the client reported the outcome                                                |
 
-`'delivered'` covers two outcomes the column cannot tell apart: the OS accepted a posted banner, or the client deliberately showed none (the user was already watching that conversation, or the sending assistant predates guardian targeting and the intent was guardian-scoped). The intent goes to every eligible connection, and each one acks the same `deliveryId`. `handleNotificationIntentResult()` in `runtime/routes/notification-routes.ts` overwrites the row with no client key, so the status holds the last client to report, not an aggregate, and `client_delivery_error` is only ever set, so it can outlive a later success. The audit trail answers three questions for each vellum delivery:
+`'delivered'` covers two outcomes the column cannot tell apart: the OS accepted a posted banner, or the client deliberately showed none (the intent was `silent`, the user was already watching that conversation, or the sending assistant predates guardian targeting and the intent was guardian-scoped). The intent goes to every eligible connection, and each one acks the same `deliveryId`. `handleNotificationIntentResult()` in `runtime/routes/notification-routes.ts` overwrites the row with no client key, so the status holds the last client to report, not an aggregate, and `client_delivery_error` is only ever set, so it can outlive a later success. The audit trail answers three questions for each vellum delivery:
 
 1. **Was the intent broadcast?** -- existing `status` column (`sent`)
 2. **Did any client report back?** -- `client_delivery_status` is non-null

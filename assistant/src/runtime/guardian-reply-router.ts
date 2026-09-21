@@ -2,12 +2,13 @@
  * Shared guardian reply router.
  *
  * Provides a single entry point (`routeGuardianReply`) for every guardian
- * reply: typed in the app (`daemon/conversation-process.ts`,
- * `routes/conversation-routes.ts`) or arriving on any channel
- * (`routes/inbound-stages/guardian-reply-intercept.ts`). Routes through a
- * priority-ordered pipeline:
+ * reply typed in the app (`daemon/conversation-process.ts`,
+ * `routes/conversation-routes.ts`) and every reply or button press arriving
+ * on a channel (`routes/inbound-stages/guardian-reply-intercept.ts`). App
+ * card buttons decide through `processGuardianDecision()` instead. Routes
+ * through a priority-ordered pipeline:
  *
- *   1. Deterministic callback/ref parsing (button presses with `apr:<requestId>:<action>`)
+ *   1. Deterministic callback/ref parsing (channel button presses with `apr:<requestId>:<action>`)
  *   2. Request code parsing (6-char alphanumeric prefix matching)
  *   2.5. Invite handoff: "open invite flow" with a pending access request
  *        passes through to the normal assistant turn

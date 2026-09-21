@@ -2,8 +2,8 @@
  * `notification_conversation_created` SSE event.
  *
  * Server → client broadcast emitted when an incoming notification
- * creates a new vellum conversation. No first-party client acts on it
- * today; the web client treats it as a no-op. A guardian-sensitive
+ * creates a new vellum conversation. First-party clients ignore it; the
+ * web client lists it as a no-op. A guardian-sensitive
  * conversation is announced only to connections authenticated as the
  * guardian named in `targetGuardianPrincipalId`.
  *
@@ -39,8 +39,7 @@ export const NotificationConversationCreatedEventSchema = z.object({
   source: z.string().optional(),
   /**
    * Mirrors `NotificationIntent.silent`, which the server sets for
-   * low- and medium-urgency signals. No first-party client reads it
-   * today.
+   * low- and medium-urgency signals. Clients act on the intent's copy.
    */
   silent: z.boolean().optional(),
 });
