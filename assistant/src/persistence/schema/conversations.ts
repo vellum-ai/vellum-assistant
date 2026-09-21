@@ -208,6 +208,32 @@ export const conversationModeSessions = sqliteTable(
   ],
 );
 
+/**
+ * Which principals take part in a conversation. No rows means the
+ * conversation belongs to the guardian alone. `removedAt` ends access
+ * while leaving the row, so past authorship stays attributable.
+ */
+export const conversationParticipants = sqliteTable(
+  "conversation_participants",
+  {
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    principalId: text("principal_id").notNull(),
+    role: text("role", { enum: ["creator", "participant"] }).notNull(),
+    addedBy: text("added_by"),
+    addedAt: integer("added_at").notNull(),
+    removedAt: integer("removed_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.principalId] }),
+    index("idx_conversation_participants_principal").on(
+      table.principalId,
+      table.removedAt,
+    ),
+  ],
+);
+
 export const messages = sqliteTable(
   "messages",
   {
