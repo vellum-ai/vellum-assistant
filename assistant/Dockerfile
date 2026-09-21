@@ -129,6 +129,7 @@ RUN set -eu; \
         libgl1-mesa-dri \
         libgtk-3-0 \
         libvulkan1 \
+        mousepad \
         openbox \
         plank \
         python3 \
@@ -144,6 +145,10 @@ RUN set -eu; \
         xfonts-base \
         xterm \
         /tmp/wezterm.deb; \
+    mkdir -p /etc/xdg; \
+    awk -v desktop_id=org.xfce.mousepad.desktop \
+        'BEGIN { print "[Default Applications]" } /^MimeType=/ { sub(/^MimeType=/, ""); count = split($0, types, ";"); for (i = 1; i <= count; i++) { if (types[i] != "") { print types[i] "=" desktop_id ";" } } }' \
+        /usr/share/applications/org.xfce.mousepad.desktop > /etc/xdg/mimeapps.list; \
     wezterm --version; \
     rm -rf /tmp/wezterm.deb /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 
