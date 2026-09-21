@@ -14,7 +14,7 @@ import {
   LocalFileIcon,
   localFileKindFromFilename,
 } from "@/components/local-file/local-file-icon";
-import { toggleLocalFile } from "@/components/local-file/open-local-file";
+import { openLocalFile } from "@/components/local-file/open-local-file";
 import { RecallConversationRow } from "@/domains/chat/components/tool-activity/recall-conversation-row";
 import { useRecallSourceLabel } from "@/domains/chat/components/tool-activity/recall-labels";
 import { workspaceBasenameOf } from "@/utils/workspace-path-links";
@@ -69,9 +69,7 @@ function RecallEvidenceRow({
         title={item.title}
         subtitle={subtitle}
         trailing={trailing}
-        onClick={() =>
-          toggleLocalFile(path, filename, assistantId ?? undefined)
-        }
+        onClick={() => openLocalFile(path, filename, assistantId ?? undefined)}
       />
     );
   }
