@@ -4,47 +4,14 @@
  * states in which there is no result to show.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render as rtlRender } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { RecallMetadata } from "@vellumai/assistant-api";
-import type { ReactNode } from "react";
 
-// The markdown the answer renders in can resolve workspace links through the
-// generated daemon SDK. Stub every endpoint so the module loads offline, then
-// import dynamically so the mock is registered first.
-const sdkStub = async () => ({ data: undefined });
-const realSdkPath = new URL(
-  "../../../../generated/daemon/sdk.gen.ts",
-  import.meta.url,
-).pathname;
-const sdkSource = await Bun.file(realSdkPath).text();
-const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
-  (m) => m[1]!,
-);
-const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
-mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
-
-const { RecallDetail } =
-  await import("@/domains/chat/components/tool-activity/recall-detail");
+import { RecallDetail } from "@/domains/chat/components/tool-activity/recall-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
-let queryClient: QueryClient;
-
-function wrapper({ children }: { children: ReactNode }) {
-  return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
-}
-
-beforeEach(() => {
-  queryClient = new QueryClient();
-});
-
-afterEach(() => {
-  cleanup();
-  queryClient.clear();
-});
+afterEach(cleanup);
 
 const recall: RecallMetadata = {
   query: "release checklist",
@@ -88,7 +55,6 @@ function renderRecall(overrides: Partial<Props> = {}) {
       isDenied={false}
       {...overrides}
     />,
-    { wrapper },
   );
 }
 

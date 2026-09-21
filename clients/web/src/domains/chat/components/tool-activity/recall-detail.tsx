@@ -12,26 +12,25 @@
  */
 
 import type { RecallMetadata } from "@vellumai/assistant-api";
-import { Notice, Typography } from "@vellumai/design-library";
+import { Typography } from "@vellumai/design-library";
 
-import {
-  ClampedContent,
-  DetailBlock,
-  SectionLabel,
-} from "@/components/detail-primitives";
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { RecallEvidenceList } from "@/domains/chat/components/tool-activity/recall-evidence-list";
+import { DetailBlock, SectionLabel } from "@/components/detail-primitives";
 import {
   useRecallDepthLabel,
   useRecallSourceLabel,
 } from "@/domains/chat/components/tool-activity/recall-labels";
+import { RecallResult } from "@/domains/chat/components/tool-activity/recall-result";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
 import { currentLocale, useTranslation } from "@/i18n";
 
+interface RecallScopeProps {
+  recall: RecallMetadata;
+}
+
 /** How hard recall searched, and where. */
-function RecallScope({ recall }: { recall: RecallMetadata }) {
+function RecallScope({ recall }: RecallScopeProps) {
   const { t } = useTranslation("chat");
   const depthLabel = useRecallDepthLabel();
   const sourceLabel = useRecallSourceLabel();
@@ -49,79 +48,6 @@ function RecallScope({ recall }: { recall: RecallMetadata }) {
         }).format(recall.sources.map(sourceLabel)),
       })}
     </Typography>
-  );
-}
-
-/** The places recall could not fully search, and why, when there are any. */
-function DegradedSources({ recall }: { recall: RecallMetadata }) {
-  const { t } = useTranslation("chat");
-  const sourceLabel = useRecallSourceLabel();
-  const degraded = recall.searchedSources.filter(
-    (note) => note.status === "degraded",
-  );
-  if (degraded.length === 0) {
-    return null;
-  }
-  return (
-    <Notice tone="warning" title={t("recallDetail.degraded")}>
-      <ul className="flex flex-col gap-1">
-        {degraded.map((note) => (
-          <li key={note.source} className="break-words">
-            {note.error
-              ? t("recallDetail.degradedSource", {
-                  source: sourceLabel(note.source),
-                  error: note.error,
-                })
-              : sourceLabel(note.source)}
-          </li>
-        ))}
-      </ul>
-    </Notice>
-  );
-}
-
-function RecallResult({
-  recall,
-  assistantId,
-}: {
-  recall: RecallMetadata;
-  assistantId?: string | null;
-}) {
-  const { t } = useTranslation("chat");
-  const evidenceLabel = t("recallDetail.evidence", {
-    count: recall.evidence.length,
-  });
-  return (
-    <>
-      <DegradedSources recall={recall} />
-      {recall.answer && (
-        <div>
-          <SectionLabel>{t("recallDetail.answer")}</SectionLabel>
-          <DetailBlock variant="filled">
-            <ChatMarkdownMessage
-              content={recall.answer}
-              assistantId={assistantId}
-            />
-          </DetailBlock>
-        </div>
-      )}
-      {recall.evidence.length > 0 ? (
-        <div>
-          <SectionLabel>{evidenceLabel}</SectionLabel>
-          <ClampedContent label={evidenceLabel}>
-            <RecallEvidenceList evidence={recall.evidence} />
-          </ClampedContent>
-        </div>
-      ) : (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          {t("recallDetail.noEvidence")}
-        </Typography>
-      )}
-    </>
   );
 }
 

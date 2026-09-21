@@ -14,13 +14,13 @@ import { Typography } from "@vellumai/design-library";
 import { MachineText } from "@/components/detail-primitives";
 import { useRecallSourceLabel } from "@/domains/chat/components/tool-activity/recall-labels";
 
-function RecallEvidenceRow({
-  item,
-  sourceLabel,
-}: {
+interface RecallEvidenceRowProps {
   item: RecallEvidenceItem;
+  /** What the drawer calls the place this item was found. */
   sourceLabel: string;
-}) {
+}
+
+function RecallEvidenceRow({ item, sourceLabel }: RecallEvidenceRowProps) {
   return (
     <li className="min-w-0">
       <Typography
@@ -59,11 +59,11 @@ function RecallEvidenceRow({
   );
 }
 
-export function RecallEvidenceList({
-  evidence,
-}: {
+interface RecallEvidenceListProps {
   evidence: readonly RecallEvidenceItem[];
-}) {
+}
+
+export function RecallEvidenceList({ evidence }: RecallEvidenceListProps) {
   const sourceLabel = useRecallSourceLabel();
   return (
     <ul className="flex flex-col gap-4">
