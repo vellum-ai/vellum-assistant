@@ -157,6 +157,34 @@ export const LiveVisionFinishingVelvet: Story = {
   ),
 };
 
+export const LiveVisionCollapsed: Story = {
+  render: () => (
+    <ControlledStory
+      mode="liveVision"
+      summary={{ state: "completed", startedAt: STARTED_AT, endedAt: ENDED_AT }}
+    >
+      <SessionChildren items={FRAME_ITEMS} />
+    </ControlledStory>
+  ),
+};
+
+export const MobileLiveVision: Story = {
+  globals: {
+    theme: "dark",
+    viewport: { value: "sbMobile", isRotated: false },
+  },
+  parameters: { layout: "fullscreen" },
+  render: () => (
+    <ControlledStory
+      mode="liveVision"
+      summary={{ state: "working", startedAt: STARTED_AT, now: ENDED_AT }}
+      initiallyObservedLive
+    >
+      <SessionChildren items={FRAME_ITEMS} />
+    </ControlledStory>
+  ),
+};
+
 export const AmbientUnavailable: Story = {
   render: () => (
     <ControlledStory mode="ambient" summary={{ state: "unavailable" }} />
