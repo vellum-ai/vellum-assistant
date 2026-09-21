@@ -34,7 +34,7 @@ import { cn } from "@vellumai/design-library";
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
 import { CAMERA_FLASH_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
-import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room-control";
+import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room-layout";
 
 /** The order a press moves through. Off is the resting state, so it closes the loop. */
 const FLASH_CYCLE: Record<FlashMode, FlashMode> = {
@@ -106,10 +106,10 @@ export function CameraFlashControl({
       style={cameraModeStyle()}
       className={cn(
         VOICE_ROOM_CONTROL_SIZE_CLASS,
-        // Border-box with a border in every state, transparent when the state
-        // has no visible one, so the three states measure identically and the
-        // glyph does not shift by a pixel as they cycle.
-        "relative box-border flex items-center justify-center rounded-full border",
+        // A border in every state, transparent when the state has no visible
+        // one, so the three states measure identically and the glyph does not
+        // shift by a pixel as they cycle.
+        "relative flex items-center justify-center rounded-full border",
         "transition-colors duration-[250ms]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
         // Fixed colors, not theme tokens, for the same reason the chrome
