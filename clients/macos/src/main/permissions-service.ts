@@ -72,6 +72,23 @@ export type PermissionsState = Record<PermissionKind, PermissionStateItem>;
 
 const permissionKindSchema = z.enum(PERMISSION_KINDS);
 
+const presentationListeners = new Set<() => void>();
+
+export const onPermissionPresentation = (
+  listener: () => void,
+): (() => void) => {
+  presentationListeners.add(listener);
+  return () => {
+    presentationListeners.delete(listener);
+  };
+};
+
+const preparePermissionPresentation = (): void => {
+  for (const listener of presentationListeners) {
+    listener();
+  }
+};
+
 interface NotificationPermissionPresentation {
   presentation: "assistant";
   identity: NotificationIdentity;
@@ -298,6 +315,7 @@ export class PermissionsService {
     sender?: WebContents,
     presentation?: NotificationPermissionPresentation,
   ): Promise<PermissionStateItem> {
+    preparePermissionPresentation();
     try {
       switch (kind) {
         case "accessibility":
@@ -340,13 +358,15 @@ export class PermissionsService {
   ): Promise<PermissionStateItem> {
     // Asking first is what lists the helper in the pane, so there is a row
     // to turn on when it opens.
-    if (kind === "inputMonitoring") {
-      await requestMacHelperInputMonitoringPermission();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    } else if (kind === "screen") {
-      await requestMacHelperScreenRecordingPermission();
+    if (kind === "inputMonitoring" || kind === "screen") {
+      preparePermissionPresentation();
+      await (kind === "screen"
+        ? requestMacHelperScreenRecordingPermission()
+        : requestMacHelperInputMonitoringPermission());
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+    // A helper prompt can return focus before Settings itself opens.
+    preparePermissionPresentation();
     await shell.openExternal(settingsPaneUrl(kind));
     this.startPolling(kind, sender);
     return this.item(kind, sender);

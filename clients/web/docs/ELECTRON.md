@@ -121,6 +121,11 @@ During the tour, holds do not dictate and double taps reach the same native
 microphone guard as the final avatar click. Only the final step with microphone
 access can start the tour's real call.
 
+Before a native permission prompt or Settings opens, the tour lowers its window
+below system UI. Returning to Vellum or advancing the tour restores its floating
+level. Finishing the tour sets the idle pill's home to the display's bottom
+center, including the home held by a call started from the final step.
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.

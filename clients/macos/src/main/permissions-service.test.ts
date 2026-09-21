@@ -66,7 +66,10 @@ mock.module("electron", () => ({
   },
   systemPreferences: {
     isTrustedAccessibilityClient: () => true,
-    askForMediaAccess: async () => true,
+    askForMediaAccess: async () => {
+      helperCalls.push("request microphone");
+      return true;
+    },
     // The app's own grant, which says nothing about the helper's: granted
     // here so a screen status that followed it would be caught.
     getMediaAccessStatus: () => "granted",
@@ -136,8 +139,11 @@ mock.module("./notifier", () => ({
   requestNotifierAuthorization: () => authorizationRequest(),
 }));
 
-const { PermissionsService, installPermissionsService } =
-  await import("./permissions-service");
+const {
+  PermissionsService,
+  installPermissionsService,
+  onPermissionPresentation,
+} = await import("./permissions-service");
 
 const nativeNotifier = (isSupported = true): Notifier => ({
   isSupported: () => isSupported,
@@ -463,5 +469,55 @@ describe("screen recording", () => {
 
     expect(helperCalls).toEqual(["request screen"]);
     expect(item.status).toBe("granted");
+  });
+});
+
+describe("permission window presentation", () => {
+  beforeEach(() => {
+    helperCalls.length = 0;
+    helperScreenStatus = "granted";
+  });
+
+  test("yields before a native microphone prompt and unsubscribes", async () => {
+    const stop = onPermissionPresentation(() => {
+      helperCalls.push("yield tour");
+    });
+    try {
+      await new PermissionsService().request("microphone");
+      expect(helperCalls).toEqual(["yield tour", "request microphone"]);
+    } finally {
+      stop();
+    }
+    helperCalls.length = 0;
+    await new PermissionsService().request("microphone");
+    expect(helperCalls).toEqual(["request microphone"]);
+  });
+
+  test("yields before both the helper prompt and the Settings window", async () => {
+    const stop = onPermissionPresentation(() => {
+      helperCalls.push("yield tour");
+    });
+    try {
+      await new PermissionsService().openSettings("screen");
+      expect(helperCalls).toEqual([
+        "yield tour",
+        "request screen",
+        "yield tour",
+        "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  test("reading permission state leaves the tour's window level alone", async () => {
+    const presented = mock(() => {});
+    const stop = onPermissionPresentation(presented);
+    try {
+      await new PermissionsService().refresh();
+      expect(presented).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
   });
 });

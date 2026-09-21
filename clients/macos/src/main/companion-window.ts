@@ -126,7 +126,10 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
-import { getPermissionsService } from "./permissions-service";
+import {
+  getPermissionsService,
+  onPermissionPresentation,
+} from "./permissions-service";
 import {
   answerScreenRecordingRefusal,
   isScreenRecordingRefusal,
@@ -482,6 +485,16 @@ let introStaged = false;
  */
 let introScrim = false;
 
+let introPermissionLowered = false;
+
+const restoreIntroWindowLevel = (): void => {
+  if (!introPermissionLowered) {
+    return;
+  }
+  introPermissionLowered = false;
+  getFloatingWindow(COMPANION_KIND)?.setAlwaysOnTop(true, "floating");
+};
+
 /**
  * How long the surface stays put after landing before the ordinary
  * frontmost rule takes it off the screen again.
@@ -730,6 +743,7 @@ let introChordAsked: CompanionIntroCallControl | null = null;
  * up is a card asking for a key that answers nothing.
  */
 const setIntroBeat = (next: CompanionIntroBeat | null): void => {
+  restoreIntroWindowLevel();
   intro = next;
   const control = introChordFor(next);
   if (control === introChordAsked) {
@@ -749,6 +763,7 @@ const setIntroBeat = (next: CompanionIntroBeat | null): void => {
  * way, so nothing is left dimmed.
  */
 const unstageIntro = (): void => {
+  restoreIntroWindowLevel();
   cancelIntroLanding();
   if (!introStaged && !introScrim) {
     return;
@@ -1526,7 +1541,13 @@ const landIntroHome = (): void => {
   // holds it there for.
   setIntroScrim(false);
   const { workArea } = displayUnder(avatarCentre(win));
-  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    // The final offer can already have borrowed the tour's centered position.
+    callHome = home;
+  } else {
+    glideAvatarTo(win, home, workArea);
+  }
   introLanding = setTimeout(() => {
     introLanding = null;
     introStaged = false;
@@ -4349,9 +4370,22 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
+  onPermissionPresentation(() => {
+    if (intro === null || introPermissionLowered) {
+      return;
+    }
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (win === null) {
+      return;
+    }
+    // A floating panel otherwise covers Settings and native permission alerts.
+    introPermissionLowered = true;
+    win.setAlwaysOnTop(false);
+  });
   // The app coming forward and going back, which is what decides whether the
   // surface is on the screen at all while it is open. See `appActive`.
   app.on("did-become-active", () => {
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });
@@ -4363,6 +4397,7 @@ export const installCompanionWindow = (): void => {
     if (win !== currentMainWindow()) {
       return;
     }
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });

@@ -115,6 +115,7 @@ let origin = { x: 0, y: 0 };
 
 /** Every bounds main has asked the window server for, most recent last. */
 const boundsSet: { x: number; y: number; width: number; height: number }[] = [];
+const surfaceLevels: { floating: boolean; level?: string }[] = [];
 
 const surface = {
   webContents: {
@@ -135,6 +136,9 @@ const surface = {
     surfaceListeners.push({ event, listener });
   },
   isDestroyed: () => false,
+  setAlwaysOnTop: (floating: boolean, level?: string) => {
+    surfaceLevels.push({ floating, level });
+  },
   /** Whether it may become key, which a form on the bar lends it. */
   focusable: false,
   setFocusable: (focusable: boolean) => {
@@ -422,6 +426,12 @@ let frameError: unknown = null;
 const SCREEN_REFUSAL = new Error("Screen Recording permission denied");
 /** Every permission main sent the user to Settings for. */
 const settingsOpened: string[] = [];
+const permissionPresentationListeners: (() => void)[] = [];
+const presentPermission = (): void => {
+  for (const listener of permissionPresentationListeners) {
+    listener();
+  }
+};
 
 mock.module("./screen-recording-permission", () => ({
   screenRecordingGranted: async () => screenGranted,
@@ -432,6 +442,10 @@ mock.module("./screen-recording-permission", () => ({
 }));
 
 mock.module("./permissions-service", () => ({
+  onPermissionPresentation: (listener: () => void) => {
+    permissionPresentationListeners.push(listener);
+    return () => {};
+  },
   getPermissionsService: () => ({
     openSettings: async (kind: string) => {
       settingsOpened.push(kind);
@@ -778,6 +792,7 @@ beforeEach(() => {
   origin = { x: 0, y: 0 };
   nearestDisplay = NEAREST_DISPLAY;
   boundsSet.length = 0;
+  surfaceLevels.length = 0;
   glow = null;
   others.clear();
   glowPushes.length = 0;
@@ -2564,6 +2579,14 @@ describe("introOnAdvance", () => {
  * the whole run was building to.
  */
 describe("taking the introduction's last offer", () => {
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + GEOMETRY.canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, GEOMETRY),
+  });
+
+  beforeEach(() => {
+    reducedMotion = true;
+  });
   /** Open a surface with a run due, and walk it to the beat that offers one. */
   const runToLastBeat = (): void => {
     openStagedRun();
@@ -2586,6 +2609,7 @@ describe("taking the introduction's last offer", () => {
   // every case here leaves through it rather than into the next one.
   afterEach(() => {
     closeSurface();
+    reducedMotion = true;
   });
 
   test("asks for the session before it says the run is over", async () => {
@@ -2658,6 +2682,84 @@ describe("taking the introduction's last offer", () => {
     await settleHandoff();
 
     expect(state().intro).toBe(null);
+  });
+
+  test.each([true, false])(
+    "returns to the bottom after the final call with reduced motion %s",
+    async (reduceMotion) => {
+      reducedMotion = reduceMotion;
+      runToLastBeat();
+      const home = defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY);
+      send("vellum:companion:advanceIntro", "try");
+      await settleHandoff();
+      send("vellum:voiceActivity:start", START);
+      send("vellum:voiceActivity:end");
+      if (!reduceMotion) {
+        await Bun.sleep(COMPANION_GLIDE_MS + 80);
+      }
+      expect(centre()).toEqual(home);
+    },
+  );
+
+  test("returns to the bottom when the final dial is declined", async () => {
+    runToLastBeat();
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(
+      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
+    );
+  });
+
+  test("returns to the bottom when the tour is completed without a call", () => {
+    runToLastBeat();
+    send("vellum:companion:advanceIntro", "next");
+    expect(centre()).toEqual(
+      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
+    );
+  });
+
+  test("returns to the bottom when the final call starts without a dial", () => {
+    runToLastBeat();
+    send("vellum:voiceActivity:start", START);
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(
+      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
+    );
+  });
+
+  test("lets permission windows cover the tour until Vellum returns", () => {
+    openStagedRun();
+    presentPermission();
+    presentPermission();
+    expect(surfaceLevels).toEqual([{ floating: false, level: undefined }]);
+    expect(state().intro).toBe("idle");
+    fireAppEvent("did-resign-active");
+    expect(surfaceLevels).toHaveLength(1);
+    fireAppEvent("did-become-active");
+    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
+    expect(state().intro).toBe("idle");
+  });
+
+  test("restores the tour above Vellum when its main window regains focus", () => {
+    openStagedRun();
+    presentPermission();
+    fireAppEvent("browser-window-focus", surface);
+    expect(surfaceLevels).toHaveLength(1);
+    fireAppEvent("browser-window-focus", mainWindow);
+    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
+  });
+
+  test("restores the normal window level when a lowered tour ends", () => {
+    openStagedRun();
+    presentPermission();
+    send("vellum:companion:advanceIntro", "dismiss");
+    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
+  });
+
+  test("does not lower the companion outside the tour", () => {
+    presentPermission();
+    expect(surfaceLevels).toEqual([]);
   });
 
   test("an earlier beat's rehearsal leaves the run staged without calling", async () => {
