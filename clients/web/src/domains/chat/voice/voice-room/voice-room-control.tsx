@@ -25,6 +25,7 @@ import { Tooltip, cn } from "@vellumai/design-library";
 import type { ComponentProps, MouseEventHandler, ReactNode } from "react";
 
 import { CAMERA_MEDIA_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
+import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room-layout";
 
 /**
  * The treatment for a control sitting over video: the deep-link capture
@@ -219,10 +220,8 @@ export function VoiceRoomControl({
         data-testid={testId}
         style={surface === "camera" ? cameraModeStyle() : undefined}
         className={cn(
-          // 52px, in every state. The row is the same one whether or not the
-          // viewfinder is up, and a control that resized as the camera opened
-          // would move under a thumb already on its way to it.
-          "flex size-13 items-center justify-center rounded-full transition",
+          VOICE_ROOM_CONTROL_SIZE_CLASS,
+          "flex items-center justify-center rounded-full transition",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
           !bare && "border",
           treatmentClass({
