@@ -162,6 +162,10 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   // (live-voice/continuation-judge.ts): off until a TypeSafe profile is
   // pinned here.
   voiceContinuationJudge: { profile: "cost-optimized" },
+  // Same arrangement for the shadow addressivity judge
+  // (calls/voice-addressivity-judge.ts): off until a TypeSafe profile is
+  // pinned here, and observation-only even then.
+  voiceAddressivityJudge: { profile: "cost-optimized" },
   // Names the background continuation a barge-in spawns, from the interrupted
   // transcript. The label is fixed at spawn, so the call runs under a short
   // timeout and the deterministic label stands in when it misses; that makes

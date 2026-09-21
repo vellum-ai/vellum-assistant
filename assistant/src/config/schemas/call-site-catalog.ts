@@ -317,6 +317,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Decides from the caller's interruption whether a barged-in request should keep running in the background. Runs only when pinned to a TypeSafe profile.",
     domain: "agentLoop",
   },
+  voiceAddressivityJudge: {
+    id: "voiceAddressivityJudge",
+    displayName: "Voice Addressivity Judge",
+    description:
+      "Observes whether a spoken turn was addressed to the assistant or to someone else in the room. Runs only when pinned to a TypeSafe profile, and its verdict is logged rather than acted on.",
+    domain: "agentLoop",
+  },
   voiceContinuationLabel: {
     id: "voiceContinuationLabel",
     displayName: "Voice Continuation Label",
