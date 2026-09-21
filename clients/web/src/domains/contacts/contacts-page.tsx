@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Navigate,
   useNavigate,
@@ -231,17 +231,11 @@ export function ContactsPage({
   const contactsListSettled =
     contactsQuery.isSuccess && contactsQuery.fetchStatus === "idle";
 
-  // An id the settled list does not carry (a deleted contact, a stale deep
-  // link) falls back to the bare route. Anything short of settled holds the
-  // link, so a retry or a reconnect reopens the contact.
-  useEffect(() => {
-    if (routeContactId && contactsListSettled && !selectedContact) {
-      void navigate(routes.contacts.root, { replace: true });
-    }
-  }, [routeContactId, contactsListSettled, selectedContact, navigate]);
-
-  // The pane stays blank on the same evidence: the empty state reads as "no
-  // such contact", which an unresolved link has not earned.
+  // An id no contact in the list carries keeps its URL: a cache cannot prove a
+  // contact is absent, and one that arrives later (an invalidation, a refetch,
+  // a reconnect) resolves the link on its own. Until the list settles the pane
+  // stays blank, since the empty state reads as "no such contact", which an
+  // unresolved link has not earned.
   const resolvingRouteContact =
     Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 

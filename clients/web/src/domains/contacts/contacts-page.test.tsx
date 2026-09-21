@@ -229,12 +229,17 @@ const { ContactsPage } = await import("@/domains/contacts/contacts-page");
 
 /**
  * Pass `seededContacts` to stand in for cached data a mount would revalidate:
- * the query reads it immediately and refetches in the background.
+ * the query reads it immediately and refetches in the background. A
+ * `staleTime` makes that seeded cache fresh instead, so the mount serves it
+ * and never refetches, which is what production's global `staleTime` does.
  */
-function makeQueryClient(seededContacts?: ContactPayload[]): QueryClient {
+function makeQueryClient(
+  seededContacts?: ContactPayload[],
+  options?: { staleTime?: number },
+): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, staleTime: options?.staleTime },
       mutations: { retry: false },
     },
   });
@@ -519,7 +524,7 @@ describe("ContactsPage URL-owned selection", () => {
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
   });
 
-  test("an id no contact carries falls back to the bare route", async () => {
+  test("an id no contact carries keeps its URL and shows the empty state", async () => {
     render(
       <Wrapper initialPath="/assistant/contacts/c-missing">
         <ContactsPage assistantId="asst-1" />
@@ -527,9 +532,38 @@ describe("ContactsPage URL-owned selection", () => {
     );
 
     await waitFor(() => {
-      expect(currentLocation().pathname).toBe("/assistant/contacts");
+      expect(document.body.textContent).toContain("Select a contact");
     });
-    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts/c-missing");
+    expect(document.querySelector('[aria-current="page"]')).toBe(null);
+  });
+
+  test("a fresh cache that lacks the contact holds the link until it arrives", async () => {
+    // The seeded list predates Alice and is inside its stale window, so the
+    // mount serves it whole without a refetch: settled, successful, and short
+    // one contact.
+    const queryClient = makeQueryClient([GUARDIAN], { staleTime: 10_000 });
+
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={queryClient}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Select a contact");
+    });
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+
+    // Alice reaches the cache the way an invalidation or an SSE-driven refetch
+    // delivers her, and the held link resolves with no navigation.
+    queryClient.setQueryData(CONTACTS_KEY, { contacts: [GUARDIAN, ALICE] });
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 
   test("a deep link the cached list lacks survives the revalidating fetch", async () => {
@@ -562,8 +596,8 @@ describe("ContactsPage URL-owned selection", () => {
       </Wrapper>,
     );
 
-    // The list's own empty state marks the query as settled; only then could
-    // the stale-id effect have fired.
+    // The list's own empty state means the query has finished. A failure is
+    // not a settled list, so the pane withholds the empty state.
     await waitFor(() => getButtonByText("Add Contact"));
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
     expect(document.body.textContent).not.toContain("Select a contact");
