@@ -64,6 +64,7 @@ let availableChannelsOverride: ChannelInfo[] | null = null;
 let isMobile = false;
 let hasRoomForList = true;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
+const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
 
 const GUARDIAN = {
@@ -232,7 +233,8 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
 
 // Resolve every query the page renders to a fixture so the detail pane rests
 // on the guardian and no real network is attempted. Real mutation hooks (merge
-// and channel-patch) are kept; they aren't fired here.
+// and channel-patch) are kept, so the merge is driven through its generated
+// hook and stubbed one level down, at its SDK call.
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
@@ -263,6 +265,20 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
+  // The daemon answers a merge with the surviving contact, which is the one
+  // named by `keepId`.
+  contactsMergePost: async (options: {
+    body: { keepId: string; mergeId: string };
+  }) => {
+    mergeRequests.push(options.body);
+    return {
+      data: {
+        contact: contactsFixture.find((c) => c.id === options.body.keepId),
+      },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    };
+  },
   channelsAvailableGet: async () => {
     if (availableChannelsOverride) {
       return {
@@ -344,6 +360,61 @@ function Wrapper({
   );
 }
 
+/**
+ * Renders the page under the production route shape: `routes.tsx` mounts two
+ * sibling entries sharing one component, which {@link Wrapper} collapses into
+ * a single optional-segment route. Returns the router so a suite can read the
+ * entry it is on and walk the history.
+ */
+function renderUnderRouteShape(initialPath: string) {
+  function ContactsRoute() {
+    return (
+      <>
+        <ContactsPage assistantId="asst-1" />
+        <LocationProbe />
+      </>
+    );
+  }
+
+  const router = createMemoryRouter(
+    [
+      { path: "/assistant/contacts", Component: ContactsRoute },
+      { path: "/assistant/contacts/:contactId", Component: ContactsRoute },
+    ],
+    { initialEntries: [initialPath] },
+  );
+
+  render(
+    <QueryClientProvider client={makeQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+
+  return router;
+}
+
+/**
+ * Merges the peer contact into whichever contact the detail view has open, and
+ * returns once the success path has fully landed. Three signals, in order: the
+ * request reaches the SDK, the handler that runs on its response closes the
+ * dialog, and a data router resolves the navigation that handler may have
+ * asked for a tick later. Only past the last one does the location read true.
+ */
+async function mergePeerIntoOpenContact(): Promise<void> {
+  fireEvent.click(getButton("Merge…"));
+  fireEvent.click(await waitFor(() => getModalButton(PEER.displayName)));
+  fireEvent.click(await waitFor(() => getModalButton("Merge")));
+  await waitFor(() => {
+    expect(mergeRequests).toEqual([{ keepId: ALICE.id, mergeId: PEER.id }]);
+  });
+  await waitFor(() => {
+    expect(document.querySelector('[data-slot="modal-content"]')).toBe(null);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 function queryInputByPlaceholder(placeholder: string): HTMLInputElement | null {
   return (
     Array.from(document.querySelectorAll<HTMLInputElement>("input")).find(
@@ -418,6 +489,7 @@ beforeEach(() => {
   isMobile = false;
   hasRoomForList = true;
   linkAndVerifyCalls.length = 0;
+  mergeRequests.length = 0;
   unhandledRejections.length = 0;
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
   process.on("unhandledRejection", onUnhandled);
@@ -896,6 +968,43 @@ describe("ContactsPage as a phone screen", () => {
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
   });
+
+  test("a merge on a deep-linked contact leaves the entry alone", async () => {
+    const router = renderUnderRouteShape(`/assistant/contacts/${ALICE.id}`);
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    const entryBefore = router.state.location.key;
+
+    await mergePeerIntoOpenContact();
+
+    // The survivor is the contact already open, so the merge navigates
+    // nowhere: the entry keeps its key and never gains a marker claiming a
+    // list sits behind it.
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(currentLocation().state).toBe(null);
+    expect(router.state.location.key).toBe(entryBefore);
+  });
+
+  test("a merge on a contact pushed from the list keeps one Back to the list", async () => {
+    const router = renderUnderRouteShape("/assistant/contacts");
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().state).toEqual({ pushedFromList: true });
+
+    await mergePeerIntoOpenContact();
+
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(currentLocation().state).toEqual({ pushedFromList: true });
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
 });
 
 describe("ContactsPage in a narrow desktop pane", () => {
@@ -915,38 +1024,13 @@ describe("ContactsPage in a narrow desktop pane", () => {
 });
 
 describe("ContactsPage under the production route shape", () => {
-  /**
-   * `routes.tsx` mounts two sibling entries sharing one component, which the
-   * suites above collapse into a single optional-segment route. A remount
-   * between them would drop every piece of page state, starting with the
-   * search text.
-   */
+  // A remount between the two sibling entries would drop every piece of page
+  // state, starting with the search text.
   test("the search text survives opening a contact and coming back", async () => {
     isMobile = true;
     hasRoomForList = false;
 
-    function ContactsRoute() {
-      return (
-        <>
-          <ContactsPage assistantId="asst-1" />
-          <LocationProbe />
-        </>
-      );
-    }
-
-    const router = createMemoryRouter(
-      [
-        { path: "/assistant/contacts", Component: ContactsRoute },
-        { path: "/assistant/contacts/:contactId", Component: ContactsRoute },
-      ],
-      { initialEntries: ["/assistant/contacts"] },
-    );
-
-    render(
-      <QueryClientProvider client={makeQueryClient()}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>,
-    );
+    const router = renderUnderRouteShape("/assistant/contacts");
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.change(getInputByPlaceholder("Search Contacts"), {

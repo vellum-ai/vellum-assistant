@@ -147,6 +147,8 @@ export function ContactsPage({
   // pane in a desktop window keeps the drawer, since it has no top bar to
   // carry a list-level Back.
   const listIsScreen = isMobile && !hasRoomForList;
+  // The list is the whole page, with no detail open over it.
+  const listFillsPage = listIsScreen && !routeContactId;
   // Above the inline/drawer branch below, which remounts whichever list
   // surface it swaps to: held inside `ContactsList` the filter would be
   // dropped whenever the pane crosses the threshold, and dragging the chat
@@ -231,17 +233,25 @@ export function ContactsPage({
     [contactsData, selectedContactId],
   );
 
-  // Moving between rows of one page is not a step to walk back through, so
-  // the selection replaces the entry rather than pushing a new one. As a
-  // screen the contact is a push instead, marked so Back pops to the list.
+  // A push is marked so Back pops to the list, and only a pick made while the
+  // list is the page has a list behind it. Every other pick lands on a detail
+  // already open (a row beside the rail, a merge survivor), which is a move
+  // within one page rather than a step to walk back through, so it replaces
+  // that entry and carries its state: one pushed from the list keeps its
+  // marker, a deep-linked one stays unmarked.
   const selectContact = useCallback(
     (contactId: string) => {
+      if (contactId === routeContactId) {
+        return;
+      }
       void navigate(
         routes.contacts.detail(contactId),
-        listIsScreen ? { state: PUSHED_FROM_LIST_STATE } : { replace: true },
+        listFillsPage
+          ? { state: PUSHED_FROM_LIST_STATE }
+          : { replace: true, state: locationState },
       );
     },
-    [navigate, listIsScreen],
+    [navigate, listFillsPage, routeContactId, locationState],
   );
 
   // Positive evidence that this list is the whole list: a fetch has succeeded
@@ -450,7 +460,6 @@ export function ContactsPage({
   // tracks the two fields it reads rather than the object.
   const setHeaderTrailing =
     useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
-  const listFillsPage = listIsScreen && !routeContactId;
   const addPending = createMutation.isPending;
   const addContact = createMutation.mutate;
   useEffect(() => {
