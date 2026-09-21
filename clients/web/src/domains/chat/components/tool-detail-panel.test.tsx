@@ -593,6 +593,33 @@ describe("ToolDetailPanel", () => {
       ).toBeTruthy();
     });
 
+    test("names the opened raw text once, not once per region", () => {
+      restoreLayout = stubContentHeight((el) =>
+        el.style.maxHeight ? 1000 : undefined,
+      );
+      const observer = stubResizeObserver();
+      try {
+        const { getByText, getAllByText, getAllByRole } = render(
+          <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+        );
+        act(() => {
+          fireEvent.click(getByText("Raw input"));
+        });
+        // The raw input is the last thing in the panel, so its fold is too.
+        const folds = getAllByText("Show more");
+        act(() => {
+          fireEvent.click(folds[folds.length - 1]!);
+        });
+        act(observer.resize);
+
+        // The disclosure already is a region named for its label; the fold
+        // inside it must not add a second region of the same name.
+        expect(getAllByRole("region", { name: "Raw input" })).toHaveLength(1);
+      } finally {
+        observer.restore();
+      }
+    });
+
     test("builds the raw input only when it is opened", () => {
       const { getByText, container } = render(
         <ToolDetailPanel

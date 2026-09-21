@@ -35,7 +35,9 @@ export function SkillLoadOutput({
 
   // A skill whose body is nothing but the header and its tool manifest parses
   // to empty instructions. The verbatim result is then the whole output, and
-  // leaving it to Raw output would leave the section looking empty.
+  // leaving it to Raw output would leave the section looking empty. It draws
+  // as a code block rather than the filled card the rendered instructions use,
+  // because that is what it is: the body as the daemon returned it.
   return (
     <div>
       <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>

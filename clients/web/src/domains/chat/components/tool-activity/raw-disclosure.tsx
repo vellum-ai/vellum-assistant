@@ -33,6 +33,9 @@ export function RawDisclosure({
         side === "input" ? t("rawDisclosure.input") : t("rawDisclosure.output")
       }
     >
+      {/* No name passed to the fold inside: the disclosure is a Radix
+          accordion, whose content is already a region named by this label, and
+          a second region of the same name nested in it names it twice. */}
       <RawText text={text} />
     </DetailDisclosure>
   );
