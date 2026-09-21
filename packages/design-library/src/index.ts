@@ -278,6 +278,14 @@ export {
   type CollapsibleContentProps,
 } from "./components/collapsible";
 export {
+  Disclosure,
+  disclosureTriggerVariants,
+  type DisclosureRootProps,
+  type DisclosureTriggerProps,
+  type DisclosureTriggerSize,
+  type DisclosureContentProps,
+} from "./components/disclosure";
+export {
   Combobox,
   type ComboboxRootProps,
   type ComboboxListProps,
