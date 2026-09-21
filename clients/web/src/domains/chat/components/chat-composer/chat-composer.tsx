@@ -423,6 +423,7 @@ export function ChatComposer({
   const liveVoiceAssistantAudioActive =
     useLiveVoiceStore.use.assistantAudioActive();
   const liveVoiceResponsePhase = useLiveVoiceStore.use.responsePhase();
+  const liveVoiceOnToolStep = useLiveVoiceStore((s) => s.activityLabel !== "");
   const liveVoiceError = useLiveVoiceStore.use.error();
   const liveVoiceErrorRecovery = useLiveVoiceStore.use.errorRecovery();
   // Whether any session is live anywhere (this thread or another). `failed`
@@ -1668,6 +1669,7 @@ export function ChatComposer({
             state={liveVoiceState}
             assistantAudioActive={liveVoiceAssistantAudioActive}
             responsePhase={liveVoiceResponsePhase}
+            onToolStep={liveVoiceOnToolStep}
             getAmplitude={getLiveVoiceInputAmplitude}
             getOutputAmplitude={getLiveVoiceOutputAmplitude}
             muted={liveVoiceMuted}

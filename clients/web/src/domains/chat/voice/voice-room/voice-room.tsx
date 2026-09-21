@@ -611,6 +611,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const responsePhase = useLiveVoiceStore.use.responsePhase();
+  const onToolStep = useLiveVoiceStore((s) => s.activityLabel !== "");
   const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Muting the assistant needs no hands-free gate: it silences the output
@@ -662,6 +663,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     assistantAudioActive,
     muted,
     responsePhase,
+    onToolStep,
   );
   const stateLabel = stateLabelKey ? t(stateLabelKey) : "";
 

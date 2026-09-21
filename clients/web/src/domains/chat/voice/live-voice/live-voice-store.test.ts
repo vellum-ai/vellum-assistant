@@ -263,6 +263,7 @@ function surfaceLabel(
   assistantAudioActive: boolean,
   muted: boolean,
   responsePhase: LiveVoiceResponsePhase | null = null,
+  onToolStep = false,
 ): string {
   const key = liveVoiceSurfaceLabelKey(
     state,
@@ -270,6 +271,7 @@ function surfaceLabel(
     assistantAudioActive,
     muted,
     responsePhase,
+    onToolStep,
   );
   if (!key) {
     return "";
@@ -309,6 +311,21 @@ describe("liveVoiceSurfaceLabelKey", () => {
     );
     expect(surfaceLabel("speaking", false, true, false, "escalated")).toBe(
       "Speaking…",
+    );
+  });
+
+  test("a turn on a tool step reads as working wherever it would read thinking", () => {
+    expect(surfaceLabel("thinking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, true, false, null, true)).toBe(
+      "Speaking…",
+    );
+    expect(surfaceLabel("listening", false, false, false, null, true)).toBe(
+      "Listening…",
     );
   });
 

@@ -641,6 +641,39 @@ export interface VoiceActivityContent {
    * with them so a decision answers the request the user was shown.
    */
   approvalRequestId: string;
+  /**
+   * The work the call is carrying: the foreground turn while it is on a tool
+   * step, and every sub-agent it set going. Drawn on the call's bar as a count
+   * and a list. Absent from a sender that predates it, which the surface reads
+   * as "no list": its line then carries `detail` as it always did.
+   *
+   * Desktop only. The iOS island's `ContentState` has no room for it.
+   */
+  work?: VoiceActivityWork[];
+}
+
+export const VOICE_ACTIVITY_WORK_STATES = [
+  "running",
+  "done",
+  "failed",
+] as const;
+
+export type VoiceActivityWorkState =
+  (typeof VOICE_ACTIVITY_WORK_STATES)[number];
+
+/** One piece of work on the call's list. */
+export interface VoiceActivityWork {
+  /** Stable across updates: `turn` for the foreground, the sub-agent's id otherwise. */
+  id: string;
+  /** The foreground turn, or a sub-agent it spawned. */
+  kind: "turn" | "subagent";
+  /** What it is: the assistant's name for the turn, the task for a sub-agent. */
+  title: string;
+  /** What it is doing this moment ("Searching the web"), or `""` between steps. */
+  step: string;
+  state: VoiceActivityWorkState;
+  /** Epoch milliseconds it started, for the elapsed time beside a sub-agent. */
+  startedAt: number;
 }
 
 /** {@link VoiceActivityContent} plus the fields fixed for the session's lifetime. */
