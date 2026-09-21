@@ -3,6 +3,8 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -15,6 +17,9 @@ import {
 } from "./desktop-browser-endpoint.js";
 
 const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
+const TERMINAL_HEADER_CONFIG = `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',
+  integrated_title_button_style = 'Gnome',
+`;
 
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
@@ -57,15 +62,13 @@ export function writeDesktopPanelConfig(
   writeFileSync(terminalIcon, Buffer.from(TERMINAL_ICON_BASE64, "base64"));
   const terminalConfig = join(configDir, "wezterm", "wezterm.lua");
   mkdirSync(dirname(terminalConfig), { recursive: true });
-  seedFile(
-    terminalConfig,
-    `local wezterm = require 'wezterm'
+  const terminalConfigContents = `local wezterm = require 'wezterm'
 return {
   front_end = 'Software',
   enable_wayland = false,
   check_for_updates = false,
   hide_tab_bar_if_only_one_tab = false,
-  font_size = 11,
+${TERMINAL_HEADER_CONFIG}  font_size = 11,
   color_scheme = 'Catppuccin Mocha',
   initial_cols = 110,
   initial_rows = 28,
@@ -74,7 +77,11 @@ return {
     { key = 'e', mods = 'CTRL|SHIFT', action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' } },
   },
 }
-`,
+`;
+  seedFile(
+    terminalConfig,
+    terminalConfigContents,
+    terminalConfigContents.replace(TERMINAL_HEADER_CONFIG, ""),
   );
 
   const applicationsDir = join(configDir, "applications");
@@ -158,7 +165,11 @@ function desktopCommand(args: string[]): string {
     .join(" ");
 }
 
-function seedFile(path: string, contents: string): void {
+function seedFile(
+  path: string,
+  contents: string,
+  previousContents?: string,
+): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, contents, { flush: true });
@@ -167,6 +178,12 @@ function seedFile(path: string, contents: string): void {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
       throw err;
+    }
+    if (
+      previousContents !== undefined &&
+      readFileSync(path, "utf8") === previousContents
+    ) {
+      renameSync(temporaryPath, path);
     }
   } finally {
     rmSync(temporaryPath, { force: true });

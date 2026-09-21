@@ -65,6 +65,8 @@ const DESKTOP_PACKAGES = [
   "xauth",
   "xcompmgr",
   "xfonts-base",
+  // Preserved Openbox menus and shortcuts can invoke xterm directly.
+  "xterm",
   "xdotool",
   "scrot",
   "fonts-liberation",
