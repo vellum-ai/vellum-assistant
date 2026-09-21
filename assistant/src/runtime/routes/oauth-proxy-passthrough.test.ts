@@ -44,6 +44,38 @@ describe("route constants", () => {
     expect(url.pathname).toBe(`${PROXY_PATH_PREFIX}stripe_link/v1/items`);
     expect(extractProxyRemainder(url)).toBe("v1/items");
   });
+
+  test("keeps Gmail's /upload/gmail remainder including the query on the raw URL", () => {
+    const url = proxyUrl(
+      "google/upload/gmail/v1/users/me/drafts?uploadType=media",
+    );
+
+    expect(extractProxyRemainder(url)).toBe(
+      "upload/gmail/v1/users/me/drafts",
+    );
+    expect(url.search).toBe("?uploadType=media");
+    expect(normalizeProxyPath("upload/gmail/v1/users/me/drafts")).toBe(
+      "/upload/gmail/v1/users/me/drafts",
+    );
+  });
+
+  test("the catch-all route pattern matches a multi-segment Gmail upload path", () => {
+    const regexSource = PROXY_ROUTE_ENDPOINT.split("/")
+      .map((segment) => {
+        if (segment.startsWith(":")) {
+          return segment.endsWith("*") ? "(.+)" : "([^/]+)";
+        }
+        return RegExp.escape(segment);
+      })
+      .join("\\/");
+    const regex = new RegExp(`^${regexSource}$`);
+    const match = "oauth/proxy/google/upload/gmail/v1/users/me/drafts".match(
+      regex,
+    );
+
+    expect(match?.[1]).toBe("google");
+    expect(match?.[2]).toBe("upload/gmail/v1/users/me/drafts");
+  });
 });
 
 describe("provider segment", () => {

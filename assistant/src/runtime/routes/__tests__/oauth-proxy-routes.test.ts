@@ -108,9 +108,13 @@ const providerLookups: string[] = [];
 mock.module("../../../oauth/oauth-store.js", () => ({
   getProvider: (provider: string) => {
     providerLookups.push(provider);
-    return provider === "stripe_link"
-      ? { provider, baseUrl: "https://api.link.com" }
-      : undefined;
+    if (provider === "stripe_link") {
+      return { provider, baseUrl: "https://api.link.com" };
+    }
+    if (provider === "google") {
+      return { provider, baseUrl: "https://www.googleapis.com" };
+    }
+    return undefined;
   },
 }));
 
@@ -454,6 +458,60 @@ describe("body passthrough", () => {
   test("sends no body for an empty POST", async () => {
     await callProxy({ method: "POST", body: "" });
     expect(requireCaptured().body).toBeUndefined();
+  });
+
+  test("forwards a Gmail rfc822 media upload path, query, and body", async () => {
+    const rfc822 =
+      "From: user@example.com\r\nTo: user@example.com\r\nSubject: Draft\r\n\r\nHello\r\n";
+
+    const response = await callProxy({
+      method: "POST",
+      segment: "google",
+      path: "upload/gmail/v1/users/me/drafts",
+      search: "?uploadType=media",
+      subject: "local:self:oauth-proxy.google",
+      headers: { "content-type": "message/rfc822" },
+      body: rfc822,
+    });
+
+    expect(response.status).toBe(200);
+    const req = requireCaptured();
+    expect(req.path).toBe("/upload/gmail/v1/users/me/drafts");
+    expect(req.query).toEqual({ uploadType: "media" });
+    expect(req.rawQuery).toBe("?uploadType=media");
+    expect(req.baseUrl).toBeUndefined();
+    expect(req.headers?.["content-type"]).toBe("message/rfc822");
+    expect((req.body as Buffer).toString("utf8")).toBe(rfc822);
+    expect(providerLookups).toContain("google");
+  });
+
+  test("forwards a Gmail multipart/related upload with the boundary intact", async () => {
+    const boundary = "boundary_cas159";
+    const body =
+      `--${boundary}\r\n` +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      '{"message":{"threadId":"thread-1"}}\r\n' +
+      `--${boundary}\r\n` +
+      "Content-Type: message/rfc822\r\n\r\n" +
+      "From: user@example.com\r\nSubject: Draft\r\n\r\nHi\r\n" +
+      `--${boundary}--`;
+    const contentType = `multipart/related; boundary=${boundary}`;
+
+    await callProxy({
+      method: "POST",
+      segment: "google",
+      path: "upload/gmail/v1/users/me/drafts",
+      search: "?uploadType=multipart",
+      subject: "local:self:oauth-proxy.google",
+      headers: { "content-type": contentType },
+      body,
+    });
+
+    const req = requireCaptured();
+    expect(req.path).toBe("/upload/gmail/v1/users/me/drafts");
+    expect(req.query).toEqual({ uploadType: "multipart" });
+    expect(req.headers?.["content-type"]).toBe(contentType);
+    expect((req.body as Buffer).toString("utf8")).toBe(body);
   });
 });
 
