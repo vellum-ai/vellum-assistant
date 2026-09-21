@@ -1,3 +1,4 @@
+import type { LucideIcon } from "lucide-react";
 import { MoreVertical, Pencil, Plus, Search, UserPlus } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -13,6 +14,13 @@ import { useTranslation } from "@/i18n";
 import type { ContactSummary } from "@/domains/contacts/types";
 
 type ContactsListSurface = "card" | "screen";
+
+type TrailingIcon = "pencil" | "more";
+
+const TRAILING_ICONS: Record<TrailingIcon, LucideIcon> = {
+  pencil: Pencil,
+  more: MoreVertical,
+};
 
 interface ContactsListProps {
   loading: boolean;
@@ -83,7 +91,7 @@ export function ContactsList({
       channelTypes={guardian.channelTypes}
       selected={selectedContactId === guardian.id}
       onClick={() => onSelect(guardian.id)}
-      trailingIcon={isScreen ? undefined : "pencil"}
+      trailingIcon="pencil"
       surface={surface}
     />
   ) : null;
@@ -92,7 +100,7 @@ export function ContactsList({
     <div className="border-t" style={{ borderColor: "var(--border-base)" }} />
   ) : null;
 
-  const contactRows = hasContacts ? (
+  const contactRows = (
     <>
       {filtered.map((contact) => (
         <ContactRow
@@ -101,10 +109,10 @@ export function ContactsList({
           role={contact.role}
           contactType={contact.contactType}
           channelTypes={contact.channelTypes}
-          verified={isScreen ? undefined : contact.verified}
+          verified={contact.verified}
           selected={selectedContactId === contact.id}
           onClick={() => onSelect(contact.id)}
-          trailingIcon={isScreen ? undefined : "more"}
+          trailingIcon="more"
           surface={surface}
         />
       ))}
@@ -117,7 +125,9 @@ export function ContactsList({
         </p>
       ) : null}
     </>
-  ) : loading ? null : (
+  );
+
+  const addContactAction = loading ? null : (
     <Button
       type="button"
       variant="ghost"
@@ -137,7 +147,9 @@ export function ContactsList({
         {searchField}
         {guardianRow}
         {groupDivider}
-        <div className="flex flex-col gap-1 pt-2">{contactRows}</div>
+        <div className="flex flex-col gap-1 pt-2">
+          {hasContacts ? contactRows : addContactAction}
+        </div>
       </div>
     );
   }
@@ -174,7 +186,7 @@ export function ContactsList({
             {contactRows}
           </div>
         ) : (
-          contactRows
+          addContactAction
         )}
       </Card.Body>
     </Card.Root>
@@ -188,8 +200,12 @@ interface ContactRowProps {
   channelTypes?: string[];
   selected: boolean;
   onClick: () => void;
-  trailingIcon?: "pencil" | "more";
-  /** Renders the Verified/Unverified tag when set; omit to hide (guardian). */
+  /** The row's trailing action icon, which the `screen` surface drops. */
+  trailingIcon?: TrailingIcon;
+  /**
+   * Renders the Verified/Unverified tag when set; omit to hide (guardian). The
+   * `screen` surface drops the tag either way.
+   */
   verified?: boolean;
   surface: ContactsListSurface;
 }
@@ -212,20 +228,21 @@ function ContactRow({
       ? channelTypes.join(" | ")
       : undefined;
 
+  /* The screen surface trails a row with its type tag alone, so both the tag
+     and the action icon are gated here rather than at every call site. */
+  const verifiedTag =
+    isScreen || verified === undefined ? null : (
+      <Tag tone={verified ? "positive" : "neutral"}>
+        {verified ? t("contactsList.verified") : t("contactsList.unverified")}
+      </Tag>
+    );
+
   /* Sits in the row's own trailing cluster: `PanelItem` draws the contents of
      a row it owns, and this row supplies its own button. */
-  const trailingActionIcon =
-    trailingIcon === "pencil" ? (
-      <Pencil
-        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
-        aria-hidden
-      />
-    ) : trailingIcon === "more" ? (
-      <MoreVertical
-        className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
-        aria-hidden
-      />
-    ) : undefined;
+  const TrailingActionIcon =
+    isScreen || trailingIcon === undefined
+      ? undefined
+      : TRAILING_ICONS[trailingIcon];
 
   /* The screen surface's radius and touch padding go on `PanelItem`, which
      merges them through `cn`; `Slot` only concatenates the child's classes, so
@@ -274,15 +291,14 @@ function ContactRow({
           ) : null}
         </span>
         <span className="flex shrink-0 items-center gap-1">
-          {verified !== undefined ? (
-            <Tag tone={verified ? "positive" : "neutral"}>
-              {verified
-                ? t("contactsList.verified")
-                : t("contactsList.unverified")}
-            </Tag>
-          ) : null}
+          {verifiedTag}
           <ContactTypeBadge role={role} contactType={contactType} />
-          {trailingActionIcon}
+          {TrailingActionIcon ? (
+            <TrailingActionIcon
+              className="h-3.5 w-3.5 text-[color:var(--content-tertiary)]"
+              aria-hidden
+            />
+          ) : null}
         </span>
       </button>
     </PanelItem>
