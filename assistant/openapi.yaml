@@ -21407,6 +21407,8 @@ paths:
                                               type: string
                                             conversationId:
                                               type: string
+                                            messageId:
+                                              type: string
                                           required:
                                             - source
                                             - title
@@ -22018,6 +22020,8 @@ paths:
                                                     path:
                                                       type: string
                                                     conversationId:
+                                                      type: string
+                                                    messageId:
                                                       type: string
                                                   required:
                                                     - source

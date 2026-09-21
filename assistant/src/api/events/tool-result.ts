@@ -146,6 +146,8 @@ export const RecallEvidenceItemSchema = z.object({
   path: z.string().optional(),
   /** The conversation the item was found in, so a client can open it. */
   conversationId: z.string().optional(),
+  /** The message in that conversation, so a client can open it there. */
+  messageId: z.string().optional(),
 });
 
 export type RecallEvidenceItem = z.infer<typeof RecallEvidenceItemSchema>;
