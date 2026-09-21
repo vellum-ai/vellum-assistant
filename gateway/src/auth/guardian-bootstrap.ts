@@ -354,7 +354,9 @@ function hasLiveContactCredential(
     )
     .limit(1)
     .get();
-  if (access) return true;
+  if (access) {
+    return true;
+  }
 
   const refresh = db
     .select({ id: actorRefreshTokenRecords.id })

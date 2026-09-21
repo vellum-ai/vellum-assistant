@@ -275,10 +275,10 @@ export const actorTokenRecords = sqliteTable(
   {
     id: text("id").primaryKey(),
     tokenHash: text("token_hash").notNull(),
-    // The principal the token belongs to; the guardian's only when
-    // `role = 'guardian'`. Named before contact principals existed.
+    // The principal the token belongs to, whatever its role. The guardian's
+    // only when `role = 'guardian'`.
     guardianPrincipalId: text("guardian_principal_id").notNull(),
-    // Rows written before this column are the guardian's, hence the default.
+    // A row with no explicit role is the guardian's.
     role: text("role")
       .$type<"guardian" | "contact">()
       .notNull()
@@ -321,7 +321,7 @@ export const actorRefreshTokenRecords = sqliteTable(
     tokenHash: text("token_hash").notNull(),
     familyId: text("family_id").notNull(),
     guardianPrincipalId: text("guardian_principal_id").notNull(),
-    // See the same column on actor_token_records.
+    // A row with no explicit role is the guardian's.
     role: text("role")
       .$type<"guardian" | "contact">()
       .notNull()

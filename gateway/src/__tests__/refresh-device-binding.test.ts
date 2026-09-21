@@ -162,11 +162,15 @@ describe("rotateCredentials principal role", () => {
       hashedDeviceId: hashToken(DEVICE_A),
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const verified = verifyToken(result.result.accessToken, "vellum-gateway");
     expect(verified.ok).toBe(true);
-    if (!verified.ok) return;
+    if (!verified.ok) {
+      return;
+    }
     expect(verified.claims.scope_profile).toBe("contact_client_v1");
 
     // The rotated rows carry the role forward, so the next rotation reads it.
@@ -192,11 +196,15 @@ describe("rotateCredentials principal role", () => {
       hashedDeviceId: hashToken(DEVICE_A),
     });
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const verified = verifyToken(result.result.accessToken, "vellum-gateway");
     expect(verified.ok).toBe(true);
-    if (!verified.ok) return;
+    if (!verified.ok) {
+      return;
+    }
     expect(verified.claims.scope_profile).toBe("actor_client_v1");
   });
 });
