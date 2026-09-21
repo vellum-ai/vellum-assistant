@@ -15,11 +15,13 @@ describe("createStoryQueryClient", () => {
     expect(client.getQueryData<string>(["greeting"])).toBe("hello");
   });
 
-  test("never retries, goes stale or drops an entry", () => {
+  test("never retries, refetches, goes stale or drops an entry", () => {
     const { queries } = createStoryQueryClient().getDefaultOptions();
     expect(queries?.retry).toBe(false);
     expect(queries?.staleTime).toBe(Infinity);
     expect(queries?.gcTime).toBe(Infinity);
+    expect(queries?.refetchOnWindowFocus).toBe(false);
+    expect(queries?.refetchOnReconnect).toBe(false);
   });
 });
 
