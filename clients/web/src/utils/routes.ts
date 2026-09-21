@@ -382,6 +382,17 @@ const BARE_ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.personality,
 ];
 
+/**
+ * Whether `pathname` names `path` itself, a single trailing slash tolerated:
+ * the router matches `/assistant/contacts/` to the same route as
+ * `/assistant/contacts`, so callers deciding "is this the route, or something
+ * under it" must treat both spellings alike. Sibling of {@link isPathWithin},
+ * which already tolerates the slash through its `${path}/` prefix.
+ */
+export function isPathExactly(pathname: string, path: string): boolean {
+  return pathname === path || pathname === `${path}/`;
+}
+
 const isPathWithin = (pathname: string, path: string): boolean =>
   pathname === path || pathname.startsWith(`${path}/`);
 
@@ -413,7 +424,7 @@ export function isAboutAssistantPath(pathname: string): boolean {
 
 /** Whether `pathname` is the `/assistant` index, trailing slash tolerated. */
 function isAssistantIndexPath(pathname: string): boolean {
-  return pathname === routes.assistant || pathname === `${routes.assistant}/`;
+  return isPathExactly(pathname, routes.assistant);
 }
 
 /**

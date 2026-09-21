@@ -14,6 +14,7 @@ import { returnToList } from "@/utils/list-detail-navigation";
 import {
   type AboutAssistantSectionKey,
   aboutAssistantSectionForPath,
+  isPathExactly,
   routes,
 } from "@/utils/routes";
 
@@ -78,7 +79,7 @@ export function IntelligenceLayout() {
     isMobile && section != null && MOBILE_TOP_BAR_SECTIONS.has(section.key);
   /** The list a detail route under an owned top bar backs to, else null. */
   const backToListPath =
-    ownsMobileTopBar && section != null && pathname !== section.to
+    ownsMobileTopBar && section != null && !isPathExactly(pathname, section.to)
       ? section.to
       : null;
   const fallbackAssistantName =

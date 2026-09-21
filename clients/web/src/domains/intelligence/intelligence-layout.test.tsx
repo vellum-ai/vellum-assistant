@@ -206,6 +206,21 @@ describe("IntelligenceLayout — section pages", () => {
     expect(leading.asChild).toBeUndefined();
   });
 
+  test("on mobile, a trailing slash on the list path is still the list", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/contacts/");
+
+    // The overview pill (`asChild` around a <Link>), not the detail route's
+    // "Back to Contacts" button, which would cost the user a second Back.
+    const leading = slotProps(lastMobileTopBar()?.leading);
+    expect(leading["aria-label"]).toBe("Back to Ada");
+    expect(leading.asChild).toBe(true);
+    expect(leading.onClick).toBeUndefined();
+    expect(slotProps(leading.children as React.ReactNode).to).toBe(
+      "/assistant/identity",
+    );
+  });
+
   test("on mobile, Channels still registers only its title", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/channels");
