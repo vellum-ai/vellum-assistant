@@ -1,14 +1,16 @@
 /**
- * The body for a `remember` call: the facts it saves, as a list a reader can
- * scan, under a label that says whether they were saved. The generic drawer
- * showed the same facts as a JSON array and the confirmation as a code block.
+ * The body for a `remember` call: the facts it saves, as a list, under a label
+ * that says whether they were saved, and why not when they were not.
  *
- * The saved facts come from the call's structured result once it lands, which
- * is the list as the daemon stored it (trimmed, blanks dropped). Until then,
- * and for history recorded before `remember` reported one, they come from the
- * call's input, which is the same list as the model wrote it.
+ * The facts come from the call's structured result when it has one, which is
+ * the list as the daemon stored it. Otherwise they come from the call's input,
+ * read with the same `RememberInputSchema` the daemon parses it with.
  */
 
+import {
+  type RememberInput,
+  RememberInputSchema,
+} from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
 
 import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
@@ -16,11 +18,10 @@ import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-out
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
-/** The facts a `remember` input carries: one string, or a list of them. */
-function inputFacts(content: unknown): string[] {
-  const raw = Array.isArray(content) ? content : [content];
-  return raw
-    .filter((fact): fact is string => typeof fact === "string")
+/** The facts in a `remember` input, as the model wrote them, blanks dropped. */
+function inputFacts(content: RememberInput["content"]): string[] {
+  return [content]
+    .flat()
     .map((fact) => fact.trim())
     .filter((fact) => fact.length > 0);
 }
@@ -34,8 +35,10 @@ export function RememberDetail({
   isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
+  const input = RememberInputSchema.safeParse(detail.input);
   const facts =
-    activityMetadata?.remember?.facts ?? inputFacts(detail.input.content);
+    activityMetadata?.remember?.facts ??
+    (input.success ? inputFacts(input.data.content) : []);
   const failed = isError || isDenied;
   const label = failed
     ? t("rememberDetail.notSaved")

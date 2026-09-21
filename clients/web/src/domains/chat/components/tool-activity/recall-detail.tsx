@@ -1,14 +1,10 @@
 /**
  * The body for a `recall` call: what was searched for and where, the answer
- * written from what turned up, and the evidence it stands on. The generic
- * drawer showed the query as JSON and all of the rest as one block of text,
- * the answer, a numbered evidence list and a footer of searched sources run
- * together.
+ * written from what turned up, and the evidence it stands on.
  *
- * Everything past the query comes from the call's structured result. History
- * recorded before `recall` reported one shows its text instead, as plain text:
- * its numbered lines and footer are not markdown, and would run together if
- * read as it.
+ * Everything past the query comes from the call's structured result. A call
+ * without one shows its text as plain text, since its numbered lines and
+ * footer are not markdown.
  */
 
 import type { RecallMetadata } from "@vellumai/assistant-api";
