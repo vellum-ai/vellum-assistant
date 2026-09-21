@@ -16,7 +16,7 @@
  */
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type CSSProperties } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 import {
   makeProPackage,
@@ -421,19 +421,50 @@ export const takeoverQueryDecorator: Decorator = (Story) => (
  * on top of the others in the shared docs iframe.
  */
 export const takeoverFrameDecorator: Decorator<{ avatar: TakeoverAvatarKey }> =
-  function TakeoverFrame(Story, context) {
-    const { tintHex } = useTakeoverSurface(
-      TAKEOVER_AVATARS[context.args.avatar],
-    );
+  function TakeoverFrameDecorator(Story, context) {
     return (
-      <div
-        data-theme="dark"
-        className="flex h-screen w-full flex-col overflow-y-auto bg-black"
-        style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
-      >
-        <div className="flex min-h-0 flex-1 flex-col">
-          <Story />
-        </div>
-      </div>
+      <TakeoverFrame assistantId={TAKEOVER_AVATARS[context.args.avatar]}>
+        <Story />
+      </TakeoverFrame>
     );
   };
+
+/** The frame itself, for a story that mounts the takeover in its own render. */
+function TakeoverFrame({
+  assistantId,
+  children,
+}: {
+  assistantId: string;
+  children: ReactNode;
+}) {
+  const { tintHex } = useTakeoverSurface(assistantId);
+  return (
+    <div
+      data-theme="dark"
+      className="flex h-screen w-full flex-col overflow-y-auto bg-black"
+      style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
+    >
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Both decorators as one component, for a story outside this folder that
+ * plays the takeover as a step of a longer flow: the query cache its reads
+ * resolve from, and the frame the modal draws around it.
+ */
+export function TakeoverStage({
+  assistantId,
+  children,
+}: {
+  /** One of {@link TAKEOVER_AVATARS}, so the avatar read is seeded. */
+  assistantId: string;
+  children: ReactNode;
+}) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TakeoverFrame assistantId={assistantId}>{children}</TakeoverFrame>
+    </QueryClientProvider>
+  );
+}

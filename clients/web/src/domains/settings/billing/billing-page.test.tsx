@@ -33,6 +33,7 @@ import type {
   SubscriptionPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import * as activeAssistantIdModule from "@/assistant/use-active-assistant-id";
 import * as platformGate from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
@@ -268,6 +269,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useClientFeatureFlagStore.setState({ assistantInbox: false });
 });
 
 describe("BillingTab on native Android", () => {
@@ -389,6 +391,26 @@ describe("BillingTab tier-upgrade resize takeover", () => {
 });
 
 describe("Finish Pro setup nudge", () => {
+  test("with the Assistant Inbox on, opens the inbox instead of the wizard", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    const { getByTestId } = renderPage();
+
+    await waitFor(() =>
+      expect(getByTestId("finish-pro-setup-notice")).toBeTruthy(),
+    );
+
+    fireEvent.click(getByTestId("finish-pro-setup-button"));
+
+    // The page stays mounted under this router with no route table, so its
+    // own `?tab=` sync survives the navigation; the app unmounts it.
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toMatch(/^\/assistant\/inbox/),
+    );
+    expect(getByTestId("onboarding-modal").getAttribute("data-open")).toBe(
+      "false",
+    );
+  });
+
   test("stays hidden and skips the query chain until the org is ready", async () => {
     // Fresh login: the org store hasn't hydrated, so the header source has
     // no id yet. The nudge must not fire its subscription/onboarding chain

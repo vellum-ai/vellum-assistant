@@ -26,7 +26,7 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 
 import {
   assistantsDomainsListOptions,
@@ -46,6 +46,7 @@ import type {
 } from "@/generated/api/types.gen";
 import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
 import { pressBackdrop } from "@/lib/overlay-test-helpers";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   readCheckoutIntent,
   saveCheckoutIntent,
@@ -104,6 +105,16 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     info: (message: string) => {
       toastInfoCalls.push(message);
     },
+  },
+}));
+
+// The inbox hand-off selects the provisioning target before it navigates;
+// record the ids rather than write the real selection, which mirrors to a
+// lockfile the test has no daemon for.
+const selectedAssistantIds: Array<string | null> = [];
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: async (id: string | null) => {
+    selectedAssistantIds.push(id);
   },
 }));
 
@@ -335,6 +346,12 @@ const {
  */
 const TEST_DWELL_MS = 250;
 
+/** Where the router is, for the hand-off that leaves the wizard by navigating. */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="loc">{location.pathname}</div>;
+}
+
 function renderModal({
   mode,
   resizeContext,
@@ -354,7 +371,7 @@ function renderModal({
   }
   const onClose = mock(() => {});
   const tree = (open: boolean) => (
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/assistant/settings/usage?tab=billing"]}>
       <QueryClientProvider client={client}>
         <BillingOnboardingModal
           open={open}
@@ -365,6 +382,7 @@ function renderModal({
           resizeContext={resizeContext}
         />
       </QueryClientProvider>
+      <LocationProbe />
     </MemoryRouter>
   );
   const view = render(tree(true));
@@ -395,6 +413,8 @@ beforeEach(() => {
   domainCreateCalls = 0;
   dateNowOffsetMs = 0;
   toastInfoCalls.length = 0;
+  selectedAssistantIds.length = 0;
+  useClientFeatureFlagStore.setState({ assistantInbox: false });
   sessionStorage.clear();
   // Also resets the stash module's in-memory mirror, which sessionStorage.clear()
   // leaves in place (it is simply never served while storage is readable).
@@ -1096,6 +1116,120 @@ describe("BillingOnboardingModal", () => {
       timeout: 5000,
     });
   });
+});
+
+describe("BillingOnboardingModal — Assistant Inbox on", () => {
+  /** Runs checkout to the landed resize, where routing decides the next step. */
+  async function landCheckout(
+    client: QueryClient,
+    getByText: (text: string) => HTMLElement,
+  ) {
+    subscriptionPlanId = "pro";
+    await client.invalidateQueries();
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeOperationalStatus("active");
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+  }
+
+  test("checkout hands off to the inbox route in place of the domain step", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    saveTakeoverAvatarStash({
+      assistantId: "assistant-1",
+      components: BUNDLED_COMPONENTS,
+      traits: null,
+    });
+    const { client, onClose, getByText, getByTestId, queryByText } =
+      renderModal();
+
+    await waitFor(() =>
+      expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+    );
+    await landCheckout(client, getByText);
+
+    // The celebration dwell elapses and, instead of the domain step, the
+    // wizard closes and the router is on the inbox.
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      // Routing settles on a post-open onboarding refetch, which the parallel
+      // runner can hold past the usual budget.
+      { timeout: 10_000 },
+    );
+    expect(queryByText("Assistant Email")).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+    // The provisioning target is selected first, since the inbox reads the
+    // active assistant; the intent and the avatar stash are cleared the way
+    // the skipped steps would have cleared them.
+    expect(selectedAssistantIds).toEqual(["assistant-1"]);
+    expect(readCheckoutIntent()).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
+    expect(domainCreateCalls).toBe(0);
+  }, 20_000);
+
+  test("checkout with domain setup unavailable still completes in place", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    onboardingResponse = makeOnboarding({ domain_setup_available: false });
+    saveCheckoutIntent({ kind: "package", packageKey: "super" });
+    const { client, onClose, getByText, getByTestId } = renderModal();
+
+    await waitFor(() =>
+      expect(getByText("Confirming your upgrade…")).toBeTruthy(),
+    );
+    await landCheckout(client, getByText);
+
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByTestId("loc").textContent).toBe("/assistant/settings/usage");
+    expect(onClose).not.toHaveBeenCalled();
+  }, 20_000);
+
+  test("a resize whose domain step is newly usable hands off to the inbox too", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    subscriptionPlanId = "pro";
+    const { client, onClose, getByText, getByTestId, queryByText } =
+      renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("All done!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+
+    await waitFor(
+      () => expect(getByTestId("loc").textContent).toBe("/assistant/inbox"),
+      // Routing settles on a post-open onboarding refetch, which the parallel
+      // runner can hold past the usual budget.
+      { timeout: 10_000 },
+    );
+    expect(queryByText("Assistant Email")).toBeNull();
+    expect(onClose).toHaveBeenCalled();
+  }, 20_000);
+
+  test("a resize with a domain already registered completes in place", async () => {
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    subscriptionPlanId = "pro";
+    domainsResponse = makeDomains(true);
+    const { client, getByText, getByTestId } = renderModal({ mode: "resize" });
+
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    assistantResponse = makeAssistant("large", 50);
+    await client.invalidateQueries();
+    await waitFor(() => expect(getByText("You're all set!")).toBeTruthy(), {
+      timeout: 5000,
+    });
+    expect(getByTestId("loc").textContent).toBe("/assistant/settings/usage");
+  }, 20_000);
 });
 
 describe("BillingOnboardingModal — resize mode", () => {

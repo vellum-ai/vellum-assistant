@@ -1,6 +1,7 @@
 {
   "src/domains/assistant-inbox/assistant-inbox.stories.tsx": [
-    "chat"
+    "chat",
+    "settings"
   ],
   "src/domains/channels/components/email-channel-section.tsx": [
     "assistant-inbox"

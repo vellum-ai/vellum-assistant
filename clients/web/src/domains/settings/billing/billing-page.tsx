@@ -24,6 +24,7 @@ import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -155,6 +156,7 @@ function BillingTabContent() {
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
@@ -238,6 +240,13 @@ function BillingTabContent() {
       { replace: true },
     );
   }, [setSearchParams]);
+  // With the Assistant Inbox on, email setup lives in the inbox's own card,
+  // and the wizard no longer carries a domain step to reopen on, so the nudge
+  // takes the user there instead.
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
+  const openInboxSetup = useCallback(() => {
+    navigate(routes.assistantInbox);
+  }, [navigate]);
 
   if (billingGate === "disabled") {
     return (
@@ -275,9 +284,7 @@ function BillingTabContent() {
   if (!isPlatformHosted && platformGate !== "gated") {
     return (
       <div className="space-y-4">
-        <Notice tone="warning">
-          {t("billingPage.billingUnavailable")}
-        </Notice>
+        <Notice tone="warning">{t("billingPage.billingUnavailable")}</Notice>
       </div>
     );
   }
@@ -290,7 +297,9 @@ function BillingTabContent() {
       </Suspense>
       {showPlanManagement && <GracePeriodBanner />}
       {showPlanManagement && (
-        <FinishProSetupNotice onFinishSetup={openProOnboarding} />
+        <FinishProSetupNotice
+          onFinishSetup={inboxEnabled ? openInboxSetup : openProOnboarding}
+        />
       )}
       {showPlanManagement && (
         <PlanCard onManage={openPlanModal} onTierUpgraded={onTierUpgraded} />

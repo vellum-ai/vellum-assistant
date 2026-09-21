@@ -6,8 +6,11 @@ import {
   type CSSProperties,
 } from "react";
 
+import { useNavigate } from "react-router";
+
 import { useQueryClient } from "@tanstack/react-query";
 
+import { setSelectedAssistant } from "@/assistant/selection";
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   clearCheckoutIntent,
@@ -15,6 +18,8 @@ import {
   type CheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { useTranslation } from "@/i18n";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { routes } from "@/utils/routes";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -39,6 +44,11 @@ import { useProProvisioning } from "./use-pro-provisioning";
 import type { CreditTierChange } from "./use-provisioning-credits";
 import { useTakeoverSurface } from "./use-takeover-surface";
 
+/**
+ * The wizard's steps. With the Assistant Inbox on, "domain" is never shown:
+ * the moment the wizard would advance into it, it hands the user to the
+ * inbox's own setup card instead (see `handOffToInbox`).
+ */
 type WizardStep = "provisioning" | "domain" | "complete";
 
 /**
@@ -126,6 +136,8 @@ export function BillingOnboardingModal({
   const { t } = useTranslation("settings");
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
   const [step, setStep] = useState<WizardStep>("provisioning");
   const [takeoverExit, setTakeoverExit] = useState<TakeoverExit>("idle");
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -340,6 +352,28 @@ export function BillingOnboardingModal({
     }
   }, [open, routingInputsSettled]);
 
+  // The Assistant Inbox owns email setup once its flag is on: one card, in
+  // the app, that registers the address and opens the mailbox in the same
+  // place. So instead of the domain step, the wizard leaves for the inbox.
+  // An address set up through the old step could never reach that mailbox,
+  // so the old step is not offered beside the new one.
+  const handOffToInbox = useCallback(() => {
+    // Provisioning can target an assistant other than the active one, and the
+    // inbox reads the active one, so select the target first, as the complete
+    // step does before it returns to the assistant.
+    if (assistantId != null) {
+      void setSelectedAssistant(assistantId);
+    }
+    // What the skipped steps did on their own way out: the complete step
+    // clears the intent, and the close clears the avatar stash. Navigating
+    // unmounts this modal before the close effect can run, so both are done
+    // here.
+    clearCheckoutIntent();
+    clearTakeoverAvatarStash();
+    onClose();
+    navigate(routes.assistantInbox, { replace: true });
+  }, [assistantId, navigate, onClose]);
+
   const advanceFromProvisioning = useCallback(() => {
     // Checkout treats unknown availability optimistically (`undefined` → domain
     // step); resize requires affirmative `domainStepAvailable === true` AND no
@@ -351,6 +385,10 @@ export function BillingOnboardingModal({
       : domainStepAvailable === false
         ? "complete"
         : "domain";
+    if (next === "domain" && inboxEnabled) {
+      handOffToInbox();
+      return;
+    }
     if (prefersReducedMotion()) {
       setStep(next);
       return;
@@ -366,7 +404,13 @@ export function BillingOnboardingModal({
         );
       }, TAKEOVER_COVER_MS),
     );
-  }, [domainStepAvailable, isResize, hasExistingDomain]);
+  }, [
+    domainStepAvailable,
+    isResize,
+    hasExistingDomain,
+    inboxEnabled,
+    handOffToInbox,
+  ]);
 
   // "Continue in the background" opens a confirm that warns chatting stays
   // unavailable until the upgrade finishes, so the user chooses to keep waiting
