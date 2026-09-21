@@ -1688,7 +1688,8 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · 執行中"
+    "runningSuffix": " · 執行中",
+    "unnamedTool": "技能工具"
   },
   "skillLoadCard": {
     "view": "檢視"
@@ -1956,7 +1957,8 @@
     "result": "結果",
     "runStatus": "執行狀態",
     "title": "對話已喚醒",
-    "workflow": "工作流程"
+    "workflow": "工作流程",
+    "closeAria": "關閉詳細資料"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

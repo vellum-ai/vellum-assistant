@@ -1699,7 +1699,8 @@
     "titleFallback": "Skill"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · running"
+    "runningSuffix": " · running",
+    "unnamedTool": "Skill tool"
   },
   "skillLoadCard": {
     "view": "View"
@@ -1967,7 +1968,8 @@
     "result": "Result",
     "runStatus": "Run status",
     "title": "Conversation woke",
-    "workflow": "Workflow"
+    "workflow": "Workflow",
+    "closeAria": "Close details"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

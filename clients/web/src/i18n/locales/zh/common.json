@@ -994,5 +994,9 @@
     "title": "助手用户名",
     "description": "你的助手的公开名称，它的邮箱地址也基于这个名称。",
     "helper": "小写字母、数字、连字符和下划线。"
+  },
+  "detailShell": {
+    "close": "关闭",
+    "closePanel": "关闭面板"
   }
 }
