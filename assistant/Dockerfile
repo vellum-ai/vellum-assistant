@@ -123,6 +123,7 @@ RUN set -eu; \
         feh \
         fonts-liberation \
         gnome-mines \
+        gnome-text-editor \
         gvfs \
         libcurl4 \
         libegl1 \
@@ -145,6 +146,15 @@ RUN set -eu; \
         xterm \
         /tmp/wezterm.deb; \
     wezterm --version; \
+    mkdir -p /etc/xdg; \
+    awk 'BEGIN { print "[Default Applications]" } \
+        /^MimeType=/ { \
+            sub(/^MimeType=/, ""); \
+            count = split($0, types, ";"); \
+            for (i = 1; i <= count; i++) { \
+                if (types[i] != "") { print types[i] "=org.gnome.TextEditor.desktop;" } \
+            } \
+        }' /usr/share/applications/org.gnome.TextEditor.desktop > /etc/xdg/mimeapps.list; \
     rm -rf /tmp/wezterm.deb /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
 
 # Extract Chrome without running package scripts or registering its repository.
