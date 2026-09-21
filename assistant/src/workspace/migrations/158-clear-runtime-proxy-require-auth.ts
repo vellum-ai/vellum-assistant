@@ -7,15 +7,12 @@ import type { WorkspaceMigration } from "./types.js";
 const log = getLogger("workspace-migration-158");
 
 /**
- * Remove `gateway.runtimeProxyRequireAuth` from `config.json` when it is
- * disabled.
+ * Remove a disabled `gateway.runtimeProxyRequireAuth` from `config.json`.
  *
- * The retired `dev:proxy` script wrote `false` here and nothing reset it, so a
- * workspace that ran it once keeps serving the catch-all runtime proxy without
+ * A workspace carrying `false` here serves the catch-all runtime proxy without
  * client authentication. Only a disabled value is removed; an explicit `true`
- * matches the default and is left alone. A workspace that still wants the
- * requirement off sets `RUNTIME_PROXY_REQUIRE_AUTH`, which takes precedence
- * over config and is unaffected by this migration.
+ * matches the default and is left alone. `RUNTIME_PROXY_REQUIRE_AUTH` takes
+ * precedence over config and is unaffected.
  */
 export const clearRuntimeProxyRequireAuthMigration: WorkspaceMigration = {
   id: "158-clear-runtime-proxy-require-auth",
