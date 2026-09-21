@@ -317,6 +317,52 @@ describe("a guardian code on a channel with no linked identity", () => {
     expect(activeGuardianAccounts()).toEqual([OLD_ACCOUNT]);
   });
 
+  describe("from an address whose revoked row belonged to a contact, not the guardian", () => {
+    // Nothing else refuses here: no identity is linked, the row is revoked
+    // (not blocked) and its address matches exactly. Only the owner of the
+    // row separates this sender from the guardian reconnecting.
+    beforeEach(() => {
+      seedContact("former", "contact");
+      seedChannel({
+        id: "former-channel",
+        contactId: "former",
+        type: CHANNEL,
+        address: NEW_ACCOUNT,
+        status: "revoked",
+      });
+    });
+
+    function expectStillARevokedContact(): void {
+      expect(activeGuardianAccounts()).toEqual([]);
+      expect(channelOf(NEW_ACCOUNT)).toMatchObject({
+        contactId: "former",
+        status: "revoked",
+      });
+    }
+
+    test("a code bound to that address is refused", async () => {
+      mintCodeFor(NEW_ACCOUNT);
+
+      expectRefused(await redeem(CODE, NEW_ACCOUNT));
+
+      expectStillARevokedContact();
+    });
+
+    test("an inbound challenge, which is bound to no identity, is refused", async () => {
+      const secret = "b".repeat(64);
+      createInboundSession({
+        id: "session-1",
+        channel: CHANNEL,
+        challengeHash: hashVerificationSecret(secret),
+        expiresAt: Date.now() + 10 * 60 * 1000,
+      });
+
+      expectRefused(await redeem(secret, NEW_ACCOUNT));
+
+      expectStillARevokedContact();
+    });
+  });
+
   test("connects a new account after the old one was removed", async () => {
     seedGuardianAccount(OLD_ACCOUNT, "revoked");
     mintCodeFor(NEW_ACCOUNT);

@@ -375,18 +375,22 @@ export function gatewayChannelStatus(
 
 /**
  * The authoritative gateway row behind {@link gatewayChannelStatus}, with the
- * address as stored, for a caller that has to compare it exactly.
+ * address as stored, for a caller that has to compare it exactly, and the
+ * role of the contact that owns it, for a caller that has to know whether the
+ * row is the guardian's.
  */
 export function gatewayChannelRow(
   type: string,
   address: string,
-): { status: string; address: string } | null {
+): { status: string; address: string; contactRole: string } | null {
   const row = getGatewayDb()
     .select({
       status: gwContactChannels.status,
       address: gwContactChannels.address,
+      contactRole: gwContacts.role,
     })
     .from(gwContactChannels)
+    .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
     .where(
       and(
         eq(gwContactChannels.type, type),

@@ -394,14 +394,17 @@ async function applyGuardianSideEffects(params: {
   // own about-to-be-revoked row. createGuardianBinding writes "active"
   // unconditionally, so this guard is the only thing stopping a blocked actor.
   //
-  // One revoked row gets past it: the sender's own, on a channel with no
+  // One revoked row gets past it: the guardian's own, on a channel with no
   // other linked identity. That is the guardian linking again the identity
-  // they removed. A blocked row never does.
+  // they removed. The row has to belong to the guardian contact: a contact the
+  // guardian revoked stays revoked whatever code they hold. A blocked row
+  // never gets past it.
   const gwRow = gatewayChannelRow(sourceChannel, canonicalUserId);
   const gwStatus = gwRow?.status ?? null;
   if (gwStatus === "blocked" || gwStatus === "revoked") {
     const reconnectsOwnRevokedRow =
       gwStatus === "revoked" &&
+      gwRow?.contactRole === "guardian" &&
       gwRow?.address === canonicalUserId &&
       otherLinkedIdentities.length === 0;
     if (!reconnectsOwnRevokedRow) {
