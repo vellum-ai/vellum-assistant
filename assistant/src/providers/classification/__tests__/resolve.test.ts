@@ -11,6 +11,7 @@ import {
 import type { AssistantConfig } from "../../../config/types.js";
 
 let storedKeys: Record<string, string> = {};
+let storedAccounts: Record<string, string> = {};
 let managedContext = {
   enabled: false,
   platformBaseUrl: "",
@@ -23,6 +24,7 @@ const actualSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
   ...actualSecureKeys,
   getProviderKeyAsync: async (provider: string) => storedKeys[provider],
+  getSecureKeyAsync: async (account: string) => storedAccounts[account],
 }));
 const actualContext = await import("../../platform-proxy/context.js");
 mock.module("../../platform-proxy/context.js", () => ({
@@ -55,6 +57,7 @@ const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   storedKeys = {};
+  storedAccounts = {};
   managedContext = { enabled: false, platformBaseUrl: "", assistantApiKey: "" };
 });
 
@@ -146,6 +149,26 @@ describe("resolveClassificationProvider", () => {
       model: "jev-latest",
       source: "managed-proxy",
     });
+  });
+
+  test("your-own mode reads a credential override instead of the default slot", async () => {
+    storedAccounts["credential/jev-work/api_key"] = "sk-custom";
+
+    const resolved = await resolveClassificationProvider(
+      configWith({ credential: "jev-work:api_key" }),
+    );
+
+    expect(resolved?.source).toBe("user-key");
+    expect(
+      await resolveClassificationAvailability(
+        configWith({ credential: "jev-work:api_key" }),
+      ),
+    ).toMatchObject({ available: true, source: "user-key" });
+    expect(
+      await resolveClassificationProvider(
+        configWith({ credential: "credential/missing/api_key" }),
+      ),
+    ).toBeNull();
   });
 
   test("an unlisted model still resolves, with the default budget", async () => {

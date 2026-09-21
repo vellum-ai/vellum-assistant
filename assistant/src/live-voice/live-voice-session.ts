@@ -472,8 +472,8 @@ export interface LiveVoiceSessionOptions {
   /**
    * Decides from the caller's interruption whether the interrupted request
    * should still continue in the background. The factory wires the
-   * TypeSafe-backed judge; tests inject a stub. Absent, every eligible
-   * barge-in continues, as it does without a TypeSafe profile.
+   * classification-backed judge; tests inject a stub. Absent, every eligible
+   * barge-in continues, as it does without a classification provider.
    */
   judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
   /**

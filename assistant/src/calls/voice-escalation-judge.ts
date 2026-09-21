@@ -9,10 +9,11 @@
  * correct reply need something the front door cannot do from here? A
  * confident yes overrules a front-door answer and hands the turn off.
  *
- * The judge runs only when the `voiceEscalationJudge` call site resolves to
- * the TypeSafe provider. Every other outcome (no such profile, provider
- * error, timeout, unparseable answer) is a "clear" verdict, so the front
- * door's own decision stands exactly as it would without the judge.
+ * The judge runs only when `services.classification` resolves a provider;
+ * the `voiceEscalationJudge` call site labels the call for attribution and
+ * does not gate it. Every other outcome (no provider, provider error,
+ * timeout, unparseable answer) is a "clear" verdict, so the front door's own
+ * decision stands exactly as it would without the judge.
  */
 
 import type { Message, Provider } from "../providers/types.js";

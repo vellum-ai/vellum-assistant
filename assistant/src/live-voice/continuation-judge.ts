@@ -9,8 +9,9 @@
  * just point it out for me"): the continuation then does work the caller
  * no longer wants, while the foreground turn handles the changed request.
  *
- * The judge runs only when the `voiceContinuationJudge` call site resolves to
- * the TypeSafe provider. Without one, the session never waits on it. Every
+ * The judge runs only when `services.classification` resolves a provider;
+ * the `voiceContinuationJudge` call site labels the call for attribution and
+ * does not gate it. Without a provider, the session never waits on it. Every
  * failure keeps the continuation, which is the behavior without a judge.
  */
 
@@ -53,8 +54,8 @@ export interface ContinuationJudgement {
 /**
  * Judges one barge-in. `interruption` resolves with the caller's interrupting
  * words once the next turn dispatches, or null when none arrived in time;
- * the judge awaits it only when a TypeSafe profile is configured. Never
- * rejects.
+ * the judge awaits it only when `services.classification` resolves a
+ * provider. Never rejects.
  */
 export type LiveVoiceContinuationJudge = (args: {
   parentConversationId: string;

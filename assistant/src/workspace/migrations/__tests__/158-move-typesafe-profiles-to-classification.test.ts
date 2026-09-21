@@ -12,19 +12,25 @@ function workspaceWith(config: unknown): string {
   return dir;
 }
 
+const CANONICAL_AUTH = JSON.stringify({
+  type: "api_key",
+  credential: "credential/typesafe/api_key",
+});
+
 function seedConnections(
   dir: string,
-  rows: Array<{ name: string; provider: string }>,
+  rows: Array<{ name: string; provider: string; auth?: string }>,
 ): void {
   mkdirSync(join(dir, "data", "db"), { recursive: true });
   const db = new Database(join(dir, "data", "db", "assistant.db"));
   db.exec(
-    `CREATE TABLE provider_connections (name TEXT PRIMARY KEY, provider TEXT NOT NULL)`,
+    `CREATE TABLE provider_connections (name TEXT PRIMARY KEY, provider TEXT NOT NULL, auth TEXT NOT NULL)`,
   );
   for (const row of rows) {
-    db.prepare(`INSERT INTO provider_connections VALUES (?, ?)`).run(
+    db.prepare(`INSERT INTO provider_connections VALUES (?, ?, ?)`).run(
       row.name,
       row.provider,
+      row.auth ?? CANONICAL_AUTH,
     );
   }
   db.close();
@@ -109,6 +115,49 @@ describe("158-move-typesafe-profiles-to-classification", () => {
 
     expect(readConfig(dir)).toEqual(original);
     expect(connectionProviders(dir)).toEqual([]);
+  });
+
+  test("carries a custom credential account into services.classification", () => {
+    const dir = workspaceWith({
+      llm: {
+        profiles: {
+          jev: { ...JEV, provider_connection: "jev-work" },
+        },
+      },
+    });
+    seedConnections(dir, [
+      {
+        name: "jev-work",
+        provider: "typesafe",
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: "jev-work:api_key",
+        }),
+      },
+    ]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    expect(readConfig(dir).services.classification).toEqual({
+      mode: "your-own",
+      provider: "typesafe",
+      model: "jev-latest",
+      credential: "credential/jev-work/api_key",
+    });
+    expect(connectionProviders(dir)).toEqual([]);
+  });
+
+  test("writes no credential override for the canonical TypeSafe slot", () => {
+    const dir = workspaceWith({
+      llm: {
+        profiles: { "jev-work": { provider: "jev-work", model: "jev-latest" } },
+      },
+    });
+    seedConnections(dir, [{ name: "jev-work", provider: "typesafe" }]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    expect(readConfig(dir).services.classification.credential).toBeUndefined();
   });
 
   test("recognizes a profile bound to a TypeSafe connection by entry name", () => {

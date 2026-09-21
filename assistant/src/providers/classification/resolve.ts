@@ -10,7 +10,11 @@
 
 import { getConfig } from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getProviderKeyAsync } from "../../security/secure-keys.js";
+import { normalizeCredentialRef } from "../../security/credential-key.js";
+import {
+  getProviderKeyAsync,
+  getSecureKeyAsync,
+} from "../../security/secure-keys.js";
 import { JevProvider } from "../jev/client.js";
 import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import type { Provider } from "../types.js";
@@ -68,9 +72,12 @@ type ClassificationRoute =
 async function routeFor(
   entry: ClassificationProviderEntry,
   mode: "managed" | "your-own",
+  credential: string | undefined,
 ): Promise<ClassificationRoute> {
   if (mode === "your-own") {
-    const apiKey = await getProviderKeyAsync(entry.credentialProvider);
+    const apiKey = credential
+      ? await getSecureKeyAsync(normalizeCredentialRef(credential))
+      : await getProviderKeyAsync(entry.credentialProvider);
     return apiKey
       ? { ok: true, apiKey, source: "user-key" }
       : { ok: false, reason: "missing_credential" };
@@ -100,12 +107,17 @@ interface ClassificationSelection {
 async function selectClassification(
   config: AssistantConfig,
 ): Promise<ClassificationSelection | { reason: "unknown_provider" }> {
-  const { mode, provider: providerId, model } = config.services.classification;
+  const {
+    mode,
+    provider: providerId,
+    model,
+    credential,
+  } = config.services.classification;
   const entry = getClassificationProviderEntry(providerId);
   if (!entry) {
     return { reason: "unknown_provider" };
   }
-  return { entry, mode, model, route: await routeFor(entry, mode) };
+  return { entry, mode, model, route: await routeFor(entry, mode, credential) };
 }
 
 export async function resolveClassificationAvailability(

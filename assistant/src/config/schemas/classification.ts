@@ -17,5 +17,12 @@ export const ClassificationServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
   provider: z.enum(CLASSIFICATION_PROVIDER_IDS).default("typesafe"),
   model: z.string().min(1).default("jev-latest"),
+  /**
+   * Credential account read in your-own mode instead of the provider's
+   * default slot, as a vault key (`credential/<service>/<field>`) or the
+   * wire form (`<service>:<field>`). Set by workspace migration 158 for a
+   * TypeSafe connection that kept its key under a custom account.
+   */
+  credential: z.string().min(1).optional(),
 });
 export type ClassificationService = z.infer<typeof ClassificationServiceSchema>;

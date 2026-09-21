@@ -13,7 +13,10 @@ import type { WorkspaceMigration } from "./types.js";
  * entry-name binding). For a config holding at least one:
  *
  *   - `services.classification` is written as the BYOK route on the first
- *     such profile's model unless the block already exists.
+ *     such profile's model unless the block already exists. When that
+ *     profile's connection row kept its key under a custom credential
+ *     account, the account is carried over as `credential`, so the key
+ *     stays reachable after the row is gone.
  *   - Every TypeSafe profile is deleted.
  *   - A mix that loses arms is repaired: with two or more left it keeps
  *     them; with one left it collapses, and every reference to the mix is
@@ -37,6 +40,13 @@ import type { WorkspaceMigration } from "./types.js";
  */
 const TYPESAFE_PROVIDER = "typesafe";
 const DEFAULT_CLASSIFICATION_MODEL = "jev-latest";
+const CANONICAL_TYPESAFE_CREDENTIAL = "credential/typesafe/api_key";
+
+interface ConnectionRow {
+  provider: string;
+  /** Vault-key form of an api_key row's credential account, when it has one. */
+  credential?: string;
+}
 
 export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
   {
@@ -62,8 +72,8 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
         return;
       }
 
-      const connectionKinds = readConnectionKinds(workspaceDir);
-      if (connectionKinds === null) {
+      const connectionRows = readConnectionRows(workspaceDir);
+      if (connectionRows === null) {
         throw new Error(
           "provider_connections is not readable; retrying the TypeSafe profile move on the next run",
         );
@@ -72,7 +82,7 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
       const llm = asRecord(config.llm);
       const profiles = asRecord(llm?.profiles);
       if (llm && profiles) {
-        moveProfiles(config, llm, profiles, connectionKinds);
+        moveProfiles(config, llm, profiles, connectionRows);
         writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
       }
 
@@ -93,26 +103,38 @@ function moveProfiles(
   config: Record<string, unknown>,
   llm: Record<string, unknown>,
   profiles: Record<string, unknown>,
-  connectionKinds: ReadonlyMap<string, string>,
+  connectionRows: ReadonlyMap<string, ConnectionRow>,
 ): void {
   const removed = new Set<string>();
   let model: string = DEFAULT_CLASSIFICATION_MODEL;
+  let credential: string | undefined;
   for (const [name, value] of Object.entries(profiles)) {
     const profile = asRecord(value);
     const provider = profile?.provider;
     const routesToTypesafe =
       provider === TYPESAFE_PROVIDER ||
       (typeof provider === "string" &&
-        connectionKinds.get(provider) === TYPESAFE_PROVIDER);
+        connectionRows.get(provider)?.provider === TYPESAFE_PROVIDER);
     if (!routesToTypesafe) {
       continue;
     }
-    if (
-      removed.size === 0 &&
-      typeof profile?.model === "string" &&
-      profile.model
-    ) {
-      model = profile.model;
+    if (removed.size === 0) {
+      if (typeof profile?.model === "string" && profile.model) {
+        model = profile.model;
+      }
+      // The row a literal-provider profile dispatched through is named by
+      // its binding; an entry-name profile names the row directly.
+      const rowName =
+        provider === TYPESAFE_PROVIDER
+          ? profile?.provider_connection
+          : provider;
+      const rowCredential =
+        typeof rowName === "string"
+          ? connectionRows.get(rowName)?.credential
+          : undefined;
+      if (rowCredential && rowCredential !== CANONICAL_TYPESAFE_CREDENTIAL) {
+        credential = rowCredential;
+      }
     }
     removed.add(name);
     delete profiles[name];
@@ -127,6 +149,7 @@ function moveProfiles(
       mode: "your-own",
       provider: TYPESAFE_PROVIDER,
       model,
+      ...(credential ? { credential } : {}),
     };
   }
   config.services = services;
@@ -293,10 +316,12 @@ function deleteTypesafeConnections(workspaceDir: string): boolean {
 }
 
 /**
- * Connection name -> provider kind, or null when the database or table is
- * not readable. A missing database means a workspace with no connections.
+ * Connection name -> row, or null when the database or table is not
+ * readable. A missing database means a workspace with no connections.
  */
-function readConnectionKinds(workspaceDir: string): Map<string, string> | null {
+function readConnectionRows(
+  workspaceDir: string,
+): Map<string, ConnectionRow> | null {
   const dbPath = join(workspaceDir, "data", "db", "assistant.db");
   if (!existsSync(dbPath)) {
     return new Map();
@@ -317,9 +342,14 @@ function readConnectionKinds(workspaceDir: string): Map<string, string> | null {
       return new Map();
     }
     const rows = db
-      .query(`SELECT name, provider FROM provider_connections`)
-      .all() as Array<{ name: string; provider: string }>;
-    return new Map(rows.map((row) => [row.name, row.provider]));
+      .query(`SELECT name, provider, auth FROM provider_connections`)
+      .all() as Array<{ name: string; provider: string; auth: string }>;
+    return new Map(
+      rows.map((row) => [
+        row.name,
+        { provider: row.provider, credential: credentialOf(row.auth) },
+      ]),
+    );
   } catch {
     return null;
   } finally {
@@ -344,6 +374,34 @@ function referenceResolver(
     }
     return removed.has(current) ? undefined : current;
   };
+}
+
+/**
+ * The vault-key credential account of an api_key auth payload, in the same
+ * normalization the credential store applies (`service:field` on the wire
+ * becomes `credential/service/field`). Inlined so the migration keeps
+ * behaving identically if the shared helper ever changes.
+ */
+function credentialOf(auth: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(auth);
+  } catch {
+    return undefined;
+  }
+  const record = asRecord(parsed);
+  if (record?.type !== "api_key" || typeof record.credential !== "string") {
+    return undefined;
+  }
+  const ref = record.credential;
+  if (ref.startsWith("credential/")) {
+    return ref;
+  }
+  const colon = ref.lastIndexOf(":");
+  if (colon < 1 || colon === ref.length - 1) {
+    return ref;
+  }
+  return `credential/${ref.slice(0, colon)}/${ref.slice(colon + 1)}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
