@@ -239,8 +239,15 @@ export const routes = {
    */
   assistantInbox: r("/assistant/inbox"),
 
+  /**
+   * Contacts surface, a drill-down section under the assistant overview
+   * (`identity`). `detail` deep-links one contact. Path-based (not `?tab=`)
+   * so the open contact is bookmarkable and shareable; both paths render
+   * `ContactsPage`, which derives the selection from the URL.
+   */
   contacts: {
     root: r("/assistant/contacts"),
+    detail: (contactId: string) => dyn(r("/assistant/contacts"), contactId),
   },
 
   /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout

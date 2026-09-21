@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -121,7 +126,8 @@ export function ContactsPage({
   const setupChannel =
     rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
-  const [pickedContactId, setPickedContactId] = useState<string | null>(null);
+  const { contactId: routeContactId } = useParams<{ contactId: string }>();
+  const navigate = useNavigate();
 
   const inviteDialog = useInviteLinkDialog(assistantId);
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
@@ -201,11 +207,41 @@ export function ContactsPage({
     [contactsData],
   );
   // With nothing picked the pane rests on the guardian.
-  const selectedContactId = pickedContactId ?? guardian?.id ?? null;
+  const selectedContactId = routeContactId ?? guardian?.id ?? null;
   const selectedContact = useMemo<ContactPayload | null>(
     () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
     [contactsData, selectedContactId],
   );
+
+  // Moving between rows of one page is not a step to walk back through, so
+  // the selection replaces the entry rather than pushing a new one.
+  const selectContact = useCallback(
+    (contactId: string) => {
+      void navigate(routes.contacts.detail(contactId), { replace: true });
+    },
+    [navigate],
+  );
+
+  // An id the list does not carry (a deleted contact, a stale deep link) falls
+  // back to the bare route. `isLoading` holds the deep link until the list
+  // arrives, and `isError` holds it across a failed fetch so a retry reopens
+  // the contact.
+  useEffect(() => {
+    if (
+      routeContactId &&
+      !contactsQuery.isLoading &&
+      !contactsQuery.isError &&
+      !selectedContact
+    ) {
+      void navigate(routes.contacts.root, { replace: true });
+    }
+  }, [
+    routeContactId,
+    contactsQuery.isLoading,
+    contactsQuery.isError,
+    selectedContact,
+    navigate,
+  ]);
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
@@ -236,7 +272,7 @@ export function ContactsPage({
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
-      setPickedContactId(contact.id);
+      selectContact(contact.id);
     },
     onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
@@ -254,7 +290,7 @@ export function ContactsPage({
             }
           : undefined,
       );
-      setPickedContactId(null);
+      void navigate(routes.contacts.root, { replace: true });
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
@@ -338,7 +374,7 @@ export function ContactsPage({
               }
             : undefined,
         );
-        setPickedContactId(mergedContact.id);
+        selectContact(mergedContact.id);
       }
       setMergeDialogOpen(false);
       toast.success(t("contactsPage.mergeSucceeded"));
@@ -348,12 +384,12 @@ export function ContactsPage({
 
   const handleSelect = useCallback(
     (contactId: string) => {
-      setPickedContactId(contactId);
+      selectContact(contactId);
       closeDrawer();
       setMergeDialogOpen(false);
       mergeMutation.reset();
     },
-    [closeDrawer, mergeMutation],
+    [selectContact, closeDrawer, mergeMutation],
   );
 
   const handleOpenMerge = useCallback(() => {

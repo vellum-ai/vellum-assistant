@@ -1119,6 +1119,19 @@ export const routeTree = [
                             },
                           },
                           {
+                            // Same page, with the selected contact in the URL
+                            // so a row is linkable, survives a reload, and is
+                            // a screen Back can leave. `/contacts` alone still
+                            // resolves, landing on the guardian.
+                            path: "contacts/:contactId",
+                            lazy: {
+                              Component: () =>
+                                import("@/contacts-page-route").then(
+                                  (m) => m.ContactsPageRoute,
+                                ),
+                            },
+                          },
+                          {
                             path: "channels",
                             lazy: {
                               Component: () =>

@@ -12,11 +12,15 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { createElement, Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -28,6 +32,7 @@ let toastErrorCalls: string[] = [];
 let upsertShouldReject = false;
 let lastUpsertBody: unknown = null;
 let contactsFixture: ContactPayload[] = [];
+let contactsShouldReject = false;
 let availableChannelsOverride: ChannelInfo[] | null = null;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -170,7 +175,12 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
     queryKey: CONTACTS_KEY,
-    queryFn: async () => ({ contacts: contactsFixture }),
+    queryFn: async () => {
+      if (contactsShouldReject) {
+        throw new ApiError(500, "Contacts unavailable");
+      }
+      return { contacts: contactsFixture };
+    },
   }),
   contactsGetQueryKey: () => CONTACTS_KEY,
   contactsGetSetQueryData: () => {},
@@ -213,7 +223,17 @@ const { ContactsPage } = await import("@/domains/contacts/contacts-page");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function Wrapper({ children }: { children: ReactNode }) {
+/**
+ * `useParams` only yields `contactId` under a matching route pattern, so the
+ * page is mounted under the real `contacts/:contactId?` pattern.
+ */
+function Wrapper({
+  children,
+  initialPath = "/assistant/contacts",
+}: {
+  children: ReactNode;
+  initialPath?: string;
+}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -222,8 +242,24 @@ function Wrapper({ children }: { children: ReactNode }) {
   });
   return createElement(
     MemoryRouter,
-    null,
-    createElement(QueryClientProvider, { client }, children),
+    { initialEntries: [initialPath] },
+    createElement(
+      QueryClientProvider,
+      { client },
+      createElement(
+        Routes,
+        null,
+        createElement(Route, {
+          path: "/assistant/contacts/:contactId?",
+          element: createElement(
+            Fragment,
+            null,
+            children,
+            createElement(LocationProbe),
+          ),
+        }),
+      ),
+    ),
   );
 }
 
@@ -278,6 +314,7 @@ beforeEach(() => {
   upsertShouldReject = false;
   lastUpsertBody = null;
   contactsFixture = [GUARDIAN, ALICE, PEER];
+  contactsShouldReject = false;
   availableChannelsOverride = null;
   linkAndVerifyCalls.length = 0;
   unhandledRejections.length = 0;
@@ -416,6 +453,79 @@ describe("ContactsPage list and detail", () => {
     fireEvent.click(await waitFor(() => getModalButton("Delete")));
 
     await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+});
+
+describe("ContactsPage URL-owned selection", () => {
+  test("the bare route rests on the guardian and leaves the URL alone", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("a contact detail path opens that contact on first load", async () => {
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+  });
+
+  test("clicking a row moves the location to that contact's detail path", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${ALICE.id}`,
+      );
+    });
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+  });
+
+  test("an id no contact carries falls back to the bare route", async () => {
+    render(
+      <Wrapper initialPath="/assistant/contacts/c-missing">
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe("/assistant/contacts");
+    });
+    await waitFor(() => getInputByPlaceholder("Your name"));
+  });
+
+  test("a failed contacts fetch keeps the deep link intact", async () => {
+    contactsShouldReject = true;
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The empty state marks the query as settled; only then could the
+    // stale-id effect have fired.
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Select a contact");
+    });
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 });
 

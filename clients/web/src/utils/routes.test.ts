@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ABOUT_ASSISTANT_SECTIONS,
+  aboutAssistantSectionForPath,
   appIdForPath,
   conversationIdForPath,
   isAboutAssistantPath,
@@ -42,6 +43,11 @@ describe("routes", () => {
     expect(routes.schedules.detail("sch_123")).toBe(
       "/assistant/schedules/sch_123",
     );
+  });
+
+  test("builds the contacts list and per-contact detail paths", () => {
+    expect(routes.contacts.root).toBe("/assistant/contacts");
+    expect(routes.contacts.detail("c_1")).toBe("/assistant/contacts/c_1");
   });
 
   test("builds the superpowers list and per-skill detail paths", () => {
@@ -97,6 +103,14 @@ describe("isAboutAssistantPath", () => {
   test("matches the Library section, including the app viewer sub-path", () => {
     expect(isAboutAssistantPath(routes.library.root)).toBe(true);
     expect(isAboutAssistantPath(routes.library.app("app-1"))).toBe(true);
+  });
+
+  test("matches the Contacts section, including a contact detail path", () => {
+    expect(isAboutAssistantPath(routes.contacts.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.contacts.detail("c_1"))).toBe(true);
+    expect(
+      aboutAssistantSectionForPath(routes.contacts.detail("c_1"))?.key,
+    ).toBe("contacts");
   });
 
   test("every registry section counts as an About Assistant path", () => {
