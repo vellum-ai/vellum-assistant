@@ -55,8 +55,11 @@ afterAll(() => {
   resetDbForTesting();
 });
 
-const TEST_TOKEN = "test-bearer-token-attach";
-const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+// This suite mocks isHttpAuthDisabled() to true, so a request carrying no
+// bearer authenticates through the dev bypass. A bearer that IS present is
+// verified on its own terms, and the placeholder string these requests used
+// to carry is not a signed JWT.
+const AUTH_HEADERS: Record<string, string> = {};
 
 describe("Runtime attachment metadata", () => {
   let server: RuntimeHttpServer;

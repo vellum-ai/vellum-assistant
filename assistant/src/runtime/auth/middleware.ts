@@ -76,8 +76,10 @@ function buildDevBypassContext(): AuthContext {
 export function authenticateRequest(req: Request): AuthenticateResult {
   const rawToken = extractBearerToken(req);
   if (!rawToken) {
-    // Dev bypass covers only a request that presents nothing.
-    if (isHttpAuthDisabled()) {
+    // Dev bypass covers only a request that supplied no Authorization header
+    // at all. A header that is present but unusable (empty credential, a
+    // non-bearer scheme) is refused rather than handed the guardian context.
+    if (isHttpAuthDisabled() && !req.headers.get("authorization")) {
       return { ok: true, context: buildDevBypassContext() };
     }
     log.warn(

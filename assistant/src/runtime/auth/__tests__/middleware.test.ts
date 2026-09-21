@@ -326,9 +326,9 @@ describe("authenticateRequest for /v1/host-browser-result", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Dev bypass covers only a request that presents nothing. A bearer sent to a
-// platform pod — the gateway's exchange token, or a trusted contact's — is
-// verified on its own terms.
+// Dev bypass covers only a request that supplied no Authorization header. A
+// bearer sent to a platform pod (the gateway's exchange token, or a trusted
+// contact's) is verified on its own terms.
 // ---------------------------------------------------------------------------
 
 describe("authenticateRequest with auth disabled and a bearer present", () => {
@@ -424,6 +424,41 @@ describe("authenticateRequest with auth disabled and a bearer present", () => {
       expect(result.context.actorPrincipalId).toBe("dev-bypass");
     }
   });
+
+  test("verifies a lowercase bearer scheme rather than bypassing it", () => {
+    const token = mintValidToken({ sub: "actor:self:contact-principal" });
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `bearer ${token}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBe("contact-principal");
+    }
+  });
+
+  test.each([
+    ["lowercase scheme with a bad token", "bearer not-a-jwt.xxxxxxxx"],
+    ["empty credential", "Bearer "],
+    ["non-bearer scheme", "Basic dXNlcjpwYXNz"],
+  ])(
+    "refuses %s instead of granting the dev-bypass context",
+    (_label, header) => {
+      const req = new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { Authorization: header },
+      });
+
+      const result = authenticateRequest(req);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.response.status).toBe(401);
+      }
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
