@@ -1199,6 +1199,11 @@ describe("Memory Item Routes", () => {
       const body = (await res.json()) as RememberBody;
       expect(body.success).toBe(true);
       expect(body.message.length).toBeGreaterThan(0);
+      // Exactly the declared response fields: the handler's saved-facts list
+      // stays on the tool path.
+      expect(Object.keys(body).sort()).toEqual(
+        ["message", "pendingNodeId", "success"].sort(),
+      );
     });
 
     test("returns the pending node id of the appended entry", async () => {

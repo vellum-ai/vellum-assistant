@@ -130,9 +130,61 @@ export const RecallDepthSchema = z.enum(["fast", "standard", "deep"]);
 
 export type RecallDepth = z.infer<typeof RecallDepthSchema>;
 
+/** One piece of evidence a `recall` result stands on. */
+export const RecallEvidenceItemSchema = z.object({
+  source: RecallSourceSchema,
+  title: z.string(),
+  /** Where in its source: a memory page, a conversation and when, a file and line. */
+  locator: z.string(),
+  /** The excerpt, collapsed to one line and cut to a few hundred characters. */
+  excerpt: z.string(),
+  timestampMs: z.number().optional(),
+});
+
+export type RecallEvidenceItem = z.infer<typeof RecallEvidenceItemSchema>;
+
+/** How one source fared: searched, or degraded with the reason. */
+export const RecallSearchedSourceSchema = z.object({
+  source: RecallSourceSchema,
+  status: z.enum(["searched", "degraded"]),
+  evidenceCount: z.number(),
+  error: z.string().optional(),
+});
+
+export type RecallSearchedSource = z.infer<typeof RecallSearchedSourceSchema>;
+
+/**
+ * A `recall` call as structured data: what it searched for and how, the answer
+ * when one was written, the evidence it stands on, and how each source fared.
+ * The same result the tool's text gives the model, for a client to lay out.
+ */
+export const RecallMetadataSchema = z.object({
+  query: z.string(),
+  depth: RecallDepthSchema,
+  sources: z.array(RecallSourceSchema),
+  /**
+   * The answer written from the evidence. Absent when recall fell back to
+   * listing what it found, or found nothing.
+   */
+  answer: z.string().optional(),
+  evidence: z.array(RecallEvidenceItemSchema),
+  searchedSources: z.array(RecallSearchedSourceSchema),
+});
+
+export type RecallMetadata = z.infer<typeof RecallMetadataSchema>;
+
+/** A `remember` call as structured data: the facts it saved, as written. */
+export const RememberMetadataSchema = z.object({
+  facts: z.array(z.string()),
+});
+
+export type RememberMetadata = z.infer<typeof RememberMetadataSchema>;
+
 export const ToolActivityMetadataSchema = z.object({
   webSearch: WebSearchMetadataSchema.optional(),
   webFetch: WebFetchMetadataSchema.optional(),
+  recall: RecallMetadataSchema.optional(),
+  remember: RememberMetadataSchema.optional(),
 });
 
 export type ToolActivityMetadata = z.infer<typeof ToolActivityMetadataSchema>;

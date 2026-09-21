@@ -1,4 +1,5 @@
 import {
+  type RecallSearchedSource,
   type RecallSource,
   RecallSourceSchema,
 } from "../../../../api/events/tool-result.js";
@@ -17,18 +18,9 @@ import type {
   RecallSourceAdapter,
 } from "./types.js";
 
-export type DeterministicRecallSourceStatus = "searched" | "degraded";
-
-export interface DeterministicRecallSourceNote {
-  source: RecallSource;
-  status: DeterministicRecallSourceStatus;
-  evidenceCount: number;
-  error?: string;
-}
-
 export interface DeterministicRecallSearchResult extends RecallSearchResult {
   input: NormalizedRecallInput;
-  searchedSources: DeterministicRecallSourceNote[];
+  searchedSources: RecallSearchedSource[];
 }
 
 export interface DeterministicRecallSearchOptions {

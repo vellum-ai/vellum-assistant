@@ -79,6 +79,9 @@ export const rememberTool = {
     return {
       content: result.message,
       isError: !result.success,
+      ...(result.success
+        ? { activityMetadata: { remember: { facts: result.facts } } }
+        : {}),
       ...(parsed.data.finish_turn === true ? { yieldToUser: true } : {}),
     };
   },
@@ -118,7 +121,11 @@ export const recallTool = {
       signal: context.signal,
     });
 
-    return { content: result.content, isError: false };
+    return {
+      content: result.content,
+      isError: false,
+      activityMetadata: { recall: result.activity },
+    };
   },
 } satisfies ToolDefinition;
 

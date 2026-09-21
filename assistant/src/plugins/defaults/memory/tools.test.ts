@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import type { RecallMetadata } from "../../../api/events/tool-result.js";
 import type { ToolContext } from "../../../tools/types.js";
 
 let tmpWorkspace: string;
@@ -33,6 +34,14 @@ const recallCalls: Array<{
   context: Record<string, unknown>;
 }> = [];
 let recallContent = "agentic recall answer";
+const recallActivity: RecallMetadata = {
+  query: "guardian recall",
+  depth: "standard",
+  sources: ["memory"],
+  answer: "agentic recall answer",
+  evidence: [],
+  searchedSources: [{ source: "memory", status: "searched", evidenceCount: 0 }],
+};
 
 mock.module("./v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
@@ -54,6 +63,7 @@ mock.module("./context-search/agent-runner.js", () => ({
       content: recallContent,
       answer: recallContent,
       evidence: [],
+      activity: recallActivity,
       debug: { mode: "agentic" },
     };
   },
@@ -148,6 +158,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "agentic recall answer",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
     expect(recallCalls).toHaveLength(1);
     expect(recallCalls[0]?.input).toEqual({ query: "guardian recall" });
@@ -181,6 +192,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "agentic recall answer",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
     expect(recallCalls).toHaveLength(1);
     expect(recallCalls[0]?.input).toEqual({
@@ -233,6 +245,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "Found evidence:\n\n- [workspace] fallback note",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
   });
 
@@ -350,6 +363,7 @@ describe("rememberTool.execute — memory access", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Not saved");
+      expect(result.activityMetadata).toBeUndefined();
       // The turn continues so the model can relay the refusal.
       expect(result.yieldToUser).toBeUndefined();
       const bufferPath = join(tmpWorkspace, "memory", "buffer.md");
@@ -369,10 +383,13 @@ describe("rememberTool.execute — batch (array) content", () => {
 
   test("records every fact from an array in the memory buffer", async () => {
     const result = await rememberTool.execute(
-      { content: ["batch fact A", "batch fact B"] },
+      { content: [" batch fact A ", "batch fact B", "  "] },
       makeContext(),
     );
     expect(result.isError).toBe(false);
+    expect(result.activityMetadata).toEqual({
+      remember: { facts: ["batch fact A", "batch fact B"] },
+    });
 
     const bufferContents = readFileSync(
       join(tmpWorkspace, "memory", "buffer.md"),
@@ -405,6 +422,7 @@ describe("rememberTool.execute — batch (array) content", () => {
       makeContext(),
     );
     expect(result.isError).toBe(true);
+    expect(result.activityMetadata).toBeUndefined();
     expect(enqueueCalls).toHaveLength(0);
   });
 });

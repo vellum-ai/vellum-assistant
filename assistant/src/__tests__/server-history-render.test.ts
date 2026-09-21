@@ -678,6 +678,57 @@ describe("renderHistoryContent", () => {
     expect(output.toolCalls[0].activityMetadata).toBeUndefined();
   });
 
+  test("hydrates persisted recall and remember activity", () => {
+    const recall: ToolActivityMetadata = {
+      recall: {
+        query: "launch plan",
+        depth: "standard",
+        sources: ["memory", "workspace"],
+        answer: "The launch moved to Friday.",
+        evidence: [
+          {
+            source: "workspace",
+            title: "notes/launch.md",
+            locator: "notes/launch.md:4",
+            excerpt: "Launch moves to Friday.",
+          },
+        ],
+        searchedSources: [
+          { source: "memory", status: "searched", evidenceCount: 0 },
+          {
+            source: "workspace",
+            status: "degraded",
+            evidenceCount: 1,
+            error: "index stale",
+          },
+        ],
+      },
+    };
+    const remember: ToolActivityMetadata = {
+      remember: { facts: ["Prefers window seats"] },
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "recall",
+        input: { query: "launch plan" },
+        _activityMetadata: recall,
+      },
+      {
+        type: "tool_use",
+        id: "tu_2",
+        name: "remember",
+        input: { content: "Prefers window seats" },
+        _activityMetadata: remember,
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual(recall);
+    expect(output.toolCalls[1].activityMetadata).toEqual(remember);
+  });
+
   test("drops a malformed activity entry and keeps a valid sibling", () => {
     const webFetch: WebFetchMetadata = {
       url: "https://example.com",

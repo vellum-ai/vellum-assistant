@@ -4,9 +4,12 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import type { RecallSource } from "../../../../api/events/tool-result.js";
+import type {
+  RecallMetadata,
+  RecallSource,
+} from "../../../../api/events/tool-result.js";
 import { redactSecrets } from "../../../../security/secret-scanner.js";
 import {
   buildRecallAgentPromptBundle,
@@ -16,6 +19,8 @@ import {
   validateFinishRecallPayload,
 } from "./agent-protocol.js";
 import {
+  buildRecallActivity,
+  compactText,
   formatDeterministicRecallAnswer,
   formatRecallFooter,
 } from "./format.js";
@@ -90,6 +95,7 @@ interface AgenticRecallDebug {
 
 interface AgenticRecallAnswer extends RecallAnswer {
   content: string;
+  activity: RecallMetadata;
   debug: AgenticRecallDebug;
 }
 
@@ -698,11 +704,12 @@ function finishRecallFromToolUse(
     citationIds: finish.citationIds,
     ...(finish.unresolved ? { unresolved: finish.unresolved } : {}),
   };
+  const availableEvidence = shouldAppendAvailableEvidence(finish)
+    ? selectAvailableEvidence(input.query, allEvidence, citedEvidence)
+    : [];
   const content = formatAgenticRecallContent({
     answer: finish.answer,
-    availableEvidence: shouldAppendAvailableEvidence(finish)
-      ? selectAvailableEvidence(input.query, allEvidence, citedEvidence)
-      : [],
+    availableEvidence,
     footer: formatRecallFooter({
       searchedSources: searchResult.searchedSources,
       inspectCalls: debug.inspectCalls,
@@ -715,6 +722,15 @@ function finishRecallFromToolUse(
       content,
       answer: content,
       evidence: citedEvidence,
+      // Available evidence opens with the cited items, so it is the fuller
+      // list whenever the text carries it.
+      activity: buildRecallActivity({
+        input,
+        searchedSources: searchResult.searchedSources,
+        evidence:
+          availableEvidence.length > 0 ? availableEvidence : citedEvidence,
+        answer: finish.answer,
+      }),
       debug,
     },
   };
@@ -854,17 +870,6 @@ function formatAvailableEvidence(evidence: readonly RecallEvidence[]): string {
       return `${index + 1}. [${item.source}] ${item.title} (${item.locator}): ${excerpt}`;
     }),
   ].join("\n");
-}
-
-function compactText(text: string, maxChars: number): string {
-  const compacted = text.trim().replace(/\s+/g, " ");
-  if (compacted.length <= maxChars) {
-    return compacted;
-  }
-  if (maxChars <= 3) {
-    return safeStringSlice(compacted, 0, maxChars);
-  }
-  return `${safeStringSlice(compacted, 0, maxChars - 3).trimEnd()}...`;
 }
 
 function dedupeEvidenceById(
@@ -1296,6 +1301,11 @@ function deterministicFallback(
     content: fallback.answer,
     answer: fallback.answer,
     evidence: fallback.evidence,
+    activity: buildRecallActivity({
+      input: result.input,
+      searchedSources: result.searchedSources,
+      evidence: fallback.evidence,
+    }),
     debug: {
       ...debug,
       mode: "deterministic_fallback",

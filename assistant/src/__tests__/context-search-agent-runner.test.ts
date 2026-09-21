@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { RecallMetadataSchema } from "../api/events/tool-result.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 
@@ -941,5 +942,130 @@ describe("runAgenticRecall", () => {
       temperature: 0,
       thinking: { type: "disabled" },
     });
+  });
+});
+
+describe("runAgenticRecall activity", () => {
+  beforeEach(() => {
+    configuredProvider = null;
+    getConfiguredProviderCallSites.length = 0;
+  });
+
+  const launchAdapter = () =>
+    makeAdapter({
+      "launch notes": [
+        makeEvidence("workspace:launch", {
+          excerpt: "  Alice   chose\nFriday.  ",
+          timestampMs: 1_700_000_000_000,
+        }),
+        makeEvidence("workspace:retro"),
+      ],
+    });
+
+  test("carries the finish answer alone and the cited evidence", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer: "Alice chose Friday.",
+        confidence: "high",
+        citation_ids: ["workspace:launch"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"], depth: "fast" },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.activity).toEqual({
+      query: "launch notes",
+      depth: "fast",
+      sources: ["workspace"],
+      answer: "Alice chose Friday.",
+      evidence: [
+        {
+          source: "workspace",
+          title: "workspace:launch title",
+          locator: "workspace:launch.md",
+          excerpt: "Alice chose Friday.",
+          timestampMs: 1_700_000_000_000,
+        },
+      ],
+      searchedSources: [
+        { source: "workspace", status: "searched", evidenceCount: 2 },
+      ],
+    });
+    expect(RecallMetadataSchema.parse(result.activity)).toEqual(
+      result.activity,
+    );
+  });
+
+  test("lists the available evidence the text appends on a low-confidence answer", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer: "Probably Friday.",
+        confidence: "low",
+        citation_ids: ["workspace:launch"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.content).toContain("Available evidence:");
+    expect(result.activity.answer).toBe("Probably Friday.");
+    expect(result.activity.evidence.map((item) => item.title)).toEqual([
+      "workspace:launch title",
+      "workspace:retro title",
+    ]);
+  });
+
+  test("has no answer when recall falls back to listing what it found", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.debug.mode).toBe("deterministic_fallback");
+    expect(result.activity.answer).toBeUndefined();
+    expect(result.activity.depth).toBe("standard");
+    expect(result.activity.evidence.map((item) => item.title)).toEqual([
+      "workspace:launch title",
+      "workspace:retro title",
+    ]);
+  });
+
+  test("reports a degraded source and no evidence when nothing is found", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search() {
+                throw new Error("index unavailable");
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.content).toContain("No reliable results found.");
+    expect(result.activity.evidence).toEqual([]);
+    expect(result.activity.searchedSources).toEqual([
+      {
+        source: "workspace",
+        status: "degraded",
+        evidenceCount: 0,
+        error: "index unavailable",
+      },
+    ]);
   });
 });
