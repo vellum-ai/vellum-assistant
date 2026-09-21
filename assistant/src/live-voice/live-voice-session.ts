@@ -2293,10 +2293,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // change under a live session, so this normally confirms the guess; it
       // clears it when the dial fell back to another provider or resolved
       // one the config did not name.
+      const expectedProviderSpeechStart = this.providerTurnStartActive;
       this.setProviderTurnDetectionActive(
         supportsProviderTurnDetection(transcriber.providerId) &&
           this.turnDetector !== null,
       );
+      // A non-Flux fallback cannot confirm the local onset suppressed during
+      // the dial. Replay it while the input cycle is still open.
+      if (
+        expectedProviderSpeechStart &&
+        !this.providerTurnStartActive &&
+        utterance.speechRouted &&
+        !utterance.released &&
+        !utterance.completed
+      ) {
+        this.handleSpeechStart("local");
+      }
       if (
         this.turnDetector &&
         (typeof transcriber.finalizeUtterance === "function" ||

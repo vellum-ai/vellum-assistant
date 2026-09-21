@@ -1493,6 +1493,7 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
       () => countFrames(frames, "utterance_end") === 1,
       "The utterance deferred under the seeded latch never released",
     );
+    expect(countFrames(frames, "speech_started")).toBe(1);
     await waitFor(
       () => transcribers[0]?.stopped === true,
       "The utterance never finished releasing",
@@ -1504,6 +1505,31 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
 
     await session.close("client_end");
   });
+
+  test.each([true, false])(
+    "replays local onset when the dial falls back from Flux (turn-end %s)",
+    async (flagOn) => {
+      const gate = createDialGate();
+      const { frames, session } = createHarness({
+        providerId: "vellum",
+        fluxConfig: flagOn ? FLUX_ON : FLUX_OFF,
+        silenceThresholdMs: 10_000,
+        resolveGate: gate.promise,
+      });
+      try {
+        await session.start();
+        await session.handleBinaryAudio(LOUD_CHUNK);
+        expect(countFrames(frames, "speech_started")).toBe(0);
+        gate.open();
+        await waitFor(() => countFrames(frames, "speech_started") === 1);
+        await session.handleBinaryAudio(LOUD_CHUNK);
+        expect(countFrames(frames, "speech_started")).toBe(1);
+      } finally {
+        gate.open();
+        await session.close("client_end");
+      }
+    },
+  );
 
   test("seeds the latch from the live-voice role, not the global provider", async () => {
     // The configuration roles exist for: live voice on flux while the global
