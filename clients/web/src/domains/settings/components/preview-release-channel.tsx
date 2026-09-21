@@ -342,9 +342,8 @@ function StablePreviewPanel({
       )}
       <Button
         variant="outlined"
-        leftIcon={
-          isChangingChannel ? <Loader2 className="animate-spin" /> : <Rocket />
-        }
+        loading={isChangingChannel}
+        leftIcon={<Rocket />}
         disabled={optInDisabled}
         onClick={onOptIn}
       >
@@ -369,13 +368,8 @@ function PreviewOptOutPanel({
       <ReleaseChannelFacts status={status} />
       <Button
         variant="outlined"
-        leftIcon={
-          isChangingChannel ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <RotateCcw />
-          )
-        }
+        loading={isChangingChannel}
+        leftIcon={<RotateCcw />}
         disabled={isChangingChannel}
         onClick={onOptOut}
       >
@@ -461,9 +455,8 @@ function OptInModal({
           <Button
             variant="primary"
             disabled={isPending}
-            leftIcon={
-              isPending ? <Loader2 className="animate-spin" /> : <Rocket />
-            }
+            loading={isPending}
+            leftIcon={<Rocket />}
             onClick={onConfirm}
           >
             {isPending
@@ -596,9 +589,8 @@ function OptOutModal({
               restoreModeDisabled ||
               (mode === "standard_upgrade" && !standardUpgradeAvailable)
             }
-            leftIcon={
-              isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />
-            }
+            loading={isPending}
+            leftIcon={<RefreshCw />}
             onClick={onConfirm}
           >
             {isPending

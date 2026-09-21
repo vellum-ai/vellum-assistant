@@ -49,6 +49,10 @@ export function capabilityForMessageType(
 }
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
+import {
+  type ClientConnectionEventReason,
+  recordClientConnectionEvent,
+} from "../persistence/client-connection-events-store.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
@@ -73,7 +77,7 @@ export type AssistantEventCallback = (
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
 export interface AssistantEventSubscription {
-  dispose(): void;
+  dispose(reason?: ClientConnectionEventReason): void;
   /** True until `dispose()` has been called. */
   readonly active: boolean;
   /**
@@ -143,6 +147,10 @@ interface ClientEntry extends BaseSubscriberEntry {
    * service-token connections that have no principal.
    */
   actorPrincipalId?: string;
+  /** Client-reported build version (e.g. extension manifest version). */
+  clientVersion?: string;
+  /** Whether the client advertised an SSE idle watchdog on this connection. */
+  sseWatchdog?: boolean;
   /**
    * Last desktop presence reported by this client, for clients that report it.
    * In-memory only, so consumers must fail open when it is absent.
@@ -194,14 +202,22 @@ type SubscriberInput = DistributiveOmit<
  * Client connections register as subscribers with metadata and are queryable
  * via `listClients()`, `getMostRecentClientByCapability()`, etc.
  */
+export type ClientConnectionRecorder = typeof recordClientConnectionEvent;
+
 export class AssistantEventHub {
   private readonly subscribers = new Set<SubscriberEntry>();
   private readonly maxSubscribers: number;
   /** Monotonic source for per-connection ids, scoped to this hub. */
   private connectionCounter = 0;
+  private readonly recordConnection: ClientConnectionRecorder;
 
-  constructor(options?: { maxSubscribers?: number }) {
+  constructor(options?: {
+    maxSubscribers?: number;
+    recordConnection?: ClientConnectionRecorder;
+  }) {
     this.maxSubscribers = options?.maxSubscribers ?? Infinity;
+    this.recordConnection =
+      options?.recordConnection ?? recordClientConnectionEvent;
   }
 
   /**
@@ -232,6 +248,7 @@ export class AssistantEventHub {
       for (const entry of stale) {
         entry.active = false;
         this.subscribers.delete(entry);
+        this.recordClientLifecycle(entry, "stale_replaced");
         try {
           entry.onEvict();
         } catch {
@@ -259,6 +276,7 @@ export class AssistantEventHub {
       }
       oldest.active = false;
       this.subscribers.delete(oldest);
+      this.recordClientLifecycle(oldest, "cap_evicted");
       try {
         oldest.onEvict();
       } catch {
@@ -288,6 +306,7 @@ export class AssistantEventHub {
         },
         "subscriber registered (client)",
       );
+      this.recordClientLifecycle(entry, "sse_open");
     } else {
       log.info({ connectionId }, "subscriber registered (process)");
     }
@@ -295,11 +314,12 @@ export class AssistantEventHub {
     this.subscribers.add(entry);
 
     return {
-      dispose: () => {
+      dispose: (reason) => {
         if (entry.active) {
           entry.active = false;
           this.subscribers.delete(entry);
           if (entry.type === "client") {
+            this.recordClientLifecycle(entry, reason ?? "sse_close");
             log.info(
               {
                 clientId: entry.clientId,
@@ -618,6 +638,7 @@ export class AssistantEventHub {
     for (const entry of targets) {
       entry.active = false;
       this.subscribers.delete(entry);
+      this.recordClientLifecycle(entry, "force_disconnect");
       try {
         entry.onEvict();
       } catch {
@@ -631,6 +652,29 @@ export class AssistantEventHub {
       );
     }
     return targets.length;
+  }
+
+  /**
+   * Best-effort history row for a client subscriber. Process subscribers
+   * and an unready database are skipped; a write failure never throws.
+   */
+  private recordClientLifecycle(
+    entry: SubscriberEntry,
+    reason: ClientConnectionEventReason,
+  ): void {
+    if (entry.type !== "client") {
+      return;
+    }
+    this.recordConnection({
+      clientId: entry.clientId,
+      interfaceId: entry.interfaceId,
+      connectionId: entry.connectionId,
+      reason,
+      actorPrincipalId: entry.actorPrincipalId,
+      clientVersion: entry.clientVersion,
+      sseWatchdog: entry.sseWatchdog,
+      machineName: entry.machineName,
+    });
   }
 
   /** Number of currently active subscribers (useful for tests and caps). */

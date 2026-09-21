@@ -74,12 +74,6 @@ export interface PersistedResearchResults {
   droppedClaims?: string[];
   suggestions: ResearchSuggestion[];
   installedPlugins: string[];
-  /**
-   * Name → description for the installed plugins, so a refresh-resume can still
-   * render each plugin card with its description. Optional for back-compat with
-   * snapshots written before this field existed (defaulted to {} on read).
-   */
-  pluginCatalog?: Record<string, string>;
 }
 
 export interface ResearchOnboardingSnapshot {

@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-16T18:49:49.000Z"
+      "updatedAt": "2026-09-18T14:50:10.000Z"
     },
     {
       "id": "notion",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-16T20:19:35.000Z"
+      "updatedAt": "2026-09-17T13:40:51.000Z"
     },
     {
       "id": "public-ingress",
@@ -1056,7 +1056,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-16T17:57:36.000Z"
+      "updatedAt": "2026-09-16T22:20:42.000Z"
     },
     {
       "id": "vellum-client-capabilities",

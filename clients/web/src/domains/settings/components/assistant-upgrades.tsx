@@ -72,7 +72,7 @@ function CurrentVersionValue({
         {version ?? "—"}
       </button>
       {message && (
-        <p className="mt-1 text-body-small-default text-[var(--content-accent)]">
+        <p className="mt-1 text-body-small-default text-[var(--system-positive-strong)]">
           {message}
         </p>
       )}
@@ -354,15 +354,12 @@ export function AssistantUpgrades({
             <Button
               variant={isRollback ? "outlined" : "primary"}
               className="min-w-[160px] shrink-0"
-              leftIcon={
+              loading={
                 upgradeCreate.isPending ||
                 rollbackCreate.isPending ||
-                isPollingUpgrade ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <RefreshCw />
-                )
+                isPollingUpgrade
               }
+              leftIcon={<RefreshCw />}
               onClick={() => setShowConfirmation(true)}
               disabled={
                 !upgradeAvailable ||
@@ -534,13 +531,8 @@ export function LocalAssistantUpgrades({
       <Button
         variant="primary"
         className="min-w-[160px]"
-        leftIcon={
-          upgradeCreate.isPending ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <RefreshCw />
-          )
-        }
+        loading={upgradeCreate.isPending}
+        leftIcon={<RefreshCw />}
         onClick={() => setShowConfirmation(true)}
         disabled={
           upgradeCreate.isPending ||

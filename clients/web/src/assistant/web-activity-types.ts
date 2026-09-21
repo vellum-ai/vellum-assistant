@@ -8,9 +8,14 @@ export type WebSearchProviderId =
   | "keenable"
   | "firecrawl"
   | "fastcrw"
-  | "searxng";
+  | "searxng"
+  | "tinyfish";
 
-export type WebFetchProviderId = "default" | "firecrawl" | "fastcrw";
+export type WebFetchProviderId =
+  | "default"
+  | "firecrawl"
+  | "fastcrw"
+  | "tinyfish";
 
 export interface WebSearchResultItem {
   rank: number;

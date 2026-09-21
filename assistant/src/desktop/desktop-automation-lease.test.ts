@@ -436,3 +436,74 @@ test("ending human help retries failed input cleanup without another turn", asyn
   await f.lease.runBrowser(context, operation);
   expect(f.lease.isActive).toBe(true);
 });
+
+for (const interrupt of ["browser", "handoff", "release", "cancel"] as const) {
+  test(`${interrupt} invalidates native observations`, async () => {
+    const f = fixture();
+    const abort = new AbortController();
+    const ownerContext = { ...context, signal: abort.signal };
+    let id = "";
+    await f.lease.runBrowser(ownerContext, async () => {
+      id = f.lease.recordObservation();
+      return operation();
+    });
+    if (interrupt === "browser") {
+      await f.lease.runBrowser(ownerContext, operation);
+    } else if (interrupt === "handoff") {
+      const resume = await f.lease.reserveForHuman(ownerContext);
+      await resume(true);
+    } else if (interrupt === "release") {
+      await f.lease.runBrowser(ownerContext, operation, true);
+    } else {
+      abort.abort();
+    }
+    const input = mock(operation);
+    await expect(
+      f.lease.runBrowser(context, input, false, { id }),
+    ).rejects.toThrow("stale");
+    expect(input).not.toHaveBeenCalled();
+  });
+}
+
+test("queued actions cannot consume the same observation twice", async () => {
+  const f = fixture();
+  let id = "";
+  await f.lease.runBrowser(context, async () => {
+    id = f.lease.recordObservation();
+    return operation();
+  });
+  const input = mock(operation);
+  const actions = await Promise.allSettled([
+    f.lease.runBrowser(context, input, false, { id }),
+    f.lease.runBrowser(context, input, false, { id }),
+  ]);
+  expect(actions.map((action) => action.status)).toEqual([
+    "fulfilled",
+    "rejected",
+  ]);
+  expect(input).toHaveBeenCalledTimes(1);
+});
+
+test("a stale observation cannot start setup or reserve an unowned desktop", async () => {
+  const f = fixture();
+  const input = mock(operation);
+  f.uninstall();
+  await expect(
+    f.lease.runBrowser(context, input, false, { id: "stale" }),
+  ).rejects.toThrow("stale");
+  expect(f.ensureReady).not.toHaveBeenCalled();
+  expect(f.started).not.toHaveBeenCalled();
+  expect(f.lease.isActive).toBe(false);
+  expect(input).not.toHaveBeenCalled();
+  f.completeSetup();
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+  );
+  expect(f.started).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+    true,
+  );
+});

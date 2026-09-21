@@ -5,4 +5,4 @@
  * to be read across a room overrides the type scale and colour.
  */
 export const CODE_CHIP_CLASS =
-  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-primary)]";
+  "rounded-md bg-[var(--surface-active)] text-body-small-default text-[color:var(--content-default)]";

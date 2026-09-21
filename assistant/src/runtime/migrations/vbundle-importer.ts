@@ -340,7 +340,10 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         sha256: fileEntry.sha256,
         backup_path: null,
       });
-      if (!policy.isRetiredArchivePath(fileEntry.path)) {
+      if (
+        !policy.isRetiredArchivePath(fileEntry.path) &&
+        !policy.isGatewayArchivePath(fileEntry.path)
+      ) {
         warnings.push(
           `Skipped "${fileEntry.path}": no known disk target for this archive path`,
         );

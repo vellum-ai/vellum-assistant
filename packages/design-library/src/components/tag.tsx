@@ -2,6 +2,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { X } from "lucide-react";
 import {
   type ComponentProps,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -79,6 +80,19 @@ const iconStyle = {
   justifyContent: "center",
 } as const;
 
+/**
+ * Inline style for a tag-sized (12px) icon slot. Pass the tone for a leading
+ * icon, which takes the tone's accent; omit it for a trailing icon, which is
+ * always `--content-secondary`. Exported so `Chip`, the interactive sibling,
+ * colours its icons by the same rule instead of restating it.
+ */
+export function tagIconStyle(tone?: TagTone): CSSProperties {
+  return {
+    ...iconStyle,
+    color: tone != null ? TONE_ICON_COLOR[tone] : "var(--content-secondary)",
+  };
+}
+
 export function Tag({
   tone = "neutral",
   leftIcon,
@@ -90,7 +104,6 @@ export function Tag({
   ref,
   ...rest
 }: TagProps) {
-  const iconColor = TONE_ICON_COLOR[tone];
   return (
     <span
       {...rest}
@@ -99,7 +112,7 @@ export function Tag({
       className={cn(tagVariants({ tone }), className)}
     >
       {leftIcon != null ? (
-        <span aria-hidden="true" style={{ ...iconStyle, color: iconColor }}>
+        <span aria-hidden="true" style={tagIconStyle(tone)}>
           {leftIcon}
         </span>
       ) : null}
@@ -114,10 +127,7 @@ export function Tag({
         {children}
       </span>
       {rightIcon != null && onRemove == null ? (
-        <span
-          aria-hidden="true"
-          style={{ ...iconStyle, color: "var(--content-secondary)" }}
-        >
+        <span aria-hidden="true" style={tagIconStyle()}>
           {rightIcon}
         </span>
       ) : null}

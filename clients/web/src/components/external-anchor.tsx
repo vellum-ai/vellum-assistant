@@ -8,7 +8,17 @@ type ExternalAnchorProps = Omit<
   "target" | "rel" | "onClick"
 > & {
   href: string | undefined;
-  children: ReactNode;
+  /**
+   * Optional so a self-closing element can be handed to `<Trans components>`,
+   * which clones it and injects the translated text as its children.
+   */
+  children?: ReactNode;
+  /**
+   * Set to `false` to drop the trailing external-link glyph: for a link shaped
+   * like a button, pill, card or row, and for one that draws its own icon.
+   * Defaults to `true`.
+   */
+  glyph?: boolean;
 };
 
 /** Anchor styling for a link that leaves the app. */
@@ -50,7 +60,9 @@ export function ExternalLinkGlyph() {
  * links through here so a surface cannot ship with two of the three.
  *
  * An `http(s)` destination also gets the external-link glyph, so the affordance
- * travels with the behaviour instead of being re-declared per surface.
+ * travels with the behaviour instead of being re-declared per surface. A
+ * surface where a trailing glyph does not fit opts out with `glyph={false}` and
+ * keeps the behaviour.
  *
  * The `href` stays on the element in every case, so "copy link address" and
  * middle-click keep working.
@@ -58,6 +70,7 @@ export function ExternalLinkGlyph() {
 export function ExternalAnchor({
   href,
   children,
+  glyph = true,
   ...rest
 }: ExternalAnchorProps) {
   return (
@@ -69,7 +82,7 @@ export function ExternalAnchor({
       onClick={(event) => handleNativeAnchorClick(event, href)}
     >
       {children}
-      {isWebUrl(href) ? <ExternalLinkGlyph /> : null}
+      {glyph && isWebUrl(href) ? <ExternalLinkGlyph /> : null}
     </a>
   );
 }

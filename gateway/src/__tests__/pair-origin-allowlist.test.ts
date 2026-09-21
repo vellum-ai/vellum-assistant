@@ -19,7 +19,7 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
-const { resolveExtensionOrigin, corsHeaders } =
+const { resolveExtensionOrigin, corsHeaders, extensionCorsHeaders } =
   await import("../http/middleware/cors.js");
 const { KNOWN_EXTENSION_ORIGINS } =
   await import("../chrome-extension-origins.js");
@@ -113,7 +113,26 @@ describe("resolveExtensionOrigin", () => {
 // Webview CORS — client-metadata analytics headers
 // ---------------------------------------------------------------------------
 
+describe("extension CORS headers", () => {
+  test("allows the client version and watchdog fingerprints", () => {
+    const origin = [...KNOWN_EXTENSION_ORIGINS][0];
+    const headers = extensionCorsHeaders(origin);
+    const allowHeaders =
+      headers["Access-Control-Allow-Headers"]?.toLowerCase() ?? "";
+    expect(allowHeaders).toContain("x-vellum-client-version");
+    expect(allowHeaders).toContain("x-vellum-sse-watchdog");
+  });
+});
+
 describe("webview CORS headers", () => {
+  test("Access-Control-Allow-Headers includes client version and watchdog fingerprints", () => {
+    const headers = corsHeaders("https://app.vellum.local");
+    const allowHeaders =
+      headers["Access-Control-Allow-Headers"]?.toLowerCase() ?? "";
+    expect(allowHeaders).toContain("x-vellum-client-version");
+    expect(allowHeaders).toContain("x-vellum-sse-watchdog");
+  });
+
   test("Access-Control-Allow-Headers includes every client-metadata header", () => {
     const headers = corsHeaders("https://app.vellum.local");
     const allowHeaders =

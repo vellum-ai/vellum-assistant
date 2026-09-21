@@ -348,8 +348,8 @@ export interface CompanionIntroProps {
    */
   greeted?: boolean;
   /**
-   * How many times the real voice key has been tapped, counted for the life of
-   * the window that owns the binding.
+   * How many times the real voice key has been tapped, counted by the window
+   * that owns the binding for as long as a run is up.
    *
    * The key's edges reach only that window, so the beats that draw the key
    * cannot see it being pressed and are told instead. A running total rather
@@ -427,10 +427,11 @@ export function CompanionIntro({
    * How much of that count landed while this beat has been up, capped at the
    * two presses the cap has a look for.
    *
-   * Counted from the beat rather than taken raw, because the total is a
-   * window's whole life: a user who tapped the key an hour ago has not answered
-   * this card, and a beat that opened already lit would be answering a press
-   * nobody has made on it.
+   * Counted from the beat rather than taken raw, because the total outlives the
+   * beat: the presses that answered the last beat are still in it, and so are
+   * the ones that answered an earlier run of the introduction, which the count
+   * carries forward rather than resetting between. A beat that opened already
+   * lit would be answering a press nobody has made on it.
    *
    * The baseline is taken during the render that notices the beat change rather
    * than in an effect after it, so the new beat's first paint is the dark cap

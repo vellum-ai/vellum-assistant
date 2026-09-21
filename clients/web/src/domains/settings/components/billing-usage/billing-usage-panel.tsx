@@ -174,6 +174,7 @@ export function BillingUsagePanel() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <button
+                type="button"
                 className="flex items-center gap-1.5 text-body-medium-lighter text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
                 onClick={() => setDrilldown(null)}
               >

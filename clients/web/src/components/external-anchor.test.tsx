@@ -67,6 +67,42 @@ describe("ExternalAnchor", () => {
 
     expect(openedUrl).toBeNull();
   });
+
+  test("marks an https destination with the glyph by default", () => {
+    render(
+      <ExternalAnchor href="https://example.com/jobs">Jobs</ExternalAnchor>,
+    );
+
+    const anchor = screen.getByRole("link", { name: "Jobs" });
+    expect(anchor.querySelector("svg")).not.toBeNull();
+  });
+
+  test("drops the glyph with glyph={false} and keeps the behaviour", () => {
+    nativePlatform = true;
+    render(
+      <ExternalAnchor href="https://example.com/jobs" glyph={false}>
+        Jobs
+      </ExternalAnchor>,
+    );
+
+    const anchor = screen.getByRole("link", { name: "Jobs" });
+    expect(anchor.querySelector("svg")).toBeNull();
+    expect(anchor.getAttribute("target")).toBe("_blank");
+    expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
+
+    anchor.click();
+
+    expect(openedUrl).toBe("https://example.com/jobs");
+  });
+
+  test("leaves a mailto destination without the glyph", () => {
+    render(
+      <ExternalAnchor href="mailto:user@example.com">Email us</ExternalAnchor>,
+    );
+
+    const anchor = screen.getByRole("link", { name: "Email us" });
+    expect(anchor.querySelector("svg")).toBeNull();
+  });
 });
 
 /**

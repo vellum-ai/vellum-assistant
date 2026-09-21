@@ -402,6 +402,22 @@ export const messageMetadataSchema = z
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
+    /**
+     * Contact id of the person who wrote this row, from the gateway trust
+     * verdict at persist time. Stamped only on a person's own message or
+     * reaction (`actorAuthorProvenance`), never on rows the assistant writes
+     * during their turn: the other `provenance*` fields describe the turn,
+     * this one the author. Absent when the author resolved to no contact.
+     */
+    provenanceContactId: z.string().optional(),
+    /**
+     * Set on a backfilled row whose sender was looked up but no usable gateway
+     * verdict came back, so its trust class is the guardian-address fallback
+     * and it names no author. Distinguishes that row from a sender the gateway
+     * resolved as a stranger, so the lookup can be re-run later. Live ingress
+     * never persists such a row: it denies a turn whose verdict failed.
+     */
+    provenanceLookupFailed: z.boolean().optional(),
     automated: z.boolean().optional(),
     /**
      * Transcript-suppression flag: the row is a machine signal (e.g. the
@@ -473,10 +489,10 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     /**
-     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
-     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
-     * `<interrupted_turn>` note from it; the row's own content is exactly what
-     * the user sent, so clients render nothing extra.
+     * Marks a role-`"user"` row whose arrival interrupted a running turn.
+     * `loadFromDb` rebuilds the LLM-facing `<interrupted_turn>` note from it;
+     * the row's own content is exactly what the user sent, so clients render
+     * nothing extra.
      */
     interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),

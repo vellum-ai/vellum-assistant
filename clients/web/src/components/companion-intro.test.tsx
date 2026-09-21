@@ -226,6 +226,35 @@ describe("the introduction's keycap", () => {
   });
 
   /**
+   * A replayed introduction opens on the total the last one left.
+   *
+   * Nothing resets the count between runs, and nothing should: the window that
+   * keeps it counts only while a run is staged, so the number a second run
+   * inherits is exactly the presses the first one was answered with. The card
+   * takes its own baseline as it mounts, which is what makes an inherited total
+   * cost nothing.
+   */
+  test("lights the cap on a replayed run that starts from an old total", () => {
+    // Where a first run of five presses left it.
+    const { container, rerender } = render(
+      <CompanionIntro beat="key" voiceKeyTaps={5} />,
+    );
+    expect(keycapOf(container).className).not.toContain("emerald");
+
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={6} />);
+    const lit = keycapOf(container).className;
+    rerender(<CompanionIntro beat="key" voiceKeyTaps={7} />);
+    const filled = keycapOf(container).className;
+
+    expect(lit).toContain("emerald");
+    expect(filled).toContain("emerald");
+    // The same two looks a first run gets, reached from a count that never
+    // started at zero.
+    expect(lit).toBe(lookAfter(1));
+    expect(filled).toBe(lookAfter(2));
+  });
+
+  /**
    * The pointer's press is the one that is declined, and the words answer it.
    * A press of the real key afterwards is the user doing what was asked, so the
    * cap stops leaning away from a press it is lighting up for.

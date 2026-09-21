@@ -109,6 +109,8 @@ const { useInteractionStore } =
   await import("@/domains/chat/interaction-store");
 const { offerSurfaceToCompanion, useCompanionPopoverStore } =
   await import("@/domains/chat/companion-popover");
+const { useVoiceKeyTapStore } =
+  await import("@/domains/chat/voice/voice-key-tap-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -854,5 +856,38 @@ describe("the popover the companion mirror publishes", () => {
     await waitFor(() => {
       expect(latest().popover).toBeUndefined();
     });
+  });
+});
+
+/**
+ * The tap count reaches the surface unfiltered, because the filter is upstream.
+ *
+ * The bridge counts a tap only while an introduction is staged, so by the time
+ * the store moves there is a card waiting for it. A gate here instead would let
+ * the store climb behind a closed publish and hand the next run a total it never
+ * earned, which the card would read as presses already made.
+ */
+describe("the tap count the companion mirror publishes", () => {
+  test("publishes every move of the count", async () => {
+    render(<Mirror />);
+    const before = latest().voiceKeyTaps ?? 0;
+
+    act(() => {
+      useVoiceKeyTapStore.getState().countTap();
+    });
+
+    await waitFor(() => {
+      expect(latest().voiceKeyTaps).toBe(before + 1);
+    });
+  });
+
+  test("publishes nothing while the count stands still", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    // What a tap outside a run amounts to here: the bridge declines to count
+    // it, so this store never hears about it and neither does the surface.
+    expect(published.length).toBe(pushes);
+    expect(latest().voiceKeyTaps).toBe(useVoiceKeyTapStore.getState().taps);
   });
 });

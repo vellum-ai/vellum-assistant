@@ -47,7 +47,7 @@ export function ExistingAssistantStep({
       className="relative h-full overflow-hidden"
       style={{
         backgroundColor: "var(--surface-base)",
-        color: "var(--content-primary)",
+        color: "var(--content-default)",
       }}
     >
       <OnboardingTopBar onBack={onBack} tone="light" />
@@ -73,25 +73,13 @@ export function ExistingAssistantStep({
         </div>
 
         <div className="flex w-full max-w-sm flex-col items-center gap-3">
-          <Button
-            variant="primary"
-            size="regular"
-            fullWidth
-            onClick={onKeep}
-            className="h-11 text-base"
-          >
+          <Button variant="primary" size="large" fullWidth onClick={onKeep}>
             {hasName
               ? t("existingAssistantStep.keepNamed", { name })
               : t("existingAssistantStep.keep")}
             <ArrowRight className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="regular"
-            fullWidth
-            onClick={onRedo}
-            className="h-11 text-base"
-          >
+          <Button variant="ghost" size="large" fullWidth onClick={onRedo}>
             {hasName
               ? t("existingAssistantStep.redoNamed", { name })
               : t("existingAssistantStep.redo")}

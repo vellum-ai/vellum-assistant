@@ -22,6 +22,7 @@ type Owner = {
   lastActivity: number;
   desktopLost: boolean;
   humanHelp?: symbol;
+  observationId?: string;
 };
 
 export class DesktopAutomationLease {
@@ -59,7 +60,7 @@ export class DesktopAutomationLease {
     void this.deps
       .notify()
       .catch((err) =>
-        log.warn({ err }, "Desktop browser activity notification failed"),
+        log.warn({ err }, "Desktop automation activity notification failed"),
       );
   }
 
@@ -72,12 +73,12 @@ export class DesktopAutomationLease {
   private assertAvailable(): void {
     if (!this.deps.enabled()) {
       throw new Error(
-        "Virtual desktop browser automation is available only on enabled platform-hosted assistants",
+        "Virtual desktop automation is available only on enabled platform-hosted assistants",
       );
     }
     if (!this.deps.ready()) {
       throw new Error(
-        "Open the Virtual desktop panel and wait for automatic installation to finish before using desktop browser automation",
+        "Open the Virtual desktop panel and wait for automatic installation to finish before using desktop automation",
       );
     }
   }
@@ -113,7 +114,7 @@ export class DesktopAutomationLease {
         await this.release();
       }
     }).catch((err) => {
-      log.warn({ err }, "Desktop browser session cleanup failed");
+      log.warn({ err }, "Desktop automation session cleanup failed");
       const retry = setTimeout(() => this.releaseCancelledOwner(owner), 1_000);
       retry.unref?.();
     });
@@ -175,7 +176,10 @@ export class DesktopAutomationLease {
           cancel();
         }
       } catch (err) {
-        log.warn({ err }, "Desktop browser session availability check failed");
+        log.warn(
+          { err },
+          "Desktop automation session availability check failed",
+        );
         cancel();
       }
     }, 1_000);
@@ -190,7 +194,7 @@ export class DesktopAutomationLease {
       await this.release().catch((cleanupError) =>
         log.warn(
           { err: cleanupError },
-          "Desktop browser session cleanup failed",
+          "Desktop automation session cleanup failed",
         ),
       );
       throw err;
@@ -235,10 +239,20 @@ export class DesktopAutomationLease {
       });
   }
 
+  recordObservation(): string {
+    if (!this.owner || this.owner.abort.signal.aborted) {
+      throw new Error("Desktop observation was interrupted. Observe again.");
+    }
+    const id = crypto.randomUUID();
+    this.owner.observationId = id;
+    return id;
+  }
+
   runBrowser(
     context: ToolContext,
     operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
     done = false,
+    observation?: { id: unknown },
   ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
@@ -248,7 +262,7 @@ export class DesktopAutomationLease {
         !context.conversationId
       ) {
         throw new Error(
-          "Desktop browser session requires an identified guardian conversation",
+          "Desktop automation session requires an identified guardian conversation",
         );
       }
       if (
@@ -265,9 +279,22 @@ export class DesktopAutomationLease {
       }
       if (done) {
         await this.release();
-        return { content: "Desktop browser session released.", isError: false };
+        return {
+          content: "Desktop automation session released.",
+          isError: false,
+        };
       }
       context.signal?.throwIfAborted();
+      if (
+        observation &&
+        (typeof observation.id !== "string" ||
+          !this.owner?.observationId ||
+          observation.id !== this.owner.observationId)
+      ) {
+        throw new Error(
+          "Desktop observation is missing or stale. Call computer_use_observe with target assistant-desktop before acting.",
+        );
+      }
       try {
         if (
           !this.owner &&
@@ -284,7 +311,7 @@ export class DesktopAutomationLease {
             () =>
               abort.abort(
                 new Error(
-                  "Virtual desktop setup is taking too long. Check installation progress in the Virtual desktop panel. No browser action was performed.",
+                  "Virtual desktop setup is taking too long. Check installation progress in the Virtual desktop panel. No desktop action was performed.",
                 ),
               ),
             8 * 60_000,
@@ -312,7 +339,7 @@ export class DesktopAutomationLease {
       if (generation !== this.generation) {
         return {
           content:
-            "Desktop browser session was interrupted. Take a fresh snapshot before continuing.",
+            "Desktop automation session was interrupted. Take a fresh snapshot before continuing.",
           isError: true,
         };
       }
@@ -323,8 +350,9 @@ export class DesktopAutomationLease {
       const signal = context.signal
         ? AbortSignal.any([context.signal, owner.abort.signal])
         : owner.abort.signal;
-      owner.lastActivity = Date.now();
       signal.throwIfAborted();
+      owner.observationId = undefined;
+      owner.lastActivity = Date.now();
       try {
         this.assertAvailable();
         if (++owner.actions > MAX_ACTIONS) {
@@ -342,7 +370,7 @@ export class DesktopAutomationLease {
         await this.release().catch((cleanupError) =>
           log.warn(
             { err: cleanupError },
-            "Desktop browser session cleanup failed",
+            "Desktop automation session cleanup failed",
           ),
         );
         throw err;

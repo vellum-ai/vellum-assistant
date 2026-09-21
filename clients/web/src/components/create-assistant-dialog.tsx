@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { createPlatformAssistant } from "@/assistant/create-platform-assistant";
@@ -79,9 +78,7 @@ export function CreateAssistantDialog({
             variant="primary"
             onClick={() => void handleCreate()}
             disabled={pending}
-            leftIcon={
-              pending ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={pending}
           >
             {t("createAssistantDialog.create")}
           </Button>

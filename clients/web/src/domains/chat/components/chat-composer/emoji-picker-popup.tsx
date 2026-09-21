@@ -49,6 +49,7 @@ export function EmojiPickerPopup({
       {entries.map((entry, i) => (
         <PanelItem key={entry.shortcode} asChild active={i === selectedIndex}>
           <button
+            type="button"
             role="option"
             aria-selected={i === selectedIndex}
             onClick={() => onSelect(entry)}

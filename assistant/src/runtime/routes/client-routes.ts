@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { listClientConnectionHistory } from "../../persistence/client-connection-events-store.js";
 import { datesToISO } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -112,6 +113,8 @@ export const ROUTES: RouteDefinition[] = [
             interfaceId: c.interfaceId,
             capabilities: c.capabilities,
             machineName: c.machineName,
+            clientVersion: c.clientVersion,
+            sseWatchdog: c.sseWatchdog,
             connectedAt: c.connectedAt,
             lastActiveAt: c.lastActiveAt,
             degraded: isClientDegraded(
@@ -149,6 +152,79 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError(`No connected client with id "${clientId}"`);
       }
       return { disconnected: count };
+    },
+  },
+  {
+    operationId: "list_client_history",
+    endpoint: "clients/history",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List client connection history",
+    description:
+      "Return persisted client subscribe/dispose events and coalesced sessions. Reconnects shorter than 60 seconds are flaps, not outages.",
+    tags: ["clients"],
+    queryParams: [
+      {
+        name: "clientId",
+        type: "string",
+        required: false,
+        description: "Restrict history to one client UUID.",
+      },
+      {
+        name: "interfaceId",
+        type: "string",
+        required: false,
+        description: "Restrict history to one interface (e.g. chrome-extension).",
+      },
+      {
+        name: "since",
+        type: "string",
+        required: false,
+        description:
+          "ISO-8601 or epoch-ms lower bound. Sessions already open at this time are included.",
+      },
+      {
+        name: "limit",
+        type: "string",
+        required: false,
+        description: "Max coalesced sessions to return (1-500, default 50).",
+      },
+    ],
+    responseBody: z.object({
+      sessions: z.array(z.object({}).passthrough()),
+      events: z.array(z.object({}).passthrough()),
+    }),
+    handler: ({ queryParams, headers }) => {
+      const since = parseHistorySince(queryParams?.since);
+      const limit = parseHistoryLimit(queryParams?.limit);
+      const callerPrincipalId = headers?.["x-vellum-actor-principal-id"];
+      const history = listClientConnectionHistory({
+        clientId: queryParams?.clientId?.trim() || undefined,
+        interfaceId: queryParams?.interfaceId?.trim() || undefined,
+        actorPrincipalId: isHttpAuthDisabled()
+          ? undefined
+          : callerPrincipalId || "__none__",
+        since,
+        limit,
+      });
+
+      return {
+        sessions: history.sessions.map((session) => ({
+          ...session,
+          startedAt: new Date(session.startedAt).toISOString(),
+          endedAt:
+            session.endedAt == null
+              ? null
+              : new Date(session.endedAt).toISOString(),
+        })),
+        events: history.events.map((event) => ({
+          ...event,
+          occurredAt: new Date(event.occurredAt).toISOString(),
+        })),
+      };
     },
   },
   {
@@ -342,3 +418,35 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
 ];
+
+function parseHistorySince(raw: string | undefined): number | undefined {
+  if (!raw?.trim()) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const epoch = Number(trimmed);
+    if (!Number.isFinite(epoch) || epoch < 0) {
+      throw new BadRequestError("since must be a non-negative epoch-ms value");
+    }
+    return epoch;
+  }
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) {
+    throw new BadRequestError(
+      "since must be an ISO-8601 timestamp or epoch milliseconds",
+    );
+  }
+  return parsed;
+}
+
+function parseHistoryLimit(raw: string | undefined): number | undefined {
+  if (!raw?.trim()) {
+    return undefined;
+  }
+  const parsed = Number(raw.trim());
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new BadRequestError("limit must be a positive integer");
+  }
+  return parsed;
+}

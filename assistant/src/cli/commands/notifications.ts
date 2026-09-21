@@ -32,6 +32,16 @@ interface ListHomeFeedPayload {
   updatedAt: string;
 }
 
+function parseCommaSeparatedList(raw: string): string[] | undefined {
+  const items = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => {
+      return item.length > 0;
+    });
+  return items.length > 0 ? items : undefined;
+}
+
 function parseBoundedInt(
   raw: string | undefined,
   label: string,
@@ -142,6 +152,7 @@ export function registerNotificationsCommand(program: Command): void {
             visibleInSourceNow: boolean;
             deadlineAt?: string;
             preferredChannels?: string;
+            channels?: string;
             sessionId?: string;
             dedupeKey?: string;
             deepLinkMetadata?: string;
@@ -220,14 +231,12 @@ export function registerNotificationsCommand(program: Command): void {
               deadlineAt = parsed;
             }
 
-            // Parse --preferred-channels
-            let preferredChannels: string[] | undefined;
-            if (opts.preferredChannels) {
-              preferredChannels = opts.preferredChannels
-                .split(",")
-                .map((ch) => ch.trim())
-                .filter((ch) => ch.length > 0);
-            }
+            const preferredChannels = opts.preferredChannels
+              ? parseCommaSeparatedList(opts.preferredChannels)
+              : undefined;
+            const channelAllowlist = opts.channels
+              ? parseCommaSeparatedList(opts.channels)
+              : undefined;
 
             // Parse --deep-link-metadata
             let deepLinkMetadata: Record<string, unknown> | undefined;
@@ -283,6 +292,9 @@ export function registerNotificationsCommand(program: Command): void {
               dispatched: boolean;
               deduplicated: boolean;
               reason: string;
+              selectedChannels?: string[];
+              deliveryResults?: unknown[];
+              receiptClass?: string;
             }>("emit_notification_signal", {
               body: {
                 sourceChannel,
@@ -300,6 +312,7 @@ export function registerNotificationsCommand(program: Command): void {
                   requestedBySource: sourceChannel,
                   ...(opts.title ? { requestedTitle: opts.title } : {}),
                   ...(preferredChannels?.length ? { preferredChannels } : {}),
+                  ...(channelAllowlist?.length ? { channelAllowlist } : {}),
                   ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
                 },
                 ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
@@ -326,6 +339,9 @@ export function registerNotificationsCommand(program: Command): void {
               signalId: signal.signalId,
               dispatched: signal.dispatched,
               reason: signal.reason,
+              selectedChannels: signal.selectedChannels ?? [],
+              deliveryResults: signal.deliveryResults ?? [],
+              receiptClass: signal.receiptClass ?? "unknown",
             });
 
             if (!shouldOutputJson(cmd)) {
@@ -334,6 +350,12 @@ export function registerNotificationsCommand(program: Command): void {
               );
               if (signal.reason) {
                 log.info(`  Reason: ${signal.reason}`);
+              }
+              if (signal.selectedChannels && signal.selectedChannels.length > 0) {
+                log.info(`  Channels: ${signal.selectedChannels.join(", ")}`);
+              }
+              if (signal.receiptClass) {
+                log.info(`  Receipt: ${signal.receiptClass}`);
               }
             }
           } catch (err) {

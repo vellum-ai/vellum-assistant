@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -327,18 +326,15 @@ export function BulkOverrideSwapModal({
           </Button>
           <Button
             variant="primary"
+            loading={applying}
             disabled={
               !source || !target || selectedIds.length === 0 || applying
             }
             onClick={() => void handleApply()}
           >
-            {applying ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              t("bulkOverrideSwapModal.applyTo", {
-                count: selectedIds.length,
-              })
-            )}
+            {t("bulkOverrideSwapModal.applyTo", {
+              count: selectedIds.length,
+            })}
           </Button>
         </Modal.Footer>
       </Modal.Content>

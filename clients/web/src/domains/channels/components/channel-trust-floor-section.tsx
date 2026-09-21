@@ -146,7 +146,7 @@ export function ChannelTrustFloorSection({
         <Typography
           as="span"
           variant="body-small-lighter"
-          className="text-[color:var(--content-negative)]"
+          className="text-[color:var(--system-negative-strong)]"
         >
           {t("channelTrustFloor.loadFailed")}
         </Typography>

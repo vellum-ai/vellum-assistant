@@ -70,6 +70,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     which: (binary) =>
       options.missingBinaries?.includes(binary) ? null : `/usr/bin/${binary}`,
     probeVncPort: async () => vncReady,
+    probeSessionBus: async () => true,
     resolveChromePath: () => chromiumPath(),
     renderWallpaper: options.renderWallpaper ?? (async () => null),
     killProcessGroup: (child, signal) => {

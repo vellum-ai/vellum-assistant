@@ -263,7 +263,6 @@ describe("useResearchRunner reset", () => {
     droppedClaims: [],
     suggestions: [],
     installedPlugins: [],
-    pluginCatalog: {},
   };
 
   test("hydrate releases the subject key so the prior profile can run again", () => {
@@ -337,7 +336,6 @@ describe("useResearchRunner reinstallPlugins", () => {
     droppedClaims: [],
     suggestions: [],
     installedPlugins: ["admin-copilot"],
-    pluginCatalog: {},
   };
 
   function renderRunner() {

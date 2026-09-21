@@ -20,6 +20,7 @@
 
 import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 
+import { sanitizeClientMetadataValue } from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
 import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
@@ -248,12 +249,14 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  *   conversations for this assistant.
  *
  * Headers (optional):
- *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
- *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
+ *   X-Vellum-Client-Id      -- stable per-install UUID identifying this client.
+ *   X-Vellum-Interface-Id   -- interface type (e.g. "macos", "ios", "web").
+ *   X-Vellum-Client-Version -- optional build/manifest version fingerprint.
+ *   X-Vellum-Sse-Watchdog   -- optional "1" when the client has an SSE idle watchdog.
  *
- *   When both are present, the subscriber is registered as a client in the
- *   event hub with metadata (interfaceId, capabilities). The hub handles
- *   lifecycle — dispose() unregisters the client automatically.
+ *   When both identity headers are present, the subscriber is registered as a
+ *   client in the event hub with metadata (interfaceId, capabilities). The hub
+ *   handles lifecycle. dispose() unregisters the client automatically.
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -304,6 +307,10 @@ export function handleSubscribeAssistantEvents(
   const rawActorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const { clientId, interfaceId, actorPrincipalId } =
     readClientIdentity(headers);
+  const clientVersion = sanitizeClientMetadataValue(
+    headers?.["x-vellum-client-version"],
+  );
+  const sseWatchdog = headers?.["x-vellum-sse-watchdog"]?.trim() === "1";
 
   if (clientId && !interfaceId) {
     log.error(
@@ -399,7 +406,7 @@ export function handleSubscribeAssistantEvents(
     try {
       if (controller.desiredSize != null && controller.desiredSize <= 0) {
         shedReporter("callback_backpressure", instrumentation);
-        sub.dispose();
+        sub.dispose("shed_backpressure");
         cleanup();
         return;
       }
@@ -444,6 +451,8 @@ export function handleSubscribeAssistantEvents(
             ],
             machineName: rawMachineName?.trim() || undefined,
             actorPrincipalId,
+            clientVersion,
+            sseWatchdog: sseWatchdog || undefined,
           })
         : hub.subscribe({
             ...subscriberBase,
@@ -533,7 +542,7 @@ export function handleSubscribeAssistantEvents(
           try {
             if (controller.desiredSize != null && controller.desiredSize <= 0) {
               shedReporter("heartbeat_backpressure", instrumentation);
-              sub.dispose();
+              sub.dispose("shed_backpressure");
               cleanup();
               return;
             }

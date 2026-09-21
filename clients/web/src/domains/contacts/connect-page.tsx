@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Link2, Loader2 } from "lucide-react";
+import { AlertTriangle, Link2 } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -172,7 +172,7 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
             <div
               className="flex items-center gap-2 rounded-md p-3"
               style={{
-                backgroundColor: "var(--surface-negative-subtle)",
+                backgroundColor: "var(--system-negative-weak)",
                 color: "var(--system-negative-strong)",
               }}
             >
@@ -187,16 +187,12 @@ function ConnectPageInner({ assistantId }: { assistantId: string }) {
             <Button
               variant="primary"
               onClick={handleConnect}
+              loading={mutation.isPending}
               disabled={mutation.isPending}
             >
-              {mutation.isPending ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("actions.connecting")}
-                </span>
-              ) : (
-                t("actions.connect")
-              )}
+              {mutation.isPending
+                ? t("actions.connecting")
+                : t("actions.connect")}
             </Button>
             <Button
               variant="outlined"

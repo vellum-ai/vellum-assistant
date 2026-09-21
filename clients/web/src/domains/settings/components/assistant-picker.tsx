@@ -39,8 +39,8 @@ export function AssistantPicker() {
               key={a.id}
               className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${
                 isActive
-                  ? "border-[var(--border-focus)] bg-[var(--surface-lift)]"
-                  : "border-[var(--border-base)] bg-[var(--surface-default)]"
+                  ? "border-[var(--border-active)] bg-[var(--surface-lift)]"
+                  : "border-[var(--border-base)] bg-[var(--surface-base)]"
               }`}
             >
               <div className="flex min-w-0 items-center gap-3">
@@ -59,7 +59,7 @@ export function AssistantPicker() {
 
               <div className="shrink-0">
                 {isActive ? (
-                  <span className="flex items-center gap-1.5 text-body-small-default text-[var(--system-positive-default)]">
+                  <span className="flex items-center gap-1.5 text-body-small-default text-[var(--system-positive-strong)]">
                     <Check className="h-4 w-4" />
                     {t("assistantPicker.active")}
                   </span>

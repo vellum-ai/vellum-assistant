@@ -10,7 +10,7 @@ import { ArrowUpCircle, Loader2 } from "lucide-react";
 import { createElement } from "react";
 
 import { useTranslation } from "@/i18n";
-import { Tag } from "@vellumai/design-library";
+import { Chip, Tag } from "@vellumai/design-library";
 
 interface UpdateAvailableBadgeProps {
   /**
@@ -27,34 +27,32 @@ export function UpdateAvailableBadge({
   isUpgrading = false,
 }: UpdateAvailableBadgeProps = {}) {
   const { t } = useTranslation("intelligence");
-  const badge = (
-    <Tag
-      tone="warning"
-      leftIcon={createElement(isUpgrading ? Loader2 : ArrowUpCircle, {
-        className: isUpgrading ? "animate-spin" : undefined,
-      })}
-      className="shrink-0"
-    >
-      {t("updateAvailableBadge.updateAvailable")}
-    </Tag>
-  );
+  const icon = createElement(isUpgrading ? Loader2 : ArrowUpCircle, {
+    className: isUpgrading ? "animate-spin" : undefined,
+  });
+  const label = t("updateAvailableBadge.updateAvailable");
 
   if (!onClick) {
-    return badge;
+    return (
+      <Tag tone="warning" leftIcon={icon} className="shrink-0">
+        {label}
+      </Tag>
+    );
   }
 
   return (
-    <button
-      type="button"
+    <Chip
+      tone="warning"
+      leftIcon={icon}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       disabled={isUpgrading}
       aria-label={t("updateAvailableBadge.upgradePluginAriaLabel")}
-      className="shrink-0 rounded-[6px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:cursor-not-allowed"
+      className="shrink-0"
     >
-      {badge}
-    </button>
+      {label}
+    </Chip>
   );
 }

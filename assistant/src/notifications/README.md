@@ -264,6 +264,8 @@ Schedule fires (scheduler.ts: notify mode)
             → Broadcaster → Adapters → Delivery
 ```
 
+`contextPayload.channelAllowlist` is an exclusive channel set. When present, emit-signal intersects it with connected channels, skips urgent vellum/platform force, and skips routing-intent expansion. `--preferred-channels` stays additive and is ignored when an allowlist is present. Access-request signals still force the in-app vellum card.
+
 The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM produces its channel selection but before deterministic checks. It overrides the decision's `selectedChannels` based on the routing intent:
 
 - **`all_channels`**: Replaces `selectedChannels` with all connected channels (from `getConnectedChannels()`).

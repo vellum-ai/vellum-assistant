@@ -286,6 +286,7 @@ export function processChannelMessageInBackground(
           },
           assistantId,
           trustContext: trustCtx,
+          author: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(displayContent !== undefined ? { displayContent } : {}),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),

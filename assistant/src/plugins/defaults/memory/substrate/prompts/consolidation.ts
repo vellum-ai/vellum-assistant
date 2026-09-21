@@ -312,7 +312,7 @@ Cutoff timestamp for this run: \`${CUTOFF_PLACEHOLDER}\`. The entries for this p
 - Updated \`memory/threads.md\` (≤10000 chars)
 - Updated \`edges:\` frontmatter in any pages whose outgoing links changed
 
-How retrieval works: high-activation pages are loaded at the start of each turn. Activations spread along **directed** edges from source to target — activating A pulls in the pages A points at, but not the reverse. The immutable archive retains the entire buffer forever, so don't worry about losing information.
+How retrieval works: high-activation pages are loaded at the start of each turn. Activations spread along **directed** edges from source to target: activating A pulls in the pages A points at, but not the reverse.
 
 ---
 
@@ -724,7 +724,7 @@ Three consequences:
 
 1. **The lead IS the card, and the fallback.** Write every lead as a standalone orientation: what this article is, the one or two facts that identify it, where it sits. If the lead only makes sense after reading the sections, the card is useless and so is the fallback. One to three short paragraphs.
 2. **Section names are navigation.** They appear on the selector's card as the table of contents and head every injected section. Name sections so future-you can tell from the name alone whether the answer lives there.
-3. **Sections are the unit of growth and retrieval.** A fact filed in the right section of the right article is findable and arrives in context with its section (kept under the 6000-character chunk window, so the section travels whole); a fact buried mid-paragraph in an overlong lead is not. The immutable archive retains the entire buffer forever, so don't worry about losing information.
+3. **Sections are the unit of growth and retrieval.** A fact filed in the right section of the right article is findable and arrives in context with its section (kept under the 6000-character chunk window, so the section travels whole); a fact buried mid-paragraph in an overlong lead is not.
 
 ---
 

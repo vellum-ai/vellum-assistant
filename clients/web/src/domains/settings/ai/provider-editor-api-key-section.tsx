@@ -1,10 +1,11 @@
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { ChevronRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import type { ConnectionProvider } from "@/generated/daemon/types.gen";
 import type { CredentialEntry } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -52,7 +53,6 @@ export function ProviderEditorApiKeySection({
   onError,
 }: ProviderEditorApiKeySectionProps) {
   const { t } = useTranslation("settings");
-  const [isAdvancedExpanded, setIsAdvancedExpanded] = useState(false);
   const [isCreatingNewCredential, setIsCreatingNewCredential] = useState(false);
   const [newCredentialName, setNewCredentialName] = useState("");
 
@@ -90,115 +90,105 @@ export function ProviderEditorApiKeySection({
       {/* Advanced credential-reference disclosure. Visibility is
           controlled by the parent via `showAdvancedSection`. */}
       {showAdvancedSection && (
-        <div>
-          <button
-            type="button"
-            aria-expanded={isAdvancedExpanded}
-            onClick={() => setIsAdvancedExpanded((v) => !v)}
-            className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-          >
-            <ChevronRight
-              className={`h-4 w-4 transition-transform ${isAdvancedExpanded ? "rotate-90" : ""}`}
-            />
+        <Disclosure.Root>
+          <Disclosure.Trigger fullWidth>
             <span>{t("providerEditorApiKeySection.advanced")}</span>
             <span className="text-[var(--content-tertiary)] ml-1">
               {t("providerEditorApiKeySection.credentialReferenceSuffix")}
             </span>
-          </button>
+          </Disclosure.Trigger>
 
-          {isAdvancedExpanded && (
-            <div className="mt-2 space-y-3">
-              {/* Credential reference dropdown */}
-              {(() => {
-                const baseOptions = providerCredentials.map((c) => {
-                  const ref = `credential/${c.service}/${c.field}`;
-                  return { label: ref, value: ref };
-                });
-                const hasCurrent = baseOptions.some(
-                  (o) => o.value === credential,
-                );
-                const dropdownOptions =
-                  credential && !hasCurrent
-                    ? [{ label: credential, value: credential }, ...baseOptions]
-                    : baseOptions;
-                if (dropdownOptions.length === 0) {
-                  return null;
-                }
-                return (
-                  <div className="space-y-1">
-                    <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                      {t("providerEditorApiKeySection.credentialReferenceLabel")}
-                    </label>
-                    <Select
-                      aria-label={t(
-                        "providerEditorApiKeySection.credentialReferenceAriaLabel",
-                      )}
-                      value={credential}
-                      onChange={(v) => {
-                        onCredentialChange(v);
-                      }}
-                      options={dropdownOptions}
-                    />
-                  </div>
-                );
-              })()}
-
-              {/* New Credential inline form */}
-              {isCreatingNewCredential && (
+          <Disclosure.Content className="mt-2 space-y-3">
+            {/* Credential reference dropdown */}
+            {(() => {
+              const baseOptions = providerCredentials.map((c) => {
+                const ref = `credential/${c.service}/${c.field}`;
+                return { label: ref, value: ref };
+              });
+              const hasCurrent = baseOptions.some(
+                (o) => o.value === credential,
+              );
+              const dropdownOptions =
+                credential && !hasCurrent
+                  ? [{ label: credential, value: credential }, ...baseOptions]
+                  : baseOptions;
+              if (dropdownOptions.length === 0) {
+                return null;
+              }
+              return (
                 <div className="space-y-1">
                   <label className="block text-body-small-default text-[var(--content-tertiary)]">
-                    {t("providerEditorApiKeySection.newCredentialNameLabel")}
+                    {t("providerEditorApiKeySection.credentialReferenceLabel")}
                   </label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={newCredentialName}
-                      onChange={(e) => setNewCredentialName(e.target.value)}
-                      placeholder={t(
-                        "providerEditorApiKeySection.newCredentialPlaceholder",
-                      )}
-                      fullWidth
-                    />
-                    <Button
-                      variant="primary"
-                      size="compact"
-                      disabled={!newCredentialName.trim()}
-                      onClick={() => {
-                        const trimmed = newCredentialName.trim();
-                        if (!trimmed) {
-                          return;
-                        }
-                        const ref = `credential/${provider}/${trimmed}`;
-                        onCredentialChange(ref);
-                        setIsCreatingNewCredential(false);
-                        setNewCredentialName("");
-                      }}
-                    >
-                      {t("providerEditorApiKeySection.use")}
-                    </Button>
-                  </div>
+                  <Select
+                    aria-label={t(
+                      "providerEditorApiKeySection.credentialReferenceAriaLabel",
+                    )}
+                    value={credential}
+                    onChange={(v) => {
+                      onCredentialChange(v);
+                    }}
+                    options={dropdownOptions}
+                  />
                 </div>
-              )}
+              );
+            })()}
 
-              <div className="flex justify-start">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    if (isCreatingNewCredential) {
+            {/* New Credential inline form */}
+            {isCreatingNewCredential && (
+              <div className="space-y-1">
+                <label className="block text-body-small-default text-[var(--content-tertiary)]">
+                  {t("providerEditorApiKeySection.newCredentialNameLabel")}
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    value={newCredentialName}
+                    onChange={(e) => setNewCredentialName(e.target.value)}
+                    placeholder={t(
+                      "providerEditorApiKeySection.newCredentialPlaceholder",
+                    )}
+                    fullWidth
+                  />
+                  <Button
+                    variant="primary"
+                    size="compact"
+                    disabled={!newCredentialName.trim()}
+                    onClick={() => {
+                      const trimmed = newCredentialName.trim();
+                      if (!trimmed) {
+                        return;
+                      }
+                      const ref = `credential/${provider}/${trimmed}`;
+                      onCredentialChange(ref);
                       setIsCreatingNewCredential(false);
                       setNewCredentialName("");
-                    } else {
-                      setIsCreatingNewCredential(true);
-                    }
-                  }}
-                >
-                  {isCreatingNewCredential
-                    ? t("providerEditorApiKeySection.cancel")
-                    : t("providerEditorApiKeySection.newCredential")}
-                </Button>
+                    }}
+                  >
+                    {t("providerEditorApiKeySection.use")}
+                  </Button>
+                </div>
               </div>
+            )}
+
+            <div className="flex justify-start">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (isCreatingNewCredential) {
+                    setIsCreatingNewCredential(false);
+                    setNewCredentialName("");
+                  } else {
+                    setIsCreatingNewCredential(true);
+                  }
+                }}
+              >
+                {isCreatingNewCredential
+                  ? t("providerEditorApiKeySection.cancel")
+                  : t("providerEditorApiKeySection.newCredential")}
+              </Button>
             </div>
-          )}
-        </div>
+          </Disclosure.Content>
+        </Disclosure.Root>
       )}
     </>
   );
