@@ -51,6 +51,7 @@ import {
 } from "../document-conversation-navigation";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
+import { useStorePressureProbe } from "@/domains/chat/hooks/use-store-pressure-probe";
 import {
   DiskPressureBannerSlot,
   useDiskPressureBannerVisibility,
@@ -594,6 +595,7 @@ export function ChatMainPanel({
   useLayoutEffect(() => {
     recordCommit();
   });
+  useStorePressureProbe();
 
   // Closes the switch measurement `switchToConversation` opened. That action
   // blanks the snapshot and sets `isLoadingHistory` in one commit, so the first

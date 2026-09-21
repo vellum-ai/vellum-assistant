@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createStore } from "zustand/vanilla";
 
 import {
+  installStorePressureProbe,
   recordCommit,
   recordUpdate,
   resetCommitPressure,
@@ -179,5 +181,65 @@ describe("commit-pressure probe", () => {
     // The pre-gap update must not attribute a post-gap commit.
     expect(snapshot?.unattributedCommits).toBe(1);
     expect(snapshot?.maxUnattributedCommits).toBe(1);
+  });
+});
+
+describe("store pressure probe", () => {
+  interface ProbedState {
+    snapshot: { seq: number };
+    error: string | null;
+  }
+
+  function probedStore() {
+    return createStore<ProbedState>()(() => ({
+      snapshot: { seq: 0 },
+      error: null,
+    }));
+  }
+
+  test("names each slice a write replaced", () => {
+    const store = probedStore();
+    installStorePressureProbe("chat-session", store);
+
+    store.setState({ snapshot: { seq: 1 } });
+    store.setState({ snapshot: { seq: 2 } });
+    store.setState({ error: "boom" });
+
+    expect(snapshotCommitPressure()?.sources).toEqual({
+      "store:chat-session.snapshot": 2,
+      "store:chat-session.error": 1,
+    });
+  });
+
+  test("a write no selector can see records nothing", () => {
+    const store = probedStore();
+    installStorePressureProbe("chat-session", store);
+
+    // Zustand still notifies here: the merged state object is new even though
+    // every slice kept its reference, so no subscribed component re-renders.
+    store.setState({});
+    store.setState({ error: null });
+
+    expect(snapshotCommitPressure()).toBeNull();
+  });
+
+  test("a store write attributes the commit it causes", () => {
+    const store = probedStore();
+    installStorePressureProbe("chat-session", store);
+
+    store.setState({ snapshot: { seq: 1 } });
+    recordCommit();
+
+    expect(snapshotCommitPressure()?.unattributedCommits).toBe(0);
+  });
+
+  test("stops tallying once uninstalled", () => {
+    const store = probedStore();
+    const uninstall = installStorePressureProbe("chat-session", store);
+
+    uninstall();
+    store.setState({ snapshot: { seq: 1 } });
+
+    expect(snapshotCommitPressure()).toBeNull();
   });
 });

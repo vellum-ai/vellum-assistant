@@ -22,6 +22,7 @@
  */
 
 import type { QueryClient } from "@tanstack/react-query";
+import type { StoreApi } from "zustand";
 
 /**
  * Length of one tally bucket. Two are kept (current + previous), so a snapshot
@@ -45,7 +46,8 @@ const MAX_SOURCES = 24;
 /**
  * Known high-frequency update sources on the conversation route. Callers are
  * not restricted to these — the type documents the ones we deliberately
- * instrumented, and `query:*` keys are minted from live query ids.
+ * instrumented, `query:*` keys are minted from live query ids, and `store:*`
+ * keys from the slices of probed stores.
  */
 export type UpdateSource =
   | "audio-amplitude"
@@ -269,6 +271,43 @@ export function installQueryPressureProbe(
       return;
     }
     recordUpdate(`query:${queryLabel(event.query.queryKey)}`);
+  });
+}
+
+/**
+ * Tally a Zustand store's writes as update sources, one per top-level slice
+ * whose reference changed: `store:<name>.<slice>`. Store notifications
+ * re-render through `useSyncExternalStore` exactly as query notifications do,
+ * and the chat route renders from a dozen stores, so without this a commit
+ * driven by a store write is indistinguishable from one driven by an unknown
+ * updater: both read as `unattributedCommits`.
+ *
+ * Slices are compared the way an atomic selector compares them (`Object.is`),
+ * so a `set` that changes nothing a selector can see records nothing. A write
+ * that changes several slices records each; read `sources` for who is
+ * writing, not `updates` for how many renders were scheduled.
+ *
+ * Returns the unsubscribe handle.
+ */
+export function installStorePressureProbe<T extends object>(
+  name: string,
+  store: Pick<StoreApi<T>, "subscribe">,
+): () => void {
+  // Labels are minted once per slice so the listener allocates nothing on
+  // the write path.
+  const labels = new Map<string, string>();
+  return store.subscribe((state, previous) => {
+    for (const slice in state) {
+      if (Object.is(state[slice], previous[slice])) {
+        continue;
+      }
+      let label = labels.get(slice);
+      if (label === undefined) {
+        label = `store:${name}.${slice}`;
+        labels.set(slice, label);
+      }
+      recordUpdate(label);
+    }
   });
 }
 
