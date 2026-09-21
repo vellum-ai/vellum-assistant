@@ -1,7 +1,9 @@
 /**
  * The "Used Skill" card at the head of a `skill_load` detail panel (Figma node
  * 7778-163402): the skill's own glyph, its name and one-line description, and a
- * View action that opens the full skill detail in the same drawer.
+ * View action that opens the full skill detail in the same drawer. It is
+ * drawn like every card that names what a call was about, the web fetch
+ * source card included: a bordered `CardRoot` on the overlay surface.
  *
  * The glyph and the display name are the skill's real identity, so the card
  * reads the skill record from the daemon rather than inventing a generic icon.
@@ -46,7 +48,7 @@ export function SkillLoadCard({
   return (
     <CardRoot
       surface="overlay"
-      bordered={false}
+      padding="sm"
       className="flex items-center gap-4"
     >
       <SkillIcon
