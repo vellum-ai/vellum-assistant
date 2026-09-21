@@ -24,6 +24,8 @@ import {
 import { Trans, useTranslation } from "@/i18n";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
 import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -491,7 +493,10 @@ export function ResizeCard({
                   upgradeLink: (
                     <Link
                       to={routes.plans}
-                      className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                      className={cn(
+                        textLinkVariants({ tone: "quiet" }),
+                        "text-[var(--content-secondary)] decoration-[var(--border-element)] underline-offset-2",
+                      )}
                       onClick={() => setResizeModalOpen(false)}
                     />
                   ),

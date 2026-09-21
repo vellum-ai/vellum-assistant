@@ -214,7 +214,8 @@ export function ApiKeyScreen() {
                   {t("apiKeyScreen.noKeyPrompt")}{" "}
                   <ExternalAnchor
                     href={entry.docsUrl}
-                    className="text-[var(--content-default)] underline"
+                    tone="quiet"
+                    className="text-[var(--content-default)]"
                     glyph={false}
                   >
                     {t("apiKeyScreen.getKeyLink")}

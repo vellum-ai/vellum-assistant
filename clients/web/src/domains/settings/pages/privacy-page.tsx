@@ -112,7 +112,7 @@ export function PrivacyPage() {
                 policyLink: (
                   <ExternalAnchor
                     href={legalUrl(routes.docs.legal.privacyPolicy)}
-                    className="underline"
+                    tone="quiet"
                     glyph={false}
                   />
                 ),

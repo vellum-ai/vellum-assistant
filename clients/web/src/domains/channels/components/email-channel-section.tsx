@@ -173,7 +173,8 @@ export function EmailChannelSection() {
         </span>
         <ExternalAnchor
           href={selectedByoProvider.docsUrl}
-          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          tone="default"
+          className="inline-flex items-center gap-1"
           glyph={false}
         >
           {t("emailChannelSection.openProvider", {
@@ -227,7 +228,8 @@ export function EmailChannelSection() {
           </div>
           <ExternalAnchor
             href={selectedByoProvider.docsUrl}
-            className="inline-flex items-center gap-1 text-body-small-default text-[var(--system-positive-strong)] underline hover:opacity-80"
+            tone="default"
+            className="inline-flex items-center gap-1 text-body-small-default"
             glyph={false}
           >
             {t("emailChannelSection.openProvider", {

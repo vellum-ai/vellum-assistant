@@ -39,7 +39,8 @@ export function BrowserViewSurface({
           return isSafeUrl ? (
             <ExternalAnchor
               href={data.url}
-              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter text-[var(--system-positive-strong)] underline decoration-[var(--system-positive-strong)]/30 transition-colors hover:opacity-80"
+              tone="default"
+              className="mt-1 inline-flex items-center gap-1.5 text-body-medium-lighter decoration-[var(--system-positive-strong)]/30"
               glyph={false}
             >
               <ExternalLink className="h-3.5 w-3.5 shrink-0" />

@@ -70,7 +70,7 @@ function ConsentCheckbox({
               link: (
                 <ExternalAnchor
                   href={legalUrl(link.href)}
-                  className="underline"
+                  tone="quiet"
                   glyph={false}
                 />
               ),

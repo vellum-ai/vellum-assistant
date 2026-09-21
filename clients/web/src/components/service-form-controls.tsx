@@ -69,7 +69,8 @@ export function CredentialsGuide({ guide }: CredentialsGuideProps) {
         <span>{guide.description}</span>
         <ExternalAnchor
           href={guide.url}
-          className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          tone="default"
+          className="inline-flex items-center gap-1"
           glyph={false}
         >
           {guide.linkLabel}

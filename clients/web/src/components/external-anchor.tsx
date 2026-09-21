@@ -1,6 +1,12 @@
 import { ExternalLink } from "lucide-react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
+import {
+  cn,
+  textLinkVariants,
+  type TextLinkTone,
+} from "@vellumai/design-library";
+
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 type ExternalAnchorProps = Omit<
@@ -19,11 +25,13 @@ type ExternalAnchorProps = Omit<
    * Defaults to `true`.
    */
   glyph?: boolean;
+  /**
+   * Wear the design library's `TextLink` look in this tone. Leave it unset for
+   * an anchor that is not a text link (a button, pill, card or row), which
+   * styles itself through `className`.
+   */
+  tone?: TextLinkTone;
 };
-
-/** Anchor styling for a link that leaves the app. */
-export const EXTERNAL_LINK_CLASS =
-  "text-[var(--system-positive-strong)] underline hover:opacity-80";
 
 /**
  * True for an `http(s)` destination, the links that leave the app for the web
@@ -71,11 +79,19 @@ export function ExternalAnchor({
   href,
   children,
   glyph = true,
+  tone,
+  className,
   ...rest
 }: ExternalAnchorProps) {
   return (
     <a
       {...rest}
+      className={
+        tone === undefined
+          ? className
+          : cn(textLinkVariants({ tone }), className)
+      }
+      data-slot={tone === undefined ? undefined : "text-link"}
       href={href}
       target="_blank"
       rel="noopener noreferrer"

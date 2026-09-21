@@ -55,7 +55,8 @@ export function CleanupScreen() {
               communityLink: (
                 <ExternalAnchor
                   href={VELLUM_COMMUNITY_URL}
-                  className="text-body-medium-default underline text-[var(--system-positive-strong)] hover:opacity-90"
+                  tone="default"
+                  className="text-body-medium-default"
                   glyph={false}
                 />
               ),

@@ -77,6 +77,39 @@ describe("ExternalAnchor", () => {
     expect(anchor.querySelector("svg")).not.toBeNull();
   });
 
+  test("tone wears the library link look, and a caller className still merges", () => {
+    render(
+      <ExternalAnchor
+        href="https://example.com/docs"
+        tone="quiet"
+        className="text-[var(--content-tertiary)]"
+      >
+        Docs
+      </ExternalAnchor>,
+    );
+
+    const anchor = screen.getByRole("link", { name: "Docs" });
+    const className = anchor.getAttribute("class") ?? "";
+    expect(anchor.getAttribute("data-slot")).toBe("text-link");
+    expect(className).toContain("underline");
+    expect(className).toContain("hover:text-[color:var(--content-default)]");
+    // The caller's ink replaces the tone's inherited one instead of stacking.
+    expect(className).toContain("text-[var(--content-tertiary)]");
+    expect(className).not.toContain("text-[color:inherit]");
+  });
+
+  test("without a tone it adds no styling of its own", () => {
+    render(
+      <ExternalAnchor href="https://example.com/docs" className="pill">
+        Docs
+      </ExternalAnchor>,
+    );
+
+    const anchor = screen.getByRole("link", { name: "Docs" });
+    expect(anchor.getAttribute("class")).toBe("pill");
+    expect(anchor.getAttribute("data-slot")).toBeNull();
+  });
+
   test("drops the glyph with glyph={false} and keeps the behaviour", () => {
     nativePlatform = true;
     render(

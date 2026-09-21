@@ -21,10 +21,7 @@ import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
-import {
-  EXTERNAL_LINK_CLASS,
-  ExternalAnchor,
-} from "@/components/external-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import type {
   ApprovalMeta,
   BackupPromptMeta,
@@ -496,7 +493,7 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
  * native shells.
  */
 const DoctorLink: MarkdownLinkComponent = ({ href, children }) => (
-  <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
+  <ExternalAnchor href={href} tone="default">
     {children}
   </ExternalAnchor>
 );

@@ -153,7 +153,7 @@ export function HostingScreen() {
           {t("hostingScreen.body")}{" "}
           <ExternalAnchor
             href={docsUrl(routes.docs.hostingOptions)}
-            className="underline transition-colors hover:text-[var(--content-default)]"
+            tone="quiet"
             glyph={false}
           >
             {t("hostingScreen.needHelp")}

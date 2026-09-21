@@ -1140,7 +1140,8 @@ export function ShareFeedbackModal({
                       discordLink: (
                         <ExternalAnchor
                           href={VELLUM_COMMUNITY_URL}
-                          className="underline text-[var(--content-default)]"
+                          tone="quiet"
+                          className="text-[var(--content-default)]"
                           glyph={false}
                         />
                       ),
@@ -1158,7 +1159,8 @@ export function ShareFeedbackModal({
                       roadmapLink: (
                         <ExternalAnchor
                           href="https://vellum.ai/roadmap"
-                          className="underline text-[var(--content-default)]"
+                          tone="quiet"
+                          className="text-[var(--content-default)]"
                           glyph={false}
                         />
                       ),

@@ -76,6 +76,12 @@ export {
   type TypographyVariant,
   type TypographyAs,
 } from "./components/typography";
+export {
+  TextLink,
+  textLinkVariants,
+  type TextLinkProps,
+  type TextLinkTone,
+} from "./components/text-link";
 export { Popover, type PopoverContentProps } from "./components/popover";
 export {
   Input,

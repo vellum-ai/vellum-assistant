@@ -25,6 +25,8 @@ import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /**
  * How far a checkout attempt has got.
@@ -341,7 +343,10 @@ function CheckoutPageContent() {
           <Link
             to={bailTarget}
             onClick={abandonCheckout}
-            className="text-sm text-[var(--content-tertiary)] underline"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm text-[var(--content-tertiary)]",
+            )}
           >
             {bailLabel}
           </Link>
@@ -369,7 +374,10 @@ function CheckoutPageContent() {
            */}
           <Link
             to={bailTarget}
-            className="text-sm text-[var(--content-tertiary)] underline"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm text-[var(--content-tertiary)]",
+            )}
           >
             {bailLabel}
           </Link>

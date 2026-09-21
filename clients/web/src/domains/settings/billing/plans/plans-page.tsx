@@ -887,7 +887,8 @@ function PlansPageContent() {
               docsLink: (
                 <ExternalAnchor
                   href={PRICING_DOCS_URL}
-                  className="text-[var(--content-default)] underline"
+                  tone="quiet"
+                  className="text-[var(--content-default)]"
                   glyph={false}
                 />
               ),

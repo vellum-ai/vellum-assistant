@@ -11,6 +11,8 @@ import {
 import { Link, Navigate, useSearchParams } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
 import { Select } from "@vellumai/design-library/components/select";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
@@ -153,7 +155,10 @@ function SpeechServicesBanner() {
       <span>{t("voicePage.speechServicesBannerPrompt")}</span>
       <Link
         to={`${routes.settings.ai}#text-to-speech`}
-        className="inline-flex items-center gap-1 text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 hover:text-[var(--content-default)]"
+        className={cn(
+          textLinkVariants({ tone: "quiet" }),
+          "inline-flex items-center gap-1 text-[var(--content-secondary)] decoration-[var(--border-element)] underline-offset-2",
+        )}
       >
         {t("voicePage.speechServicesBannerLink")}
         <ArrowUpRight className="h-3 w-3" />
