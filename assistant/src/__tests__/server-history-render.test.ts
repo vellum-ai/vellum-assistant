@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
-import type { ToolActivityMetadata } from "../api/events/tool-result.js";
+import type {
+  ToolActivityMetadata,
+  WebFetchMetadata,
+} from "../api/events/tool-result.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import {
   getAttachmentsForMessage,
@@ -673,6 +676,42 @@ describe("renderHistoryContent", () => {
     ]);
 
     expect(output.toolCalls[0].activityMetadata).toBeUndefined();
+  });
+
+  test("drops a malformed activity entry and keeps a valid sibling", () => {
+    const webFetch: WebFetchMetadata = {
+      url: "https://example.com",
+      finalUrl: "https://example.com",
+      status: 200,
+      byteCount: 1024,
+      charCount: 900,
+      truncated: false,
+      domain: "example.com",
+      redirectCount: 0,
+      durationMs: 40,
+    };
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "web_fetch",
+        input: { url: "https://example.com" },
+        _activityMetadata: {
+          webSearch: { query: "x", results: "not a list" },
+          webFetch,
+        },
+      },
+      {
+        type: "server_tool_use",
+        id: "tu_2",
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: { webSearch: { query: 42 } },
+      },
+    ]);
+
+    expect(output.toolCalls[0].activityMetadata).toEqual({ webFetch });
+    expect(output.toolCalls[1].activityMetadata).toBeUndefined();
   });
 
   test("ignores non-array _risk*Options annotations", () => {
