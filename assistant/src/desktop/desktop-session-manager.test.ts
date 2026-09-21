@@ -283,7 +283,7 @@ describe("DesktopSessionManager process tree", () => {
         "plank",
         "tigervncconfig",
         "vncconfig",
-        "xterm",
+        "wezterm",
       ],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
@@ -309,7 +309,7 @@ describe("DesktopSessionManager process tree", () => {
       join(panelConfigDir, "applications", "xterm.desktop"),
       "utf8",
     );
-    expect(terminal).toContain(`Exec="/usr/bin/xterm"`);
+    expect(terminal).toContain(`Exec="/usr/bin/wezterm"`);
     expect(terminal).toContain(`Icon=${join(panelConfigDir, "terminal.png")}`);
 
     const bytes = readFileSync(join(panelConfigDir, "terminal.png"));

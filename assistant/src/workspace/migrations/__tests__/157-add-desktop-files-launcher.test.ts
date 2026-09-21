@@ -56,7 +56,7 @@ test("upgrades a customized dock idempotently and respects later unpinning", () 
     configDir,
     chromiumPath: "/opt/chrome/chrome",
     chromiumProfileDir: join(workspace, "profile"),
-    terminalPath: "/usr/bin/xterm",
+    terminalPath: "/usr/bin/wezterm",
     fileManagerPath: "/usr/bin/thunar",
     workspaceDir: workspace,
   });

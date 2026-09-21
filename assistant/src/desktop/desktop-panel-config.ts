@@ -3,13 +3,21 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { desktopChromeArguments } from "./desktop-browser-endpoint.js";
+import {
+  DESKTOP_CHROME_WINDOW_CLASS,
+  desktopChromeArguments,
+} from "./desktop-browser-endpoint.js";
+
+const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
+const TERMINAL_HEADER_CONFIG = "  window_decorations = 'TITLE|RESIZE',\n";
 
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
@@ -52,10 +60,39 @@ export function writeDesktopPanelConfig(
     "product_logo_64.png",
   );
   writeFileSync(terminalIcon, Buffer.from(TERMINAL_ICON_BASE64, "base64"));
+  const terminalConfig = join(configDir, "wezterm", "wezterm.lua");
+  mkdirSync(dirname(terminalConfig), { recursive: true });
+  const terminalConfigContents = `local wezterm = require 'wezterm'
+return {
+  front_end = 'Software',
+  enable_wayland = false,
+  check_for_updates = false,
+  hide_tab_bar_if_only_one_tab = false,
+${TERMINAL_HEADER_CONFIG}  font_size = 11,
+  color_scheme = 'Catppuccin Mocha',
+  initial_cols = 110,
+  initial_rows = 28,
+  keys = {
+    { key = 'd', mods = 'CTRL|SHIFT', action = wezterm.action.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+    { key = 'e', mods = 'CTRL|SHIFT', action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' } },
+  },
+}
+`;
+  seedFile(terminalConfig, terminalConfigContents, [
+    terminalConfigContents.replace(TERMINAL_HEADER_CONFIG, ""),
+    ...["", "  integrated_title_buttons = { 'Maximize', 'Close' },\n"].map(
+      (buttons) =>
+        terminalConfigContents.replace(
+          TERMINAL_HEADER_CONFIG,
+          `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',\n  integrated_title_button_style = 'Gnome',\n${buttons}`,
+        ),
+    ),
+  ]);
 
   const applicationsDir = join(configDir, "applications");
   mkdirSync(applicationsDir, { recursive: true });
   const chromiumEntry = join(applicationsDir, "google-chrome.desktop");
+  // Saved dock pins reference this stable launcher path.
   const terminalEntry = join(applicationsDir, "xterm.desktop");
   const filesEntry = join(applicationsDir, "thunar.desktop");
   const minesEntry = join(applicationsDir, "org.gnome.Mines.desktop");
@@ -63,10 +100,9 @@ export function writeDesktopPanelConfig(
     chromiumEntry,
     desktopEntry({
       name: "Google Chrome",
-      // Chrome includes its profile path in WM_CLASS.
-      windowClass: `google-chrome (${request.chromiumProfileDir})`,
+      windowClass: DESKTOP_CHROME_WINDOW_CLASS,
       icon: browserIcon,
-      exec: desktopExec([
+      exec: desktopCommand([
         request.chromiumPath,
         ...desktopChromeArguments(
           request.chromiumProfileDir,
@@ -79,11 +115,14 @@ export function writeDesktopPanelConfig(
     terminalEntry,
     desktopEntry({
       name: "Terminal",
-      windowClass: "XTerm",
+      windowClass: TERMINAL_WINDOW_CLASS,
       icon: terminalIcon,
-      // `-fa` picks a scalable font through fontconfig; xterm otherwise falls
-      // back to the `fixed` bitmap, which is unreadable at this geometry.
-      exec: `"${request.terminalPath}" -fa Monospace -fs 11 -bg '#1c1c22' -fg '#e6e6ea' -title Terminal`,
+      exec: desktopCommand([
+        request.terminalPath,
+        "start",
+        "--new-tab",
+        `--class=${TERMINAL_WINDOW_CLASS}`,
+      ]),
     }),
   );
 
@@ -103,7 +142,7 @@ export function writeDesktopPanelConfig(
       name: "Files",
       windowClass: "Thunar",
       icon: "/usr/share/icons/hicolor/128x128/apps/org.xfce.thunar.png",
-      exec: desktopExec([request.fileManagerPath, request.workspaceDir]),
+      exec: desktopCommand([request.fileManagerPath, request.workspaceDir]),
     }),
   );
 
@@ -158,7 +197,25 @@ function dockItem(launcher: string): string {
   return `[PlankDockItemPreferences]\nLauncher=${pathToFileURL(launcher).href}\n`;
 }
 
-function seedFile(path: string, contents: string): void {
+function desktopCommand(args: string[]): string {
+  return args
+    .map((arg) => {
+      const quoted = `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`;
+      // Desktop values are unescaped before Exec arguments are parsed.
+      return quoted
+        .replace(/\\/g, "\\\\")
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r")
+        .replace(/\t/g, "\\t");
+    })
+    .join(" ");
+}
+
+function seedFile(
+  path: string,
+  contents: string,
+  previousContents: readonly string[] = [],
+): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, contents, { flush: true });
@@ -167,6 +224,12 @@ function seedFile(path: string, contents: string): void {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
       throw err;
+    }
+    if (
+      previousContents.length > 0 &&
+      previousContents.includes(readFileSync(path, "utf8"))
+    ) {
+      renameSync(temporaryPath, path);
     }
   } finally {
     rmSync(temporaryPath, { force: true });
@@ -190,18 +253,4 @@ function desktopEntry(entry: {
     "Terminal=false",
     "",
   ].join("\n");
-}
-
-function desktopExec(args: string[]): string {
-  return args
-    .map((arg) => {
-      const quoted = `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`;
-      // Desktop values are unescaped before Exec arguments are parsed.
-      return quoted
-        .replace(/\\/g, "\\\\")
-        .replace(/\n/g, "\\n")
-        .replace(/\r/g, "\\r")
-        .replace(/\t/g, "\\t");
-    })
-    .join(" ");
 }

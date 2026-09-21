@@ -12,6 +12,17 @@ import { getLogger } from "../util/logger.js";
 import { getExternalDir } from "../util/platform.js";
 
 const log = getLogger("desktop-dependencies");
+const WEZTERM_VERSION = "20240203-110809-5046fc22";
+const WEZTERM_PACKAGES = {
+  x64: {
+    suffix: "Debian12.deb",
+    sha256: "d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8",
+  },
+  arm64: {
+    suffix: "Debian12.arm64.deb",
+    sha256: "351f8791c6e9561d687afa63834a2132de84800dad6e7c3d035cc6518d6c3744",
+  },
+} as const;
 const CHROME_VERSION = "153.0.8010.36-1";
 const CHROME_PACKAGES = {
   x64: {
@@ -32,7 +43,7 @@ const DESKTOP_BINARIES = {
   panel: ["plank"],
   sessionBus: ["dbus-daemon"],
   clipboard: ["tigervncconfig", "vncconfig"],
-  terminal: ["xterm"],
+  terminal: ["wezterm"],
   fileManager: ["thunar"],
   wallpaper: ["feh"],
   input: ["xdotool"],
@@ -59,11 +70,14 @@ const DESKTOP_PACKAGES = [
   "xauth",
   "xcompmgr",
   "xfonts-base",
+  // Preserved Openbox menus and shortcuts can invoke xterm directly.
   "xterm",
   "xdotool",
   "scrot",
   "fonts-liberation",
   "libgtk-3-0",
+  "libegl1",
+  "libgl1-mesa-dri",
   "libvulkan1",
   "libcurl4",
 ];
@@ -288,17 +302,36 @@ async function installDesktopComponents(
   await rm(desktopChromePath() + ".ready", { force: true });
   // Desktop binaries, X assets and the loader share the image root.
   await run([...apt, "update"]);
-  await run([
-    ...apt,
-    "install",
-    "-y",
-    "--no-install-recommends",
-    "--no-upgrade",
-    "--no-remove",
-    "-o",
-    "DPkg::Lock::Timeout=120",
-    ...DESKTOP_PACKAGES,
-  ]);
+  const terminal =
+    WEZTERM_PACKAGES[process.arch as keyof typeof WEZTERM_PACKAGES];
+  const terminalDownloadDir = await mkdtemp(
+    join(tmpdir(), "desktop-terminal-"),
+  );
+  try {
+    const deb = join(terminalDownloadDir, "wezterm.deb");
+    await downloadDesktopPackage(
+      `https://github.com/wezterm/wezterm/releases/download/${WEZTERM_VERSION}/wezterm-${WEZTERM_VERSION}.${terminal.suffix}`,
+      deb,
+      terminal.sha256,
+      caBundle,
+    );
+    await chmod(terminalDownloadDir, 0o755);
+    await chmod(deb, 0o644);
+    await run([
+      ...apt,
+      "install",
+      "-y",
+      "--no-install-recommends",
+      "--no-upgrade",
+      "--no-remove",
+      "-o",
+      "DPkg::Lock::Timeout=120",
+      ...DESKTOP_PACKAGES,
+      deb,
+    ]);
+  } finally {
+    await rm(terminalDownloadDir, { recursive: true, force: true });
+  }
   onStage("chrome");
   if (!existsSync(desktopChromePath())) {
     const downloadDir = await mkdtemp(join(tmpdir(), "desktop-chrome-"));
@@ -307,30 +340,12 @@ async function installDesktopComponents(
     const staging = await mkdtemp(join(installRoot, ".install-"));
     try {
       const deb = join(downloadDir, "chrome.deb");
-      await run([
-        "curl",
-        ...(caBundle ? ["--cacert", caBundle] : []),
-        "--fail",
-        "--location",
-        "--proto",
-        "=https",
-        "--proto-redir",
-        "=https",
-        "--retry",
-        "2",
-        "--max-time",
-        "300",
-        "--output",
-        deb,
+      await downloadDesktopPackage(
         `https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${CHROME_VERSION}_${chrome.arch}.deb`,
-      ]);
-      const hash = createHash("sha256");
-      for await (const chunk of createReadStream(deb)) {
-        hash.update(chunk);
-      }
-      if (hash.digest("hex") !== chrome.sha256) {
-        throw new Error("Chrome download checksum mismatch");
-      }
+        deb,
+        chrome.sha256,
+        caBundle,
+      );
       await run(["dpkg-deb", "--extract", deb, staging]);
       await rename(staging, join(installRoot, `chrome-${CHROME_VERSION}`));
     } finally {
@@ -341,8 +356,41 @@ async function installDesktopComponents(
     }
   }
   onStage("checking");
+  await run([resolveDesktopBinaries().terminal, "--version"]);
   await run([desktopChromePath(), "--version"]);
   await writeFile(desktopChromePath() + ".ready", "");
+}
+
+async function downloadDesktopPackage(
+  url: string,
+  destination: string,
+  sha256: string,
+  caBundle?: string,
+): Promise<void> {
+  await run([
+    "curl",
+    ...(caBundle ? ["--cacert", caBundle] : []),
+    "--fail",
+    "--location",
+    "--proto",
+    "=https",
+    "--proto-redir",
+    "=https",
+    "--retry",
+    "2",
+    "--max-time",
+    "300",
+    "--output",
+    destination,
+    url,
+  ]);
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(destination)) {
+    hash.update(chunk);
+  }
+  if (hash.digest("hex") !== sha256) {
+    throw new Error("Desktop package download checksum mismatch");
+  }
 }
 
 export const desktopDependencyInstaller = new DesktopDependencyInstaller();

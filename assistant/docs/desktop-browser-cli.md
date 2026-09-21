@@ -16,6 +16,10 @@ flowchart LR
   Chrome --> Stream[Existing desktop stream]
 ```
 
+The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a plain dark native title bar, minimize/maximize/close controls, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Setup installs an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
+
+Chrome and WezTerm use explicit desktop window classes shared with their launcher entries. The desktop session bus and Plank share `XDG_DATA_HOME` so the D-Bus-activated window matcher can resolve the generated launchers and group running windows under their pinned icons.
+
 Chrome and its dock launcher share the managed profile and loopback debug port. For Chrome reopened from the dock, the profile singleton lock identifies a candidate PID, validated against the installed executable, profile and loopback debug arguments. Discovery checks `/proc` socket ownership against that browser PID, refuses redirects and validates the returned browser WebSocket endpoint. The connection stays within the container. No CDP endpoint or token is exposed to the renderer.
 
 The desktop client bypasses personal-browser discovery, extension reconnect waits and backend fallback. It reuses the existing AX snapshot, DOM element resolution, mouse, keyboard, extraction and credential-fill implementations. Operation-scoped clients borrow the lease's connection; disposing one does not release the lease. `detach`, `close`, turn completion, cancellation, errors and idle expiry release control. Turn completion clears the activity indicator immediately and queues browser cleanup before the next automation session; it leaves Chrome and the current page open for the user. Only `tabs close` closes a Chrome tab.
