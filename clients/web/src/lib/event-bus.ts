@@ -7,9 +7,10 @@
  * Not a Zustand store. The bus has no state; what looks like state
  * (the handler set) is a registry, not user-observable application
  * state, so Zustand's selector + re-render machinery does not apply.
- * Handlers fire synchronously from `publish()` so a burst of events
- * is not collapsed into a single React commit. See
- * `STATE_MANAGEMENT.md` for the convention carve-out.
+ * Handlers fire synchronously from `publish()` and never through
+ * reactive state, where a burst written inside one batched commit would
+ * surface only its last event. See `STATE_MANAGEMENT.md` for the
+ * convention carve-out.
  *
  * Producers:
  *   - `runtime/event-sources/*` for host-environment signals

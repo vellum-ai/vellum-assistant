@@ -714,15 +714,27 @@ useEffect(() => {
 }, []);
 ```
 
-This is not micro-optimization. React increments an internal counter on
-every commit that finishes with an ordinary update already queued, and
-throws `Maximum update depth exceeded` once fifty-one land back to back —
-no render loop required, just enough independent updaters overlapping. A
-streaming conversation already runs several (the transcript snapshot, the
-smooth-text reveal, scroll classification, query notifications); a
-decorative animation that adds one more per visible instance, for the
-whole length of a turn, is what tipped that over in production
-(LUM-2859).
+This is not micro-optimization. Every state update is a commit, and a
+streaming conversation already pays for many (the transcript snapshot,
+the smooth-text reveal, scroll classification, query notifications); a
+decorative animation adds one more per visible instance, per tick, for
+the whole length of a turn.
+
+Commits also have a hard ceiling. React increments an internal counter
+on every commit that finishes with an ordinary update already queued,
+resets it on the first commit that does not, and throws
+`Maximum update depth exceeded` from whatever `setState` runs after the
+fiftieth, so the stack names a bystander. No render loop is required.
+What reaches the ceiling is a run of synchronous commits inside one
+task, with any effect that sets state in the tree: the effect's update
+is default priority, it cannot render until the task ends, and so every
+commit after it counts. Stream delivery is such a run when each SSE
+envelope is published on arrival, which is why
+`assistant/sse-service.ts` drains envelopes once per task (see
+[`EVENT_BUS.md`](./EVENT_BUS.md#sse-envelope-delivery)). The same shape
+is reachable from any producer that writes a store once per microtask
+(a `for await` loop, a promise chain over a list), so batch those writes
+into one task as well.
 
 When a component drives `d`/`transform`/`style` imperatively, the value
 it renders must stay constant across re-renders — React only patches
