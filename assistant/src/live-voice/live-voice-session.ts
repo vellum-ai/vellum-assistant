@@ -911,11 +911,11 @@ function describeInterruptedRequest(request: string): string {
     : "their earlier request";
 }
 
-// A look control waiting on its fresh frame: which look, when it was asked
-// for, and the wait's bound.
+// A bounded wait to resume the caller request from a fresh view.
 interface PendingLook extends LookFollowUp {
   armedAtMs: number;
   timer: ReturnType<typeof setTimeout>;
+  frameLanded: boolean;
 }
 
 interface OwnedForegroundTask {
@@ -1360,8 +1360,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // A look control sent to a client that declared `lookFrames`, waiting for
   // the fresh frame the client takes for it. The session answers the look on a
   // turn of its own once that frame is in the conversation (see
-  // answerLookWhenFloorIsFree). Cleared when the frame lands, when the wait
-  // runs out, and when the session closes.
+  // answerLookWhenFloorIsFree). Retained through the floor wait so committed
+  // caller clarifications can join the request until the follow-up launches.
   private pendingLook: PendingLook | null = null;
   private lookFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
   // Set when a continuation actually spawns: the request it took over, so the
@@ -4542,7 +4542,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       callerUtterance: this.foregroundTaskRequestForTurn(turn),
       armedAtMs: Date.now(),
       timer,
+      frameLanded: false,
     };
+  }
+
+  private appendPendingLookRequest(content: string): void {
+    if (this.pendingLook !== null && content.trim().length > 0) {
+      this.pendingLook.callerUtterance =
+        `${this.pendingLook.callerUtterance}\n${content}`.trim();
+    }
   }
 
   private clearPendingLook(): void {
@@ -4564,11 +4572,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    */
   private lookFrameLanded(): void {
     const pending = this.pendingLook;
-    if (pending === null || this.isClosed) {
+    if (pending === null || pending.frameLanded || this.isClosed) {
       return;
     }
     clearTimeout(pending.timer);
-    this.pendingLook = null;
+    pending.frameLanded = true;
     this.answerLookWhenFloorIsFree(pending, this.turnsLaunched, 0);
   }
 
@@ -4589,6 +4597,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turnsAtFrame: number,
     rearms: number,
   ): void {
+    if (this.pendingLook !== look) {
+      return;
+    }
     if (this.lookFollowUpTimer !== null) {
       clearTimeout(this.lookFollowUpTimer);
       this.lookFollowUpTimer = null;
@@ -4602,6 +4613,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ? "turn_since_look"
         : this.sessionTurnFloorBlocker();
     if (blockedBy === null) {
+      this.clearPendingLook();
       void this.launchAssistantTurn(
         createSyntheticUtterance(),
         LOOK_FOLLOW_UP_CONTENT,
@@ -4617,6 +4629,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const waitable =
       blockedBy !== "turn_since_look" && blockedBy !== "session_unavailable";
     if (!waitable || Date.now() - armedAtMs >= LOOK_ANSWER_DEADLINE_MS) {
+      this.clearPendingLook();
       log.info(
         { conversationId: this.conversationId, action, blockedBy, rearms },
         "Live voice look follow-up skipped",
@@ -5037,13 +5050,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // are skipped; the thinking frame and timers still apply.
     const alreadyReleased = utterance.released;
     turn.speculativePending = false;
-    // The interruption is final once the turn carrying it commits.
-    if (
-      turn.interruptedRequest !== null &&
-      !turn.hiddenPrompt &&
-      turn.speculativeContent !== null
-    ) {
-      this.bargeInInterruption?.settle(turn.speculativeContent);
+    // Caller context is final once the speculative turn commits.
+    if (!turn.hiddenPrompt && turn.speculativeContent !== null) {
+      this.appendPendingLookRequest(turn.speculativeContent);
+      if (turn.interruptedRequest !== null) {
+        this.bargeInInterruption?.settle(turn.speculativeContent);
+      }
     }
     // Finals can land between the speculative dispatch and this verdict.
     // Fill the language only when dispatch had none: the model request was
@@ -6180,6 +6192,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     };
     this.activeAssistantTurn = activeTurn;
     this.turnsLaunched += 1;
+    if (!activeTurn.hiddenPrompt && !activeTurn.speculativePending) {
+      this.appendPendingLookRequest(content);
+    }
 
     // A speculative turn defers the thinking frame and both floor-holding
     // timers to commitSpeculativeTurn: until the verdict arrives, the pause

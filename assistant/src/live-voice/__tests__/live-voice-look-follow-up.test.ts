@@ -63,8 +63,9 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+  stopped = false;
 
-  constructor(private readonly transcript: string) {}
+  constructor(private transcript: string) {}
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
@@ -72,13 +73,28 @@ class MockStreamingTranscriber implements StreamingTranscriber {
 
   sendAudio(): void {}
 
+  emitPartial(text: string): void {
+    this.transcript = text;
+    this.onEvent?.({ type: "partial", text });
+  }
+
   stop(): void {
-    this.onEvent?.({ type: "final", text: this.transcript });
+    if (this.stopped) {
+      return;
+    }
+    this.stopped = true;
+    if (this.transcript.length > 0) {
+      this.onEvent?.({ type: "final", text: this.transcript });
+    }
     this.onEvent?.({ type: "closed" });
   }
 }
 
-function createHarness(options: { lookFrames: boolean; request?: string }) {
+function createHarness(options: {
+  lookFrames: boolean;
+  request?: string;
+  handsFree?: boolean;
+}) {
   const conversation = createConversation("Look follow-up");
   const { provider } = createMockProvider([textResponse("")]);
   const activeConversation = new Conversation(
@@ -104,6 +120,7 @@ function createHarness(options: { lookFrames: boolean; request?: string }) {
       conversationId: conversation.id,
       audio: { mimeType: "audio/pcm", sampleRate: 24_000, channels: 1 },
       textInput: true,
+      ...(options.handsFree ? { turnDetection: "server_vad" as const } : {}),
       sessionControls: ["look_screen", "look_camera", "look_stop"],
       ...(options.lookFrames ? { lookFrames: true } : {}),
     },
@@ -117,7 +134,11 @@ function createHarness(options: { lookFrames: boolean; request?: string }) {
   const turns: VoiceTurnOptions[] = [];
   const startVoiceTurn = mock(async (turnOptions: VoiceTurnOptions) => {
     turns.push(turnOptions);
-    return { turnId: `bridge-turn-${turns.length}`, abort: mock() };
+    return {
+      turnId: `bridge-turn-${turns.length}`,
+      abort: mock(),
+      discard: mock(async () => {}),
+    };
   });
   const streamTtsAudio: LiveVoiceTtsStreamer = mock(
     async (ttsOptions: LiveVoiceTtsOptions) => ({
@@ -130,15 +151,21 @@ function createHarness(options: { lookFrames: boolean; request?: string }) {
   );
 
   let turnCount = 0;
+  const transcribers: MockStreamingTranscriber[] = [];
   const session = new LiveVoiceSession(context, {
-    resolveTranscriber: mock(
-      async () =>
-        new MockStreamingTranscriber(options.request ?? "look at my screen"),
-    ),
+    resolveTranscriber: mock(async () => {
+      const transcriber = new MockStreamingTranscriber(
+        options.handsFree ? "" : (options.request ?? "look at my screen"),
+      );
+      transcribers.push(transcriber);
+      return transcriber;
+    }),
     startVoiceTurn,
     streamTtsAudio,
     createTurnId: () => `live-turn-${++turnCount}`,
     emitMetrics: false,
+    turnDetectorConfig: { silenceThresholdMs: 40 },
+    frontModelConfig: { endpointDecisionTimeoutMs: 5_000 },
   });
 
   const callbacks = (index: number): VoiceTurnCallbacks | undefined =>
@@ -173,7 +200,11 @@ function createHarness(options: { lookFrames: boolean; request?: string }) {
   /** Ask for a look, and wait for the control to reach the client. */
   const askForLook = async (): Promise<void> => {
     await session.start();
-    await session.handleClientFrame({ type: "ptt_release" });
+    await session.handleClientFrame(
+      options.handsFree
+        ? { type: "text", text: options.request ?? "look at my screen" }
+        : { type: "ptt_release" },
+    );
     await waitFor(() => turns.length === 1, {
       message: "Timed out waiting for the spoken turn",
     });
@@ -212,6 +243,7 @@ function createHarness(options: { lookFrames: boolean; request?: string }) {
     frames,
     session,
     turns,
+    transcribers,
     emitReply,
     reply,
     askForLook,
@@ -342,13 +374,13 @@ describe("live-voice look follow-up", () => {
 
   // The turn started before the frame was in the conversation, so it could
   // not have read it: the look is still owed an answer once that turn is done.
-  test("a turn that started before the frame landed does not answer the look", async () => {
+  test("keeps a clarification from a turn started before the frame landed", async () => {
     const harness = createHarness({ lookFrames: true });
     try {
       await harness.askForLook();
       await harness.session.handleClientFrame({
         type: "text",
-        text: "the second dropdown",
+        text: "show me where to click",
       });
       await waitFor(() => harness.turns.length === 2, {
         message: "Timed out waiting for the typed turn",
@@ -361,7 +393,77 @@ describe("live-voice look follow-up", () => {
         message: "Timed out waiting for the look to be answered",
       });
       expect(harness.turns[2]?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
-      expect(harness.turns[2]?.routingUtterance).toBe("look at my screen");
+      const request = "look at my screen\nshow me where to click";
+      expect(harness.turns[2]?.routingUtterance).toBe(request);
+      expect(harness.turns[2]?.voiceControlPrompt).toContain(
+        JSON.stringify(request),
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("keeps multiple caller clarifications in order", async () => {
+    const harness = createHarness({ lookFrames: true });
+    try {
+      await harness.askForLook();
+      const clarifications = ["show me where to click", "the new page button"];
+      for (const [index, text] of clarifications.entries()) {
+        await harness.session.handleClientFrame({ type: "text", text });
+        await waitFor(() => harness.turns.length === index + 2);
+        await harness.reply(index + 1, "I'm waiting for the screen view.");
+      }
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await waitFor(() => harness.turns.length === 4);
+      expect(harness.turns[3]?.routingUtterance).toBe(
+        ["look at my screen", ...clarifications].join("\n"),
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("keeps a speculative clarification that commits after the frame lands", async () => {
+    const harness = createHarness({ lookFrames: true, handsFree: true });
+    try {
+      await harness.askForLook();
+      const audio = Buffer.alloc(480);
+      for (let index = 0; index < 240; index += 1) {
+        audio.writeInt16LE(8_000, index * 2);
+      }
+      await harness.session.handleBinaryAudio(audio);
+      await waitFor(() => harness.transcribers.at(-1)?.stopped === false);
+      harness.transcribers.at(-1)?.emitPartial("show me where to click");
+      await waitFor(() => harness.turns.length === 2);
+      expect(harness.turns[1]?.unifiedVerdict).toBe(true);
+
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await harness.reply(1, "I'll use the view when it arrives.");
+      await waitFor(() => harness.turns.length === 3);
+      expect(harness.turns[2]?.routingUtterance).toBe(
+        "look at my screen\nshow me where to click",
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("duplicate look frames do not schedule a second follow-up", async () => {
+    const harness = createHarness({ lookFrames: true });
+    try {
+      await harness.askForLook();
+      await harness.session.handleClientFrame({
+        type: "text",
+        text: "show me where to click",
+      });
+      await waitFor(() => harness.turns.length === 2);
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await harness.reply(1, "Let me use that view.");
+      await waitFor(() => harness.turns.length === 3);
+      await harness.reply(2, "The button is at the top.");
+      await settle();
+      expect(harness.turns).toHaveLength(3);
     } finally {
       await harness.dispose();
     }
@@ -410,6 +512,24 @@ describe("live-voice look follow-up", () => {
       await harness.sendFrame(LOOK_FRAME_REASON);
       await settle();
       expect(harness.turns).toHaveLength(1);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("an interrupt drops a captured look waiting for another turn to finish", async () => {
+    const harness = createHarness({ lookFrames: true });
+    try {
+      await harness.askForLook();
+      await harness.session.handleClientFrame({
+        type: "text",
+        text: "show me where to click",
+      });
+      await waitFor(() => harness.turns.length === 2);
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await harness.session.handleClientFrame({ type: "interrupt" });
+      await settle();
+      expect(harness.turns).toHaveLength(2);
     } finally {
       await harness.dispose();
     }
