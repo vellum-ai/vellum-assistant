@@ -15,17 +15,14 @@ import type {
   SystemPermissionStateItem,
 } from "@/runtime/system-permissions";
 
-function item(
-  kind: SystemPermissionKind,
-  status: SystemPermissionStateItem["status"],
-): SystemPermissionStateItem {
-  return {
-    kind,
-    status,
-    canRequest: status === "not-determined",
-    canOpenSettings: status !== "granted",
-    requiresRestart: false,
-  };
+import { permissionItem as item } from "./companion-intro-fixtures";
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 function permissions(
   status: SystemPermissionStateItem["status"],
@@ -90,18 +87,33 @@ async function known(view: ReturnType<typeof setup>) {
 
 describe("companion tour permission setup", () => {
   test.each([
-    ["talk", "microphone"],
-    ["key", "inputMonitoring"],
-    ["share", "screen"],
-    ["try", "microphone"],
-  ] as const)("prepares %s without prompting on mount", async (beat, kind) => {
-    const view = setup(beat);
-    await known(view);
-    expect(view.result.current?.kind).toBe(kind);
-    expect(request).not.toHaveBeenCalled();
-    expect(settings).not.toHaveBeenCalled();
-    expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
-  });
+    ["talk", "microphone", "not-determined", true, "request"],
+    ["key", "inputMonitoring", "not-determined", true, "settings"],
+    ["share", "screen", "denied", true, "request"],
+    ["share", "screen", "denied", false, "settings"],
+    ["try", "microphone", "denied", true, "settings"],
+  ] as const)(
+    "%s uses %s %s (canRequest=%s) via %s",
+    async (beat, kind, status, canRequest, action) => {
+      current[kind] = { ...item(kind, status), canRequest };
+      const view = setup(beat);
+      await known(view);
+      expect(view.result.current?.kind).toBe(kind);
+      expect(request).not.toHaveBeenCalled();
+      expect(settings).not.toHaveBeenCalled();
+      act(() => view.result.current?.enable());
+      await known(view);
+      expect(action === "request" ? request : settings).toHaveBeenCalledWith(
+        kind,
+      );
+      expect(action === "request" ? settings : request).not.toHaveBeenCalled();
+      expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
+      current = permissions("granted");
+      act(() => listener?.(current));
+      expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+      expect(view.result.current?.kind).toBe(kind);
+    },
+  );
   test.each(["idle", "meet", "draw", "mute"] as const)(
     "prepares permission status in the background on %s",
     async (beat) => {
@@ -121,13 +133,8 @@ describe("companion tour permission setup", () => {
     current = permissions("granted");
     const view = setup("meet");
     await act(async () => {});
-    let resolve!: (state: SystemPermissionsState) => void;
-    read.mockImplementation(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionsState>();
+    read.mockReturnValue(promise);
     for (const beat of ["talk", "key", "share", "draw", "try"] as const) {
       view.rerender({ beat });
       expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
@@ -143,86 +150,33 @@ describe("companion tour permission setup", () => {
     current = permissions("granted");
     const view = setup("talk");
     await act(async () => {});
-    let resolve!: (state: SystemPermissionsState) => void;
-    read.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionsState>();
+    read.mockReturnValueOnce(promise);
     await act(async () => jest.advanceTimersByTime(2_000));
     expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
     expect(view.result.current?.state.phase).toBe("known");
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(read).toHaveBeenCalledTimes(2);
     await act(async () => resolve(current));
     expect(view.result.current?.state.phase).toBe("known");
   });
-  test("only requests the permission of the clicked step", async () => {
-    const view = setup("talk");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await waitFor(() => expect(request).toHaveBeenCalledWith("microphone"));
-    await known(view);
-    expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
-  });
-  test("uses the Settings action for shortcut setup", async () => {
-    const view = setup("key");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await waitFor(() =>
-      expect(settings).toHaveBeenCalledWith("inputMonitoring"),
-    );
-    expect(request).not.toHaveBeenCalled();
-  });
-  test("requests screen access before offering the Settings fallback", async () => {
-    current.screen = { ...current.screen, status: "denied", canRequest: true };
-    const view = setup("share");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await waitFor(() => expect(request).toHaveBeenCalledWith("screen"));
-    expect(settings).not.toHaveBeenCalled();
-  });
-  test("observes a Settings grant on the same step", async () => {
-    current = permissions("denied");
-    const view = setup("share");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await waitFor(() => expect(settings).toHaveBeenCalledWith("screen"));
-    await known(view);
-    current = permissions("granted");
-    act(() => listener?.(current));
-    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
-    expect(view.result.current?.kind).toBe("screen");
-  });
-  test("directs a previously denied microphone to Settings", async () => {
-    current = permissions("denied");
-    const view = setup("try");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await waitFor(() => expect(settings).toHaveBeenCalledWith("microphone"));
-    expect(request).not.toHaveBeenCalled();
-  });
-  test("skips requests for granted or restricted permissions", async () => {
-    current = permissions("restricted");
-    const view = setup("key");
-    await known(view);
-    act(() => view.result.current?.enable());
-    await known(view);
-    expect(request).not.toHaveBeenCalled();
-    expect(settings).not.toHaveBeenCalled();
-    current = permissions("granted");
-    act(() => listener?.(current));
-    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
-  });
+  test.each(["granted", "restricted"] as const)(
+    "does not request %s permissions",
+    async (status) => {
+      current = permissions(status);
+      const view = setup("key");
+      await known(view);
+      act(() => view.result.current?.enable());
+      await known(view);
+      expect(request).not.toHaveBeenCalled();
+      expect(settings).not.toHaveBeenCalled();
+    },
+  );
   test("does not open a prompt after the user skips a pending read", async () => {
     const view = setup("talk");
     await known(view);
-    let resolve!: (state: SystemPermissionsState) => void;
-    read.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionsState>();
+    read.mockReturnValueOnce(promise);
     act(() => view.result.current?.enable());
     view.rerender({ beat: "key" });
     await act(async () => resolve(current));
@@ -232,13 +186,8 @@ describe("companion tour permission setup", () => {
   test("ignores a request result after moving to another step", async () => {
     const view = setup("talk");
     await known(view);
-    let resolve!: (value: SystemPermissionStateItem) => void;
-    request.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionStateItem>();
+    request.mockReturnValueOnce(promise);
     act(() => view.result.current?.enable());
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
     view.rerender({ beat: "share" });
@@ -247,48 +196,23 @@ describe("companion tour permission setup", () => {
     expect(view.result.current?.kind).toBe("screen");
     expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
   });
-  test("deduplicates repeated clicks while a prompt is pending", async () => {
-    const view = setup("talk");
-    await known(view);
-    let resolve!: (value: SystemPermissionStateItem) => void;
-    request.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
-    act(() => {
-      view.result.current?.enable();
-      view.result.current?.enable();
-    });
-    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
-    await act(async () => resolve(item("microphone", "granted")));
-    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
-  });
   test("keeps a newer grant when an older read returns", async () => {
-    let resolve!: (state: SystemPermissionsState) => void;
-    read.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionsState>();
+    read.mockReturnValueOnce(promise);
     const view = setup("talk");
     act(() => listener?.(permissions("granted")));
     await act(async () => resolve(current));
     expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
   });
-  test("preserves pushed grants when an older request result returns", async () => {
+  test("deduplicates requests and preserves newer pushed grants", async () => {
     const view = setup("talk");
     await known(view);
-    let resolve!: (value: SystemPermissionStateItem) => void;
-    request.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
-    act(() => view.result.current?.enable());
+    const { promise, resolve } = deferred<SystemPermissionStateItem>();
+    request.mockReturnValueOnce(promise);
+    act(() => {
+      view.result.current?.enable();
+      view.result.current?.enable();
+    });
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
     current = permissions("granted");
     act(() => listener?.(current));
@@ -311,13 +235,8 @@ describe("companion tour permission setup", () => {
   });
   test("keeps one polling loop when an older read finishes after setup", async () => {
     jest.useFakeTimers();
-    let resolve!: (state: SystemPermissionsState) => void;
-    read.mockImplementationOnce(
-      () =>
-        new Promise((done) => {
-          resolve = done;
-        }),
-    );
+    const { promise, resolve } = deferred<SystemPermissionsState>();
+    read.mockReturnValueOnce(promise);
     const view = setup("talk");
     act(() => listener?.(current));
     await act(async () => view.result.current?.enable());

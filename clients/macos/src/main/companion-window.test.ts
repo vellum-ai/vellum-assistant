@@ -24,6 +24,7 @@ import {
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionDock,
+  type CompanionIntroBeat,
   type CompanionIntroReport,
   type CompanionSize,
   type CompanionSizeAxis,
@@ -2587,21 +2588,19 @@ describe("taking the introduction's last offer", () => {
   beforeEach(() => {
     reducedMotion = true;
   });
-  /** Open a surface with a run due, and walk it to the beat that offers one. */
-  const runToLastBeat = (): void => {
-    openStagedRun();
-    for (let i = 1; i < COMPANION_INTRO_BEATS.length; i++) {
-      send("vellum:companion:advanceIntro", "next");
-    }
-    expect(state().intro).toBe("try");
-    mainTimeline.length = 0;
-  };
-
-  /** A surface opened with a run due, which stages it on the app's window. */
-  const openStagedRun = (): void => {
+  const openStagedRun = (beat: CompanionIntroBeat = "idle"): void => {
     companionOpen = false;
     introSeen = 0;
     openCompanionWindow();
+    for (
+      let index = 0;
+      index < COMPANION_INTRO_BEATS.indexOf(beat);
+      index += 1
+    ) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    expect(state().intro).toBe(beat);
+    mainTimeline.length = 0;
   };
 
   // A run is main's own state, and the `try` that ends one leaves the surface
@@ -2613,7 +2612,7 @@ describe("taking the introduction's last offer", () => {
   });
 
   test("asks for the session before it says the run is over", async () => {
-    runToLastBeat();
+    openStagedRun("try");
 
     send("vellum:companion:advanceIntro", "try");
     await settleHandoff();
@@ -2632,7 +2631,7 @@ describe("taking the introduction's last offer", () => {
    * over, and the first-run card takes the press.
    */
   test("holds the run open while a renderer is built for the press", async () => {
-    runToLastBeat();
+    openStagedRun("try");
     mainWindowOpen = false;
 
     send("vellum:companion:advanceIntro", "try");
@@ -2662,7 +2661,7 @@ describe("taking the introduction's last offer", () => {
    * did nothing.
    */
   test("leaves the run alone when the press reaches nothing", async () => {
-    runToLastBeat();
+    openStagedRun("try");
     mainWindowOpen = false;
     windowClosesMidLoad = true;
 
@@ -2676,7 +2675,7 @@ describe("taking the introduction's last offer", () => {
   });
 
   test("and the run is over, so no card waits for the call to end", async () => {
-    runToLastBeat();
+    openStagedRun("try");
 
     send("vellum:companion:advanceIntro", "try");
     await settleHandoff();
@@ -2684,98 +2683,81 @@ describe("taking the introduction's last offer", () => {
     expect(state().intro).toBe(null);
   });
 
-  test.each([true, false])(
-    "returns to the bottom after the final call with reduced motion %s",
-    async (reduceMotion) => {
+  test.each([
+    ["call", true],
+    ["call", false],
+    ["declined", true],
+    ["skipped", true],
+    ["external call", true],
+  ] as const)(
+    "returns to the bottom after %s (reduced motion: %s)",
+    async (ending, reduceMotion) => {
       reducedMotion = reduceMotion;
-      runToLastBeat();
-      const home = defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY);
-      send("vellum:companion:advanceIntro", "try");
-      await settleHandoff();
-      send("vellum:voiceActivity:start", START);
-      send("vellum:voiceActivity:end");
+      openStagedRun("try");
+      if (ending === "skipped") {
+        send("vellum:companion:advanceIntro", "next");
+      } else {
+        if (ending !== "external call") {
+          send("vellum:companion:advanceIntro", "try");
+          await settleHandoff();
+        }
+        if (ending !== "declined") {
+          send("vellum:voiceActivity:start", START);
+        }
+        send("vellum:voiceActivity:end");
+      }
       if (!reduceMotion) {
         await Bun.sleep(COMPANION_GLIDE_MS + 80);
       }
-      expect(centre()).toEqual(home);
+      expect(centre()).toEqual(
+        defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
+      );
     },
   );
 
-  test("returns to the bottom when the final dial is declined", async () => {
-    runToLastBeat();
-    send("vellum:companion:advanceIntro", "try");
-    await settleHandoff();
-    send("vellum:voiceActivity:end");
-    expect(centre()).toEqual(
-      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
-    );
-  });
-
-  test("returns to the bottom when the tour is completed without a call", () => {
-    runToLastBeat();
-    send("vellum:companion:advanceIntro", "next");
-    expect(centre()).toEqual(
-      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
-    );
-  });
-
-  test("returns to the bottom when the final call starts without a dial", () => {
-    runToLastBeat();
-    send("vellum:voiceActivity:start", START);
-    send("vellum:voiceActivity:end");
-    expect(centre()).toEqual(
-      defaultAvatarCentre(NEAREST_DISPLAY.workArea, GEOMETRY),
-    );
-  });
-
-  test("lets permission windows cover the tour until Vellum returns", () => {
-    openStagedRun();
-    presentPermission();
-    presentPermission();
-    expect(surfaceLevels).toEqual([{ floating: false, level: undefined }]);
-    expect(state().intro).toBe("idle");
-    fireAppEvent("did-resign-active");
-    expect(surfaceLevels).toHaveLength(1);
-    fireAppEvent("did-become-active");
-    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
-    expect(state().intro).toBe("idle");
-  });
-
-  test("restores the tour above Vellum when its main window regains focus", () => {
-    openStagedRun();
-    presentPermission();
-    fireAppEvent("browser-window-focus", surface);
-    expect(surfaceLevels).toHaveLength(1);
-    fireAppEvent("browser-window-focus", mainWindow);
-    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
-  });
-
-  test("restores the normal window level when a lowered tour ends", () => {
-    openStagedRun();
-    presentPermission();
-    send("vellum:companion:advanceIntro", "dismiss");
-    expect(surfaceLevels.at(-1)).toEqual({ floating: true, level: "floating" });
-  });
+  test.each(["app focus", "window focus", "tour end"] as const)(
+    "lets permission UI cover the tour and restores its level on %s",
+    (restore) => {
+      openStagedRun();
+      presentPermission();
+      presentPermission();
+      fireAppEvent("did-resign-active");
+      fireAppEvent("browser-window-focus", surface);
+      expect(surfaceLevels).toEqual([{ floating: false, level: undefined }]);
+      expect(state().intro).toBe("idle");
+      if (restore === "tour end") {
+        send("vellum:companion:advanceIntro", "dismiss");
+      } else if (restore === "window focus") {
+        fireAppEvent("browser-window-focus", mainWindow);
+      } else {
+        fireAppEvent("did-become-active");
+      }
+      expect(surfaceLevels.at(-1)).toEqual({
+        floating: true,
+        level: "floating",
+      });
+      expect(state().intro).toBe(restore === "tour end" ? null : "idle");
+    },
+  );
 
   test("does not lower the companion outside the tour", () => {
     presentPermission();
     expect(surfaceLevels).toEqual([]);
   });
 
-  test("an earlier beat's rehearsal leaves the run staged without calling", async () => {
-    openStagedRun();
-    send("vellum:companion:advanceIntro", "next");
-    send("vellum:companion:advanceIntro", "next");
-    expect(state().intro).toBe("talk");
-    mainTimeline.length = 0;
+  test.each(["talk", "key"] as const)(
+    "a rehearsal on %s never starts a call",
+    async (beat) => {
+      openStagedRun(beat);
 
-    send("vellum:companion:advanceIntro", "try");
-    await settleHandoff();
+      send("vellum:companion:advanceIntro", "try");
+      await settleHandoff();
 
-    expect(mainTimeline).toEqual([]);
-    expect(state().intro).toBe("talk");
-    expect(introStage()).toBe(true);
-  });
+      expect(mainTimeline).toEqual([]);
+      expect(state().intro).toBe(beat);
+      expect(introStage()).toBe(true);
+    },
+  );
 });
 
 /**
@@ -6371,18 +6353,6 @@ describe("the introduction's reports", () => {
       expect(reports()).toEqual([]);
     },
   );
-
-  test("a rehearsal double tap never starts a session", async () => {
-    startIntro();
-    for (let i = 0; i < 3; i += 1) {
-      send("vellum:companion:advanceIntro", "next");
-    }
-    dispatched.length = 0;
-    send("vellum:companion:advanceIntro", "try");
-    await settleHandoff();
-    expect(dispatched).toEqual([]);
-    expect(state().intro).toBe("key");
-  });
 
   /**
    * The last beat's press is the one thing in the run that does what it

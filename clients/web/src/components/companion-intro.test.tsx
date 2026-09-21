@@ -22,6 +22,7 @@ import {
   introSpotlight,
 } from "./companion-intro";
 import { CompanionSurface } from "./companion-surface";
+import { introPermission } from "./companion-intro-fixtures";
 
 afterEach(cleanup);
 
@@ -586,20 +587,7 @@ describe("permission setup in the coachmark", () => {
     view.rerender(
       <CompanionIntro
         beat="talk"
-        permission={{
-          kind: "microphone",
-          state: {
-            phase: "known",
-            item: {
-              kind: "microphone",
-              status: "granted",
-              canRequest: false,
-              canOpenSettings: false,
-              requiresRestart: false,
-            },
-          },
-          enable: () => {},
-        }}
+        permission={introPermission("microphone", "granted")}
       />,
     );
     expect(view.getByText("Click me to start a conversation.")).toBeTruthy();
@@ -620,20 +608,7 @@ describe("permission setup in the coachmark", () => {
         <CompanionIntro
           beat={beat}
           onAdvance={advance}
-          permission={{
-            kind,
-            state: {
-              phase: "known",
-              item: {
-                kind,
-                status: "not-determined",
-                canRequest: true,
-                canOpenSettings: true,
-                requiresRestart: false,
-              },
-            },
-            enable,
-          }}
+          permission={{ ...introPermission(kind), enable }}
         />,
       );
       expect(enable).not.toHaveBeenCalled();
@@ -650,20 +625,7 @@ describe("permission setup in the coachmark", () => {
       <CompanionIntro
         beat="try"
         onAdvance={advance}
-        permission={{
-          kind: "microphone",
-          state: {
-            phase: "known",
-            item: {
-              kind: "microphone",
-              status: "denied",
-              canRequest: true,
-              canOpenSettings: true,
-              requiresRestart: false,
-            },
-          },
-          enable: () => {},
-        }}
+        permission={introPermission("microphone", "denied")}
       />,
     );
     expect(view.getByRole("button", { name: "Open Settings" })).toBeTruthy();

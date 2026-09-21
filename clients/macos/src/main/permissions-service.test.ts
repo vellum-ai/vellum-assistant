@@ -48,7 +48,6 @@ class FakeElectronNotification {
 /** The helper launches and Settings opens, in the order they happened. */
 const helperCalls: string[] = [];
 let helperScreenStatus = "denied";
-const helperInputStatus = "denied";
 
 mock.module("electron", () => ({
   app: {
@@ -104,7 +103,7 @@ mock.module("./appleScriptExecutor", () => ({
 
 mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async () => "granted",
-  queryMacHelperPermission: async () => helperInputStatus,
+  queryMacHelperPermission: async () => "denied",
   requestMacHelperInputMonitoringPermission: async () => {
     helperCalls.push("request inputMonitoring");
   },
@@ -443,7 +442,7 @@ describe("notification permission requests", () => {
   });
 });
 
-describe("screen recording", () => {
+describe("permission setup", () => {
   beforeEach(() => {
     helperCalls.length = 0;
     helperScreenStatus = "denied";
@@ -460,26 +459,33 @@ describe("screen recording", () => {
     ["screen", "ScreenCapture"],
     ["inputMonitoring", "ListenEvent"],
   ] as const)(
-    "keeps %s's native alert separate from a Settings visit",
+    "yields for %s's native alert and a separate Settings visit",
     async (kind, pane) => {
-      const service = new PermissionsService();
-      await service.openSettings(kind);
-      expect(helperCalls).toEqual([`request ${kind}`]);
-
-      await service.openSettings(kind);
-      expect(helperCalls).toEqual([
-        `request ${kind}`,
-        `open x-apple.systempreferences:com.apple.preference.security?Privacy_${pane}`,
-      ]);
+      const stop = onPermissionPresentation(() => {
+        helperCalls.push("yield tour");
+      });
+      try {
+        const service = new PermissionsService();
+        const initial = await service.state();
+        expect(helperCalls).toEqual([]);
+        expect(initial[kind].canRequest).toBe(true);
+        const requested = await service.openSettings(kind);
+        expect(helperCalls).toEqual(["yield tour", `request ${kind}`]);
+        if (kind === "screen") {
+          expect(requested.canRequest).toBe(false);
+        }
+        await service.openSettings(kind);
+        expect(helperCalls).toEqual([
+          "yield tour",
+          `request ${kind}`,
+          "yield tour",
+          `open x-apple.systempreferences:com.apple.preference.security?Privacy_${pane}`,
+        ]);
+      } finally {
+        stop();
+      }
     },
   );
-
-  test("offers the first screen request before the explicit Settings fallback", async () => {
-    const service = new PermissionsService();
-    expect((await service.state()).screen.canRequest).toBe(true);
-    expect((await service.request("screen")).canRequest).toBe(false);
-    expect(helperCalls).toEqual(["request screen"]);
-  });
 
   test("does not open Settings for a helper grant that already arrived", async () => {
     helperScreenStatus = "granted";
@@ -495,14 +501,6 @@ describe("screen recording", () => {
     expect(helperCalls).toEqual(["request screen"]);
     expect(item.status).toBe("granted");
   });
-});
-
-describe("permission window presentation", () => {
-  beforeEach(() => {
-    helperCalls.length = 0;
-    helperScreenStatus = "denied";
-  });
-
   test("yields before a native microphone prompt and unsubscribes", async () => {
     const stop = onPermissionPresentation(() => {
       helperCalls.push("yield tour");
@@ -516,36 +514,5 @@ describe("permission window presentation", () => {
     helperCalls.length = 0;
     await new PermissionsService().request("microphone");
     expect(helperCalls).toEqual(["request microphone"]);
-  });
-
-  test("yields for the native alert, then for a separate Settings action", async () => {
-    const stop = onPermissionPresentation(() => {
-      helperCalls.push("yield tour");
-    });
-    try {
-      const service = new PermissionsService();
-      await service.openSettings("screen");
-      expect(helperCalls).toEqual(["yield tour", "request screen"]);
-      await service.openSettings("screen");
-      expect(helperCalls).toEqual([
-        "yield tour",
-        "request screen",
-        "yield tour",
-        "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-      ]);
-    } finally {
-      stop();
-    }
-  });
-
-  test("reading permission state leaves the tour's window level alone", async () => {
-    const presented = mock(() => {});
-    const stop = onPermissionPresentation(presented);
-    try {
-      await new PermissionsService().refresh();
-      expect(presented).not.toHaveBeenCalled();
-    } finally {
-      stop();
-    }
   });
 });

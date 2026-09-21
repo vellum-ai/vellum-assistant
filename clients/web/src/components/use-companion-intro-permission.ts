@@ -14,7 +14,7 @@ import {
 
 export type CompanionIntroPermissionKind =
   "microphone" | "inputMonitoring" | "screen";
-export type CompanionIntroPermissionState =
+type CompanionIntroPermissionState =
   | { phase: "checking" | "requesting" | "error" }
   | { phase: "known"; item: SystemPermissionStateItem };
 
@@ -35,21 +35,14 @@ export function companionIntroOpensSettings(
   );
 }
 
-function permissionFor(
-  beat: CompanionIntroBeat | null,
-): CompanionIntroPermissionKind | null {
-  switch (beat) {
-    case "talk":
-    case "try":
-      return "microphone";
-    case "key":
-      return "inputMonitoring";
-    case "share":
-      return "screen";
-    default:
-      return null;
-  }
-}
+const PERMISSION_FOR_BEAT: Partial<
+  Record<CompanionIntroBeat, CompanionIntroPermissionKind>
+> = {
+  talk: "microphone",
+  try: "microphone",
+  key: "inputMonitoring",
+  share: "screen",
+};
 
 export function companionIntroNeedsPermission(
   permission: CompanionIntroPermission | null,
@@ -64,7 +57,7 @@ export function companionIntroNeedsPermission(
 export function useCompanionIntroPermission(
   beat: CompanionIntroBeat | null,
 ): CompanionIntroPermission | null {
-  const kind = permissionFor(beat);
+  const kind = beat === null ? null : (PERMISSION_FOR_BEAT[beat] ?? null);
   const tourActive = beat !== null;
   const [permissions, setPermissions] = useState<
     SystemPermissionsState | null | undefined
@@ -83,8 +76,7 @@ export function useCompanionIntroPermission(
     let active = true;
     let pending = false;
     let revision = 0;
-    let pollGeneration = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reading = false;
     const record = (
       state: SystemPermissionsState | null,
       keepRequestPending = false,
@@ -114,42 +106,41 @@ export function useCompanionIntroPermission(
       }
     };
     const read = async () => {
-      const reading = revision;
+      if (reading || pending) {
+        return;
+      }
+      reading = true;
+      const started = revision;
       try {
         const state = await getSystemPermissionsState();
-        if (active && reading === revision && !pending) {
+        if (active && started === revision && !pending) {
           record(state);
         }
-        return state !== null;
+        if (state === null) {
+          clearInterval(timer);
+        }
       } catch (error) {
-        if (reading === revision && !pending) {
+        if (started === revision && !pending) {
           failed(error);
         }
-        return false;
+      } finally {
+        reading = false;
       }
     };
-    const poll = async () => {
-      const generation = pollGeneration;
-      const available = await read();
-      if (active && available && generation === pollGeneration) {
-        timer = setTimeout(() => {
-          void poll();
-        }, 2_000);
-      }
-    };
+    const timer = setInterval(() => {
+      void read();
+    }, 2_000);
     const unsubscribe = subscribeToSystemPermissions((state) => {
       revision += 1;
       record(state, pending);
     });
-    void poll();
+    void read();
     enableRef.current = () => {
       if (!active || pending || kind === null) {
         return;
       }
-      clearTimeout(timer);
       pending = true;
       revision += 1;
-      pollGeneration += 1;
       setAction({ kind, phase: "requesting" });
       void (async () => {
         try {
@@ -184,17 +175,12 @@ export function useCompanionIntroPermission(
           failed(error);
         } finally {
           pending = false;
-          if (active) {
-            timer = setTimeout(() => {
-              void poll();
-            }, 2_000);
-          }
         }
       })();
     };
     return () => {
       active = false;
-      clearTimeout(timer);
+      clearInterval(timer);
       unsubscribe();
     };
   }, [kind, tourActive]);

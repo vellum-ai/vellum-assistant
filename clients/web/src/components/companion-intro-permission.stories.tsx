@@ -4,10 +4,7 @@ import { changeLocale, SUPPORTED_LOCALES, type SupportedLocale } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
 import { CompanionIntro } from "./companion-intro";
-import type {
-  CompanionIntroPermissionKind,
-  CompanionIntroPermissionState,
-} from "./use-companion-intro-permission";
+import { introPermission as permission } from "./companion-intro-fixtures";
 
 type PreviewProps = ComponentProps<typeof CompanionIntro> & {
   locale?: SupportedLocale;
@@ -36,25 +33,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function permission(
-  kind: CompanionIntroPermissionKind,
-  status: "not-determined" | "denied" | "restricted" = "not-determined",
-) {
-  return {
-    kind,
-    state: {
-      phase: "known",
-      item: {
-        kind,
-        status,
-        canRequest: status === "not-determined",
-        canOpenSettings: true,
-        requiresRestart: false,
-      },
-    } satisfies CompanionIntroPermissionState,
-    enable: () => {},
-  };
-}
 export const Microphone: Story = {
   args: { beat: "talk", permission: permission("microphone") },
 };
@@ -92,10 +70,4 @@ export const Failed: Story = {
       enable: () => {},
     },
   },
-};
-export const RussianScreenSharing: Story = {
-  args: { ...ScreenSharing.args, locale: "ru" },
-};
-export const SpanishScreenSharing: Story = {
-  args: { ...ScreenSharing.args, locale: "es" },
 };
