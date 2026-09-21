@@ -251,6 +251,11 @@ export interface ConversationCreateOptions {
   conversationType?: ConversationCreateType;
 }
 
+/** One schema per activity entry, so each entry validates on its own. */
+const ACTIVITY_ENTRY_SCHEMAS = Object.entries(
+  ToolActivityMetadataSchema.shape,
+).map(([key, schema]) => z.object({ [key]: schema }));
+
 /**
  * Validates a persisted `_activityMetadata` rider one tool's entry at a time.
  * Cards render these fields directly, so an entry that no longer matches its
@@ -264,10 +269,8 @@ function readPersistedActivityMetadata(
     return undefined;
   }
   const activity: ToolActivityMetadata = {};
-  for (const [key, schema] of Object.entries(
-    ToolActivityMetadataSchema.shape,
-  )) {
-    const parsed = z.object({ [key]: schema }).safeParse(value);
+  for (const schema of ACTIVITY_ENTRY_SCHEMAS) {
+    const parsed = schema.safeParse(value);
     if (parsed.success) {
       Object.assign(activity, parsed.data);
     }

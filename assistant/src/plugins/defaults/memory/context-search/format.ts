@@ -84,7 +84,7 @@ export function buildRecallActivity(options: {
         ? { timestampMs: item.timestampMs }
         : {}),
     })),
-    searchedSources: options.searchedSources.map((note) => ({ ...note })),
+    searchedSources: [...options.searchedSources],
   };
 }
 
