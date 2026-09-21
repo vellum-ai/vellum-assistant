@@ -11,11 +11,11 @@
  * type safety but always allow the request through.
  */
 
-import { isTrustClass } from "@vellumai/gateway-client";
+import { isTrustClass, TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
-import type { TrustClass } from "../trust-class.js";
+import { isContactTrustClass, type TrustClass } from "../trust-class.js";
 import { isNarrowScopeProfile } from "./scopes.js";
 import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
@@ -78,14 +78,21 @@ export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
 /** Only the guardian's turn. The default for a route naming no classes. */
 export const GUARDIAN_ONLY: TrustClass[] = ["guardian"];
 
-/** The guardian's turn and a trusted contact's. */
-export const CONTACT_ALLOWED: TrustClass[] = ["guardian", "trusted_contact"];
+/**
+ * The guardian's turn and an admitted contact's, derived rather than listed
+ * so a new contact class joins it automatically. Both contact classes belong:
+ * they differ on admission, not on what they may do once admitted. Keeping an
+ * unverified contact out is the admission floor's job, not a route's.
+ */
+export const CONTACT_ALLOWED: TrustClass[] = TRUST_CLASS_VALUES.filter(
+  (trustClass) => trustClass === "guardian" || isContactTrustClass(trustClass),
+);
 
 /**
  * Whether an actor of `trustClass` may call a route carrying `policy`.
  *
  * A null policy and an absent `allowedTrustClasses` both resolve to
- * {@link GUARDIAN_ONLY}. A value outside the vocabulary is refused — a field
+ * {@link GUARDIAN_ONLY}. A value outside the vocabulary is refused: a field
  * statically typed {@link TrustClass} can still carry a legacy or wire-sourced
  * value.
  */

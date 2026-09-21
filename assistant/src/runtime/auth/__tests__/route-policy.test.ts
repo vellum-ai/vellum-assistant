@@ -28,6 +28,9 @@ mock.module("../../../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
+import { TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
+
+import { isContactTrustClass } from "../../trust-class.js";
 import {
   CONTACT_ALLOWED,
   enforcePolicy,
@@ -597,14 +600,32 @@ describe("trustClassAllowed", () => {
     expect(trustClassAllowed(null, "trusted_contact")).toBe(false);
   });
 
-  test("an explicit list admits exactly what it names", () => {
+  test("CONTACT_ALLOWED admits the guardian and both contact classes", () => {
     const policy: RoutePolicy = {
       ...basePolicy,
       allowedTrustClasses: CONTACT_ALLOWED,
     };
     expect(trustClassAllowed(policy, "guardian")).toBe(true);
     expect(trustClassAllowed(policy, "trusted_contact")).toBe(true);
-    expect(trustClassAllowed(policy, "unverified_contact")).toBe(false);
+    expect(trustClassAllowed(policy, "unverified_contact")).toBe(true);
+    expect(trustClassAllowed(policy, "unknown")).toBe(false);
+  });
+
+  test("CONTACT_ALLOWED covers every class isContactTrustClass names", () => {
+    for (const trustClass of TRUST_CLASS_VALUES) {
+      if (isContactTrustClass(trustClass)) {
+        expect(CONTACT_ALLOWED).toContain(trustClass);
+      }
+    }
+  });
+
+  test("an explicit list admits exactly what it names", () => {
+    const policy: RoutePolicy = {
+      ...basePolicy,
+      allowedTrustClasses: ["trusted_contact"],
+    };
+    expect(trustClassAllowed(policy, "trusted_contact")).toBe(true);
+    expect(trustClassAllowed(policy, "guardian")).toBe(false);
     expect(trustClassAllowed(policy, "unknown")).toBe(false);
   });
 
