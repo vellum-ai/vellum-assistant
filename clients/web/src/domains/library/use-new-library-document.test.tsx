@@ -19,6 +19,7 @@ import { useNewLibraryDocument } from "./use-new-library-document";
 
 let createDocumentFails = false;
 let toastError: ReturnType<typeof spyOn>;
+let invalidate: ReturnType<typeof spyOn>;
 let post: ReturnType<typeof spyOn>;
 let del: ReturnType<typeof spyOn>;
 let queryClient: QueryClient;
@@ -35,6 +36,7 @@ function okResponse(data: unknown) {
 
 beforeEach(() => {
   queryClient = new QueryClient();
+  invalidate = spyOn(queryClient, "invalidateQueries");
   createDocumentFails = false;
   toastError = spyOn(toast, "error").mockImplementation(
     (() => "") as unknown as typeof toast.error,
@@ -83,8 +85,34 @@ describe("useNewLibraryDocument", () => {
       body: { conversationId: "conv-new" },
     });
     expect(onCreated).toHaveBeenCalledWith("doc-new");
+    expect(invalidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queryKey: [
+          expect.objectContaining({
+            _id: "conversationsGet",
+            path: { assistant_id: "assistant-1" },
+          }),
+        ],
+      }),
+    );
     expect(result.current.isCreating).toBe(false);
     expect(del).not.toHaveBeenCalled();
+  });
+
+  test("a second click while the first is in flight is dropped", async () => {
+    const { result } = renderHook(
+      () => useNewLibraryDocument("assistant-1", () => {}),
+      { wrapper: Wrapper },
+    );
+
+    await act(async () => {
+      await Promise.all([
+        result.current.newDocument(),
+        result.current.newDocument(),
+      ]);
+    });
+
+    expect(post).toHaveBeenCalledTimes(2);
   });
 
   test("a failed document create gives the conversation back and tells the user", async () => {

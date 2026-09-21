@@ -38,7 +38,7 @@ export function LibraryPage() {
     assistantId,
     handleOpenDocument,
   );
-  const supportsDocumentCreate = useSupportsDocumentCreate();
+  const supportsDocumentCreate = useSupportsDocumentCreate(assistantId);
   const handleNewDocument = useCallback(() => {
     void newDocument();
   }, [newDocument]);
