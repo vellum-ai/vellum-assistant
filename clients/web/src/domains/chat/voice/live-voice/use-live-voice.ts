@@ -122,10 +122,6 @@ import {
   type LiveVoiceSessionState,
   type LiveVoiceTypedTurnOptions,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import {
-  interruptSensitivityToMs,
-  useVoicePrefsStore,
-} from "@/stores/voice-prefs-store";
 
 // ---------------------------------------------------------------------------
 // Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
@@ -1722,31 +1718,12 @@ export function useLiveVoice(
         }),
       );
 
-      // The pause + interrupt-sensitivity settings only apply to hands-free
-      // (server_vad) sessions — server VAD owns endpointing and barge-in. Read
-      // from the store (not the `.use.*` hook) since this is a callback, so a
-      // mid-session settings change also takes effect on the next reconnect.
-      // Each override is sent ONLY when the user has explicitly set it (non-null):
-      // otherwise it is omitted so the daemon's configured `liveVoice.vad`
-      // defaults govern, rather than a web-client default silently clobbering a
-      // self-hosted workspace's configuration.
-      const voicePrefs = useVoicePrefsStore.getState();
-      const pauseMs = voicePrefs.pauseBeforeReplyMs;
-      const sensitivity = voicePrefs.interruptSensitivity;
       await client.connect({
         assistantId,
         conversationId,
         ...(session.entry ? { entry: session.entry } : {}),
         sessionControls: liveVoiceSessionControls(assistantId, session.entry),
-        ...(session.handsFree
-          ? {
-              turnDetection: "server_vad" as const,
-              ...(pauseMs !== null ? { silenceThresholdMs: pauseMs } : {}),
-              ...(sensitivity !== null
-                ? { bargeInMinSpeechMs: interruptSensitivityToMs(sensitivity) }
-                : {}),
-            }
-          : {}),
+        ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
       });
     },
     [

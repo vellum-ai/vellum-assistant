@@ -191,12 +191,7 @@ async function startListeningViaStarter(
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
-  // The voice-prefs store is a persisted singleton shared across test files;
-  // pin the turn-taking settings to unset (null) so connect-args assertions are
-  // deterministic regardless of test order.
   useVoicePrefsStore.setState({
-    pauseBeforeReplyMs: null,
-    interruptSensitivity: null,
     // A first-ever voice entry gets the preferences card rather than a session
     // (see `voice-entry-guards`); the drain tests here are about the starter,
     // so they run as a user who has entered voice before.

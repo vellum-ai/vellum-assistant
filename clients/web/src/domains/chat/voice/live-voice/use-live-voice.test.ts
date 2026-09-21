@@ -53,7 +53,6 @@ const {
   minimizeVoiceRoom,
   restoreVoiceRoom,
 } = await import("@/domains/chat/voice/live-voice/live-voice-store");
-const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { reconcileMaterializedDrafts } =
   await import("@/domains/chat/hooks/use-materialized-draft-reconcile");
@@ -142,13 +141,6 @@ async function startListening(
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
-  // The voice-prefs store is a persisted singleton — reset the two turn-taking
-  // settings to unset (null) so a test that sets them can't leak into the
-  // connect-args assertions of the next.
-  useVoicePrefsStore.setState({
-    pauseBeforeReplyMs: null,
-    interruptSensitivity: null,
-  });
 });
 
 afterEach(() => {
@@ -699,11 +691,7 @@ describe("hands-free mode", () => {
     expect(h.view.result.current.finalTranscript).toBe("");
   });
 
-  test("sends the user's pause + interrupt-sensitivity settings on a hands-free connect", async () => {
-    useVoicePrefsStore.setState({
-      pauseBeforeReplyMs: 1500,
-      interruptSensitivity: "low", // low sensitivity → 600 ms guard
-    });
+  test("requests server turn detection on a hands-free connect", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
 
@@ -712,12 +700,10 @@ describe("hands-free mode", () => {
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
-      silenceThresholdMs: 1500,
-      bargeInMinSpeechMs: 600,
     });
   });
 
-  test("omits turn-detection + pause + interrupt settings for a manual (non-hands-free) connect", async () => {
+  test("omits turn detection for a manual (non-hands-free) connect", async () => {
     const h = renderController();
     await startListening(h); // manual
 

@@ -1,11 +1,8 @@
 /**
  * The turn-taking row that hands the end-of-turn decision to the speech model.
  *
- * Every other control in this card tunes the local silence detector: how long
- * a pause runs before the assistant answers, how eagerly it yields. This one
- * decides who makes that call at all. A model that detects turns natively ends
- * the turn from the speech itself rather than from a timer, so the pause
- * setting stops being the thing that governs it.
+ * A model that detects turns natively ends the turn from the speech itself
+ * rather than from the local silence detector's pause timer.
  *
  * Written as `services.stt.roles.liveVoice`, scoped to the one consumer.
  * The family that detects turns streams and nothing else, so putting it on
