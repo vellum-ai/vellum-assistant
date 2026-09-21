@@ -141,7 +141,7 @@ ${TERMINAL_HEADER_CONFIG}  font_size = 11,
     desktopEntry({
       name: "Files",
       windowClass: "Thunar",
-      icon: "/usr/share/icons/hicolor/128x128/apps/org.xfce.thunar.png",
+      icon: "/usr/share/icons/Adwaita/scalable/places/folder.svg",
       exec: desktopCommand([request.fileManagerPath, request.workspaceDir]),
     }),
   );
