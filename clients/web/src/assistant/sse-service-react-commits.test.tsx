@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { create } from "zustand";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { makeEnvelope } from "@/assistant/sse-service.test-helper";
 
 // Registered before the bus is imported so the bus binds to the mock.
 const captureErrorMock = mock(() => {});
@@ -26,15 +27,6 @@ mock.module("@/lib/streaming/stream-transport", () => ({
 const { sseService } = await import("@/assistant/sse-service");
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function makeEnvelope(seq: number): AssistantEventEnvelope {
-  return {
-    id: `evt-${seq}`,
-    seq,
-    emittedAt: new Date(0).toISOString(),
-    message: { type: "avatar_updated", avatarPath: "/tmp/avatar.png" },
-  };
-}
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

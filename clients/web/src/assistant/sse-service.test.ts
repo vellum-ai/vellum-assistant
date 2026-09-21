@@ -10,6 +10,7 @@ import {
 } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { makeEnvelope } from "@/assistant/sse-service.test-helper";
 import * as eventBus from "@/lib/event-bus";
 import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 import { useSSEConnectedStore } from "@/stores/sse-connected-store";
@@ -88,18 +89,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // The service drains received envelopes from a `MessageChannel` task. A short
 // real timer is the portable way to let that task run.
 const nextTask = () => sleep(5);
-
-function makeEnvelope(seq: number): AssistantEventEnvelope {
-  return {
-    id: `evt-${seq}`,
-    seq,
-    emittedAt: new Date(0).toISOString(),
-    message: {
-      type: "avatar_updated",
-      avatarPath: "/tmp/avatar.png",
-    },
-  };
-}
 
 /** Hands envelopes to the service one per microtask, as the transport's
  *  `for await` read loop does. */
