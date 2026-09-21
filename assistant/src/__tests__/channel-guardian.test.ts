@@ -151,6 +151,7 @@ import {
   getSessionById,
   resetVerificationSessionsSim,
   seedVerificationSession,
+  setSimChannelGuardian,
 } from "./helpers/verification-sessions-ipc-sim.js";
 
 await initializeDb();
@@ -2723,5 +2724,123 @@ describe("M1–M4 hardening coverage", () => {
       codeDigits: 6,
     });
     expect(voiceResult.secret).toMatch(/^\d{6}$/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Replace consent: what a guardian mint tells the gateway
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("a guardian mint carries the guardian's consent to replace", () => {
+  const OLD_TELEGRAM = "111000111";
+  const NEW_TELEGRAM = "123456789";
+  const OLD_PHONE = "+15555550101";
+  const NEW_PHONE = "+15555550102";
+
+  beforeEach(() => {
+    resetTables();
+  });
+
+  /** A channel already guarded, as both the daemon and the gateway see it. */
+  function guardChannel(channel: "telegram" | "phone", address: string): void {
+    createGuardianBinding({
+      channel,
+      guardianExternalUserId: address,
+      guardianPrincipalId: "principal-guardian",
+      guardianDeliveryChatId: address,
+    });
+    setSimChannelGuardian(channel, address);
+  }
+
+  test("a rebind to a Telegram chat id names the guardian it replaces", async () => {
+    guardChannel("telegram", OLD_TELEGRAM);
+
+    const resp = await startOutbound({
+      channel: "telegram",
+      destination: NEW_TELEGRAM,
+      rebind: true,
+    });
+
+    expect(resp.success).toBe(true);
+    expect(
+      getSessionById(resp.verificationSessionId!)?.replacesGuardianAddress,
+    ).toBe(OLD_TELEGRAM);
+  });
+
+  test("a rebind to a Telegram handle puts the consent on the deep link", async () => {
+    guardChannel("telegram", OLD_TELEGRAM);
+
+    const resp = await startOutbound({
+      channel: "telegram",
+      destination: "@alice",
+      rebind: true,
+    });
+
+    expect(resp.success).toBe(true);
+    const session = await serviceFindActiveSession("telegram");
+    expect(session?.identityBindingStatus).toBe("pending_bootstrap");
+    expect(session?.replacesGuardianAddress).toBe(OLD_TELEGRAM);
+  });
+
+  test("a rebind by phone names the guardian it replaces", async () => {
+    guardChannel("phone", OLD_PHONE);
+
+    const resp = await startOutbound({
+      channel: "phone",
+      destination: NEW_PHONE,
+      rebind: true,
+    });
+
+    expect(resp.success).toBe(true);
+    expect(
+      getSessionById(resp.verificationSessionId!)?.replacesGuardianAddress,
+    ).toBe(OLD_PHONE);
+  });
+
+  test("an inbound challenge minted with rebind names the guardian it replaces", async () => {
+    guardChannel("telegram", OLD_TELEGRAM);
+
+    const resp = await createInboundChallenge("telegram", true);
+
+    expect(resp.success).toBe(true);
+    const session = await getPendingSession("telegram");
+    expect(session?.replacesGuardianAddress).toBe(OLD_TELEGRAM);
+  });
+
+  test("first-time setup on an unguarded channel names nobody", async () => {
+    const resp = await startOutbound({
+      channel: "telegram",
+      destination: NEW_TELEGRAM,
+    });
+
+    expect(resp.success).toBe(true);
+    expect(
+      getSessionById(resp.verificationSessionId!)?.replacesGuardianAddress,
+    ).toBeNull();
+  });
+
+  test("a resend keeps the consent of the code it replaces, not the channel's state at resend", async () => {
+    guardChannel("telegram", OLD_TELEGRAM);
+    const start = await startOutbound({
+      channel: "telegram",
+      destination: NEW_TELEGRAM,
+      rebind: true,
+    });
+    await storeUpdateSessionDelivery(
+      start.verificationSessionId!,
+      Date.now() - RESEND_COOLDOWN_MS - 1000,
+      1,
+      Date.now() - 1000,
+    );
+    // Somebody else became the guardian after the consent was given.
+    setSimChannelGuardian("telegram", "999000999");
+
+    const resent = await resendOutbound({ channel: "telegram" });
+
+    expect(resent.success).toBe(true);
+    expect(resent.verificationSessionId).not.toBe(start.verificationSessionId);
+    expect(
+      getSessionById(resent.verificationSessionId!)?.replacesGuardianAddress,
+    ).toBe(OLD_TELEGRAM);
   });
 });

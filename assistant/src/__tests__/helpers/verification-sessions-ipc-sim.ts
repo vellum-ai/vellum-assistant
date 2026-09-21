@@ -50,9 +50,28 @@ interface RateLimitEntry {
 
 const rateLimits = new Map<string, RateLimitEntry>();
 
+/**
+ * The active guardian address per channel, which the gateway reads from its
+ * contact tables when a mint carries the guardian's consent to replace.
+ */
+const channelGuardians = new Map<string, string>();
+
 export function resetVerificationSessionsSim(): void {
   sessions.clear();
   rateLimits.clear();
+  channelGuardians.clear();
+}
+
+/** Set (or clear) the guardian the sim reports as bound on a channel. */
+export function setSimChannelGuardian(
+  channel: string,
+  address: string | null,
+): void {
+  if (address === null) {
+    channelGuardians.delete(channel);
+  } else {
+    channelGuardians.set(channel, address);
+  }
 }
 
 function generateNumericSecret(digits: number = 6): string {
@@ -114,6 +133,7 @@ export interface SimCreateInboundResult {
 export function createInboundVerificationSession(
   channel: string,
   sourceConversationId?: string,
+  replaceGuardian?: boolean,
 ): SimCreateInboundResult {
   // Revoke-prior mirrors the gateway store: only the latest inbound code is
   // redeemable (store scope is `pending` for inbound creates).
@@ -146,6 +166,9 @@ export function createInboundVerificationSession(
     codeDigits: 6,
     maxAttempts: 3,
     verificationPurpose: "guardian",
+    replacesGuardianAddress: replaceGuardian
+      ? (channelGuardians.get(channel) ?? null)
+      : null,
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
@@ -170,6 +193,7 @@ export interface SimCreateOutboundParams {
   codeDigits?: number;
   maxAttempts?: number;
   verificationPurpose?: "guardian" | "trusted_contact";
+  replacesGuardianAddress?: string | null;
   bootstrapTokenHash?: string;
   sessionId?: string;
 }
@@ -216,6 +240,7 @@ export function createOutboundSession(
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
     verificationPurpose: params.verificationPurpose ?? "guardian",
+    replacesGuardianAddress: params.replacesGuardianAddress ?? null,
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
@@ -239,14 +264,18 @@ export type SimGuardedCreateOutboundResult =
 
 /** Guarded create (mirrors the gateway's createOutboundSessionGuarded). */
 export function createOutboundSessionGuarded(
-  params: SimCreateOutboundParams & {
+  params: Omit<SimCreateOutboundParams, "replacesGuardianAddress"> & {
     requireSourceSessionPending?: string;
     ifNoneActiveForExternalUserId?: string;
+    replaceGuardian?: boolean;
+    continuesSessionId?: string;
   },
 ): SimGuardedCreateOutboundResult {
   const {
     requireSourceSessionPending,
     ifNoneActiveForExternalUserId,
+    replaceGuardian,
+    continuesSessionId,
     ...createParams
   } = params;
 
@@ -276,14 +305,49 @@ export function createOutboundSessionGuarded(
     }
     source.status = "revoked";
     source.updatedAt = Date.now();
-    // Like the gateway, the replacement keeps the claimed session's purpose.
+    // Like the gateway, the replacement keeps the claimed session's purpose
+    // and replace consent.
     return createOutboundSession({
       ...createParams,
       verificationPurpose: source.verificationPurpose,
+      replacesGuardianAddress: source.replacesGuardianAddress,
     });
   }
 
-  return createOutboundSession(createParams);
+  return createOutboundSession({
+    ...createParams,
+    replacesGuardianAddress: replaceConsentFor({
+      ...createParams,
+      replaceGuardian,
+      continuesSessionId,
+    }),
+  });
+}
+
+/** Mirrors the gateway's `replaceConsentFor`. */
+function replaceConsentFor(
+  params: SimCreateOutboundParams & {
+    replaceGuardian?: boolean;
+    continuesSessionId?: string;
+  },
+): string | null {
+  if (params.verificationPurpose === "trusted_contact") {
+    return null;
+  }
+  if (params.continuesSessionId !== undefined) {
+    const source = sessions.get(params.continuesSessionId);
+    const continues =
+      source !== undefined &&
+      source.channel === params.channel &&
+      source.verificationPurpose !== "trusted_contact" &&
+      source.status === "awaiting_response" &&
+      source.expiresAt > Date.now() &&
+      bindsSameIdentity(boundIdentity(source), boundIdentity(params));
+    return continues ? source.replacesGuardianAddress : null;
+  }
+  return params.replaceGuardian
+    ? (channelGuardians.get(params.channel) ?? null)
+    : null;
 }
 
 export function getSessionById(id: string): VerificationSessionWire | null {
@@ -313,6 +377,7 @@ export function seedVerificationSession(
     codeDigits: 6,
     maxAttempts: 3,
     verificationPurpose: "guardian",
+    replacesGuardianAddress: null,
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
@@ -602,6 +667,7 @@ export async function handleVerificationSessionsIpc(
       return createInboundVerificationSession(
         p.channel,
         p.sourceConversationId,
+        p.replaceGuardian,
       );
     case M.createOutbound:
       return createOutboundSessionGuarded(

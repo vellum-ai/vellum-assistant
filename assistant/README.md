@@ -70,16 +70,16 @@ bun run src/index.ts                # interactive CLI session
 
 ### CLI commands
 
-| Command                                            | Description                                      |
-| -------------------------------------------------- | ------------------------------------------------ |
-| `vellum wake`                                      | Start assistant + gateway from current checkout  |
-| `vellum sleep`                                     | Stop assistant + gateway processes               |
-| `vellum ps`                                        | List assistants and per-assistant process status |
-| `assistant`                                        | Launch interactive CLI session                   |
+| Command                                                    | Description                                      |
+| ---------------------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                             | Stop assistant + gateway processes               |
+| `vellum ps`                                                | List assistants and per-assistant process status |
+| `assistant`                                                | Launch interactive CLI session                   |
 | `assistant conversations list\|search\|new\|export\|clear` | Manage conversations                             |
-| `assistant config set\|get\|list`                  | Manage configuration                             |
-| `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|add\|update\|remove`        | Manage trust rules                               |
+| `assistant config set\|get\|list`                          | Manage configuration                             |
+| `assistant keys set\|list\|delete`                         | Manage API keys in secure storage                |
+| `assistant trust list\|add\|update\|remove`                | Manage trust rules                               |
 
 ## Project Structure
 
@@ -244,8 +244,8 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
-- **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
+- **Replacing a guardian:** Creating a guardian code for a channel that already has a guardian requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. The consent is recorded on the verification session, and only a code carrying it can take the channel from the current guardian.
+- **Takeover prevention:** A guardian code that does not carry that consent is refused when a different identity is the channel's guardian: the code is spent, the sender is told it was invalid or expired, and they gain no standing on the channel. The guardian re-verifying their own identity is always allowed.
 
 ### Vellum Guardian Identity (Actor Tokens)
 

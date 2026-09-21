@@ -105,6 +105,11 @@ export const VerificationSessionSchema = z.object({
   codeDigits: z.number().int(),
   maxAttempts: z.number().int(),
   verificationPurpose: VerificationPurposeSchema,
+  // The guardian identity this code may take the channel from: the channel's
+  // guardian address when the guardian asked to replace it at mint. Null
+  // means the code binds only a channel that has no other guardian. A peer
+  // that does not send the field reads as null, the refusing value.
+  replacesGuardianAddress: z.string().nullable().default(null),
   // Telegram bootstrap deep-link token hash
   bootstrapTokenHash: z.string().nullable(),
   createdAt: z.number(),
@@ -239,6 +244,10 @@ export type SessionMutationIpcResponse = z.infer<
 export const CreateInboundSessionIpcParamsSchema = z.object({
   channel: z.string().min(1),
   sourceConversationId: z.string().optional(),
+  // The guardian asked to replace the channel's current guardian. The gateway
+  // reads that guardian in the same synchronous section as the mint and
+  // records it on the session (`replacesGuardianAddress`).
+  replaceGuardian: z.boolean().optional(),
 });
 
 export type CreateInboundSessionIpcParams = z.infer<
@@ -289,6 +298,15 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   // Sender-scoped variant: mint unless the channel's active session is bound
   // to this expectedExternalUserId (a different sender may supersede).
   ifNoneActiveForExternalUserId: z.string().min(1).optional(),
+  // Guardian purpose only. The guardian asked to replace the channel's
+  // current guardian; the gateway records that guardian on the session
+  // (`replacesGuardianAddress`) in the same synchronous section as the mint.
+  replaceGuardian: z.boolean().optional(),
+  // A resend: the new code continues this live session, so it keeps that
+  // session's `replacesGuardianAddress` when both are guardian codes bound to
+  // the same identity. A session claimed through
+  // `requireSourceSessionPending` is continued the same way without this.
+  continuesSessionId: z.string().min(1).optional(),
 });
 
 export type CreateOutboundSessionIpcParams = z.infer<

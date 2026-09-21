@@ -17,7 +17,7 @@
  * failure are short-circuited at the gateway.
  */
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import { mirrorGuardianBinding } from "../auth/guardian-bootstrap.js";
 import {
   consumeSession,
   findPendingSessionByHash,
@@ -26,20 +26,15 @@ import {
 import { getLogger } from "../logger.js";
 
 import {
-  getExistingGuardianBinding,
-  resolveCanonicalPrincipal,
-  revokeExistingChannelGuardian,
-} from "./binding-helpers.js";
-import {
   extractEmailReplyBody,
   parseVerificationCode,
   hashVerificationSecret,
 } from "./code-parsing.js";
 import {
   findContactChannelByAddress,
-  gatewayChannelStatus,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
+import { applyRedeemedGuardianBinding } from "./guardian-redemption.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
 import { checkIdentityMatch } from "./identity-match.js";
 import {
@@ -251,9 +246,11 @@ export async function tryTextVerificationIntercept(
       ? "trusted_contact"
       : "guardian";
 
-  // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
-  //    the verification: the actor must not regain trusted status nor see a
-  //    success reply, even though the code matched and the session consumed.
+  // 7. Apply side effects. They can refuse a code that matched and consumed:
+  //    a blocked authoritative gateway row, a revoked one for a trusted
+  //    contact, or a guardian code on a channel whose guardian it was not
+  //    minted to replace. The actor then gains no trust and sees no success
+  //    reply.
   const sideEffectsVerified =
     trustClass === "guardian"
       ? await applyGuardianSideEffects({
@@ -262,6 +259,7 @@ export async function tryTextVerificationIntercept(
           actorChatId,
           actorDisplayName,
           actorUsername,
+          replacesGuardianAddress: session.replacesGuardianAddress,
         })
       : await applyTrustedContactSideEffects({
           sourceChannel,
@@ -274,7 +272,7 @@ export async function tryTextVerificationIntercept(
   if (!sideEffectsVerified) {
     log.warn(
       { sourceChannel, actorExternalUserId: canonicalUserId, trustClass },
-      "Verification rejected: authoritative gateway channel is blocked/revoked",
+      "Verification rejected: the consumed code made no binding",
     );
     const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
@@ -326,12 +324,18 @@ export async function tryTextVerificationIntercept(
 // Side effects
 // ---------------------------------------------------------------------------
 
+/**
+ * Guardian side effect for a consumed guardian code. Returns false when no
+ * binding was made: the code was valid and is spent, and the sender is told
+ * only that it was invalid or expired.
+ */
 async function applyGuardianSideEffects(params: {
   sourceChannel: string;
   canonicalUserId: string;
   actorChatId: string;
   actorDisplayName?: string;
   actorUsername?: string;
+  replacesGuardianAddress: string | null;
 }): Promise<boolean> {
   const {
     sourceChannel,
@@ -339,52 +343,12 @@ async function applyGuardianSideEffects(params: {
     actorChatId,
     actorDisplayName,
     actorUsername,
+    replacesGuardianAddress,
   } = params;
 
-  // Check for binding conflict — another user already holds guardian
-  const existing = getExistingGuardianBinding(sourceChannel);
-  if (existing?.address && existing.address !== canonicalUserId) {
-    log.warn(
-      {
-        sourceChannel,
-        existingGuardian: existing.address,
-        newActor: canonicalUserId,
-      },
-      "Guardian binding conflict: another user already holds this channel",
-    );
-    // Still upsert the contact channel so the sender is a known contact,
-    // but skip guardian binding creation.
-    const { verified } = await upsertVerifiedContactChannel({
-      sourceChannel,
-      externalUserId: canonicalUserId,
-      externalChatId: actorChatId,
-      displayName: actorDisplayName,
-      username: actorUsername,
-    });
-    return verified;
-  }
-
-  // The gateway is the source of truth: a blocked/revoked gateway row rejects
-  // the binding. Check BEFORE the same-user revoke below so a legitimately
-  // re-verifying guardian (whose current row is active) isn't blocked by their
-  // own about-to-be-revoked row. createGuardianBinding writes "active"
-  // unconditionally, so this guard is the only thing stopping a blocked actor.
-  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
-  if (gwStatus === "blocked" || gwStatus === "revoked") {
-    log.warn(
-      { sourceChannel, address: canonicalUserId, status: gwStatus },
-      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
-    );
-    return false;
-  }
-
-  // Revoke existing binding (same-user re-verification)
-  revokeExistingChannelGuardian(sourceChannel);
-
-  // Resolve canonical principal — unify all channel bindings
-  const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
-
-  // Determine display name — preserve existing if user is re-verifying
+  // Read over IPC before the binding, so nothing is awaited between the
+  // revoke and the writes that replace it. A re-verifying sender keeps the
+  // display name their contact already has.
   const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
@@ -393,16 +357,17 @@ async function applyGuardianSideEffects(params: {
     ? existingContact.displayName
     : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
-  // Create guardian binding (dual-writes to both DBs)
-  await createGuardianBinding({
+  const result = applyRedeemedGuardianBinding({
     channel: sourceChannel,
     externalUserId: canonicalUserId,
     deliveryChatId: actorChatId,
-    guardianPrincipalId: canonicalPrincipal,
     displayName,
-    verifiedVia: "challenge",
-    reactivateRevoked: true,
+    replacesGuardianAddress,
   });
+  if (!result.bound) {
+    return false;
+  }
+  await mirrorGuardianBinding(result.writes);
   return true;
 }
 

@@ -457,6 +457,10 @@ export const channelVerificationSessions = sqliteTable(
     maxAttempts: integer("max_attempts").default(3),
     // Distinguishes guardian verification from trusted contact verification
     verificationPurpose: text("verification_purpose").default("guardian"),
+    // The guardian address a guardian code may take the channel from, read
+    // at mint when the guardian asked to replace it. NULL binds only a
+    // channel with no other guardian.
+    replacesGuardianAddress: text("replaces_guardian_address"),
     // Telegram bootstrap deep-link token hash
     bootstrapTokenHash: text("bootstrap_token_hash"),
     createdAt: integer("created_at").notNull(),

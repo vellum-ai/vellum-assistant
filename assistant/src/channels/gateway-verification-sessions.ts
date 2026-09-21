@@ -80,15 +80,18 @@ async function callMutation(
  * Create an inbound verification session for a guardian candidate. The
  * gateway mints the high-entropy secret and persists only its hash; the
  * `instruction` copy is composed daemon-side from the returned secret.
+ * `replaceGuardian` is the guardian's consent to replace the channel's
+ * current guardian; the gateway records whom that names on the session.
  * Throws when the gateway is unreachable (fail-closed, user-visible).
  */
 export async function createInboundVerificationSession(
   channel: string,
   conversationId?: string,
+  replaceGuardian?: boolean,
 ): Promise<CreateVerificationSessionResult> {
   const response = await callGateway(
     VERIFICATION_SESSIONS_IPC_METHODS.createInbound,
-    { channel, sourceConversationId: conversationId },
+    { channel, sourceConversationId: conversationId, replaceGuardian },
     CreateInboundSessionIpcResponseSchema,
   );
   return {

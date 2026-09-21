@@ -48,6 +48,47 @@ export function getExistingGuardianBinding(
 }
 
 /**
+ * Every active guardian address on a channel.
+ *
+ * A channel holds one guardian identity, so this is normally zero or one
+ * address. Callers deciding whether a write may take the channel from its
+ * guardian read the whole set, so a second active row is weighed rather
+ * than hidden behind a `LIMIT 1`.
+ */
+export function activeGuardianAddresses(channel: string): string[] {
+  return getGatewayDb()
+    .select({ address: gwContactChannels.address })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .all()
+    .map((row) => row.address);
+}
+
+/**
+ * The guardian address to record on a guardian code minted with the
+ * guardian's consent to replace the channel's guardian: the one active
+ * guardian address, or null when the channel has none.
+ *
+ * More than one active address also yields null. The consent names a single
+ * identity, and a code that names none binds only a channel without another
+ * guardian, so an ambiguous channel refuses the replacement.
+ */
+export function guardianAddressToReplace(channel: string): string | null {
+  const addresses = activeGuardianAddresses(channel);
+  return addresses.length === 1 ? addresses[0] : null;
+}
+
+/**
  * Return the most recent `contact_channels.updated_at` across any guardian
  * binding for a channel — active OR revoked. Returns `null` when no binding
  * has ever existed.

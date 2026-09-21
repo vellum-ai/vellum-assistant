@@ -467,13 +467,16 @@ The inbound message handler (`inbound-message-handler.ts`) accepts verification 
 
 - **Bare code**: A 6-digit numeric code sent as the entire message body. This is the primary flow — the user is shown a verification code in setup UI and sends that code in-channel as a plain message.
 
-#### Explicit Rebind Policy
+#### Replacing a Channel's Guardian
 
-Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeVerification` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+A channel holds one guardian identity: the Vellum user's own identity on that channel. Replacing it takes the guardian's consent, which is given when the code is minted and enforced when it is redeemed.
 
-#### Guardian Takeover Prevention
+- **At mint.** Creating a guardian code for a channel that already has a guardian requires `rebind: true`; without it the daemon answers `already_bound`. The daemon relays that consent to the gateway as `replaceGuardian`, and the gateway, in the same synchronous section as the insert, records the guardian it names on the session as `replacesGuardianAddress` (`createOutboundSessionGuarded` and `createInboundVerificationSession` in `gateway/src/verification/session-service.ts`). A caller states consent and never the address. A code that continues another one keeps that session's record instead of reading the channel again: a resend names the session it continues (`continuesSessionId`), and a deep-link handoff inherits from the session it claims.
+- **At redemption.** `applyRedeemedGuardianBinding` (`gateway/src/verification/guardian-redemption.ts`) binds the sender only when every other active guardian on the channel is the one the session names. A session that names nobody binds only a channel without another guardian, which covers first-time setup, a stale code, and a code someone else started. The refusal checks, the revoke and the binding writes are one gateway transaction, so a failed write leaves the current guardian in place.
 
-`validateAndConsumeVerification` rejects verification when an active binding exists for a _different_ external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+Transitional: text channels redeem through `applyRedeemedGuardianBinding`. The two phone paths still carry their own conflict rule (the outbound binding in `session-service.ts` replaces on an identity-bound phone session, and `twilio-voice-verify-callback.ts` skips the binding) until they move onto it.
+
+A refused code is spent and answered with the same "invalid or expired" reply as a wrong code, and the sender gains no standing on the channel. The guardian re-verifying their own identity needs no consent, and a sender whose own channel row is blocked is always refused.
 
 #### Guardian Verification Flow
 

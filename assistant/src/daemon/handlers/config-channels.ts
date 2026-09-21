@@ -164,6 +164,7 @@ export async function createInboundChallenge(
   const result = await createInboundVerificationSession(
     resolvedChannel,
     conversationId,
+    rebind === true,
   );
 
   return {

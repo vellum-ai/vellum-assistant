@@ -100,6 +100,7 @@ function rowToSession(
     maxAttempts: row.maxAttempts ?? 3,
     verificationPurpose:
       (row.verificationPurpose as VerificationPurpose) ?? "guardian",
+    replacesGuardianAddress: row.replacesGuardianAddress ?? null,
     bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -116,6 +117,7 @@ export function createInboundSession(params: {
   challengeHash: string;
   expiresAt: number;
   sourceConversationId?: string;
+  replacesGuardianAddress?: string | null;
 }): VerificationSession {
   const db = getGatewayDb();
   const now = Date.now();
@@ -152,6 +154,7 @@ export function createInboundSession(params: {
     codeDigits: 6,
     maxAttempts: 3,
     verificationPurpose: "guardian" as const,
+    replacesGuardianAddress: params.replacesGuardianAddress ?? null,
     bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
@@ -466,6 +469,7 @@ export function createOutboundSession(params: {
   codeDigits?: number;
   maxAttempts?: number;
   verificationPurpose?: VerificationPurpose;
+  replacesGuardianAddress?: string | null;
   bootstrapTokenHash?: string | null;
 }): VerificationSession {
   const db = getGatewayDb();
@@ -493,6 +497,7 @@ export function createOutboundSession(params: {
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
     verificationPurpose: params.verificationPurpose ?? "guardian",
+    replacesGuardianAddress: params.replacesGuardianAddress ?? null,
     bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,

@@ -59,9 +59,13 @@ export const verificationSessionRoutes: IpcRoute[] = [
     method: VERIFICATION_SESSIONS_IPC_METHODS.createInbound,
     schema: CreateInboundSessionIpcParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const { channel, sourceConversationId } =
+      const { channel, sourceConversationId, replaceGuardian } =
         CreateInboundSessionIpcParamsSchema.parse(params);
-      return createInboundVerificationSession(channel, sourceConversationId);
+      return createInboundVerificationSession(
+        channel,
+        sourceConversationId,
+        replaceGuardian,
+      );
     },
   },
   {

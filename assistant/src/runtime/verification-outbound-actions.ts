@@ -318,6 +318,7 @@ async function startOutboundTelegram(
       identityBindingStatus: "bound",
       destinationAddress: normalizedDestination,
       verificationPurpose: "guardian",
+      replaceGuardian: rebind === true,
     });
 
     const telegramBody = composeVerificationText(
@@ -376,6 +377,7 @@ async function startOutboundTelegram(
     destinationAddress: normalizedDestination,
     bootstrapTokenHash,
     verificationPurpose: "guardian",
+    replaceGuardian: rebind === true,
   });
 
   const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
@@ -451,6 +453,7 @@ async function startOutboundVoice(
     destinationAddress: destination,
     codeDigits: 6,
     verificationPurpose: "guardian",
+    replaceGuardian: rebind === true,
   });
 
   const now = Date.now();
@@ -746,6 +749,15 @@ function textChannelSpec(
  * Shared by the start and resend paths, which differ only in the template and
  * in how the send counters advance.
  */
+/**
+ * What a guardian code says about the guardian already on the channel. A
+ * start states whether the guardian asked to replace them; a resend names the
+ * session it continues, and the gateway carries that session's answer forward.
+ */
+type ReplaceConsent =
+  | { replaceGuardian: boolean }
+  | { continuesSessionId: string };
+
 interface MintedSend {
   sessionId: string;
   secret: string;
@@ -760,6 +772,7 @@ async function mintAndSend(params: {
   templateKey: TextVerifyTemplateKey;
   sendCount: number;
   assistantId: string;
+  replaceConsent: ReplaceConsent;
 }): Promise<MintedSend> {
   const { spec, channel, destination, templateKey, sendCount, assistantId } =
     params;
@@ -770,6 +783,7 @@ async function mintAndSend(params: {
     identityBindingStatus: "bound",
     destinationAddress: destination,
     verificationPurpose: "guardian",
+    ...params.replaceConsent,
   });
 
   const body = composeVerificationText(templateKey, {
@@ -846,6 +860,7 @@ async function startOutboundTextChannel(
     templateKey: spec.challengeTemplateKey,
     sendCount: 1,
     assistantId,
+    replaceConsent: { replaceGuardian: rebind === true },
   });
 
   return {
@@ -954,6 +969,7 @@ export async function resendOutbound(
       identityBindingStatus: "bound",
       destinationAddress: destination,
       verificationPurpose: "guardian",
+      continuesSessionId: session.id,
     });
 
     const telegramBody = composeVerificationText(
@@ -993,6 +1009,7 @@ export async function resendOutbound(
       destinationAddress: destination,
       codeDigits: 6,
       verificationPurpose: "guardian",
+      continuesSessionId: session.id,
     });
 
     const now = Date.now();
@@ -1033,6 +1050,7 @@ export async function resendOutbound(
       templateKey: spec.resendTemplateKey,
       sendCount: newSendCount,
       assistantId,
+      replaceConsent: { continuesSessionId: session.id },
     });
 
     return {

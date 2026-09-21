@@ -19,6 +19,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
+  bindsSameIdentity,
+  boundIdentity,
   CHALLENGE_TTL_MS,
   hashVerificationSecret,
 } from "@vellumai/gateway-client";
@@ -47,12 +49,14 @@ import {
   createOutboundSession as storeCreateOutboundSession,
   findActiveSession,
   findPendingSessionByHash,
+  getSessionById,
   updateSessionStatus,
 } from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 import {
   getExistingGuardianBinding,
   getMostRecentChannelGuardianTimestamp,
+  guardianAddressToReplace,
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
@@ -96,10 +100,15 @@ function generateNumericSecret(digits: number = 6): string {
  *
  * Only the SHA-256 hash is persisted; the raw secret is returned so the
  * daemon can compose and deliver the instruction copy.
+ *
+ * `replaceGuardian` is the guardian's consent to replace the channel's
+ * guardian. The guardian it names is read here, in the same synchronous
+ * section as the insert, and recorded on the session.
  */
 export function createInboundVerificationSession(
   channel: string,
   sourceConversationId?: string,
+  replaceGuardian?: boolean,
 ): CreateInboundVerificationSessionResult {
   const secret = randomBytes(32).toString("hex");
 
@@ -109,6 +118,9 @@ export function createInboundVerificationSession(
     challengeHash: hashVerificationSecret(secret),
     expiresAt: Date.now() + CHALLENGE_TTL_MS,
     sourceConversationId,
+    replacesGuardianAddress: replaceGuardian
+      ? guardianAddressToReplace(channel)
+      : null,
   });
 
   return {
@@ -138,6 +150,7 @@ export function createOutboundSession(params: {
   codeDigits?: number;
   maxAttempts?: number;
   verificationPurpose?: VerificationPurpose;
+  replacesGuardianAddress?: string | null;
   bootstrapTokenHash?: string;
   sessionId?: string;
 }): CreateOutboundSessionResult {
@@ -163,6 +176,7 @@ export function createOutboundSession(params: {
     codeDigits: params.codeDigits,
     maxAttempts: params.maxAttempts,
     verificationPurpose: params.verificationPurpose,
+    replacesGuardianAddress: params.replacesGuardianAddress,
     bootstrapTokenHash: params.bootstrapTokenHash,
   });
 
@@ -201,11 +215,20 @@ export type GuardedCreateOutboundSessionResult =
  *   Conflicts only when the channel's active session is bound to the same
  *   expectedExternalUserId. A different sender's session is neither a
  *   conflict nor superseded: it is not this sender's to take.
+ *
+ * This is also where a guardian code's `replacesGuardianAddress` is decided,
+ * and the only place: a caller states consent (`replaceGuardian`) or names
+ * the session it continues, never the address itself.
  */
 export function createOutboundSessionGuarded(
-  params: Parameters<typeof createOutboundSession>[0] & {
+  params: Omit<
+    Parameters<typeof createOutboundSession>[0],
+    "replacesGuardianAddress"
+  > & {
     requireSourceSessionPending?: string;
     ifNoneActiveForExternalUserId?: string;
+    replaceGuardian?: boolean;
+    continuesSessionId?: string;
   },
 ): GuardedCreateOutboundSessionResult {
   if (params.ifNoneActiveForExternalUserId !== undefined) {
@@ -232,15 +255,63 @@ export function createOutboundSessionGuarded(
       return { conflict: true, reason: "source_session_not_pending" };
     }
     // The replacement continues the claimed session, so it keeps that
-    // session's purpose whatever the caller passed. A trusted-contact deep
-    // link must not come back as a guardian code.
+    // session's purpose and replace consent whatever the caller passed. A
+    // trusted-contact deep link must not come back as a guardian code, and a
+    // deep link minted without consent must not come back with it.
     return createOutboundSession({
       ...params,
       verificationPurpose: source.verificationPurpose,
+      replacesGuardianAddress: source.replacesGuardianAddress,
     });
   }
 
-  return createOutboundSession(params);
+  return createOutboundSession({
+    ...params,
+    replacesGuardianAddress: replaceConsentFor(params),
+  });
+}
+
+/**
+ * The guardian address a guardian code minted here may take the channel
+ * from, or null when it may take it from nobody.
+ *
+ * A resend continues a live session, so it carries that session's consent
+ * forward instead of reading the channel again: the guardian consented to
+ * replacing the guardian they were shown, which a later read could miss. The
+ * source has to be a live guardian code on this channel bound to the same
+ * identity, so consent given for one person never moves onto another.
+ *
+ * Otherwise the consent is the caller's `replaceGuardian`, and the guardian
+ * it names is read in the same synchronous section as the insert.
+ */
+function replaceConsentFor(params: {
+  channel: string;
+  expectedExternalUserId?: string;
+  expectedChatId?: string;
+  expectedPhoneE164?: string;
+  verificationPurpose?: VerificationPurpose;
+  replaceGuardian?: boolean;
+  continuesSessionId?: string;
+}): string | null {
+  if (params.verificationPurpose === "trusted_contact") {
+    return null;
+  }
+
+  if (params.continuesSessionId !== undefined) {
+    const source = getSessionById(params.continuesSessionId);
+    const continues =
+      source !== null &&
+      source.channel === params.channel &&
+      source.verificationPurpose !== "trusted_contact" &&
+      source.status === "awaiting_response" &&
+      source.expiresAt > Date.now() &&
+      bindsSameIdentity(boundIdentity(source), boundIdentity(params));
+    return continues ? source.replacesGuardianAddress : null;
+  }
+
+  return params.replaceGuardian
+    ? guardianAddressToReplace(params.channel)
+    : null;
 }
 
 // ---------------------------------------------------------------------------

@@ -60,6 +60,7 @@ function makeWireSession(
     codeDigits: 6,
     maxAttempts: 3,
     verificationPurpose: "guardian",
+    replacesGuardianAddress: null,
     bootstrapTokenHash: null,
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
