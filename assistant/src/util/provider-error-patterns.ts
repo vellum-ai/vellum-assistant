@@ -35,7 +35,7 @@ export const CHAT_TEMPLATE_FAILURE_PATTERNS = [
   /chat[ _-]?template (?:error|render)/i,
   // Fireworks surfaces the renderer's raw Python str.join TypeError without
   // naming the template: "sequence item 0: expected str instance, list found".
-  /sequence item \d+: expected str instance/i,
+  /sequence item \d+: expected str instance, list found/i,
 ];
 
 /**
