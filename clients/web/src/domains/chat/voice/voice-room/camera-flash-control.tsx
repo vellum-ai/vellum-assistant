@@ -106,10 +106,10 @@ export function CameraFlashControl({
       style={cameraModeStyle()}
       className={cn(
         VOICE_ROOM_CONTROL_SIZE_CLASS,
-        // A border in every state, transparent when the state has no visible
-        // one, so the three states measure identically and the glyph does not
-        // shift by a pixel as they cycle.
-        "relative flex items-center justify-center rounded-full border",
+        // Border-box with a border in every state, transparent when the state
+        // has no visible one, so the three states measure identically and the
+        // glyph does not shift by a pixel as they cycle.
+        "relative box-border flex items-center justify-center rounded-full border",
         "transition-colors duration-[250ms]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
         // Fixed colors, not theme tokens, for the same reason the chrome
