@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Navigate,
   useLocation,
@@ -14,6 +14,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
@@ -137,7 +138,7 @@ export function ContactsPage({
 
   const { contactId: routeContactId } = useParams<{ contactId: string }>();
   const navigate = useNavigate();
-  const { state: locationState } = useLocation();
+  const { pathname, state: locationState } = useLocation();
 
   const inviteDialog = useInviteLinkDialog(assistantId);
   const isMobile = useIsMobile();
@@ -149,6 +150,8 @@ export function ContactsPage({
   const listIsScreen = isMobile && !hasRoomForList;
   // The list is the whole page, with no detail open over it.
   const listFillsPage = listIsScreen && !routeContactId;
+  // The contact is the whole page, with the list a screen behind it.
+  const detailFillsPage = listIsScreen && Boolean(routeContactId);
   // Above the inline/drawer branch below, which remounts whichever list
   // surface it swaps to: held inside `ContactsList` the filter would be
   // dropped whenever the pane crosses the threshold, and dragging the chat
@@ -254,6 +257,26 @@ export function ContactsPage({
     [navigate, listFillsPage, routeContactId, locationState],
   );
 
+  // The page's own ways out of an open contact, over the same `returnToList`
+  // the layout's top-bar Back uses, so a pushed entry always pops and a
+  // deep-linked one always replaces.
+  const backToList = useCallback(() => {
+    returnToList(navigate, locationState, routes.contacts.root);
+  }, [navigate, locationState]);
+
+  // A contact that fills the page is the back-swipe owner, so `ChatLayout`
+  // yields the left edge to it rather than opening the nav drawer. The list
+  // screen and both pane modes keep that drawer gesture. The section is what
+  // the swipe drags: on a phone it is the whole visible page. No prefetch:
+  // list and detail resolve to one lazy chunk, already loaded here.
+  const swipeContainerRef = useRef<HTMLElement>(null);
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: backToList,
+    enabled: detailFillsPage,
+    navKey: pathname,
+  });
+
   // Positive evidence that this list is the whole list: a fetch has succeeded
   // and none is in flight. A pending, revalidating, or failed query all fall
   // short, and so does the offline case, which is why the test is on
@@ -318,7 +341,7 @@ export function ContactsPage({
             }
           : undefined,
       );
-      returnToList(navigate, locationState, routes.contacts.root);
+      backToList();
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
@@ -711,7 +734,10 @@ export function ContactsPage({
 
       {/* One slot in every mode, so an open detail keeps its form state when
           the pane crosses the threshold. */}
-      <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <section
+        ref={swipeContainerRef}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+      >
         {listFillsPage ? (
           <ContactsList
             {...contactsListProps}

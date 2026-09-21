@@ -49,6 +49,7 @@ import {
 } from "@/hooks/router-probe.test-helper";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import type { UseEdgeSwipeBackArgs } from "@/hooks/use-edge-swipe-back";
 import * as useIsMobileModule from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,7 @@ let contactsShouldReject = false;
 let availableChannelsOverride: ChannelInfo[] | null = null;
 let isMobile = false;
 let hasRoomForList = true;
+let lastSwipeArgs: UseEdgeSwipeBackArgs | null = null;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -170,6 +172,15 @@ const realUseIsMobileModule = { ...useIsMobileModule };
 mock.module("@/hooks/use-is-mobile", () => ({
   ...realUseIsMobileModule,
   useIsMobile: () => isMobile,
+}));
+
+// Captures the registration instead of installing the real document-level
+// gesture, so the suite can read what the page asks for without synthesising
+// touches.
+mock.module("@/hooks/use-edge-swipe-back", () => ({
+  useEdgeSwipeBack: (args: UseEdgeSwipeBackArgs) => {
+    lastSwipeArgs = args;
+  },
 }));
 
 mock.module("@/hooks/use-side-list-room", () => ({
@@ -488,6 +499,7 @@ beforeEach(() => {
   availableChannelsOverride = null;
   isMobile = false;
   hasRoomForList = true;
+  lastSwipeArgs = null;
   linkAndVerifyCalls.length = 0;
   mergeRequests.length = 0;
   unhandledRejections.length = 0;
@@ -1004,6 +1016,71 @@ describe("ContactsPage as a phone screen", () => {
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+});
+
+describe("ContactsPage back swipe ownership", () => {
+  test("a contact filling the phone owns the swipe and it returns to the list", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+
+    renderUnderRouteShape("/assistant/contacts");
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(true);
+    expect(lastSwipeArgs!.navKey).toBe(`/assistant/contacts/${ALICE.id}`);
+
+    await act(async () => {
+      lastSwipeArgs!.onBack();
+    });
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("the phone list screen leaves the edge to the nav drawer", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
+  });
+
+  test("a desktop contact beside the list leaves the edge alone", async () => {
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
+  });
+
+  test("a contact in the narrow desktop pane leaves the edge alone", async () => {
+    hasRoomForList = false;
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
   });
 });
 

@@ -8,13 +8,21 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useNavigate,
+  type InitialEntry,
+} from "react-router";
 
 import {
   currentLocation,
   LocationProbe,
 } from "@/hooks/router-probe.test-helper";
+import { PUSHED_FROM_LIST_STATE } from "@/utils/list-detail-navigation";
 
 const ALICE_ASSISTANT = "asst-alice";
 const BOB_ASSISTANT = "asst-bob";
@@ -33,16 +41,39 @@ mock.module("@/domains/contacts/contacts-page", () => ({
 
 const { ContactsPageRoute } = await import("@/contacts-page-route");
 
+/**
+ * Walks the mounted tree's history stack, so a test can tell a popped entry
+ * from a replaced one: only a pop leaves the detail ahead of the list.
+ */
+let goInHistory: (delta: number) => void = () => {};
+
+function HistoryProbe(): null {
+  const navigate = useNavigate();
+  useEffect(() => {
+    goInHistory = (delta) => {
+      void navigate(delta);
+    };
+  }, [navigate]);
+  return null;
+}
+
 /** The production route shape: two siblings sharing one component. */
-function Tree({ initialPath }: { initialPath: string }) {
+function Tree({
+  initialEntries,
+  initialIndex,
+}: {
+  initialEntries: InitialEntry[];
+  initialIndex?: number;
+}) {
   const screenElement = (
     <>
       <ContactsPageRoute />
       <LocationProbe />
+      <HistoryProbe />
     </>
   );
   return (
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter initialEntries={initialEntries} initialIndex={initialIndex}>
       <Routes>
         <Route path="/assistant/contacts" element={screenElement} />
         <Route path="/assistant/contacts/:contactId" element={screenElement} />
@@ -61,19 +92,21 @@ afterEach(() => {
 
 describe("ContactsPageRoute assistant scoping", () => {
   test("a deep link into the active assistant stays on its contact", async () => {
-    render(<Tree initialPath="/assistant/contacts/c-1" />);
+    render(<Tree initialEntries={["/assistant/contacts/c-1"]} />);
 
     await waitFor(() => screen.getByTestId("contacts-page"));
     expect(currentLocation().pathname).toBe("/assistant/contacts/c-1");
   });
 
   test("switching assistants on a contact returns to the list", async () => {
-    const { rerender } = render(<Tree initialPath="/assistant/contacts/c-1" />);
+    const { rerender } = render(
+      <Tree initialEntries={["/assistant/contacts/c-1"]} />,
+    );
 
     await waitFor(() => screen.getByTestId("contacts-page"));
 
     activeAssistantId = BOB_ASSISTANT;
-    rerender(<Tree initialPath="/assistant/contacts/c-1" />);
+    rerender(<Tree initialEntries={["/assistant/contacts/c-1"]} />);
 
     await waitFor(() => {
       expect(currentLocation().pathname).toBe("/assistant/contacts");
@@ -81,17 +114,71 @@ describe("ContactsPageRoute assistant scoping", () => {
   });
 
   test("switching assistants on the list leaves the location alone", async () => {
-    const { rerender } = render(<Tree initialPath="/assistant/contacts" />);
+    const { rerender } = render(
+      <Tree initialEntries={["/assistant/contacts"]} />,
+    );
 
     await waitFor(() => screen.getByTestId("contacts-page"));
 
     activeAssistantId = BOB_ASSISTANT;
-    rerender(<Tree initialPath="/assistant/contacts" />);
+    rerender(<Tree initialEntries={["/assistant/contacts"]} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("contacts-page").textContent).toBe(
         BOB_ASSISTANT,
       );
+    });
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("switching assistants on a contact pushed from the list pops it", async () => {
+    const entries: InitialEntry[] = [
+      "/assistant/contacts",
+      { pathname: "/assistant/contacts/c-1", state: PUSHED_FROM_LIST_STATE },
+    ];
+    const { rerender } = render(
+      <Tree initialEntries={entries} initialIndex={1} />,
+    );
+
+    await waitFor(() => screen.getByTestId("contacts-page"));
+
+    activeAssistantId = BOB_ASSISTANT;
+    rerender(<Tree initialEntries={entries} initialIndex={1} />);
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe("/assistant/contacts");
+    });
+
+    // Popped rather than replaced: the detail is still ahead, so the stack
+    // never gained a second copy of the list for Back to land on.
+    act(() => {
+      goInHistory(1);
+    });
+    expect(currentLocation().pathname).toBe("/assistant/contacts/c-1");
+  });
+
+  test("switching assistants on a deep-linked contact replaces its entry", async () => {
+    const entries: InitialEntry[] = [
+      "/assistant/contacts",
+      "/assistant/contacts/c-1",
+    ];
+    const { rerender } = render(
+      <Tree initialEntries={entries} initialIndex={1} />,
+    );
+
+    await waitFor(() => screen.getByTestId("contacts-page"));
+
+    activeAssistantId = BOB_ASSISTANT;
+    rerender(<Tree initialEntries={entries} initialIndex={1} />);
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe("/assistant/contacts");
+    });
+
+    // The entry carried no marker, so nothing was popped and the list sits
+    // where the contact did, with nothing ahead of it.
+    act(() => {
+      goInHistory(1);
     });
     expect(currentLocation().pathname).toBe("/assistant/contacts");
   });
