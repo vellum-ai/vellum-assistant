@@ -8,7 +8,7 @@
  * 2. No X-Actor-Token references in production code.
  * 3. No legacy gateway-origin proof in production code.
  * 4. Scope profile contract — every profile resolves to the expected scopes.
- * 5. Contact profile agreement — the gateway mints what this runtime honors.
+ * 5. Contact profile agreement: the gateway mints what this runtime honors.
  */
 
 import { execSync } from "node:child_process";
