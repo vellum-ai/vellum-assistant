@@ -138,11 +138,10 @@ Existing sessions and explicit backend/client choices take priority.
 not the user's Chrome. --desktop remains an alias for --virtual-desktop.
 Use --virtual-desktop for Chrome in the Desktop panel.
 Run navigate --url <url> directly to open a page.
-The assistant-desktop feature flag and completed installation are required.
-The first browser command installs missing components, starts Chrome, and completes
-the requested action in one call. Allow up to 600 seconds for this command when
-using bash (timeout_seconds: 600). Opening the Desktop panel also starts
-the same installation and shows progress. No separate setup command is needed.
+The assistant-desktop feature flag and a desktop-enabled assistant image are required.
+Chrome and desktop components are included in the image. The first browser command
+starts Chrome and completes the requested action without downloading or installing
+anything. Missing components require an assistant image update.
 Report other availability errors without switching to a personal computer.
 The assistant manages Chrome startup. Do not launch a separate desktop stack,
 install desktop packages, or drive webpages with shell-level xdotool.

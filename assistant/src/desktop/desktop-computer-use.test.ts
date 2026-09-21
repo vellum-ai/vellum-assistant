@@ -164,7 +164,7 @@ describe("virtual desktop computer use", () => {
     expect(result.screenshot).toBe("anBlZw==");
   });
 
-  test("done releases only its conversation without starting desktop setup", async () => {
+  test("done releases only its conversation without starting the desktop", async () => {
     const release = spyOn(
       desktopAutomationLease,
       "releaseForConversation",
@@ -193,7 +193,7 @@ describe("virtual desktop computer use", () => {
     }
   });
 
-  test("tool deadline cancels queued setup before it can perform an action", async () => {
+  test("tool deadline cancels queued startup before it can perform an action", async () => {
     const config = configLoader.getConfig();
     const getConfig = spyOn(configLoader, "getConfig").mockReturnValue({
       ...config,
@@ -346,7 +346,6 @@ test("native dispatch consumes observations while preserving CU history, images,
   const lease = new DesktopAutomationLease({
     enabled: () => true,
     ready: () => true,
-    ensureReady: async () => {},
     manager: () => manager,
     notify: async () => {},
   });

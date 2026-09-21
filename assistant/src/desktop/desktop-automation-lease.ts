@@ -1,7 +1,7 @@
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
-import { desktopDependencyInstaller } from "./desktop-dependencies.js";
+import { desktopDependencies } from "./desktop-dependencies.js";
 import {
   type DesktopSessionManager,
   type DesktopViewer,
@@ -35,13 +35,11 @@ export class DesktopAutomationLease {
     private readonly deps: {
       enabled: () => boolean;
       ready: () => boolean;
-      ensureReady: (signal: AbortSignal) => Promise<void>;
       manager: () => DesktopSessionManager;
       notify: () => Promise<unknown>;
     } = {
       enabled: isVirtualDesktopEnabled,
-      ready: () => desktopDependencyInstaller.getStatus().state === "ready",
-      ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
+      ready: () => desktopDependencies.getStatus().state === "ready",
       manager: getDesktopSessionManager,
       notify: async () =>
         broadcastMessage({ type: "desktop_activity_changed" }),
@@ -78,7 +76,7 @@ export class DesktopAutomationLease {
     }
     if (!this.deps.ready()) {
       throw new Error(
-        "Open the Virtual desktop panel and wait for automatic installation to finish before using desktop automation",
+        "Desktop components are missing from the assistant image. Update the assistant image. Do not install packages manually.",
       );
     }
   }
@@ -296,41 +294,6 @@ export class DesktopAutomationLease {
         );
       }
       try {
-        if (
-          !this.owner &&
-          generation === this.generation &&
-          this.deps.enabled() &&
-          !this.deps.ready()
-        ) {
-          const abort = new AbortController();
-          const signal = AbortSignal.any([
-            abort.signal,
-            ...(context.signal ? [context.signal] : []),
-          ]);
-          const timeout = setTimeout(
-            () =>
-              abort.abort(
-                new Error(
-                  "Virtual desktop setup is taking too long. Check installation progress in the Virtual desktop panel. No desktop action was performed.",
-                ),
-              ),
-            8 * 60_000,
-          );
-          const watchdog = setInterval(() => {
-            if (!this.deps.enabled()) {
-              abort.abort(
-                new Error("Virtual desktop was disabled during setup"),
-              );
-            }
-          }, 1_000);
-          try {
-            await this.deps.ensureReady(signal);
-            signal.throwIfAborted();
-          } finally {
-            clearTimeout(timeout);
-            clearInterval(watchdog);
-          }
-        }
         this.assertAvailable();
       } catch (error) {
         await this.release();

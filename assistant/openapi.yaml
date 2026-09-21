@@ -12012,7 +12012,7 @@ paths:
                 additionalProperties: false
     post:
       operationId: desktop_setup_post
-      summary: Install virtual desktop components
+      summary: Check virtual desktop readiness (legacy POST)
       tags:
         - desktop
       responses:

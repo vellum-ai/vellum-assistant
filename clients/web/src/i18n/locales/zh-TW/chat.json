@@ -164,14 +164,8 @@
     "reconnectButton": "重新連線",
     "title": "桌面",
     "unavailable": "此助理不支援虛擬桌面。",
-    "installButton": "安裝虛擬桌面",
     "checkingSetup": "正在檢查虛擬桌面設定…",
-    "installingPackages": "正在安裝虛擬桌面元件…",
-    "installingChrome": "正在安裝 Google Chrome…",
-    "checkingInstall": "正在檢查安裝…",
-    "installFailed": "安裝失敗。請重試以完成設定。",
-    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。",
-    "setupUnsupported": "虛擬桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。"
   },
   "assistantNavItem": {
     "newChat": "新增聊天"
