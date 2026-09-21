@@ -36,14 +36,14 @@ test("upgrades a customized dock idempotently and respects later unpinning", () 
   const { workspace, configDir, settingsPath } = setup();
   mkdirSync(dirname(settingsPath), { recursive: true });
   const original =
-    "[unrelated]\nvalue=keep\n\n[net/launchpad/plank/docks/dock1]\ndock-items=['custom.dockitem', 'chrome.dockitem']\nicon-size=64\n\n[another]\ndock-items=['other.dockitem']\n";
+    "[unrelated]\nvalue=keep\n\n[net/launchpad/plank/docks/dock1]\ndock-items=['chrome.dockitem', 'terminal.dockitem', 'custom.dockitem']\nicon-size=64\n\n[another]\ndock-items=['other.dockitem']\n";
   writeFileSync(settingsPath, original);
   migration.run(workspace);
   const upgraded = readFileSync(settingsPath, "utf8");
   expect(upgraded).toBe(
     original.replace(
-      "'chrome.dockitem']",
-      "'chrome.dockitem', 'files.dockitem']",
+      "'chrome.dockitem', 'terminal.dockitem'",
+      "'chrome.dockitem', 'files.dockitem', 'terminal.dockitem'",
     ),
   );
   migration.run(workspace);

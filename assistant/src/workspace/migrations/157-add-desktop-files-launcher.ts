@@ -38,10 +38,23 @@ export const addDesktopFilesLauncherMigration: WorkspaceMigration = {
     const existing = match[1]!.match(pins);
     if (existing && !existing[2]!.includes("'files.dockitem'")) {
       const items = existing[2]!.trim();
+      let updatedItems: string;
+      if (items.includes("'chrome.dockitem'")) {
+        updatedItems = items.replace(
+          "'chrome.dockitem'",
+          "'chrome.dockitem', 'files.dockitem'",
+        );
+      } else if (items.includes("'terminal.dockitem'")) {
+        updatedItems = items.replace(
+          "'terminal.dockitem'",
+          "'files.dockitem', 'terminal.dockitem'",
+        );
+      } else {
+        updatedItems = `${items}${items ? ", " : ""}'files.dockitem'`;
+      }
       const updated = match[0].replace(
         pins,
-        () =>
-          `${existing[1]}[${items}${items ? ", " : ""}'files.dockitem']${existing[3]}`,
+        () => `${existing[1]}[${updatedItems}]${existing[3]}`,
       );
       settings = settings.replace(section, () => updated);
     } else if (!existing) {

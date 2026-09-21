@@ -61,7 +61,7 @@ browser commands for page-level operations and computer use for desktop UI.
 
 ## File explorer
 
-Open **Files** in the virtual desktop dock to browse the assistant workspace in
+Open **Files**, between Chrome and Terminal in the virtual desktop dock, to browse the assistant workspace in
 Thunar, with a Workspace sidebar shortcut and a dark theme. It supports tabs,
 split views, search, hidden files, drag and drop,
 copy/paste, bulk renaming, and file properties. GVfs provides Trash support and
