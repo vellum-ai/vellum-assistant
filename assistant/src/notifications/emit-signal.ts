@@ -74,9 +74,9 @@ export function getBroadcaster(): NotificationBroadcaster {
       new PlatformPushAdapter(),
     ]);
 
-    // Wire the conversation-created callback so the macOS client is notified
-    // immediately when a vellum notification conversation is paired — before
-    // slower channel deliveries (e.g. Telegram) delay the push.
+    // Wire the conversation-created callback so the event goes out as soon
+    // as a vellum notification conversation is paired, before slower channel
+    // deliveries (e.g. Telegram) run.
     // A guardian-sensitive conversation's title reaches only the guardian's
     // own connections, the same scoping the vellum adapter applies to the
     // notification itself.
@@ -609,8 +609,8 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 4: Dispatch through the broadcaster
     // Note: notification_conversation_created events are emitted eagerly inside
     // the broadcaster as soon as vellum conversation pairing succeeds, rather
-    // than after all channel deliveries complete. This avoids a race where
-    // slow Telegram delivery delays the push past the macOS deep-link retry.
+    // than after all channel deliveries complete, so a slow Telegram delivery
+    // cannot delay it.
     const broadcaster = getBroadcaster();
     const dispatchResult = await dispatchDecision(
       signal,

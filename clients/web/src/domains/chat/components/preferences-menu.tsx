@@ -144,6 +144,15 @@ export function PreferencesMenu({
     prefetchRoute(routes.settings.root);
   }, [isOpen]);
 
+  /* The usage panel and the credits row below it mount with the menu, and the
+     reading they share rests on requests that stay cold until something asks
+     for it. Asking from the trigger, which is mounted with the sidebar, means
+     those requests run while the app loads and an opening menu reads answers
+     that have already landed rather than its undecided state. The reading is
+     discarded here: TanStack Query dedupes it with the two call sites inside
+     the menu, which own what they render from it. */
+  usePreferencesUsage({ conversationId: activeConversationId });
+
   if (!isAuthenticated) {
     return null;
   }

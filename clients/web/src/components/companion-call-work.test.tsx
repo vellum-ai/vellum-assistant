@@ -191,4 +191,45 @@ describe("the call's work on its bar", () => {
       "1 thing running",
     );
   });
+
+  test("docked to a side, a press opens the list beside the column", () => {
+    for (const [dock, side] of [
+      ["right", "left"],
+      ["left", "right"],
+    ] as const) {
+      const { container, unmount } = render(
+        <CompanionSurface
+          phase="call"
+          call={{ ...CALL, work: [TURN, FLIGHTS] }}
+          assistantName="Ziggy"
+          accentHex="#5eead4"
+          dock={dock}
+        />,
+      );
+      fireEvent.click(chipOf(container)!);
+      expect(shelfOf(container)).not.toBeNull();
+      expect(
+        container
+          .querySelector("[data-shelf-side]")
+          ?.getAttribute("data-shelf-side"),
+      ).toBe(side);
+      unmount();
+    }
+  });
+
+  test("docked to a side, the host's prompt stays off the column", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...CALL, work: [TURN] }}
+        assistantName="Ziggy"
+        accentHex="#5eead4"
+        dock="left"
+        prompt={<div data-testid="approval">Approve?</div>}
+      />,
+    );
+    expect(container.querySelector('[data-testid="approval"]')).toBeNull();
+    fireEvent.click(chipOf(container)!);
+    expect(shelfOf(container)).not.toBeNull();
+  });
 });
