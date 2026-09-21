@@ -30,8 +30,14 @@ const {
   contacts,
   contactChannels,
 } = await import("../db/schema.js");
-const { hashToken, mintAndRecordDeviceBoundTokenPair, bootstrapGuardian } =
-  await import("../auth/guardian-bootstrap.js");
+const {
+  hashToken,
+  mintAndRecordDeviceBoundTokenPair,
+  mintAndRecordBrowserTokenPair,
+  bootstrapGuardian,
+} = await import("../auth/guardian-bootstrap.js");
+const { verifyToken } = await import("../auth/token-service.js");
+const { resolveScopeProfile } = await import("../auth/scopes.js");
 const { MAX_PAIRING_USER_AGENT_CHARS } =
   await import("../auth/device-identity-text.js");
 const { handleListDevices, handleRevokeDevice } =
@@ -232,6 +238,77 @@ describe("actorTokenRecords device identity columns", () => {
     const row = actorRow("device-identity-omitted");
     expect(row?.pairingUserAgent).toBeNull();
     expect(row?.clientReportedName).toBeNull();
+  });
+});
+
+describe("minted token role", () => {
+  test("a guardian mint records role guardian and carries actor_client_v1", () => {
+    const pair = mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: GUARDIAN_ID,
+      deviceId: "mint-role-guardian",
+      platform: "cli",
+    });
+
+    expect(actorRow("mint-role-guardian")?.role).toBe("guardian");
+    expect(refreshRow("mint-role-guardian")?.role).toBe("guardian");
+
+    const verified = verifyToken(pair.accessToken, "vellum-gateway");
+    expect(verified.ok).toBe(true);
+    expect(verified.ok && verified.claims.scope_profile).toBe(
+      "actor_client_v1",
+    );
+  });
+
+  test("a contact mint records role contact and carries contact_client_v1", () => {
+    const pair = mintAndRecordDeviceBoundTokenPair({
+      guardianPrincipalId: "contact-principal-1",
+      deviceId: "mint-role-contact",
+      platform: "web",
+      role: "contact",
+    });
+
+    expect(actorRow("mint-role-contact")?.role).toBe("contact");
+    expect(refreshRow("mint-role-contact")?.role).toBe("contact");
+
+    const verified = verifyToken(pair.accessToken, "vellum-gateway");
+    expect(verified.ok).toBe(true);
+    expect(verified.ok && verified.claims.scope_profile).toBe(
+      "contact_client_v1",
+    );
+  });
+
+  test("a contact token grants no control-plane scope", () => {
+    const scopes = resolveScopeProfile("contact_client_v1");
+    for (const scope of [
+      "admin.write",
+      "settings.read",
+      "settings.write",
+      "feature_flags.write",
+    ] as const) {
+      expect(scopes.has(scope)).toBe(false);
+    }
+    expect(scopes.has("chat.write")).toBe(true);
+  });
+
+  test("a browser mint carries the role through to both rows", () => {
+    const pair = mintAndRecordBrowserTokenPair({
+      guardianPrincipalId: "contact-principal-2",
+      platform: "remote-web",
+      browserRefreshCookiePath: "/v1/guardian/refresh",
+      role: "contact",
+    });
+
+    const verified = verifyToken(pair.accessToken, "vellum-gateway");
+    expect(verified.ok && verified.claims.scope_profile).toBe(
+      "contact_client_v1",
+    );
+    const rows = getGatewayDb()
+      .select()
+      .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.guardianPrincipalId, "contact-principal-2"))
+      .all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].role).toBe("contact");
   });
 });
 

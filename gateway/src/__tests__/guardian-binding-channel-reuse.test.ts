@@ -138,13 +138,16 @@ mock.module("../ipc/contacts-info-client.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  createGuardianBinding,
+  GuardianAddressHeldByContactError,
+} from "../auth/guardian-bootstrap.js";
 import {
   initGatewayDb,
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
-import { contacts, contactChannels } from "../db/schema.js";
+import { actorTokenRecords, contacts, contactChannels } from "../db/schema.js";
 
 function seedGwGuardianContact(): void {
   getGatewayDb()
@@ -215,6 +218,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   const gw = getGatewayDb();
+  gw.delete(actorTokenRecords).run();
   gw.delete(contactChannels).run();
   gw.delete(contacts).run();
 
@@ -321,6 +325,72 @@ describe("createGuardianBinding id resolution", () => {
 
     expect(result.contactId).toBe("guardian-contact");
     expect(result.channelId).toBe("seed-channel");
+  });
+
+  test("refuses an address held by a contact with live credentials", async () => {
+    // Adopting the row would rewrite this contact to role guardian, leaving a
+    // principal that still holds an active token resolving as the guardian.
+    // The binding fails instead, leaving the rows intact.
+    seedGwGuardianContact();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "contact-with-principal",
+        displayName: "Contact",
+        role: "contact",
+        principalId: "contact-principal",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "contact-channel",
+        contactId: "contact-with-principal",
+        type: "vellum",
+        address: "contact-principal",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+    getGatewayDb()
+      .insert(actorTokenRecords)
+      .values({
+        id: "contact-token",
+        tokenHash: "hash-contact-token",
+        guardianPrincipalId: "contact-principal",
+        role: "contact",
+        hashedDeviceId: "device-contact",
+        platform: "web",
+        status: "active",
+        issuedAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+
+    await expect(
+      createGuardianBinding({
+        channel: "vellum",
+        externalUserId: "contact-principal",
+        deliveryChatId: "local",
+        guardianPrincipalId: "guardian-principal",
+        verifiedVia: "bootstrap",
+      }),
+    ).rejects.toBeInstanceOf(GuardianAddressHeldByContactError);
+
+    const row = getGatewayDb()
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, "contact-with-principal"))
+      .get();
+    expect(row?.role).toBe("contact");
+    expect(row?.principalId).toBe("contact-principal");
   });
 
   test("reactivates a revoked guardian channel instead of minting a new one", async () => {

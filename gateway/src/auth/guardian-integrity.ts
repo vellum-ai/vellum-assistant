@@ -11,9 +11,9 @@
  * Evidence signals — ANY one proves a guardian existed at some point:
  *  - `contacts` has any row: contacts are only ever created by guardian
  *    onboarding or guardian-issued invites.
- *  - `actor_token_records` / `actor_refresh_token_records` has any row:
- *    tokens are minted exclusively for a guardian principal at pairing, and
- *    survive even when the guardian contact row is deleted.
+ *  - `actor_token_records` / `actor_refresh_token_records` has a
+ *    `role='guardian'` row: those survive even when the guardian contact row
+ *    is deleted. Contact-role rows prove nothing about a guardian.
  * Both are single-row LIMIT 1 reads. The `one_time_migrations` m0008 key is
  * deliberately NOT consulted: the migration runner records it on installs
  * that had nothing to backfill, so it cannot discriminate a fresh install
@@ -53,11 +53,13 @@ function evidenceSignals(): { hasContacts: boolean; hasActorTokens: boolean } {
     db
       .select({ id: actorTokenRecords.id })
       .from(actorTokenRecords)
+      .where(eq(actorTokenRecords.role, "guardian"))
       .limit(1)
       .get() !== undefined ||
     db
       .select({ id: actorRefreshTokenRecords.id })
       .from(actorRefreshTokenRecords)
+      .where(eq(actorRefreshTokenRecords.role, "guardian"))
       .limit(1)
       .get() !== undefined;
   return { hasContacts, hasActorTokens };

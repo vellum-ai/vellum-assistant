@@ -40,12 +40,24 @@ import {
 } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
+import type { ScopeProfile } from "./types.js";
 
 const log = getLogger("guardian-bootstrap");
 
 // ---------------------------------------------------------------------------
 // Constants — canonical values for token TTLs and refresh thresholds.
 // ---------------------------------------------------------------------------
+
+/**
+ * Which kind of principal a minted token belongs to. Recorded on the token
+ * row and chooses the scope profile the token carries.
+ */
+export type TokenPrincipalRole = "guardian" | "contact";
+
+export const SCOPE_PROFILE_BY_ROLE: Record<TokenPrincipalRole, ScopeProfile> = {
+  guardian: "actor_client_v1",
+  contact: "contact_client_v1",
+};
 
 /** Access token TTL: 30 days in seconds. */
 export const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -94,6 +106,21 @@ export class VellumGuardianMintRefusedError extends Error {
         "evidence of a prior guardian — re-pair via guardian init to recover",
     );
     this.name = "VellumGuardianMintRefusedError";
+  }
+}
+
+/**
+ * Thrown when a guardian binding names an address already held by a contact
+ * principal. Binding would rewrite that contact's row to `role: 'guardian'`,
+ * handing the contact's credentials guardian authority.
+ */
+export class GuardianAddressHeldByContactError extends Error {
+  constructor(channel: string) {
+    super(
+      `refusing to bind the guardian on ${channel}: the address is already ` +
+        "held by a contact principal",
+    );
+    this.name = "GuardianAddressHeldByContactError";
   }
 }
 
@@ -198,18 +225,17 @@ export async function findGuardianForChannelActor(
 /**
  * Recover the guardian principal id from the gateway's own actor-token records.
  *
- * Actor tokens are minted exclusively for the guardian principal (device
- * pairing), so an active row names the exact principal the client's JWTs still
- * carry. This recovers a lost vellum guardian binding on an install whose
- * contact reconcile could not run: the assistant DB's contact ACL columns were
- * already dropped (assistant migration 305) by the time the gateway's data
- * migrations read them, so `contacts` stays empty while the actor tokens
- * migrated into the gateway DB (m0002) survive.
+ * Only `role = 'guardian'` rows are considered, so a contact token can never
+ * be recovered as the guardian. This recovers a lost vellum guardian binding
+ * on an install whose contact reconcile could not run: the assistant DB's
+ * contact ACL columns were already dropped (assistant migration 305) by the
+ * time the gateway's data migrations read them, so `contacts` stays empty
+ * while the actor tokens migrated into the gateway DB (m0002) survive.
  *
  * Reads only the gateway DB. Prefers the most recently issued ACTIVE token so a
  * properly offboarded (revoked) guardian is never resurrected, and falls back
  * to an active refresh token when no access token survives. Returns null when
- * no active token names a principal.
+ * no active guardian token names a principal.
  */
 export function recoverGuardianPrincipalFromActorTokens(): string | null {
   const db = getGatewayDb();
@@ -217,7 +243,12 @@ export function recoverGuardianPrincipalFromActorTokens(): string | null {
   const activeAccess = db
     .select({ guardianPrincipalId: actorTokenRecords.guardianPrincipalId })
     .from(actorTokenRecords)
-    .where(eq(actorTokenRecords.status, "active"))
+    .where(
+      and(
+        eq(actorTokenRecords.status, "active"),
+        eq(actorTokenRecords.role, "guardian"),
+      ),
+    )
     .orderBy(desc(actorTokenRecords.issuedAt))
     .limit(1)
     .get();
@@ -230,7 +261,12 @@ export function recoverGuardianPrincipalFromActorTokens(): string | null {
       guardianPrincipalId: actorRefreshTokenRecords.guardianPrincipalId,
     })
     .from(actorRefreshTokenRecords)
-    .where(eq(actorRefreshTokenRecords.status, "active"))
+    .where(
+      and(
+        eq(actorRefreshTokenRecords.status, "active"),
+        eq(actorRefreshTokenRecords.role, "guardian"),
+      ),
+    )
     .orderBy(desc(actorRefreshTokenRecords.issuedAt))
     .limit(1)
     .get();
@@ -290,6 +326,64 @@ export interface GuardianBindingGatewayWrites {
 }
 
 /**
+ * Refuse a guardian binding on an address held by a contact that still has an
+ * active contact-role token.
+ *
+ * The adoption paths below key on `(type, address)`: they rewrite the owning
+ * contact's row to `role: 'guardian'` or re-point the channel at the guardian,
+ * either of which leaves a credentialed contact principal resolving as the
+ * guardian. Contacts without live tokens stay adoptable.
+ */
+function assertAddressNotHeldByCredentialedContact(
+  db: ReturnType<typeof getGatewayDb>,
+  channel: string,
+  address: string,
+): void {
+  const holder = db
+    .select({
+      contactId: gwContacts.id,
+      role: gwContacts.role,
+      principalId: gwContacts.principalId,
+    })
+    .from(gwContactChannels)
+    .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
+    .where(
+      and(
+        eq(gwContactChannels.type, channel),
+        sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
+      ),
+    )
+    .limit(1)
+    .get();
+
+  if (holder?.role !== "contact" || !holder.principalId) {
+    return;
+  }
+
+  const liveToken = db
+    .select({ id: actorTokenRecords.id })
+    .from(actorTokenRecords)
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, holder.principalId),
+        eq(actorTokenRecords.role, "contact"),
+        eq(actorTokenRecords.status, "active"),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (!liveToken) {
+    return;
+  }
+
+  log.error(
+    { channel, contactId: holder.contactId },
+    "Refusing a guardian binding on an address held by a credentialed contact",
+  );
+  throw new GuardianAddressHeldByContactError(channel);
+}
+
+/**
  * Gateway-authoritative writes for a guardian binding — fully synchronous so
  * callers can compose it inside a single SQLite transaction (e.g. atomically
  * with a verification-session consume). Runs the id resolution and the
@@ -306,6 +400,12 @@ export function applyGuardianBindingGatewayWrites(
   // The gateway DB is the source of truth for contact ids; resolve them
   // directly from it.
   const gwReadDb = getGatewayDb();
+
+  assertAddressNotHeldByCredentialedContact(
+    gwReadDb,
+    params.channel,
+    params.externalUserId,
+  );
 
   const existingGuardianContact = gwReadDb
     .select({ id: gwContacts.id })
@@ -698,6 +798,7 @@ function mintAccessToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  role: TokenPrincipalRole,
   ttlSeconds: number = ACCESS_TOKEN_TTL_SECONDS,
   identity?: DeviceIdentityInput,
 ): { token: string; expiresAt: number } {
@@ -707,7 +808,7 @@ function mintAccessToken(
   const token = mintToken({
     aud: "vellum-gateway",
     sub,
-    scope_profile: "actor_client_v1",
+    scope_profile: SCOPE_PROFILE_BY_ROLE[role],
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds,
   });
@@ -722,6 +823,7 @@ function mintAccessToken(
       id: uuid(),
       tokenHash,
       guardianPrincipalId,
+      role,
       hashedDeviceId,
       platform,
       ...capIdentity(identity),
@@ -743,6 +845,7 @@ function mintRefreshToken(
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
+  role: TokenPrincipalRole,
   options: { browserRefreshCookiePath?: string } = {},
   identity?: DeviceIdentityInput,
 ): {
@@ -764,6 +867,7 @@ function mintRefreshToken(
       tokenHash: refreshTokenHash,
       familyId,
       guardianPrincipalId,
+      role,
       hashedDeviceId,
       platform,
       ...capIdentity(identity),
@@ -804,11 +908,13 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
   deviceId: string;
   platform: string;
   identity?: DeviceIdentityInput;
+  role?: TokenPrincipalRole;
 }): DeviceBoundTokenPair {
   if (!params.deviceId.trim()) {
     throw new Error("deviceId is required to mint a device-bound token pair");
   }
   const hashedDeviceId = hashDeviceId(params.deviceId);
+  const role = params.role ?? "guardian";
 
   revokeActorTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(params.guardianPrincipalId, hashedDeviceId);
@@ -817,6 +923,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    role,
     ACCESS_TOKEN_TTL_SECONDS,
     params.identity,
   );
@@ -824,6 +931,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    role,
     {},
     params.identity,
   );
@@ -847,14 +955,17 @@ export function mintAndRecordBrowserTokenPair(params: {
   platform: string;
   browserRefreshCookiePath: string;
   identity?: DeviceIdentityInput;
+  role?: TokenPrincipalRole;
 }): RefreshableTokenPair {
   const internalBinding = randomBytes(32).toString("base64url");
   const hashedDeviceId = hashToken(internalBinding);
+  const role = params.role ?? "guardian";
 
   const access = mintAccessToken(
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    role,
     ACCESS_TOKEN_TTL_SECONDS,
     params.identity,
   );
@@ -862,6 +973,7 @@ export function mintAndRecordBrowserTokenPair(params: {
     params.guardianPrincipalId,
     hashedDeviceId,
     params.platform,
+    role,
     { browserRefreshCookiePath: params.browserRefreshCookiePath },
     params.identity,
   );
