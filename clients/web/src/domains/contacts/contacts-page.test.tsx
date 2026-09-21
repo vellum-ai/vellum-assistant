@@ -224,22 +224,36 @@ const { ContactsPage } = await import("@/domains/contacts/contacts-page");
 // ---------------------------------------------------------------------------
 
 /**
- * `useParams` only yields `contactId` under a matching route pattern, so the
- * page is mounted under the real `contacts/:contactId?` pattern.
+ * Pass `seededContacts` to stand in for cached data a mount would revalidate:
+ * the query reads it immediately and refetches in the background.
  */
-function Wrapper({
-  children,
-  initialPath = "/assistant/contacts",
-}: {
-  children: ReactNode;
-  initialPath?: string;
-}) {
+function makeQueryClient(seededContacts?: ContactPayload[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
+  if (seededContacts) {
+    client.setQueryData(CONTACTS_KEY, { contacts: seededContacts });
+  }
+  return client;
+}
+
+/**
+ * `useParams` only yields `contactId` under a matching route pattern, so the
+ * page is mounted under the real `contacts/:contactId?` pattern.
+ */
+function Wrapper({
+  children,
+  initialPath = "/assistant/contacts",
+  queryClient,
+}: {
+  children: ReactNode;
+  initialPath?: string;
+  queryClient?: QueryClient;
+}) {
+  const client = queryClient ?? makeQueryClient();
   return createElement(
     MemoryRouter,
     { initialEntries: [initialPath] },
@@ -509,6 +523,27 @@ describe("ContactsPage URL-owned selection", () => {
       expect(currentLocation().pathname).toBe("/assistant/contacts");
     });
     await waitFor(() => getInputByPlaceholder("Your name"));
+  });
+
+  test("a deep link the cached list lacks survives the revalidating fetch", async () => {
+    // Cached contacts predate Alice (added elsewhere), so the mount serves
+    // them while refetching. The fresh list carries her, so the link holds.
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={makeQueryClient([GUARDIAN])}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The fetch is still in flight, so the pane withholds the empty state
+    // rather than claiming the id is unknown.
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 
   test("a failed contacts fetch keeps the deep link intact", async () => {

@@ -223,13 +223,14 @@ export function ContactsPage({
   );
 
   // An id the list does not carry (a deleted contact, a stale deep link) falls
-  // back to the bare route. `isLoading` holds the deep link until the list
-  // arrives, and `isError` holds it across a failed fetch so a retry reopens
-  // the contact.
+  // back to the bare route, and only once no fetch is in flight: cached data
+  // can predate a contact the pending response carries, and discarding the
+  // link on it would drop a valid deep link. `isError` holds the link across a
+  // failed fetch so a retry reopens the contact.
   useEffect(() => {
     if (
       routeContactId &&
-      !contactsQuery.isLoading &&
+      !contactsQuery.isFetching &&
       !contactsQuery.isError &&
       !selectedContact
     ) {
@@ -237,11 +238,16 @@ export function ContactsPage({
     }
   }, [
     routeContactId,
-    contactsQuery.isLoading,
+    contactsQuery.isFetching,
     contactsQuery.isError,
     selectedContact,
     navigate,
   ]);
+
+  // The pane stays blank while that fetch decides: the empty state reads as
+  // "no such contact", which a resolvable link has not earned.
+  const resolvingRouteContact =
+    Boolean(routeContactId) && !selectedContact && contactsQuery.isFetching;
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
@@ -651,7 +657,8 @@ export function ContactsPage({
       )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {contactsQuery.isLoading ? null : optimisticContact &&
+        {contactsQuery.isLoading ||
+        resolvingRouteContact ? null : optimisticContact &&
           optimisticContact.id !== deletingContactId ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
