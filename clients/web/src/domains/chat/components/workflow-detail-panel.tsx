@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { motion, useReducedMotion } from "motion/react";
 
+import { SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
@@ -243,13 +244,9 @@ export function WorkflowDetailPanel({
 
               {/* Subagents section */}
               <div>
-                <Typography
-                  variant="body-medium-default"
-                  as="h3"
-                  className="mb-4 text-[var(--content-emphasised)]"
-                >
+                <SectionLabel as="h3">
                   {t("workflowDetailPanel.subagents")}
-                </Typography>
+                </SectionLabel>
                 {sortedLeaves.length === 0 ? (
                   <DetailShellNotice>
                     {t("workflowDetailPanel.noSubagentsYet")}
