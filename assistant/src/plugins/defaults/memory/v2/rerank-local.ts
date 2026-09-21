@@ -7,6 +7,7 @@ import {
   PromiseGuard,
   workerComputeEnv,
   workerMemoryEnv,
+  writeWorkerLine,
 } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getEmbeddingModelsDir } from "../paths.js";
@@ -103,13 +104,29 @@ export class LocalRerankBackend {
         return;
       }
       this.pendingRequests.set(id, { resolve });
-      this.workerProc.stdin.write(JSON.stringify({ id, ...payload }) + "\n");
-      try {
-        this.workerProc.stdin.flush();
-      } catch {
-        // Worker may have exited — stdout reader cleanup resolves pending requests.
-      }
+      writeWorkerLine(
+        this.workerProc.stdin,
+        JSON.stringify({ id, ...payload }),
+        (err) => this.failPendingRequest(id, err),
+      );
     });
+  }
+
+  /**
+   * Resolve one in-flight request with an error. Resolving (rather than
+   * rejecting) keeps the failure on the normal `score()` path, where it becomes
+   * a thrown `Error` the reranker falls back from.
+   */
+  private failPendingRequest(id: number, err: unknown): void {
+    const pending = this.pendingRequests.get(id);
+    if (!pending) {
+      return;
+    }
+    this.pendingRequests.delete(id);
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, model: this.model }, "Rerank worker pipe write failed");
+    pending.resolve({ error: `worker pipe write failed: ${message}` });
+    this.disposeIfIdle();
   }
 
   private async ensureInitialized(): Promise<void> {

@@ -27,6 +27,7 @@ import * as hostStripCommentLines from "../../../util/strip-comment-lines.js";
 import * as hostTruncate from "../../../util/truncate.js";
 import * as hostWorkerCompute from "../../../util/worker-compute.js";
 import * as hostWorkerMemory from "../../../util/worker-memory.js";
+import * as hostWorkerPipe from "../../../util/worker-pipe.js";
 
 export { BackendUnavailableError } from "../../../util/errors.js";
 export { PromiseGuard } from "../../../util/promise-guard.js";
@@ -82,4 +83,10 @@ export function workerMemoryEnv(): Record<string, string | undefined> {
 
 export function workerComputeEnv(): Record<string, string> {
   return hostWorkerCompute.workerComputeEnv();
+}
+
+export function writeWorkerLine(
+  ...args: Parameters<typeof hostWorkerPipe.writeWorkerLine>
+): void {
+  hostWorkerPipe.writeWorkerLine(...args);
 }

@@ -253,6 +253,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/truncate.js",
     "../../../util/worker-compute.js",
     "../../../util/worker-memory.js",
+    "../../../util/worker-pipe.js",
     "../../../util/worker-process.js",
     "../../types.js",
     // The memory jobs worker runs as its own OS process and hosts real agent
