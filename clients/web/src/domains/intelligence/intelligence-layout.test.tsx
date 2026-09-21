@@ -194,6 +194,36 @@ describe("IntelligenceLayout — section pages", () => {
     expect(leading.asChild).toBeUndefined();
   });
 
+  /**
+   * The flag is published with the navigation into a detail and cleared by
+   * the page that owns it, so a list route can be rendered while it is still
+   * set: on the way into Contacts, and on the way out to a section that never
+   * writes it. A Back aimed at the list on screen is the failure it prevents.
+   */
+  test.each([
+    { list: "the Contacts list", path: "/assistant/contacts" },
+    {
+      list: "the Contacts list with a trailing slash",
+      path: "/assistant/contacts/",
+    },
+    { list: "the Library list", path: "/assistant/library" },
+  ])(
+    "on mobile, a set flag leaves $list backing to the overview",
+    ({ path }) => {
+      isMobileRef.value = true;
+      useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(true);
+      renderLayoutAt(path);
+
+      const leading = slotProps(lastMobileTopBar()?.leading);
+      expect(leading["aria-label"]).toBe("Back to Ada");
+      expect(leading.asChild).toBe(true);
+      expect(leading.onClick).toBeUndefined();
+      expect(slotProps(leading.children as React.ReactNode).to).toBe(
+        "/assistant/identity",
+      );
+    },
+  );
+
   test("on mobile, a contact detail beside its list backs to the overview", () => {
     // A mobile-width window whose pane still seats the list: the page reports
     // no pushed screen, so a Back to the list would point at a list already

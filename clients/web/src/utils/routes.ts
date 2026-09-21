@@ -409,10 +409,14 @@ export function isPathExactly(pathname: string, path: string): boolean {
 const isPathWithin = (pathname: string, path: string): boolean =>
   pathname === path || pathname.startsWith(`${path}/`);
 
-/** The chrome section `pathname` falls inside, if any. */
+/**
+ * The chrome section `pathname` falls inside, if any. Typed as the registry
+ * entry itself, so a caller comparing `key` against a literal is checked
+ * against the keys that exist.
+ */
 export function aboutAssistantSectionForPath(
   pathname: string,
-): AboutAssistantSection | null {
+): (typeof ABOUT_ASSISTANT_SECTIONS)[number] | null {
   return (
     ABOUT_ASSISTANT_SECTIONS.find(({ to }) => isPathWithin(pathname, to)) ??
     null

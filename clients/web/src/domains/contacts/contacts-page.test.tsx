@@ -610,6 +610,22 @@ describe("ContactsPage list and detail", () => {
 
   test("a delete in flight keeps the contact on screen, showing its pending state", async () => {
     holdDelete = true;
+    // A channel row, so the section's actions are on screen to be blocked.
+    contactsFixture = [
+      GUARDIAN,
+      {
+        ...ALICE,
+        channels: [
+          {
+            id: "ch-phone",
+            type: "phone",
+            address: "+15555550100",
+            status: "unverified",
+          },
+        ],
+      } as unknown as ContactPayload,
+      PEER,
+    ];
     renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
@@ -626,6 +642,9 @@ describe("ContactsPage list and detail", () => {
     expect(deleting.disabled).toBe(true);
     expect(getInputByPlaceholder("Give this human a name")).toBeDefined();
     expect(document.body.textContent).not.toContain("Select a contact");
+    // Staying on screen means the channel actions are reachable, and they act
+    // on the id the server is deleting.
+    expect(getButton("Verify").disabled).toBe(true);
 
     await act(async () => {
       releaseDelete!();
@@ -915,18 +934,54 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("the pushed-screen flag follows the open contact and clears on unmount", async () => {
-    const { unmount } = renderContactsPage();
+    const { router, unmount } = renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(detailIsScreen()).toBe(false);
 
+    // The layout publishes its Back from this flag, so it has to be reported
+    // no later than the navigation it describes: arriving a commit after the
+    // route leaves a Back aimed at the assistant overview over an open
+    // contact, and a tap in that window leaves Contacts.
+    const pathWhenSet: string[] = [];
+    const unsubscribe = useIntelligenceLayoutSlotsStore.subscribe(
+      (state, previous) => {
+        if (state.detailIsScreen && !previous.detailIsScreen) {
+          pathWhenSet.push(router.state.location.pathname);
+        }
+      },
+    );
     fireEvent.click(getButtonByText("Alice"));
-    await waitFor(() => {
-      expect(detailIsScreen()).toBe(true);
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    unsubscribe();
+
+    // The first raise is the one that matters. The effect's cleanup lowers
+    // and re-raises the flag inside the commit that opens the detail, and
+    // nothing renders in between.
+    expect(pathWhenSet[0]).toBe(routes.contacts.root);
+    expect(detailIsScreen()).toBe(true);
+
+    await act(async () => {
+      await router.navigate(-1);
     });
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(detailIsScreen()).toBe(false);
 
     unmount();
     expect(detailIsScreen()).toBe(false);
+  });
+
+  test("the list screen spins through its first load instead of going blank", async () => {
+    // As the page the list draws nothing while it has no contacts: no search
+    // field, no guardian row, and the add action is suppressed. A top bar
+    // over an empty page is what the spinner replaces.
+    renderContactsPage();
+
+    expect(queryPaneSpinner()).not.toBe(null);
+    expect(queryInputByPlaceholder("Search Contacts")).toBe(null);
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(queryPaneSpinner()).toBe(null);
   });
 
   test("the top bar add creates a contact and opens it", async () => {
@@ -1035,24 +1090,6 @@ describe("ContactsPage back swipe ownership", () => {
     expect(lastSwipeArgs).not.toBe(null);
     expect(lastSwipeArgs!.enabled).toBe(false);
   });
-
-  test("a desktop contact beside the list leaves the edge alone", async () => {
-    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
-
-    await waitFor(() => getInputByPlaceholder("Give this human a name"));
-    expect(lastSwipeArgs).not.toBe(null);
-    expect(lastSwipeArgs!.enabled).toBe(false);
-  });
-
-  test("a contact in the narrow desktop pane leaves the edge alone", async () => {
-    hasRoomForList = false;
-
-    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
-
-    await waitFor(() => getInputByPlaceholder("Give this human a name"));
-    expect(lastSwipeArgs).not.toBe(null);
-    expect(lastSwipeArgs!.enabled).toBe(false);
-  });
 });
 
 describe("ContactsPage in a narrow desktop pane", () => {
@@ -1068,9 +1105,10 @@ describe("ContactsPage in a narrow desktop pane", () => {
 });
 
 /**
- * The layout's Back follows the pane, not the window: a mobile-width window
- * whose pane still seats the list beside the detail shows both, so a Back to
- * the list would point at a list already on screen.
+ * The layout's Back and the edge swipe both follow the pane, not the window:
+ * a mobile-width window whose pane still seats the list beside the detail
+ * shows both, so a Back to the list would point at a list already on screen
+ * and a back swipe would leave the page the user can see.
  */
 describe.each([
   { mode: "a desktop window", mobile: false, roomForList: true },
@@ -1081,7 +1119,7 @@ describe.each([
     roomForList: true,
   },
 ])("ContactsPage on $mode", ({ mobile, roomForList }) => {
-  test("reports no pushed detail screen with a contact open", async () => {
+  test("reports no pushed detail screen and leaves the edge alone", async () => {
     isMobile = mobile;
     hasRoomForList = roomForList;
 
@@ -1089,6 +1127,8 @@ describe.each([
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     expect(detailIsScreen()).toBe(false);
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
   });
 });
 

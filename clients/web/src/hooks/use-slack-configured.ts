@@ -2,10 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { isChannelConfigured } from "@/types/channel-types";
 
 /**
- * Whether the assistant holds Slack credentials, mirroring the `configured`
- * field `use-assistant-channels.ts` derives for the Slack row.
+ * Whether the assistant holds Slack credentials, over the same predicate
+ * `use-assistant-channels.ts` derives the Slack row's `configured` from.
  *
  * Configuration, not liveness, so there is no readiness poll: callers gate an
  * outbound Slack Web API action, which answers perfectly well while the
@@ -24,7 +25,7 @@ export function useSlackConfigured(assistantId: string): boolean {
     select: (data) =>
       data.snapshots.some(
         (snapshot) =>
-          snapshot.channel === "slack" && snapshot.setupStatus === "ready",
+          snapshot.channel === "slack" && isChannelConfigured(snapshot),
       ),
   });
 

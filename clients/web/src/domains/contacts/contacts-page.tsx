@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Navigate,
   useLocation,
@@ -231,6 +238,11 @@ export function ContactsPage({
     [contactsData, selectedContactId],
   );
 
+  // The layout's Back returns to the list only while the detail is a pushed
+  // screen, which the pane's own width decides.
+  const setDetailIsScreen =
+    useIntelligenceLayoutSlotsStore.use.setDetailIsScreen();
+
   // A push is marked so Back pops to the list, and only a pick made while the
   // list is the page has a list behind it. Every other pick lands on a detail
   // already open (a row beside the rail, a merge survivor), which is a move
@@ -242,6 +254,14 @@ export function ContactsPage({
       if (contactId === routeContactId) {
         return;
       }
+      if (listFillsPage) {
+        // Reported with the navigation so the layout's Back lands in the same
+        // commit as the pushed screen: a Back a commit behind aims at the
+        // assistant overview over an open contact. The layout ignores the
+        // flag on the list path, so a navigation that never lands cannot
+        // strand it.
+        setDetailIsScreen(true);
+      }
       void navigate(
         routes.contacts.detail(contactId),
         listFillsPage
@@ -249,7 +269,7 @@ export function ContactsPage({
           : { replace: true, state: locationState },
       );
     },
-    [navigate, listFillsPage, routeContactId, locationState],
+    [navigate, listFillsPage, routeContactId, locationState, setDetailIsScreen],
   );
 
   // The page's own ways out of an open contact, over the same `returnToList`
@@ -423,20 +443,24 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  // The mutation object is new every render; its bound methods are not, so
+  // the callbacks below keep their identity across renders.
+  const resetMerge = mergeMutation.reset;
+
   const handleSelect = useCallback(
     (contactId: string) => {
       selectContact(contactId);
       closeDrawer();
       setMergeDialogOpen(false);
-      mergeMutation.reset();
+      resetMerge();
     },
-    [selectContact, closeDrawer, mergeMutation],
+    [selectContact, closeDrawer, resetMerge],
   );
 
   const handleOpenMerge = useCallback(() => {
-    mergeMutation.reset();
+    resetMerge();
     setMergeDialogOpen(true);
-  }, [mergeMutation]);
+  }, [resetMerge]);
 
   const handleCloseMerge = useCallback(() => {
     if (mergeMutation.isPending) {
@@ -497,11 +521,9 @@ export function ContactsPage({
     };
   }, [createPending, handleAddContact, listFillsPage, setHeaderTrailing, t]);
 
-  // The layout's Back returns to the list only while the detail is a pushed
-  // screen, which the pane's own width decides.
-  const setDetailIsScreen =
-    useIntelligenceLayoutSlotsStore.use.setDetailIsScreen();
-  useEffect(() => {
+  // Layout effect, not passive: the layout above reads this flag, so it is
+  // published in the commit that measured the pane rather than a phase later.
+  useLayoutEffect(() => {
     setDetailIsScreen(detailFillsPage);
     return () => {
       setDetailIsScreen(false);
@@ -734,10 +756,13 @@ export function ContactsPage({
         ref={swipeContainerRef}
         className="min-h-0 min-w-0 flex-1 overflow-y-auto"
       >
-        {listFillsPage ? (
-          <ContactsList {...contactsListProps} surface="screen" />
-        ) : contactsQuery.isLoading || resolvingRouteContact ? (
+        {/* The spinner comes first: as the page the list renders nothing at
+            all during a cold load, so the branch below would leave a bare
+            screen under the top bar. */}
+        {contactsQuery.isLoading || resolvingRouteContact ? (
           <ContactsPaneSpinner />
+        ) : listFillsPage ? (
+          <ContactsList {...contactsListProps} surface="screen" />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
