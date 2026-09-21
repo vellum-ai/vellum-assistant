@@ -34,6 +34,25 @@ RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
 
+# Mousepad runs as root inside the isolated desktop container.
+FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS mousepad-builder
+
+ARG MOUSEPAD_VERSION=0.6.3-1
+WORKDIR /build
+RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends dpkg-dev \
+    && apt-get build-dep -y --no-install-recommends mousepad=${MOUSEPAD_VERSION} \
+    && apt-get source mousepad=${MOUSEPAD_VERSION}
+COPY assistant/docker/mousepad/hide-root-warning.patch /build/hide-root-warning.patch
+RUN set -eu; \
+    cd mousepad-*/; \
+    patch --batch --fuzz=0 -p1 < /build/hide-root-warning.patch; \
+    sed -i "1s/(${MOUSEPAD_VERSION})/(${MOUSEPAD_VERSION}+vellum1)/" debian/changelog; \
+    dpkg-buildpackage --build=binary --no-sign -jauto; \
+    mkdir /out; \
+    cp ../mousepad_*.deb ../libmousepad0_*.deb /out/
+
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
 
@@ -102,7 +121,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Desktop system packages persist through container replacement as image layers.
-RUN set -eu; \
+COPY assistant/docker/mousepad/90-vellum.gschema.override /usr/share/glib-2.0/schemas/90-vellum.gschema.override
+RUN --mount=type=bind,from=mousepad-builder,source=/out,target=/tmp/mousepad \
+    set -eu; \
     wezterm_version=20240203-110809-5046fc22; \
     case "$(dpkg --print-architecture)" in \
         amd64) wezterm_suffix=Debian12.deb; wezterm_sha256=d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8 ;; \
@@ -129,7 +150,6 @@ RUN set -eu; \
         libgl1-mesa-dri \
         libgtk-3-0 \
         libvulkan1 \
-        mousepad \
         openbox \
         plank \
         python3 \
@@ -144,7 +164,9 @@ RUN set -eu; \
         xdotool \
         xfonts-base \
         xterm \
-        /tmp/wezterm.deb; \
+        /tmp/wezterm.deb \
+        /tmp/mousepad/*.deb; \
+    glib-compile-schemas --strict /usr/share/glib-2.0/schemas; \
     mkdir -p /etc/xdg; \
     awk -v desktop_id=org.xfce.mousepad.desktop \
         'BEGIN { print "[Default Applications]" } /^MimeType=/ { sub(/^MimeType=/, ""); count = split($0, types, ";"); for (i = 1; i <= count; i++) { if (types[i] != "") { print types[i] "=" desktop_id ";" } } }' \
