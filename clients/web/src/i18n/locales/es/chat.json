@@ -706,6 +706,8 @@
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
+    "newDocument": "Nuevo documento",
+    "newDocumentFailed": "No se pudo crear el documento. Inténtalo de nuevo.",
     "newGroup": "Nuevo grupo…",
     "openInNewWindow": "Abrir en una ventana nueva",
     "pin": "Fijar",

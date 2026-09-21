@@ -714,6 +714,8 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
+    "newDocument": "New Document",
+    "newDocumentFailed": "Couldn't create the document. Try again.",
     "newGroup": "New group…",
     "openInNewWindow": "Open in New Window",
     "pin": "Pin",
