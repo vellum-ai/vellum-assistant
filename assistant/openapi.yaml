@@ -12949,6 +12949,62 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/create:
+    post:
+      operationId: documents_create_post
+      summary: Create a document
+      description: Create an empty document owned by a conversation and return it with its new surface ID.
+      tags:
+        - documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  description: Owning conversation
+                title:
+                  description: Document title. Defaults to "Untitled Document".
+                  type: string
+              required:
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  wordCount:
+                    type: number
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                required:
+                  - success
+                  - surfaceId
+                  - conversationId
+                  - title
+                  - content
+                  - wordCount
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
   /v1/domain/register:
     post:
       operationId: domain_register_post

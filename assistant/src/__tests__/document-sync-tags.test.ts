@@ -203,6 +203,22 @@ describe("document write routes publish documents:list", () => {
     });
   });
 
+  test("creating a document publishes with the caller's client id", async () => {
+    const events = await captureSyncEvents(() =>
+      invoke("createDocument", {
+        body: { conversationId: CONVERSATION_ID },
+        headers: { "x-vellum-client-id": "client-abc" },
+      }),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].message).toMatchObject({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.documentsList],
+      originClientId: "client-abc",
+    });
+  });
+
   test("linking a document to a conversation publishes", async () => {
     await saveViaRoute();
 
@@ -247,6 +263,17 @@ describe("document routes that change nothing the list shows stay silent", () =>
       await expect(
         saveViaRoute({ conversationId: MISSING_CONVERSATION_ID }),
       ).rejects.toThrow();
+    });
+    expect(events).toEqual([]);
+  });
+
+  test("a create for a conversation that does not exist publishes nothing", async () => {
+    const events = await captureSyncEvents(async () => {
+      await expect(
+        invoke("createDocument", {
+          body: { conversationId: MISSING_CONVERSATION_ID },
+        }),
+      ).rejects.toThrow(/Conversation not found/);
     });
     expect(events).toEqual([]);
   });
