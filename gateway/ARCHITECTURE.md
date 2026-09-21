@@ -469,7 +469,7 @@ The inbound message handler (`inbound-message-handler.ts`) accepts verification 
 
 #### Explicit Rebind Policy
 
-Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. Minting is all it permits: a code never replaces a guardian when it is redeemed (see below). To change the guardian's account on a channel, revoke the existing binding and then verify again.
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. Minting is all it permits on a text channel: a code never swaps the guardian's linked identity when it is redeemed (see below), so changing it means revoking the existing binding and then verifying again. An outbound phone verification is the exception: it is guardian-initiated by design, and its code replaces the bound number (`applyPhoneGuardianBindingGatewayWrites` in `gateway/src/verification/session-service.ts`).
 
 #### Guardian Takeover Prevention
 
