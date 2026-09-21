@@ -8,6 +8,8 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
+import { TrustClassSchema } from "@vellumai/gateway-client";
+
 import {
   getApp,
   getAppDirPath,
@@ -81,7 +83,6 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { trustClassSchema } from "../runtime/trust-class.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
@@ -1188,7 +1189,7 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
 function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
   const slackMeta = readSlackMetadataFromMessageMetadata(row.metadata);
   const provenanceTrustClass = row.metadata
-    ? trustClassSchema.safeParse(
+    ? TrustClassSchema.safeParse(
         safeParseRecord(row.metadata).provenanceTrustClass,
       ).data
     : undefined;

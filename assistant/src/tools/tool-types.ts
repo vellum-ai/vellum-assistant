@@ -279,9 +279,9 @@ export interface ToolContext {
   principal?: string;
   /**
    * Trust classification of the actor who initiated this tool invocation.
-   * Broadened to `string` here; the assistant narrows this back to its
-   * concrete `TrustClass` union ("guardian" | "trusted_contact" | "unknown")
-   * in `assistant/src/tools/types.ts`.
+   * Broadened to `string` here; the assistant narrows this back to
+   * `TrustClass` (declared in `@vellumai/gateway-client`) in
+   * `assistant/src/tools/types.ts`.
    */
   trustClass: string;
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */

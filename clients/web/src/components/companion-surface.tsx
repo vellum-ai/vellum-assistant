@@ -25,6 +25,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -51,9 +52,18 @@ import type {
   CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
+  VoiceActivityWork,
 } from "@vellumai/ipc-contract";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import {
+  CompanionCallWorkSettled,
+  CompanionCallWorkShelf,
+  CompanionCallWorkSpinner,
+  callWorkAccent,
+  runningCallWork,
+  waitingCallWork,
+} from "@/components/companion-call-work";
 import { unplacedOfferLabelKey } from "@/components/companion-dictation-offer";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
@@ -958,6 +968,13 @@ export interface CompanionSurfaceProps {
    * {@link CompanionContext.dictationText}.
    */
   dictationText?: string;
+  /**
+   * Told when the list of the call's work opens or closes on the bar. The
+   * host hit-tests the pointer against the joined row, and a list that closes
+   * on its own (the work ran out) under a still pointer leaves nothing there
+   * to move off; the host gives the desktop back on this.
+   */
+  onWorkShelfChange?: (shown: boolean) => void;
 }
 
 export function CompanionSurface({
@@ -1013,12 +1030,48 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
-  prompt,
+  prompt: hostPrompt,
   promptRef,
   promptsDeferred = 0,
   onReviewPrompts,
+  onWorkShelfChange,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
+  /**
+   * Whether the list of the call's work is open on the bar. The surface's own
+   * state rather than the host's: it is a view of what the call already
+   * carries, opened and closed from the bar, and nothing outside the bar acts
+   * on it. Closed when the work runs out, so the next piece of work arrives
+   * as a count rather than reopening a list the user closed long ago.
+   */
+  const work = phase === "call" ? call?.work : undefined;
+  const hasWork = work !== undefined && work.length > 0;
+  const [workShelfOpen, setWorkShelfOpen] = useState(false);
+  useEffect(() => {
+    if (!hasWork) {
+      setWorkShelfOpen(false);
+    }
+  }, [hasWork]);
+  /**
+   * What stands joined to the bar: the host's prompt, which is waiting on the
+   * user and so always outranks it, or else the call's work while its list is
+   * open.
+   */
+  const workShelfShown =
+    hostPrompt === null || hostPrompt === undefined
+      ? workShelfOpen && hasWork
+      : false;
+  useEffect(() => {
+    onWorkShelfChange?.(workShelfShown);
+  }, [onWorkShelfChange, workShelfShown]);
+  const prompt = useMemo(
+    () =>
+      hostPrompt ??
+      (workShelfOpen && hasWork ? (
+        <CompanionCallWorkShelf work={work} accentHex={accentHex} />
+      ) : undefined),
+    [hostPrompt, workShelfOpen, hasWork, work, accentHex],
+  );
   /**
    * Whether the pill is drawn.
    *
@@ -1600,6 +1653,16 @@ export function CompanionSurface({
                   promptsDeferred={promptsDeferred}
                   lineExtra={lineExtra}
                   onReviewPrompts={onReviewPrompts}
+                  accentHex={accentHex}
+                  workShelfOpen={workShelfShown}
+                  onToggleWorkShelf={
+                    // The column has no edge to stand a list on.
+                    vertical
+                      ? undefined
+                      : () => {
+                          setWorkShelfOpen((open) => !open);
+                        }
+                  }
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -2544,6 +2607,9 @@ function CallBody({
   promptsDeferred = 0,
   onReviewPrompts,
   lineExtra = 0,
+  accentHex,
+  workShelfOpen,
+  onToggleWorkShelf,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -2583,6 +2649,10 @@ function CallBody({
   onReviewPrompts?: () => void;
   /** Width past its own the line takes, to fill a bar a prompt widened. */
   lineExtra?: number;
+  accentHex: string;
+  workShelfOpen: boolean;
+  /** Absent where the bar cannot carry the list, which leaves the count. */
+  onToggleWorkShelf?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2613,11 +2683,12 @@ function CallBody({
       </>
     );
   }
-  // The activity line when the turn has one, the phase otherwise. `detail` is
-  // the more specific of the two ("Reading a file" against "Thinking…") and is
-  // empty for most of a call, so this reads as the surface saying more exactly
-  // when there is more to say. The mascot carries the state either way.
-  const line = call.detail || call.label;
+  // The phase, and the turn's own step when the session has no work list to
+  // carry it. A session that sends `work` names the step there, on the
+  // foreground's line, and the phase reads "Working…" for it; one that
+  // predates the list has only this line, and the step is the more specific
+  // of the two ("Reading a file" against "Thinking…").
+  const line = call.work === undefined ? call.detail || call.label : call.label;
   const { muted, outputMuted } = call;
   // Who is on this call, which is not always who the app is showing. A
   // session outlives a switch to another assistant, while `assistantName` on
@@ -2636,6 +2707,14 @@ function CallBody({
           would measure its own collapsed self: the width and the truncation
           would chase each other down. */}
       <CallLine vertical={vertical} extra={lineExtra} text={line} />
+      {call.work !== undefined && call.work.length > 0 ? (
+        <WorkChip
+          work={call.work}
+          accentHex={accentHex}
+          open={workShelfOpen}
+          onToggle={onToggleWorkShelf}
+        />
+      ) : null}
       {/* What was put off, beside what the session is doing: it is the
           assistant waiting on the user, which is part of what the call is
           doing. A press lists it again. */}
@@ -3186,6 +3265,88 @@ const captionStance = (
         className: CONTROL_CAPTION_BESIDE[side],
         beak: side === "right" ? "left" : "right",
       };
+
+/**
+ * The call's work on its row: a turning arc around how many pieces are
+ * running, which settles to a mark for a beat when the last one finishes. A
+ * press opens the list of them joined to the bar. Beside the line, since it is
+ * part of what the call is doing.
+ *
+ * The caption names what is running rather than the press, the way a count
+ * is read: the names are what the pointer came for.
+ */
+function WorkChip({
+  work,
+  accentHex,
+  open,
+  onToggle,
+}: {
+  work: readonly VoiceActivityWork[];
+  accentHex: string;
+  open: boolean;
+  onToggle?: () => void;
+}) {
+  const { t } = useTranslation();
+  const stance = captionStance(useContext(CaptionSideContext));
+  const running = runningCallWork(work);
+  const waiting = waitingCallWork(work);
+  // What the count counts: the work moving, or failing that the work held on
+  // the user, which is still open but not running.
+  const counted = running.length > 0 ? running : waiting;
+  const last = work.at(-1);
+  const names = (counted.length > 0 ? counted : work)
+    .map((item) => item.title)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      aria-label={
+        running.length === 0 && waiting.length > 0
+          ? t("companionSurface.workWaiting", { count: waiting.length })
+          : t("companionSurface.workCount", { count: running.length })
+      }
+      aria-expanded={onToggle === undefined ? undefined : open}
+      data-control="work"
+      disabled={onToggle === undefined}
+      className={`group flex size-7 shrink-0 items-center justify-center rounded-full transition-colors enabled:hover:bg-white/15 ${
+        open ? "bg-white/15" : ""
+      }`}
+      style={callWorkAccent(accentHex)}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={onToggle}
+    >
+      <span className="relative grid size-5 place-items-center">
+        {counted.length > 0 ? (
+          <>
+            <span className="absolute inset-0 grid place-items-center">
+              <CompanionCallWorkSpinner
+                size={20}
+                still={running.length === 0}
+              />
+            </span>
+            <span className="text-[10px] leading-none font-semibold text-white/90 tabular-nums">
+              {counted.length}
+            </span>
+          </>
+        ) : (
+          <CompanionCallWorkSettled
+            state={last?.state === "failed" ? "failed" : "done"}
+          />
+        )}
+      </span>
+      {open ? null : (
+        <Caption
+          label={names}
+          className={`opacity-0 group-hover:opacity-100 ${stance.className}`}
+          beak={stance.beak}
+          data-label="hover"
+        />
+      )}
+    </button>
+  );
+}
 
 /**
  * A control in the pill.

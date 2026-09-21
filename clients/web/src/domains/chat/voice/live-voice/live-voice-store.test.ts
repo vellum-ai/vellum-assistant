@@ -28,6 +28,7 @@ import {
   isLiveVoiceSessionOwnedBy,
   isLiveVoiceUserSpeaking,
   LIVE_VOICE_STATE_KEYS,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
@@ -263,6 +264,7 @@ function surfaceLabel(
   assistantAudioActive: boolean,
   muted: boolean,
   responsePhase: LiveVoiceResponsePhase | null = null,
+  onToolStep = false,
 ): string {
   const key = liveVoiceSurfaceLabelKey(
     state,
@@ -270,6 +272,7 @@ function surfaceLabel(
     assistantAudioActive,
     muted,
     responsePhase,
+    onToolStep,
   );
   if (!key) {
     return "";
@@ -299,6 +302,32 @@ describe("LIVE_VOICE_STATE_KEYS", () => {
   });
 });
 
+describe("isOnToolStep", () => {
+  test("is a turn with an activity label", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Searching the web",
+        pendingApprovalRequestId: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("is not a turn waiting on the user's approval", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Waiting for approval",
+        pendingApprovalRequestId: "approval-123",
+      }),
+    ).toBe(false);
+  });
+
+  test("is not a turn with no activity", () => {
+    expect(
+      isOnToolStep({ activityLabel: "", pendingApprovalRequestId: null }),
+    ).toBe(false);
+  });
+});
+
 describe("liveVoiceSurfaceLabelKey", () => {
   test("shows a neutral working status while an escalated response prepares", () => {
     expect(surfaceLabel("thinking", false, false, false, "escalated")).toBe(
@@ -309,6 +338,21 @@ describe("liveVoiceSurfaceLabelKey", () => {
     );
     expect(surfaceLabel("speaking", false, true, false, "escalated")).toBe(
       "Speaking…",
+    );
+  });
+
+  test("a turn on a tool step reads as working wherever it would read thinking", () => {
+    expect(surfaceLabel("thinking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, false, false, null, true)).toBe(
+      "Working on that…",
+    );
+    expect(surfaceLabel("speaking", false, true, false, null, true)).toBe(
+      "Speaking…",
+    );
+    expect(surfaceLabel("listening", false, false, false, null, true)).toBe(
+      "Listening…",
     );
   });
 

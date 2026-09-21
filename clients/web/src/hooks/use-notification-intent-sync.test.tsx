@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { NotificationIntentEvent } from "@vellumai/assistant-api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
@@ -94,10 +95,12 @@ mock.module("@/lib/sounds/sound-manager", () => ({
   getSoundManager: () => ({ play: playSoundMock }),
 }));
 
-const { useNotificationIntentSync } =
-  await import("@/hooks/use-notification-intent-sync");
-const { subscribeToWindowAttention } =
-  await import("@/runtime/window-attention");
+const { useNotificationIntentSync } = await import(
+  "@/hooks/use-notification-intent-sync"
+);
+const { subscribeToWindowAttention } = await import(
+  "@/runtime/window-attention"
+);
 
 const realVisibilityState = Object.getOwnPropertyDescriptor(
   document,
@@ -169,15 +172,9 @@ function mountAt(
   );
 }
 
-function publishNotificationIntent(overrides: {
-  assistantName?: string;
-  sourceEventName?: string;
-  title?: string;
-  remotePushDispatched?: boolean;
-  remotePushPlatforms?: ("ios" | "android")[];
-  deepLinkMetadata?: Record<string, unknown>;
-  targetGuardianPrincipalId?: string;
-}) {
+function publishNotificationIntent(
+  overrides: Partial<Omit<NotificationIntentEvent, "type">>,
+) {
   act(() => {
     publish("sse.event", {
       id: "evt-1",
@@ -485,7 +482,9 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
   });
 
   test("shows one from an assistant that targets the guardian's connections", () => {
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.3", "assistant-1");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test", "0.12.3", "assistant-1");
     mountAt(routes.assistant);
 
     publishNotificationIntent(guardianIntent);
@@ -499,7 +498,9 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
   });
 
   test("skips and acks one from an assistant that broadcasts it to everyone", () => {
-    useAssistantIdentityStore.getState().setIdentity("Test", "0.12.2", "assistant-1");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Test", "0.12.2", "assistant-1");
     mountAt(routes.assistant);
 
     publishNotificationIntent(guardianIntent);
@@ -514,6 +515,35 @@ describe("useNotificationIntentSync guardian-scoped intents", () => {
     publishNotificationIntent(guardianIntent);
 
     expect(postedArgs).toHaveLength(0);
+  });
+});
+
+describe("useNotificationIntentSync silent intents", () => {
+  test("skips and acks an intent the daemon marks silent", () => {
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({ silent: true });
+
+    expectSuppressed();
+  });
+
+  test("skips a silent intent in the desktop app too", () => {
+    runInElectron(false);
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({ silent: true });
+
+    expectSuppressed();
+  });
+
+  test("notifies when silent is false or omitted", () => {
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({ silent: false });
+    publishNotificationIntent({ deliveryId: "delivery-2" });
+
+    expect(postedArgs).toHaveLength(2);
+    expect(sendAckMock).not.toHaveBeenCalled();
   });
 });
 

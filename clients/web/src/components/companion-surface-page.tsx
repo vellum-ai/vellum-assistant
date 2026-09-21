@@ -588,16 +588,20 @@ export function CompanionSurfacePage() {
       observer.disconnect();
     };
   }, [promptId, popoverView]);
-  // The row goes when it is answered, reviewed or put off, under a pointer
-  // that has not moved. Give the desktop back the way the offer's card does,
-  // and only when the pointer was on the row.
+  // Whether the call's own list of work stands joined to the bar, which the
+  // surface opens and closes itself. See `onWorkShelfChange`.
+  const [workShelfShown, setWorkShelfShown] = useState(false);
+  // The row goes when it is answered, reviewed or put off, or the work it
+  // lists runs out, under a pointer that has not moved. Give the desktop back
+  // the way the offer's card does, and only when the pointer was on the row.
+  const rowShown = promptShown || workShelfShown;
   useEffect(() => {
-    if (!promptShown && overPromptRef.current) {
+    if (!rowShown && overPromptRef.current) {
       overPromptRef.current = false;
       interactiveRef.current = false;
       setCompanionInteractive(false);
     }
-  }, [promptShown]);
+  }, [rowShown]);
 
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
@@ -1399,6 +1403,7 @@ export function CompanionSurfacePage() {
           )
         }
         promptRef={promptRef}
+        onWorkShelfChange={setWorkShelfShown}
         promptsDeferred={deferredCount}
         onReviewPrompts={() => {
           if (popover !== undefined) {

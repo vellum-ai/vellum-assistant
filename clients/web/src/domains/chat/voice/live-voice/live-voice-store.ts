@@ -141,6 +141,10 @@ export const LIVE_VOICE_STATE_KEYS: Record<
  * Only `listening` is remapped for mute. Muting the microphone does not make
  * the assistant stop thinking or speaking, and relabelling those would trade
  * one false statement for another.
+ *
+ * A turn on a tool step (`onToolStep`, the session's activity label is set)
+ * reads as "Working…" where it would read "Thinking…": the assistant is off
+ * doing something, and the step itself says what.
  */
 export function liveVoiceSurfaceLabelKey(
   state: LiveVoiceSessionState,
@@ -148,6 +152,7 @@ export function liveVoiceSurfaceLabelKey(
   assistantAudioActive: boolean,
   muted: boolean,
   responsePhase: LiveVoiceResponsePhase | null = null,
+  onToolStep = false,
 ): LiveVoiceStatusKey | null {
   if (state === "listening" && muted) {
     return "liveVoiceStatus.muted";
@@ -156,7 +161,7 @@ export function liveVoiceSurfaceLabelKey(
     return "liveVoiceStatus.reconnecting";
   }
   if (
-    responsePhase === "escalated" &&
+    (responsePhase === "escalated" || onToolStep) &&
     (state === "thinking" || (state === "speaking" && !assistantAudioActive))
   ) {
     return "liveVoiceStatus.working";
@@ -166,6 +171,17 @@ export function liveVoiceSurfaceLabelKey(
   }
   return LIVE_VOICE_STATE_KEYS[state];
 }
+
+/**
+ * Whether the turn is off on a tool step: the session carries an activity
+ * label and is not waiting on the user's approval, which carries one too. The
+ * one reading of it every surface takes, for "Working…" and for the call's
+ * work list alike.
+ */
+export const isOnToolStep = (
+  session: Pick<LiveVoiceState, "activityLabel" | "pendingApprovalRequestId">,
+): boolean =>
+  session.activityLabel !== "" && session.pendingApprovalRequestId === null;
 
 /**
  * Imperative controls for the active session, registered by the
