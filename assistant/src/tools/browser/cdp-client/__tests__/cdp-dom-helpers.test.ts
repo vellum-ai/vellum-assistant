@@ -372,6 +372,67 @@ describe("insertTextIntoElement", () => {
     );
   });
 
+  test("normalizes textarea line endings for clear and append verification", async () => {
+    const requestedText = "first\r\nsecond\rthird";
+    const normalizedText = "first\nsecond\nthird";
+
+    for (const clearFirst of [true, false]) {
+      const initialText = clearFirst ? "" : "prefix";
+      const cdp = fakeCdp((method, params) => {
+        if (method === "DOM.resolveNode") {
+          return { object: { objectId: "textarea-1" } };
+        }
+        if (
+          method === "Runtime.callFunctionOn" &&
+          String(params?.functionDeclaration).includes("isConnected")
+        ) {
+          const verifyText = Function(
+            `return (${String(params?.functionDeclaration)});`,
+          )() as (
+            this: {
+              value: string;
+              tagName: string;
+              isConnected: boolean;
+            },
+            insertedText: string,
+            shouldClearFirst: boolean,
+            initialLength: number | null,
+          ) => unknown;
+          const args = params?.arguments as Array<{ value: unknown }>;
+          return {
+            result: {
+              value: verifyText.call(
+                {
+                  value: `${initialText}${normalizedText}`,
+                  tagName: "TEXTAREA",
+                  isConnected: true,
+                },
+                String(args[0]?.value),
+                Boolean(args[1]?.value),
+                args[2]?.value as number | null,
+              ),
+            },
+          };
+        }
+        if (method === "Runtime.callFunctionOn") {
+          return {
+            result: {
+              value: clearFirst
+                ? { needsRefocus: false }
+                : {
+                    initialLength: initialText.length,
+                    needsRefocus: false,
+                  },
+            },
+          };
+        }
+        return {};
+      });
+
+      await insertTextIntoElement(cdp, 42, requestedText, { clearFirst });
+    }
+  });
+
   test("clears controls that do not support text selection", async () => {
     const inputEvents: Array<{ type: string; bubbles?: boolean }> = [];
     let focusedBackendNodeId: number | undefined;
@@ -761,6 +822,32 @@ describe("dispatchKeyPress", () => {
         windowsVirtualKeyCode: 91,
       },
     ]);
+  });
+
+  test("dispatches standalone modifier key presses", async () => {
+    const cases = [
+      ["Alt", "AltLeft", 18, 1],
+      ["Control", "ControlLeft", 17, 2],
+      ["Meta", "MetaLeft", 91, 4],
+      ["Shift", "ShiftLeft", 16, 8],
+    ] as const;
+
+    for (const [key, code, windowsVirtualKeyCode, modifiers] of cases) {
+      const cdp = fakeCdp(() => ({}));
+
+      await dispatchKeyPress(cdp, key);
+
+      expect(cdp.calls.map((call) => call.params)).toEqual([
+        {
+          type: "rawKeyDown",
+          key,
+          code,
+          windowsVirtualKeyCode,
+          modifiers,
+        },
+        { type: "keyUp", key, code, windowsVirtualKeyCode },
+      ]);
+    }
   });
 
   test("Shift+a emits uppercase text with the unmodified character", async () => {

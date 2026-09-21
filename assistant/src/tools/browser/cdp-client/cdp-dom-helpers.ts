@@ -277,11 +277,14 @@ export async function insertTextIntoElement(
           const text = typeof this.value === "string"
             ? this.value
             : (this.textContent ?? "");
+          const normalizedInsertedText = this.tagName === "TEXTAREA"
+            ? insertedText.replace(/\\r\\n?/g, "\\n")
+            : insertedText;
           const matches = clearFirst
-            ? text === insertedText
+            ? text === normalizedInsertedText
             : Number.isInteger(initialLength)
-              && text.length === initialLength + insertedText.length
-              && text.endsWith(insertedText);
+              && text.length === initialLength + normalizedInsertedText.length
+              && text.endsWith(normalizedInsertedText);
           return { connected: this.isConnected, matches };
         }`,
         arguments: [
@@ -572,7 +575,12 @@ export async function dispatchKeyPress(
     modifiers.push(modifier);
   }
 
-  const unmodifiedDescriptor = resolveKeyDescriptor(primaryKey);
+  const standaloneModifier = MODIFIER_DESCRIPTORS[primaryKey.toLowerCase()];
+  if (standaloneModifier && (modifierBits & standaloneModifier.bit) !== 0) {
+    throw new CdpError("cdp_error", `Unsupported key chord: ${key}`);
+  }
+  const unmodifiedDescriptor =
+    standaloneModifier?.descriptor ?? resolveKeyDescriptor(primaryKey);
   if (!unmodifiedDescriptor) {
     throw new CdpError("cdp_error", `Unsupported key: ${primaryKey || key}`);
   }
@@ -580,6 +588,7 @@ export async function dispatchKeyPress(
     (modifierBits & SHIFT_MODIFIER.bit) !== 0
       ? applyShift(unmodifiedDescriptor)
       : unmodifiedDescriptor;
+  const primaryDownModifiers = modifierBits | (standaloneModifier?.bit ?? 0);
 
   let activeModifiers = 0;
   const pressedModifiers: ModifierDescriptor[] = [];
@@ -600,7 +609,7 @@ export async function dispatchKeyPress(
     primaryPressed = true;
     await cdp.send(
       "Input.dispatchKeyEvent",
-      describeKeyEvent(descriptor, "rawKeyDown", modifierBits),
+      describeKeyEvent(descriptor, "rawKeyDown", primaryDownModifiers),
       signal,
     );
     if (descriptor.text !== undefined && !suppressText) {
