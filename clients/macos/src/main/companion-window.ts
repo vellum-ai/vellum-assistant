@@ -2094,10 +2094,20 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
- * The frame window that has not painted yet, so nothing shows it before its
- * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ * The frame window whose page has not drawn the border yet, so nothing shows
+ * it before {@link revealFrame} does. See {@link placeWatchFrame}.
  */
-let frameAwaitingPaint: BrowserWindow | null = null;
+let frameAwaitingDraw: BrowserWindow | null = null;
+
+/** Shows {@link frameAwaitingDraw} if its page never reports the border. */
+let frameDrawFallback: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * How long a new frame waits on its page before being shown anyway. Well past
+ * the few hundred milliseconds the page takes to draw, so it only fires for a
+ * page that will not report at all.
+ */
+const FRAME_DRAW_TIMEOUT_MS = 3000;
 
 /**
  * Give the frame the mouse, or give it back to the desktop.
@@ -2136,9 +2146,9 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  // `focus` puts a window on screen, and a frame still waiting on its first
-  // paint must stay off it. The paint runs this again.
-  if (frame !== frameAwaitingPaint) {
+  // `focus` puts a window on screen, and a frame still waiting on its page to
+  // draw must stay off it. `revealFrame` runs this again.
+  if (frame !== frameAwaitingDraw) {
     frame.focus();
   }
 };
@@ -2729,9 +2739,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    // A frame still waiting on its first paint is shown by that paint.
-    // Shown any earlier, it is the frame that never reaches the screen.
-    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
+    // A frame still waiting on its page is shown by `revealFrame`. Shown any
+    // earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingDraw) {
       existing.showInactive();
     }
     return;
@@ -2741,13 +2751,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
-    // **Shown once its page has painted, never before.** A frame put on
-    // screen while its page is still loading stays blank on a whole display:
-    // the page draws the border and the label, and the screen keeps showing
-    // the empty window until something makes macOS take it again (Mission
-    // Control, or showing the window a second time). Moving it, resizing it
-    // and repainting the page do not.
-    showWhenReady: true,
+    // **Shown once its page has drawn the border, never before.** A frame put
+    // on screen before then stays blank on a whole display: the page goes on
+    // drawing the border and the label, and the screen keeps showing the
+    // empty window until something makes macOS take the window's contents
+    // again (Mission Control, capturing the window, or showing it a second
+    // time). Moving it, resizing it, reordering it and repainting the page do
+    // not. The page's first paint (`ready-to-show`) is too early: the border
+    // waits on the companion state, which the page asks for after it loads.
+    callerShows: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2769,15 +2781,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
-  frameAwaitingPaint = win;
-  win.once("ready-to-show", () => {
-    if (frameAwaitingPaint === win) {
-      frameAwaitingPaint = null;
-    }
-    // Key status is lent with a `focus` that would have shown the window
-    // early, so a mode that was on when this frame opened takes it now.
-    applyFrameMouse();
-  });
+  awaitFrameDraw(win);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
@@ -2789,6 +2793,51 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   // Marks still up are drawn on this window from here on, so the presses
   // they can be heard as are measured out on it.
   armCoachmarkPressWatch();
+};
+
+/**
+ * Hold a new frame off the screen until its page reports the border drawn, or
+ * until {@link FRAME_DRAW_TIMEOUT_MS} passes without a report.
+ */
+const awaitFrameDraw = (win: BrowserWindow): void => {
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+  }
+  frameAwaitingDraw = win;
+  frameDrawFallback = setTimeout(() => {
+    revealFrame(win);
+  }, FRAME_DRAW_TIMEOUT_MS);
+  win.once("closed", () => {
+    if (frameAwaitingDraw === win) {
+      frameAwaitingDraw = null;
+      if (frameDrawFallback !== null) {
+        clearTimeout(frameDrawFallback);
+        frameDrawFallback = null;
+      }
+    }
+  });
+};
+
+/**
+ * Put a frame that was waiting on its page on the screen. Settles: a frame
+ * already shown, or replaced by a newer one, is left alone.
+ */
+const revealFrame = (win: BrowserWindow): void => {
+  if (frameAwaitingDraw !== win) {
+    return;
+  }
+  frameAwaitingDraw = null;
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+    frameDrawFallback = null;
+  }
+  if (win.isDestroyed()) {
+    return;
+  }
+  win.showInactive();
+  // Key status is lent with a `focus` that would have shown the window
+  // early, so a mode that was on when this frame opened takes it now.
+  applyFrameMouse();
 };
 
 /**
@@ -3730,6 +3779,22 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
     setFrameScrolling(next);
+  });
+
+  /**
+   * The frame's page has drawn the border, from the frame's own window. Taken
+   * only from the window waiting on it, so another page cannot show the frame
+   * early.
+   */
+  on("vellum:companion:frameDrawn", z.tuple([]), (_args, event) => {
+    const frame = frameAwaitingDraw;
+    if (
+      frame !== null &&
+      !frame.isDestroyed() &&
+      event.sender === frame.webContents
+    ) {
+      revealFrame(frame);
+    }
   });
 
   /**

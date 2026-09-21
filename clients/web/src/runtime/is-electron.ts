@@ -441,6 +441,7 @@ declare global {
           ink: string,
         ): void;
         setFrameScrolling?(scrolling: boolean): void;
+        frameDrawn?(): void;
         sharedFrame?(target: WatchCaptureTarget): void;
         captureScreen?(
           target: WatchCaptureTarget,

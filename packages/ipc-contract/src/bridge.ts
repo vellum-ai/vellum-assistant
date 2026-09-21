@@ -804,6 +804,14 @@ export interface VellumBridge {
      */
     setFrameScrolling?(scrolling: boolean): void;
     /**
+     * Tell main the frame's page has drawn the border, from the frame's own
+     * window. Main holds a new frame off the screen until this arrives: a
+     * frame shown before its page has drawn anything stays blank on a whole
+     * display. Absent on a shell that predates it, which shows the frame
+     * without being told.
+     */
+    frameDrawn?(): void;
+    /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
      * could be taken: the window has gone, the display was unplugged, or
