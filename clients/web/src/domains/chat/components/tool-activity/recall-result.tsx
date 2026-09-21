@@ -45,7 +45,10 @@ export function RecallResult({ recall, assistantId }: RecallResultProps) {
         <div>
           <SectionLabel>{evidenceLabel}</SectionLabel>
           <ClampedContent label={evidenceLabel}>
-            <RecallEvidenceList evidence={recall.evidence} />
+            <RecallEvidenceList
+              evidence={recall.evidence}
+              assistantId={assistantId}
+            />
           </ClampedContent>
         </div>
       ) : (

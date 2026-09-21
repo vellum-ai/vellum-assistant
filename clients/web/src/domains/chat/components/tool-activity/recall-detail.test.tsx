@@ -5,13 +5,25 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render as rtlRender } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+} from "@testing-library/react";
 import type { RecallMetadata } from "@vellumai/assistant-api";
+import { MemoryRouter } from "react-router";
 
+import { isWorkspaceFileOpen } from "@/components/local-file/open-local-file";
 import { RecallDetail } from "@/domains/chat/components/tool-activity/recall-detail";
+import { routes } from "@/utils/routes";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  act(() => useViewerStore.getState().closeDocument());
+});
 
 const recall: RecallMetadata = {
   query: "release checklist",
@@ -24,6 +36,7 @@ const recall: RecallMetadata = {
       title: "docs/releasing.md",
       locator: "docs/releasing.md:14",
       excerpt: "14: Wait for the staging bake.",
+      path: "docs/releasing.md",
     },
   ],
   searchedSources: [
@@ -53,8 +66,10 @@ function renderRecall(overrides: Partial<Props> = {}) {
       isRunning={false}
       isError={false}
       isDenied={false}
+      assistantId="assistant-1"
       {...overrides}
     />,
+    { wrapper: MemoryRouter },
   );
 }
 
@@ -70,8 +85,70 @@ describe("RecallDetail", () => {
     ).toBeDefined();
     expect(getByText("1 result")).toBeDefined();
     expect(getByText("docs/releasing.md")).toBeDefined();
-    expect(getByText("docs/releasing.md:14")).toBeDefined();
+    expect(getByText("Workspace files")).toBeDefined();
     expect(getByText("14: Wait for the staging bake.")).toBeDefined();
+  });
+
+  test("opens a file the evidence came from in the drawer", () => {
+    const { getByRole } = renderRecall();
+
+    fireEvent.click(getByRole("button", { name: /docs\/releasing\.md/ }));
+
+    const state = useViewerStore.getState();
+    expect(
+      isWorkspaceFileOpen(
+        state.mainView,
+        state.openedDocumentState,
+        "docs/releasing.md",
+      ),
+    ).toBe(true);
+  });
+
+  test("links a conversation hit to its message, never showing the ids", () => {
+    const { getByRole, queryByText } = renderRecall({
+      activityMetadata: {
+        recall: {
+          ...recall,
+          evidence: [
+            {
+              source: "conversations",
+              title: "Planning the release",
+              locator: "conv-1#msg-9",
+              excerpt: "The bake is 30 minutes.",
+              conversationId: "conv-1",
+              messageId: "msg-9",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(
+      getByRole("link", { name: /Planning the release/ }).getAttribute("href"),
+    ).toBe(routes.conversationAtMessage("conv-1", "msg-9"));
+    expect(queryByText(/conv-1/)).toBeNull();
+  });
+
+  test("shows an item with nowhere to open as a readout", () => {
+    const { getByText, queryByRole } = renderRecall({
+      activityMetadata: {
+        recall: {
+          ...recall,
+          evidence: [
+            {
+              source: "memory",
+              title: "Preference",
+              locator: "node-42",
+              excerpt: "Prefers window seats.",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(getByText("Preference")).toBeDefined();
+    expect(queryByRole("button", { name: /Preference/ })).toBeNull();
+    expect(queryByRole("link", { name: /Preference/ })).toBeNull();
   });
 
   test("lists what turned up without an answer when recall wrote none", () => {

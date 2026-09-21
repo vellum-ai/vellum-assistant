@@ -293,22 +293,28 @@ export const recallDetail: ToolDetailPayload = payload({
       evidence: [
         {
           source: "memory",
-          title: "Release checklist",
-          locator: "memory/release-checklist.md",
+          title: "release-checklist",
+          locator: "memory/concepts/release-checklist.md:3",
+          path: "memory/concepts/release-checklist.md",
           excerpt:
-            "Cut the release branch, let staging bake, then dispatch production.",
+            "3: Cut the release branch, let staging bake, then dispatch production.",
         },
         {
           source: "conversations",
-          title: "Staging bake window",
-          locator: "Planning the Thursday release, 1 week ago",
+          title: "Planning the Thursday release",
+          locator:
+            "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47#c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
           excerpt:
             "The bake is 30 minutes unless the diff touches the gateway, then an hour.",
+          timestampMs: 1_757_000_000_000,
+          conversationId: "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47",
+          messageId: "c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
         },
         {
           source: "workspace",
           title: "docs/releasing.md",
           locator: "docs/releasing.md:14",
+          path: "docs/releasing.md",
           excerpt:
             "14: Wait for the staging bake before dispatching production.",
         },
