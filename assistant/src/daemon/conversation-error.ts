@@ -27,6 +27,7 @@ import {
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  isContentFilterError,
   isModelNotFoundError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
@@ -577,6 +578,9 @@ function classifyCore(
       if (isChatTemplateFailureError(message)) {
         return requestShapeUnsupportedClassification();
       }
+      if (isContentFilterError(message)) {
+        return contentFilteredClassification();
+      }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
       const detail = detailMatch?.[1];
@@ -946,6 +950,25 @@ function requestShapeUnsupportedClassification(): Omit<
       "This model's provider couldn't process the request format (tool calls or images may not be supported). Switch to a different model in Settings → Models & Services and try again.",
     retryable: false,
     errorCategory: "request_shape_unsupported",
+  };
+}
+
+/**
+ * Classification for a request refused by the provider's own content-safety
+ * filter. The copy blames the filter, not the model or us, and stays
+ * provider-agnostic: the filtering model is often behind an aggregator or a
+ * custom endpoint, so the routed provider's name would point at the wrong party.
+ */
+function contentFilteredClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage:
+      "The model provider's content filter blocked this request. Something in the conversation (your message, an attachment, or a tool result) tripped its safety rules. This isn't a bug and retrying won't help: rephrase or remove that content, start a new conversation, or switch to a different model.",
+    retryable: false,
+    errorCategory: "provider_content_filtered",
   };
 }
 

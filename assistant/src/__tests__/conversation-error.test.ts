@@ -1218,6 +1218,27 @@ describe("classifyConversationError", () => {
       );
     });
 
+    it("classifies a provider content-filter 400 as a non-retryable provider-side block", () => {
+      // GIVEN DeepSeek's content-safety rejection
+      const err = new ProviderError(
+        "DeepSeek API error (400): Content Exists Risk",
+        "deepseek",
+        400,
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the user is told the provider blocked the content
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_content_filtered");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "content filter blocked this request",
+      );
+      expect(result.userMessage).not.toContain("Content Exists Risk");
+    });
+
     it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {
       const err = new ProviderError(
         "Vercel AI Gateway API error (403): Model claude-opus-4 is restricted on your plan [type=no_providers_available]",

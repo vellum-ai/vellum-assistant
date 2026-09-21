@@ -48,6 +48,25 @@ export function isChatTemplateFailureError(message: string): boolean {
   return CHAT_TEMPLATE_FAILURE_PATTERNS.some((re) => re.test(message));
 }
 
+// Provider prose that indicates the provider's own content-safety filter
+// refused the request. Nothing on our side or in the user's settings can
+// change the outcome; only different content or a different provider can.
+export const CONTENT_FILTER_PATTERNS = [
+  // DeepSeek
+  /content exists risk/i,
+  // OpenAI / Azure OpenAI
+  /content_filter/i,
+  /content_policy_violation/i,
+  /content management policy/i,
+  // Alibaba DashScope (Qwen)
+  /data_inspection_failed/i,
+];
+
+/** Whether a provider error message is a content-safety filter rejection. */
+export function isContentFilterError(message: string): boolean {
+  return CONTENT_FILTER_PATTERNS.some((re) => re.test(message));
+}
+
 // Provider prose that indicates the selected model id is unknown to the
 // endpoint. Distinct from OpenCode's `ModelError` / "is not supported"
 // shape, which is only safe to treat as model-not-found on a 4xx.
