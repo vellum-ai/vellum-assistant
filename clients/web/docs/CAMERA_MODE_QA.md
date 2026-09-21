@@ -55,7 +55,9 @@ scrim.
       the two corner controls, in Photo and in Live and in all three states.
       Flash and flip sit the same distance in from their edges, on one line
       with the shutter's centre, and the auto badge sits at the bolt's lower
-      right.
+      right. That distance is 30pt in portrait; rotate to landscape on a
+      notched phone and both move in together to the deeper of the two side
+      safe-area insets, so the pair stays mirrored and clear of the cutout.
 - [ ] Backgrounding releases the preview. With the viewfinder up, background the
       app: the status bar's camera indicator goes out. Foreground it: the
       viewfinder returns, or the room reports the failure. Never a frozen frame.
@@ -519,10 +521,11 @@ the redesign is called shipped.
       take the spec offsets back.
 - [ ] Flash circle and flank offsets. The design draws the flash at 46pt, 44pt
       in from the left, against a 52pt flip 30pt in from the right. The build
-      draws both flanks at the room's 52pt and hangs both 30pt in from their
-      own edge, so the pair is a mirror image around the shutter and every
-      round control on the screen is one size. Confirm the mirrored pair, or
-      take the design's flash.
+      draws both flanks at the room's 52pt and hangs both the same distance in
+      from their own edge, so the pair is a mirror image around the shutter and
+      every round control on the screen is one size. That distance is 30pt, or
+      the deeper of the two side safe-area insets in a landscape where a cutout
+      reaches past it. Confirm the mirrored pair, or take the design's flash.
 - [ ] Localized session words on the surfaces outside the room. The composer's
       voice bar, the title-bar session pill, the iOS Dynamic Island and the
       macOS companion panel all read the session's state through the catalog,
