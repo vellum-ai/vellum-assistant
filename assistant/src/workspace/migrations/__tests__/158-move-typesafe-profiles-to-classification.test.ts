@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
-import { moveTypesafeProfilesToClassificationMigration } from "../158-move-typesafe-profiles-to-classification.js";
+import { WORKSPACE_MIGRATIONS } from "../registry.js";
+
+const moveTypesafeProfilesToClassificationMigration = WORKSPACE_MIGRATIONS.find(
+  (entry) => entry.id === "158-move-typesafe-profiles-to-classification",
+)!;
 
 function workspaceWith(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "typesafe-classification-migration-"));

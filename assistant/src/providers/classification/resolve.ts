@@ -72,7 +72,7 @@ type ClassificationRoute =
 async function routeFor(
   entry: ClassificationProviderEntry,
   mode: "managed" | "your-own",
-  credential: string | undefined,
+  credential: string | null | undefined,
 ): Promise<ClassificationRoute> {
   if (mode === "your-own") {
     const apiKey = credential

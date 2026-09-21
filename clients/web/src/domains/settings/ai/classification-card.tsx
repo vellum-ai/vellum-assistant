@@ -154,7 +154,12 @@ function ClassificationProviderForm({
   // `services.classification` falls under the ConfigGetResponse index
   // signature (`unknown`), so narrow it explicitly.
   const daemonClassification = daemonConfig?.services?.classification as
-    | { mode?: ClassificationMode; provider?: string; model?: string }
+    | {
+        mode?: ClassificationMode;
+        provider?: string;
+        model?: string;
+        credential?: string | null;
+      }
     | undefined;
 
   const serverProvider =
@@ -222,6 +227,14 @@ function ClassificationProviderForm({
         selectedProvider.id === daemonClassification?.provider && serverModel
           ? serverModel
           : selectedProvider.defaultModel;
+      // A key typed here lands in the provider's canonical credential slot.
+      // A migrated workspace may still point `credential` at a custom
+      // account, which would keep serving the old key, so clear it whenever
+      // a replacement was stored (the daemon treats null as unset).
+      const clearCredential =
+        requiresApiKey &&
+        trimmedKey.length > 0 &&
+        !!daemonClassification?.credential;
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
         body: {
@@ -230,6 +243,7 @@ function ClassificationProviderForm({
               mode: effectiveMode,
               provider: selectedProvider.id,
               model,
+              ...(clearCredential ? { credential: null } : {}),
             },
           },
         },
@@ -260,6 +274,7 @@ function ClassificationProviderForm({
     }
   }, [
     assistantId,
+    daemonClassification?.credential,
     daemonClassification?.provider,
     effectiveMode,
     queryClient,

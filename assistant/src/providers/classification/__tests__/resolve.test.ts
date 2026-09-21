@@ -171,6 +171,16 @@ describe("resolveClassificationProvider", () => {
     ).toBeNull();
   });
 
+  test("a cleared (null) credential override falls back to the default slot", async () => {
+    storedKeys.typesafe = "sk-typesafe";
+
+    const resolved = await resolveClassificationProvider(
+      configWith({ credential: null }),
+    );
+
+    expect(resolved?.source).toBe("user-key");
+  });
+
   test("an unlisted model still resolves, with the default budget", async () => {
     storedKeys.typesafe = "sk-typesafe";
 

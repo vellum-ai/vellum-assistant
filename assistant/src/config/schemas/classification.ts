@@ -21,8 +21,10 @@ export const ClassificationServiceSchema = z.object({
    * Credential account read in your-own mode instead of the provider's
    * default slot, as a vault key (`credential/<service>/<field>`) or the
    * wire form (`<service>:<field>`). Set by workspace migration 158 for a
-   * TypeSafe connection that kept its key under a custom account.
+   * TypeSafe connection that kept its key under a custom account. `null`
+   * clears it: `config_patch` merges a null leaf onto an existing string
+   * rather than deleting the key, and the resolver treats both as unset.
    */
-  credential: z.string().min(1).optional(),
+  credential: z.string().min(1).nullable().optional(),
 });
 export type ClassificationService = z.infer<typeof ClassificationServiceSchema>;
