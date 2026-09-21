@@ -9,22 +9,25 @@ import {
 } from "bun:test";
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
-import { desktopDependencies } from "../../desktop/desktop-dependencies.js";
+import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
 import { ROUTES } from "./desktop-setup-routes.js";
 import { NotFoundError } from "./errors.js";
 
 const originalContainerized = process.env.IS_CONTAINERIZED;
 const originalPlatform = process.env.IS_PLATFORM;
-const status = spyOn(desktopDependencies, "getStatus");
+const status = spyOn(desktopDependencyInstaller, "getStatus");
+const start = spyOn(desktopDependencyInstaller, "start");
 
 afterAll(() => {
   status.mockRestore();
+  start.mockRestore();
 });
 
 beforeEach(() => {
   process.env.IS_CONTAINERIZED = "true";
   process.env.IS_PLATFORM = "true";
-  status.mockReturnValue({ state: "ready" });
+  status.mockReturnValue({ state: "required" });
+  start.mockReturnValue({ state: "installing", stage: "packages" });
 });
 
 afterEach(() => {
@@ -40,6 +43,7 @@ afterEach(() => {
   }
   setOverridesForTesting({});
   status.mockClear();
+  start.mockClear();
 });
 
 describe("desktop setup route feature gate", () => {
@@ -51,6 +55,7 @@ describe("desktop setup route feature gate", () => {
         );
         expect(() => route.handler({})).toThrow(NotFoundError);
         expect(status).not.toHaveBeenCalled();
+        expect(start).not.toHaveBeenCalled();
       });
     }
 
@@ -59,22 +64,26 @@ describe("desktop setup route feature gate", () => {
       setOverridesForTesting({ "assistant-desktop": true });
       expect(() => route.handler({})).toThrow(NotFoundError);
       expect(status).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
     });
 
-    test(`${route.method} rejects self-hosted Docker assistants without inspecting dependencies`, () => {
+    test(`${route.method} rejects self-hosted Docker assistants without inspecting or installing dependencies`, () => {
       process.env.IS_PLATFORM = "false";
       setOverridesForTesting({ "assistant-desktop": true });
       expect(() => route.handler({})).toThrow(NotFoundError);
       expect(status).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
     });
 
     test(`${route.method} serves setup only for enabled platform containers`, () => {
       setOverridesForTesting({ "assistant-desktop": true });
-      expect(route.handler({})).toEqual({
-        state: "ready",
-        automationActive: false,
-      });
-      expect(status).toHaveBeenCalledTimes(1);
+      expect(route.handler({})).toEqual(
+        route.method === "GET"
+          ? { state: "required", automationActive: false }
+          : { state: "installing", stage: "packages", automationActive: false },
+      );
+      expect(route.method === "GET" ? status : start).toHaveBeenCalledTimes(1);
+      expect(route.method === "GET" ? start : status).not.toHaveBeenCalled();
     });
   }
 });

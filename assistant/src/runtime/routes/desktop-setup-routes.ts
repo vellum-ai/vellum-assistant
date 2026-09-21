@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
-import { desktopDependencies } from "../../desktop/desktop-dependencies.js";
+import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
 import { isVirtualDesktopEnabled } from "../../desktop/virtual-desktop-feature.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -13,7 +13,6 @@ const statusSchema = z.object({
   stage: z.enum(["packages", "chrome", "checking"]).optional(),
 });
 
-// POST and its wire schema support released clients; both methods only read readiness.
 export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
   operationId:
     method === "GET" ? "desktop_setup_status" : "desktop_setup_install",
@@ -26,13 +25,16 @@ export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
         "Virtual desktop is available only on enabled platform-hosted assistants",
       );
     }
-    const status = desktopDependencies.getStatus();
+    const status =
+      method === "GET"
+        ? desktopDependencyInstaller.getStatus()
+        : desktopDependencyInstaller.start();
     return { ...status, automationActive: desktopAutomationLease.isActive };
   },
   summary:
     method === "GET"
       ? "Get virtual desktop setup status"
-      : "Check virtual desktop readiness (legacy POST)",
+      : "Install virtual desktop components",
   tags: ["desktop"],
   responseBody: statusSchema,
 }));

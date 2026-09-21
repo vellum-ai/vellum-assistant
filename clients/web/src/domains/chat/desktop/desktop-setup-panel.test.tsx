@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -31,14 +32,14 @@ const { useDesktopSetupStatus } = await import("./use-desktop-setup");
 
 const originalGet = client.get;
 const originalPost = client.post;
-let state = "ready";
+let state = "required";
 let automationActive = false;
 let missingRoute = false;
 let postCalls = 0;
 let queryClient: QueryClient;
 
 beforeEach(() => {
-  state = "ready";
+  state = "required";
   automationActive = false;
   orgReady = true;
   missingRoute = false;
@@ -53,6 +54,7 @@ beforeEach(() => {
   })) as unknown as typeof client.get;
   client.post = mock(async () => {
     postCalls++;
+    state = "installing";
     return { data: { state }, response: new Response() };
   }) as unknown as typeof client.post;
 });
@@ -80,28 +82,29 @@ function notify() {
   );
 }
 
-test("opening a ready image starts the viewer without a setup request", async () => {
+test("opening automatically installs, shows progress and opens the desktop when ready", async () => {
   mount();
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(1);
+  expect(open).not.toHaveBeenCalled();
+  state = "ready";
+  notify();
   await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
-  expect(postCalls).toBe(0);
 });
 
-for (const unavailable of ["failed", "unsupported", "required", "installing"]) {
-  test(`an unavailable desktop (${unavailable}) never starts installation`, async () => {
-    state = unavailable;
-    mount();
-    await screen.findByText(
-      "The virtual desktop isn't available on this assistant.",
-    );
-    expect(postCalls).toBe(0);
-    expect(open).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button")).toBeNull();
-    state = "ready";
-    notify();
-    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
-    expect(postCalls).toBe(0);
-  });
-}
+test("reopening observes an existing install and offers retry after failure", async () => {
+  state = "installing";
+  mount();
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(0);
+  state = "failed";
+  notify();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Install virtual desktop" }),
+  );
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(1);
+});
 
 test("older assistants keep their existing streaming flow without an install request", async () => {
   missingRoute = true;
@@ -116,18 +119,45 @@ test("older assistants keep their existing streaming flow without an install req
   await waitFor(() => expect(client.get).toHaveBeenCalledTimes(2));
 });
 
-test("a failed readiness request offers a read-only reconnect", async () => {
-  const get = client.get;
-  client.get = mock(async () => {
+test("an automatic install request failure offers retry without a retry loop", async () => {
+  client.post = mock(async () => {
+    postCalls++;
     throw new Error("request failed");
-  }) as unknown as typeof client.get;
+  }) as unknown as typeof client.post;
   mount();
-  const retry = await screen.findByRole("button", { name: "Reconnect" });
+  const retry = await screen.findByRole("button", {
+    name: "Install virtual desktop",
+  });
+  notify();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(postCalls).toBe(1);
   expect(open).not.toHaveBeenCalled();
-  client.get = get;
+  client.post = mock(async () => {
+    postCalls++;
+    state = "installing";
+    return { data: { state }, response: new Response() };
+  }) as unknown as typeof client.post;
   fireEvent.click(retry);
-  await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
-  expect(postCalls).toBe(0);
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(2);
+});
+
+test("strict-mode mounting starts installation only once", async () => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <StrictMode>
+        <DesktopPanel assistantId="assistant-123" />
+      </StrictMode>
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Installing virtual desktop components…");
+  notify();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(postCalls).toBe(1);
 });
 
 test("setup waits for organization readiness", async () => {
@@ -144,8 +174,8 @@ test("setup waits for organization readiness", async () => {
       <DesktopPanel assistantId="assistant-123" />
     </QueryClientProvider>,
   );
-  await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
-  expect(postCalls).toBe(0);
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(1);
 });
 
 test("reading desktop activity never installs and refreshes on activity and reconnect", async () => {
@@ -192,4 +222,22 @@ test("remounting desktop activity catches completion while the drawer was closed
   await screen.findByText("false");
   expect(client.get).toHaveBeenCalledTimes(2);
   expect(postCalls).toBe(0);
+});
+
+test("a baked image opens immediately without requesting installation", async () => {
+  state = "ready";
+  mount();
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+  expect(postCalls).toBe(0);
+});
+
+test("unsupported assistants never start installation or the viewer", async () => {
+  state = "unsupported";
+  mount();
+  await screen.findByText(
+    "Virtual desktop installation requires a Linux x64 or ARM64 container with administrator access.",
+  );
+  expect(postCalls).toBe(0);
+  expect(open).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button")).toBeNull();
 });

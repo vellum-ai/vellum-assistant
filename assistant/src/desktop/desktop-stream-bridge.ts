@@ -4,7 +4,7 @@
  * are signaled with close codes only (see `DESKTOP_CLOSE`).
  */
 
-import { desktopDependencies } from "./desktop-dependencies.js";
+import { desktopDependencyInstaller } from "./desktop-dependencies.js";
 import {
   connectLoopback,
   DESKTOP_CLOSE,
@@ -31,7 +31,7 @@ interface DesktopStreamClientSocket {
 interface DesktopStreamBridgeOptions {
   readonly isEnabled: () => boolean;
   readonly manager?: DesktopSessionManager;
-  readonly assertReady?: () => void;
+  readonly ensureInstalled?: () => Promise<void>;
   readonly connect?: (
     port: number,
     handlers: DesktopTcpHandlers,
@@ -42,7 +42,7 @@ export class DesktopStreamBridge {
   private readonly ws: DesktopStreamClientSocket;
   private readonly isEnabled: () => boolean;
   private readonly manager: DesktopSessionManager;
-  private readonly assertReady: () => void;
+  private readonly ensureInstalled: () => Promise<void>;
   private readonly connect: NonNullable<DesktopStreamBridgeOptions["connect"]>;
   private readonly viewer: DesktopViewer;
 
@@ -60,8 +60,9 @@ export class DesktopStreamBridge {
     this.ws = ws;
     this.isEnabled = options.isEnabled;
     this.manager = options.manager ?? getDesktopSessionManager();
-    this.assertReady =
-      options.assertReady ?? (() => desktopDependencies.assertReady());
+    this.ensureInstalled =
+      options.ensureInstalled ??
+      (() => desktopDependencyInstaller.ensureReady());
     this.connect = options.connect ?? connectLoopback;
     this.viewer = { onDesktopLost: (loss) => this.lose(loss) };
   }
@@ -79,7 +80,8 @@ export class DesktopStreamBridge {
     this.ownsSlot = true;
 
     try {
-      this.assertReady();
+      // Direct viewers share setup with the modal, including across reconnects.
+      await this.ensureInstalled();
       if (!this.checkEnabled()) {
         return;
       }

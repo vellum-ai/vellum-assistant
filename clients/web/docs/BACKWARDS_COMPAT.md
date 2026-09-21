@@ -297,6 +297,14 @@ legacy branch at the call site.
 A few backwards-compat concerns don't fit the version-gate shape and live
 with the code they protect:
 
+- **Virtual desktop setup**: `use-desktop-setup.ts` reads the existing setup
+  state instead of inferring image contents from a version. `required` starts
+  the existing POST setup operation, `installing` displays progress, and
+  `failed` offers retry. `ready` starts the viewer without installation. A 404
+  retains direct streaming for assistants without the setup endpoint. Keep
+  this fallback while supported assistants can run on images without baked
+  desktop dependencies.
+
 - **SSE event parsing** — `src/lib/streaming/event-parser.ts` accepts both
   the enveloped event shape of 0.8.5+
   (`{ id, conversationId, seq, emittedAt, message }`) and the flat legacy

@@ -4,7 +4,7 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "@/i18n";
 
 import { DesktopStatus } from "./desktop-status";
-import { useDesktopSetupStatus } from "./use-desktop-setup";
+import { useDesktopSetup } from "./use-desktop-setup";
 
 const DesktopViewer = lazy(() =>
   import("./desktop-viewer").then((module) => ({
@@ -17,9 +17,15 @@ interface DesktopPanelProps {
   viewOnly?: boolean;
 }
 
+const SETUP_STAGE_KEY = {
+  packages: "assistantDesktop.installingPackages",
+  chrome: "assistantDesktop.installingChrome",
+  checking: "assistantDesktop.checkingInstall",
+} as const;
+
 export function DesktopPanel({ assistantId, viewOnly }: DesktopPanelProps) {
   const { t } = useTranslation("chat");
-  const { query } = useDesktopSetupStatus(assistantId);
+  const { query, install } = useDesktopSetup(assistantId);
   const setup = query.data;
   if (setup?.state === "ready") {
     return (
@@ -36,15 +42,26 @@ export function DesktopPanel({ assistantId, viewOnly }: DesktopPanelProps) {
       </Suspense>
     );
   }
+  const busy =
+    !install.isError &&
+    (query.isPending ||
+      install.isPending ||
+      setup?.state === "installing" ||
+      setup?.state === "required");
+  const failed = query.isError || install.isError || setup?.state === "failed";
   return (
     <DesktopStatus
-      loading={query.isPending}
+      loading={busy}
       message={
-        query.isError
+        query.isError || install.isError
           ? t("assistantDesktop.setupRequestFailed")
-          : query.isPending
-            ? t("assistantDesktop.checkingSetup")
-            : t("assistantDesktop.unavailable")
+          : failed
+            ? t("assistantDesktop.installFailed")
+            : setup?.state === "unsupported"
+              ? t("assistantDesktop.setupUnsupported")
+              : setup?.state === "installing"
+                ? t(SETUP_STAGE_KEY[setup.stage ?? "packages"])
+                : t("assistantDesktop.checkingSetup")
       }
     >
       {query.isError ? (
@@ -55,6 +72,16 @@ export function DesktopPanel({ assistantId, viewOnly }: DesktopPanelProps) {
           }}
         >
           {t("assistantDesktop.reconnectButton")}
+        </Button>
+      ) : install.isError || setup?.state === "failed" ? (
+        <Button
+          variant="outlined"
+          disabled={busy}
+          onClick={() =>
+            install.mutate({ path: { assistant_id: assistantId } })
+          }
+        >
+          {t("assistantDesktop.installButton")}
         </Button>
       ) : null}
     </DesktopStatus>

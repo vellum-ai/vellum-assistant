@@ -6,6 +6,7 @@ import { afterAll, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { newFakeDesktop, newViewer, settle } from "./__tests__/fake-desktop.js";
+import { DesktopDependencyInstaller } from "./desktop-dependencies.js";
 import {
   type DesktopSessionManager,
   type DesktopTcpHandlers,
@@ -56,7 +57,7 @@ class FakeTcp implements DesktopTcpSocket {
 
 function newBridge(
   manager: DesktopSessionManager,
-  assertReady: () => void = () => {},
+  ensureInstalled: () => Promise<void> = async () => {},
   isEnabled: () => boolean = () => true,
 ) {
   const ws = new FakeWs();
@@ -67,7 +68,7 @@ function newBridge(
   });
   const bridge = new DesktopStreamBridge(ws, {
     manager,
-    assertReady,
+    ensureInstalled,
     isEnabled,
     connect: async (_port, handlers) => {
       tcp.handlers = handlers;
@@ -146,21 +147,40 @@ describe("DesktopStreamBridge", () => {
     }
   });
 
-  test("refuses a disabled desktop before checking components or starting processes", async () => {
+  test("refuses a disabled desktop before installation or process startup", async () => {
     const h = newFakeDesktop({ profileDir });
-    let checks = 0;
+    let installs = 0;
     const b = newBridge(
       h.manager,
       async () => {
-        checks++;
+        installs++;
       },
       () => false,
     );
     await b.bridge.start();
     expect(b.ws.closeCode).toBe(4008);
-    expect(checks).toBe(0);
+    expect(installs).toBe(0);
     expect(h.spawned).toEqual([]);
     expect(slotIsFree(h.manager)).toBe(true);
+  });
+
+  test("does not start the desktop when disabled during installation", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let enabled = true;
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(
+      h.manager,
+      () => install.promise,
+      () => enabled,
+    );
+    const started = b.bridge.start();
+    enabled = false;
+    install.resolve();
+    await started;
+    expect(b.ws.closeCode).toBe(4008);
+    expect(slotIsFree(h.manager)).toBe(true);
+    expect(b.tcp.handlers).toBeUndefined();
+    expect(h.spawned).toEqual([]);
   });
 
   for (const direction of ["viewer", "desktop"] as const) {
@@ -185,14 +205,105 @@ describe("DesktopStreamBridge", () => {
     });
   }
 
-  test("missing image components release the viewer slot without starting processes", async () => {
+  test("direct viewers share background setup across a timeout and reconnect", async () => {
     const h = newFakeDesktop({ profileDir });
-    const b = newBridge(h.manager, () => {
-      throw new Error("Missing image components");
+    let ready = false;
+    let installs = 0;
+    const install = Promise.withResolvers<void>();
+    const installer = new DesktopDependencyInstaller({
+      supported: () => true,
+      ready: () => ready,
+      install: async () => {
+        installs++;
+        await install.promise;
+        ready = true;
+      },
+      notify: async () => {},
     });
-    await b.bridge.start();
-    expect(b.ws.closeCode).toBe(4011);
+    const ensureInstalled = () => installer.ensureReady();
+    const first = newBridge(h.manager, ensureInstalled);
+    const firstStart = first.bridge.start();
+    await settle();
+    expect(installs).toBe(1);
+    expect(h.spawned).toEqual([]);
+
+    const busy = newBridge(h.manager, async () => {
+      throw new Error("A rejected viewer must not start setup");
+    });
+    await busy.bridge.start();
+    expect(busy.ws.closeCode).toBe(4013);
+
+    first.bridge.handleClose();
     expect(slotIsFree(h.manager)).toBe(true);
+    const retry = newBridge(h.manager, ensureInstalled);
+    const retryStart = retry.bridge.start();
+    await settle();
+    expect(installs).toBe(1);
+    expect(h.spawned).toEqual([]);
+
+    install.resolve();
+    retry.connectNow();
+    await Promise.all([firstStart, retryStart]);
+    expect(retry.ws.closeCode).toBeNull();
+    expect(h.spawned.length).toBeGreaterThan(0);
+    retry.tcp.handlers.onData(new Uint8Array([1, 2, 3]));
+    expect(retry.ws.sent).toEqual([new Uint8Array([1, 2, 3])]);
+    expect(first.ws.sent).toEqual([]);
+    expect(first.tcp.handlers).toBeUndefined();
+    retry.bridge.handleClose();
+  });
+
+  test("setup continues after the last viewer closes without starting a desktop", async () => {
+    const h = newFakeDesktop({ profileDir });
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(h.manager, () => install.promise);
+    const started = b.bridge.start();
+    b.bridge.handleClose();
+    install.resolve();
+    await started;
+    expect(h.spawned).toEqual([]);
+    expect(slotIsFree(h.manager)).toBe(true);
+  });
+
+  test("setup failure releases the slot and permits a successful retry", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let ready = false;
+    let attempts = 0;
+    const installer = new DesktopDependencyInstaller({
+      supported: () => true,
+      ready: () => ready,
+      install: async () => {
+        if (++attempts === 1) {
+          throw new Error("Download failed");
+        }
+        ready = true;
+      },
+      notify: async () => {},
+    });
+    const ensureInstalled = () => installer.ensureReady();
+    const first = newBridge(h.manager, ensureInstalled);
+    await first.bridge.start();
+    expect(first.ws.closeCode).toBe(4011);
+    expect(slotIsFree(h.manager)).toBe(true);
+    expect(h.spawned).toEqual([]);
+
+    const retry = newBridge(h.manager, ensureInstalled);
+    retry.connectNow();
+    await retry.bridge.start();
+    expect(attempts).toBe(2);
+    expect(retry.ws.closeCode).toBeNull();
+    retry.bridge.handleClose();
+  });
+
+  test("shutdown during setup closes the viewer without starting a desktop", async () => {
+    const h = newFakeDesktop({ profileDir });
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(h.manager, () => install.promise);
+    const started = b.bridge.start();
+    await h.manager.destroy();
+    expect(b.ws.closeCode).toBe(1001);
+    install.resolve();
+    await started;
     expect(h.spawned).toEqual([]);
     expect(b.tcp.handlers).toBeUndefined();
   });
