@@ -8,13 +8,15 @@
  * 2. No X-Actor-Token references in production code.
  * 3. No legacy gateway-origin proof in production code.
  * 4. Scope profile contract — every profile resolves to the expected scopes.
+ * 5. Contact profile agreement — the gateway mints what this runtime honors.
  */
 
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { resolveScopeProfile } from "../scopes.js";
+import { isNarrowScopeProfile, resolveScopeProfile } from "../scopes.js";
 import type { Scope, ScopeProfile } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -260,6 +262,14 @@ describe("scope profile contract", () => {
       "feature_flags.read",
       "feature_flags.write",
     ],
+    contact_client_v1: [
+      "chat.read",
+      "chat.write",
+      "approval.read",
+      "approval.write",
+      "attachments.read",
+      "attachments.write",
+    ],
     gateway_ingress_v1: ["ingress.write", "internal.write"],
     gateway_service_v1: [
       "chat.read",
@@ -295,5 +305,52 @@ describe("scope profile contract", () => {
       const scopes = resolveScopeProfile(profile);
       expect(scopes.size).toBeGreaterThan(0);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Contact profile agreement with the gateway
+//
+// The gateway mints `contact_client_v1` and this runtime decides what it may
+// reach. The two registries are separate tables, so a contact token carries
+// whichever scopes the narrower one grants: a scope missing here 403s a route
+// the gateway believes it opened.
+// ---------------------------------------------------------------------------
+
+describe("contact_client_v1 agrees with the gateway registry", () => {
+  const GATEWAY_SCOPES_PATH = resolve(
+    PROJECT_ROOT,
+    "gateway/src/auth/scopes.ts",
+  );
+
+  function gatewaySource(): string {
+    return readFileSync(GATEWAY_SCOPES_PATH, "utf8");
+  }
+
+  test("grants the same scopes on both sides", () => {
+    const block = /contact_client_v1: new Set<Scope>\(\[([^\]]*)\]\)/.exec(
+      gatewaySource(),
+    );
+    expect(
+      block,
+      `contact_client_v1 not found in ${GATEWAY_SCOPES_PATH}`,
+    ).not.toBeNull();
+
+    const gatewayScopes = [...block![1].matchAll(/"([^"]+)"/g)]
+      .map((m) => m[1])
+      .sort();
+    const runtimeScopes: string[] = [
+      ...resolveScopeProfile("contact_client_v1"),
+    ].sort();
+
+    expect(gatewayScopes.length).toBeGreaterThan(0);
+    expect(runtimeScopes).toEqual(gatewayScopes);
+  });
+
+  test("is narrow on both sides", () => {
+    const broad = /contact_client_v1: (true|false)/.exec(gatewaySource());
+    expect(broad).not.toBeNull();
+    expect(broad![1]).toBe("false");
+    expect(isNarrowScopeProfile("contact_client_v1")).toBe(true);
   });
 });
