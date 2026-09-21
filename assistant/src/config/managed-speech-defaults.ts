@@ -33,7 +33,6 @@ import {
   sttCatalogKeyForRole,
   type SttRole,
   sttRoleCapabilityGap,
-  sttSelectionForRole,
 } from "../stt/roles.js";
 import type { SttProviderId } from "../stt/types.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
@@ -161,11 +160,16 @@ export async function resolveEffectiveSpeechProviders(
  * writing config on anyone's behalf, and reaches installs already on `vellum`
  * that a substitution rule never sees.
  *
- * Two things still win over it. A family the user named is honoured, because
- * `services.stt.providers.vellum.model` accepts `nova-3` and quietly ignoring
- * a valid setting is the silent substitution roles exist to prevent. And a
- * language outside Flux's roster stays on nova-3, since the relay refuses the
- * dial rather than degrading (see `managedStandInFor`).
+ * Two things still win over it. A family named on the live-voice role is
+ * honoured: that entry is what the Settings > Voice toggle writes, so it is
+ * the one place a user opts out. And a language outside Flux's roster stays on
+ * nova-3, since the relay refuses the dial rather than degrading (see
+ * `managedStandInFor`).
+ *
+ * The global `services.stt.providers.vellum.model` does not count. Managed
+ * defaulting writes the base family there for every install it moves onto
+ * `vellum` (see {@link globalSttUpdates}), so it records which family batch
+ * and telephony run, not a choice about live voice.
  *
  * Live voice only: Flux streams and nothing else, so every other consumer
  * would lose its transcriber.
@@ -178,7 +182,7 @@ function managedLiveVoiceModelFamily(
   if (role !== "liveVoice" || resolved !== "vellum") {
     return resolved;
   }
-  if (sttSelectionForRole(stt, role).model !== undefined) {
+  if (stt.roles?.liveVoice?.model !== undefined) {
     return resolved;
   }
   return fluxModelForLanguage(stt.language) === null ? "vellum" : "vellum-flux";
