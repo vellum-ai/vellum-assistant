@@ -123,12 +123,13 @@ export function buildCallWork(
     if (isActiveStatus(entry.status)) {
       tracker.seenRunning.add(id);
       tracker.settledAt.delete(id);
+      const waiting = entry.status === "awaiting_input";
       work.push({
         id,
         kind: "subagent",
         title: clampText(entry.label),
-        step: clampText(subagentStep(entry)),
-        state: "running",
+        step: waiting ? "" : clampText(subagentStep(entry)),
+        state: waiting ? "waiting" : "running",
         startedAt: entry.spawnedAt,
       });
       continue;

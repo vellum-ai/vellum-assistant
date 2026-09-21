@@ -168,4 +168,26 @@ describe("the call's work on its bar", () => {
     fireEvent.click(chipOf(container)!);
     expect(onWorkShelfChange.mock.calls.at(-1)?.[0]).toBe(false);
   });
+
+  test("counts work waiting on the user apart, without a spinner", () => {
+    const { container } = renderCall({
+      ...CALL,
+      work: [{ ...FLIGHTS, state: "waiting" }],
+    });
+    const chip = chipOf(container)!;
+    expect(chip.getAttribute("aria-label")).toBe("1 waiting on you");
+    expect(chip.querySelector(".companion-work-spin")).toBeNull();
+    fireEvent.click(chip);
+    expect(shelfOf(container)?.textContent).toContain("Waiting on you");
+  });
+
+  test("counts only the running work while some is also waiting", () => {
+    const { container } = renderCall({
+      ...CALL,
+      work: [TURN, { ...FLIGHTS, state: "waiting" }],
+    });
+    expect(chipOf(container)?.getAttribute("aria-label")).toBe(
+      "1 thing running",
+    );
+  });
 });

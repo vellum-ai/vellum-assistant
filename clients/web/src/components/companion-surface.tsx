@@ -62,6 +62,7 @@ import {
   CompanionCallWorkSpinner,
   callWorkAccent,
   runningCallWork,
+  waitingCallWork,
 } from "@/components/companion-call-work";
 import { unplacedOfferLabelKey } from "@/components/companion-dictation-offer";
 import { CompanionPeek } from "@/components/companion-peek";
@@ -3288,14 +3289,22 @@ function WorkChip({
   const { t } = useTranslation();
   const stance = captionStance(useContext(CaptionSideContext));
   const running = runningCallWork(work);
+  const waiting = waitingCallWork(work);
+  // What the count counts: the work moving, or failing that the work held on
+  // the user, which is still open but not running.
+  const counted = running.length > 0 ? running : waiting;
   const last = work.at(-1);
-  const names = (running.length > 0 ? running : work)
+  const names = (counted.length > 0 ? counted : work)
     .map((item) => item.title)
     .join(" · ");
   return (
     <button
       type="button"
-      aria-label={t("companionSurface.workCount", { count: running.length })}
+      aria-label={
+        running.length === 0 && waiting.length > 0
+          ? t("companionSurface.workWaiting", { count: waiting.length })
+          : t("companionSurface.workCount", { count: running.length })
+      }
       aria-expanded={onToggle === undefined ? undefined : open}
       data-control="work"
       disabled={onToggle === undefined}
@@ -3309,13 +3318,16 @@ function WorkChip({
       onClick={onToggle}
     >
       <span className="relative grid size-5 place-items-center">
-        {running.length > 0 ? (
+        {counted.length > 0 ? (
           <>
             <span className="absolute inset-0 grid place-items-center">
-              <CompanionCallWorkSpinner size={20} />
+              <CompanionCallWorkSpinner
+                size={20}
+                still={running.length === 0}
+              />
             </span>
             <span className="text-[10px] leading-none font-semibold text-white/90 tabular-nums">
-              {running.length}
+              {counted.length}
             </span>
           </>
         ) : (

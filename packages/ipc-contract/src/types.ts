@@ -652,8 +652,13 @@ export interface VoiceActivityContent {
   work?: VoiceActivityWork[];
 }
 
+/**
+ * `waiting` is a sub-agent blocked on the user's reply: still the call's work,
+ * but nothing is moving until they answer.
+ */
 export const VOICE_ACTIVITY_WORK_STATES = [
   "running",
+  "waiting",
   "done",
   "failed",
 ] as const;

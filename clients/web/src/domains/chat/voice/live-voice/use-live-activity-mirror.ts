@@ -55,6 +55,7 @@ import { useEffect, useRef } from "react";
 
 import {
   isLiveVoiceSessionActive,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
@@ -119,7 +120,7 @@ function toActivityContent(
     session.assistantAudioActive,
     session.muted,
     null,
-    session.activityLabel !== "",
+    isOnToolStep(session),
   );
   return {
     phase,
@@ -286,7 +287,7 @@ export function useLiveActivityMirror(): void {
       const now = Date.now();
       const { work, nextChangeAt } = buildCallWork(
         {
-          activityLabel: session.activityLabel,
+          activityLabel: isOnToolStep(session) ? session.activityLabel : "",
           assistantName: assistantDisplayName(
             useAssistantIdentityStore.getState().name,
           ),

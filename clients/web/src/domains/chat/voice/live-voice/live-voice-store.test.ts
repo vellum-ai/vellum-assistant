@@ -28,6 +28,7 @@ import {
   isLiveVoiceSessionOwnedBy,
   isLiveVoiceUserSpeaking,
   LIVE_VOICE_STATE_KEYS,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
@@ -298,6 +299,32 @@ describe("LIVE_VOICE_STATE_KEYS", () => {
       toVoiceAvatarVisual("thinking", false),
     );
     expect(surfaceLabel("transcribing", false, true, false)).toBe("Thinking…");
+  });
+});
+
+describe("isOnToolStep", () => {
+  test("is a turn with an activity label", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Searching the web",
+        pendingApprovalRequestId: null,
+      }),
+    ).toBe(true);
+  });
+
+  test("is not a turn waiting on the user's approval", () => {
+    expect(
+      isOnToolStep({
+        activityLabel: "Waiting for approval",
+        pendingApprovalRequestId: "approval-123",
+      }),
+    ).toBe(false);
+  });
+
+  test("is not a turn with no activity", () => {
+    expect(
+      isOnToolStep({ activityLabel: "", pendingApprovalRequestId: null }),
+    ).toBe(false);
   });
 });
 

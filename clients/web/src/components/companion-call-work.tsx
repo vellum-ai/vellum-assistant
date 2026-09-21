@@ -21,17 +21,29 @@ export const CALL_WORK_SHELF_MAX_LINES = 5;
 export const runningCallWork = (work: readonly VoiceActivityWork[]) =>
   work.filter((item) => item.state === "running");
 
+export const waitingCallWork = (work: readonly VoiceActivityWork[]) =>
+  work.filter((item) => item.state === "waiting");
+
 export const callWorkAccent = (accentHex: string): CSSProperties =>
   ({ ["--companion-ring-accent" as string]: accentHex }) as CSSProperties;
 
-/** A small arc turning in the accent: the chip-sized form of the working ring. */
-export function CompanionCallWorkSpinner({ size }: { size: number }) {
+/**
+ * A small arc turning in the accent: the chip-sized form of the working ring.
+ * Held still for work waiting on the user, which is not moving.
+ */
+export function CompanionCallWorkSpinner({
+  size,
+  still = false,
+}: {
+  size: number;
+  still?: boolean;
+}) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 16 16"
-      className="companion-work-spin shrink-0"
+      className={`shrink-0 ${still ? "" : "companion-work-spin"}`}
       aria-hidden
     >
       <circle
@@ -51,7 +63,8 @@ export function CompanionCallWorkSpinner({ size }: { size: number }) {
         stroke="var(--companion-ring-accent)"
         strokeWidth="2"
         strokeLinecap="round"
-        strokeDasharray="10 28"
+        strokeDasharray={still ? undefined : "10 28"}
+        strokeOpacity={still ? 0.6 : undefined}
       />
     </svg>
   );
@@ -122,14 +135,19 @@ export function CompanionCallWorkShelf({
     >
       {shown.map((item) => (
         <div key={item.id} className="flex items-center gap-2">
-          {item.state === "running" ? (
-            <CompanionCallWorkSpinner size={14} />
+          {item.state === "running" || item.state === "waiting" ? (
+            <CompanionCallWorkSpinner
+              size={14}
+              still={item.state === "waiting"}
+            />
           ) : (
             <CompanionCallWorkSettled state={item.state} />
           )}
           <span
             className={`max-w-[55%] shrink-0 truncate font-medium ${
-              item.state === "running" ? "" : "text-white/55"
+              item.state === "done" || item.state === "failed"
+                ? "text-white/55"
+                : ""
             }`}
           >
             {item.title}
@@ -140,9 +158,11 @@ export function CompanionCallWorkShelf({
           >
             {item.state === "running"
               ? item.step
-              : item.state === "done"
-                ? t("companionSurface.workDone")
-                : t("companionSurface.workStopped")}
+              : item.state === "waiting"
+                ? t("companionSurface.workWaitingStep")
+                : item.state === "done"
+                  ? t("companionSurface.workDone")
+                  : t("companionSurface.workStopped")}
           </span>
           {item.kind === "subagent" ? (
             <span className="shrink-0 text-[11px] text-white/40 tabular-nums">

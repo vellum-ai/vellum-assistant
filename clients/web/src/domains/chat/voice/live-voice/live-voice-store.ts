@@ -173,6 +173,17 @@ export function liveVoiceSurfaceLabelKey(
 }
 
 /**
+ * Whether the turn is off on a tool step: the session carries an activity
+ * label and is not waiting on the user's approval, which carries one too. The
+ * one reading of it every surface takes, for "Working…" and for the call's
+ * work list alike.
+ */
+export const isOnToolStep = (
+  session: Pick<LiveVoiceState, "activityLabel" | "pendingApprovalRequestId">,
+): boolean =>
+  session.activityLabel !== "" && session.pendingApprovalRequestId === null;
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by

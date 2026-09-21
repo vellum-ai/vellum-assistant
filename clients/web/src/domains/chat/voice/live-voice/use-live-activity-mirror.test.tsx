@@ -618,6 +618,18 @@ describe("updating the activity", () => {
     );
   });
 
+  test("an approval wait is not a tool step: no Working…, no turn on the list", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    await settled(() =>
+      useLiveVoiceStore
+        .getState()
+        .setActivityLabel("Waiting for approval", "approval-123"),
+    );
+    expect(lastUpdatePayload()?.label).toBe("Thinking…");
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].work).toEqual([]);
+  });
+
   // The iOS island has no room for the list, so it goes to the desktop alone.
   test("hands the call's work to the desktop surface and not the island", async () => {
     renderMirror();

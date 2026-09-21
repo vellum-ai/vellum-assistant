@@ -152,6 +152,14 @@ describe("buildCallWork", () => {
     expect(work[0]?.state).toBe("failed");
   });
 
+  test("reads a sub-agent waiting on the user as waiting, with no step", () => {
+    const { work } = buildCallWork(
+      input({ subagents: [entry({ status: "awaiting_input" })] }),
+      createCallWorkTracker(),
+    );
+    expect(work[0]).toMatchObject({ state: "waiting", step: "" });
+  });
+
   test("names a sub-agent's tool in flight as its step", () => {
     const { work } = buildCallWork(
       input({

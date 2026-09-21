@@ -257,7 +257,9 @@
     "workCount": "{count, plural, =0 {Nada en curso} one {# tarea en curso} other {# tareas en curso}}",
     "workDone": "Hecho",
     "workStopped": "Detenido",
-    "workMore": "{count} más"
+    "workMore": "{count} más",
+    "workWaiting": "{count, plural, one {# esperando tu respuesta} other {# esperando tu respuesta}}",
+    "workWaitingStep": "Esperando tu respuesta"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Compartiendo tu pantalla",
