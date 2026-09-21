@@ -239,6 +239,22 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("upsertVerifiedContactChannel — reserved channel types", () => {
+  test("refuses the vellum channel type and writes nothing", async () => {
+    queryRows = [];
+
+    await expect(
+      upsertVerifiedContactChannel({
+        sourceChannel: "vellum",
+        externalUserId: "prin-fake-001",
+        externalChatId: "local",
+      }),
+    ).rejects.toThrow(/reserved/);
+
+    expect(mirrorUpserts()).toHaveLength(0);
+  });
+});
+
 describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
   test("skips update when the authoritative gateway channel is revoked", async () => {
     // The mirror is stale-active; the gateway row (source of truth) is revoked.

@@ -18,7 +18,10 @@ import { and, eq, sql } from "drizzle-orm";
 import { isBindingDemotion } from "@vellumai/gateway-client";
 
 import { getGatewayDb } from "../db/connection.js";
-import { ContactStore } from "../db/contact-store.js";
+import {
+  assertChannelTypeWritable,
+  ContactStore,
+} from "../db/contact-store.js";
 import {
   contactChannels as gwContactChannels,
   contacts as gwContacts,
@@ -821,6 +824,7 @@ export async function upsertVerifiedContactChannel(params: {
   softMirrorFailures?: boolean;
 }): Promise<{ verified: boolean }> {
   const { sourceChannel } = params;
+  assertChannelTypeWritable(sourceChannel);
   const mirrorSoft = params.softMirrorFailures === true;
 
   const address =

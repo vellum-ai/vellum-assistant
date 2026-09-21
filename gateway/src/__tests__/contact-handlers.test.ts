@@ -190,7 +190,7 @@ function seedChannel(opts: {
     .values({
       id: opts.id,
       contactId: opts.contactId,
-      type: "vellum",
+      type: "slack",
       address: `addr-${opts.id}`,
       isPrimary: false,
       status: opts.status ?? "unverified",
@@ -322,7 +322,7 @@ describe("contacts_identity_snapshot IPC handler", () => {
     expect(c1.channels[0]).toEqual({
       id: "ch1",
       contactId: "c1",
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: null,
       isPrimary: false,
@@ -364,7 +364,7 @@ describe("upsert_verified_channel IPC handler", () => {
   test("creates + verifies a new gateway channel and returns it", async () => {
     const before = Date.now();
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-new",
       externalChatId: "chat-new",
     })) as {
@@ -383,7 +383,7 @@ describe("upsert_verified_channel IPC handler", () => {
 
     expect(res.ok).toBe(true);
     expect(res.verified).toBe(true);
-    expect(res.channel.type).toBe("vellum");
+    expect(res.channel.type).toBe("slack");
     expect(res.channel.address).toBe("addr-new");
     expect(res.channel.status).toBe("active");
     expect(res.channel.verifiedVia).toBe("challenge");
@@ -392,7 +392,7 @@ describe("upsert_verified_channel IPC handler", () => {
     const row = getGatewayDb()
       .select()
       .from(contactChannels)
-      .where(eq(contactChannels.type, "vellum"))
+      .where(eq(contactChannels.type, "slack"))
       .get();
     expect(row!.status).toBe("active");
   });
@@ -402,7 +402,7 @@ describe("upsert_verified_channel IPC handler", () => {
     seedChannel({ id: "ch1", contactId: "c1", status: "unverified" });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
     })) as { ok: boolean; verified: boolean; channel: { status: string } };
@@ -425,7 +425,7 @@ describe("upsert_verified_channel IPC handler", () => {
     seedChannel({ id: "ch1", contactId: "c1", status: "blocked" });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
     })) as { ok: boolean; verified: boolean; channel?: unknown };
@@ -447,7 +447,7 @@ describe("upsert_verified_channel IPC handler", () => {
     seedChannel({ id: "ch1", contactId: "c1", status: "revoked" });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
     })) as { ok: boolean; verified: boolean };
@@ -468,7 +468,7 @@ describe("upsert_verified_channel IPC handler", () => {
     seedChannel({ id: "ch1", contactId: "c1", status: "revoked" });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
       verifiedVia: "invite",
@@ -492,7 +492,7 @@ describe("upsert_verified_channel IPC handler", () => {
     seedChannel({ id: "ch1", contactId: "c1", status: "blocked" });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
       verifiedVia: "invite",
@@ -512,7 +512,7 @@ describe("upsert_verified_channel IPC handler", () => {
 
   test('round-trips verifiedVia="invite" (free string, not the restricted enum)', async () => {
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-invite",
       externalChatId: "chat-invite",
       verifiedVia: "invite",
@@ -543,7 +543,7 @@ describe("upsert_verified_channel binding-strength guard (LUM-2505)", () => {
     });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
       verifiedVia: "manual_channel_claim",
@@ -575,7 +575,7 @@ describe("upsert_verified_channel binding-strength guard (LUM-2505)", () => {
     });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
       verifiedVia: "manual",
@@ -602,7 +602,7 @@ describe("upsert_verified_channel binding-strength guard (LUM-2505)", () => {
     });
 
     const res = (await upsertVerifiedChannelHandler({
-      type: "vellum",
+      type: "slack",
       address: "addr-ch1",
       externalChatId: "chat-1",
       verifiedVia: "challenge",

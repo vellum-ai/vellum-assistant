@@ -67,6 +67,11 @@ const GetChannelsForContactParamsSchema = z.object({
   contactId: z.string(),
 });
 
+const BindContactPrincipalParamsSchema = z.object({
+  contactId: z.string().min(1),
+  principalId: z.string().min(1),
+});
+
 export const contactRoutes: IpcRoute[] = [
   {
     method: "list_contacts",
@@ -210,6 +215,18 @@ export const contactRoutes: IpcRoute[] = [
       );
 
       return { contactId, channelId };
+    },
+  },
+  {
+    method: "contacts_bind_principal",
+    schema: BindContactPrincipalParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const { contactId, principalId } =
+        BindContactPrincipalParamsSchema.parse(params);
+      // Thrown BindContactPrincipalError carries statusCode/code, which the
+      // IPC server's buildErrorResponse mirrors into the wire envelope.
+      getStore().bindContactPrincipal(contactId, principalId);
+      return { ok: true };
     },
   },
   {
