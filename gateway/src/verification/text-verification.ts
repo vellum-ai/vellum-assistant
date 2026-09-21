@@ -17,6 +17,8 @@
  * failure are short-circuited at the gateway.
  */
 
+import type { VerificationPurpose } from "@vellumai/gateway-client";
+
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import {
   consumeSession,
@@ -77,7 +79,7 @@ export type TextVerificationResult =
   | {
       intercepted: true;
       outcome: "verified" | "failed" | "wrong_conversation";
-      trustClass: "guardian" | "trusted_contact";
+      trustClass: VerificationPurpose;
       /** Reply text when replyCallbackUrl was unavailable (e.g. email channel). */
       pendingReplyText?: string;
     };
@@ -211,10 +213,7 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass:
-        session.verificationPurpose === "trusted_contact"
-          ? "trusted_contact"
-          : "guardian",
+      trustClass: session.verificationPurpose,
       pendingReplyText,
     };
   }
@@ -235,10 +234,7 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass:
-        session.verificationPurpose === "trusted_contact"
-          ? "trusted_contact"
-          : "guardian",
+      trustClass: session.verificationPurpose,
       pendingReplyText,
     };
   }
@@ -246,10 +242,7 @@ export async function tryTextVerificationIntercept(
   // Reset rate limits on success
   await resetRateLimit(sourceChannel, canonicalUserId, actorChatId);
 
-  const trustClass: "guardian" | "trusted_contact" =
-    session.verificationPurpose === "trusted_contact"
-      ? "trusted_contact"
-      : "guardian";
+  const trustClass = session.verificationPurpose;
 
   // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
   //    the verification, and so does a guardian code from an identity other

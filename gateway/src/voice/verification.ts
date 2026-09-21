@@ -17,6 +17,7 @@
  */
 
 import { hashVerificationSecret } from "@vellumai/gateway-client";
+import type { VerificationPurpose } from "@vellumai/gateway-client";
 
 import type { VerificationSession } from "../db/session-store.js";
 import {
@@ -52,7 +53,7 @@ export interface VoiceVerificationResult {
 
 export interface CodeValidationResult {
   success: boolean;
-  verificationType?: "guardian" | "trusted_contact";
+  verificationType?: VerificationPurpose;
   /** Error message for TTS playback on failure. */
   failureMessage?: string;
   /** Whether the caller has exhausted all attempts. */
@@ -171,10 +172,7 @@ export async function validateVerificationCode(
   }
   await resetRateLimit("phone", fromNumber, fromNumber);
 
-  const verificationType: "guardian" | "trusted_contact" =
-    session.verificationPurpose === "trusted_contact"
-      ? "trusted_contact"
-      : "guardian";
+  const verificationType = session.verificationPurpose;
 
   log.info(
     { sessionId: session.id, fromNumber, verificationType },

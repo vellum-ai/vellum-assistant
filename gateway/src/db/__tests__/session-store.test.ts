@@ -82,6 +82,7 @@ function createOutbound(
     challengeHash: `hash-${id}`,
     expiresAt: FUTURE(),
     status: "awaiting_response",
+    verificationPurpose: "guardian",
     ...overrides,
   });
 }
@@ -293,6 +294,18 @@ describe("claimBootstrapSession", () => {
     expect(claimBootstrapSession("live", "telegram")).toBeNull();
     expect(getRow("live")?.status).toBe("awaiting_response");
   });
+
+  test("a claim on a row with no known purpose spends the link and mints nothing", () => {
+    insertRaw({
+      id: "bootstrap",
+      channel: "telegram",
+      status: "pending_bootstrap",
+      verificationPurpose: null,
+    });
+
+    expect(claimBootstrapSession("bootstrap", "telegram")).toBeNull();
+    expect(getRow("bootstrap")?.status).toBe("revoked");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -329,6 +342,24 @@ describe("findPendingSessionByHash", () => {
         `s-${status}`,
       );
     }
+  });
+
+  test("a row with no known purpose is not a session", () => {
+    // Nothing a lookup returns carries a purpose the code did not state, so
+    // a row with none, or with a value outside the contract, matches nothing.
+    insertRaw({
+      id: "s-null",
+      challengeHash: "h-null",
+      verificationPurpose: null,
+    });
+    insertRaw({
+      id: "s-unknown",
+      challengeHash: "h-unknown",
+      verificationPurpose: "owner",
+    });
+
+    expect(findPendingSessionByHash("telegram", "h-null")).toBeNull();
+    expect(findPendingSessionByHash("telegram", "h-unknown")).toBeNull();
   });
 
   test("ignores non-interceptable statuses", () => {
