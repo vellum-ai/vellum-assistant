@@ -1,8 +1,13 @@
-import { Check, MessageSquare } from "lucide-react";
-import { useRef, useState, type CSSProperties } from "react";
+import { MessageSquare } from "lucide-react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "@/i18n";
 
-import { Button } from "@vellumai/design-library";
+import {
+  Button,
+  OptionCard,
+  OptionCardGroup,
+  Textarea,
+} from "@vellumai/design-library";
 
 import { TASK_ICONS } from "@/components/prechat-task-icons";
 import type { Surface } from "@/domains/chat/types/types";
@@ -42,6 +47,7 @@ export function TaskPreferencesSurface({
   const [otherText, setOtherText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleId = useId();
 
   if (surface.completed) {
     return null;
@@ -95,7 +101,10 @@ export function TaskPreferencesSurface({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-[var(--border-element)] bg-[var(--surface-overlay)] p-4">
       <div className="flex flex-col gap-1">
-        <div className="text-body-medium-default text-[var(--content-default)]">
+        <div
+          id={titleId}
+          className="text-body-medium-default text-[var(--content-default)]"
+        >
           {surface.title ?? t("taskPreferencesSurface.defaultTitle")}
         </div>
         <div className="text-label-small-default text-[color:var(--content-tertiary)]">
@@ -103,102 +112,55 @@ export function TaskPreferencesSurface({
         </div>
       </div>
 
-      <div className="grid auto-rows-fr grid-cols-2 gap-2">
+      <OptionCardGroup
+        selectionMode="multiple"
+        columns={2}
+        aria-labelledby={titleId}
+      >
         {PRECHAT_TASKS.map((task) => {
           const Icon = TASK_ICONS[task.iconKey];
-          const isSelected = selectedTasks.has(task.id);
           return (
-            <button
+            <OptionCard
               key={task.id}
-              type="button"
-              onClick={() => toggleTask(task.id)}
-              aria-pressed={isSelected}
-              className={[
-                "flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors",
-                isSelected
-                  ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
-                  : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]",
-              ].join(" ")}
-            >
-              <div className="flex w-full items-center justify-between">
-                <div className="flex h-5 w-5 items-center justify-center text-[var(--content-secondary)]">
-                  {Icon ? <Icon className="h-4 w-4" /> : null}
-                </div>
-                {isSelected && (
-                  <div
-                    aria-hidden="true"
-                    className="flex h-4 w-4 items-center justify-center rounded-sm bg-[var(--primary-base)]"
-                  >
-                    <Check className="h-3 w-3 text-[var(--content-inset)]" />
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="text-body-small-default text-[var(--content-default)]">
-                  {task.label}
-                </div>
-                <div className="text-label-small-default text-[var(--content-tertiary)]">
-                  {task.sublabel}
-                </div>
-              </div>
-            </button>
+              orientation="vertical"
+              size="compact"
+              markPosition="end"
+              leading={Icon ? <Icon className="h-4 w-4" /> : undefined}
+              title={task.label}
+              description={task.sublabel}
+              selected={selectedTasks.has(task.id)}
+              onSelect={() => toggleTask(task.id)}
+            />
           );
         })}
 
-        {/* "Other" tile — `div` with `role="button"` rather than a native
-           `<button>` because the inner textarea swallows Enter/Space, and a
-           parent button would re-fire its own click on Space-keyup while the
-           user is typing. */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={toggleOther}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              toggleOther();
-            }
-          }}
-          aria-pressed={otherSelected}
-          className={[
-            "col-span-2 flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-left transition-colors",
-            otherSelected
-              ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
-              : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]",
-          ].join(" ")}
-        >
-          <div className="flex flex-1 items-start gap-2.5">
-            <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-[var(--content-secondary)]" />
-            {otherSelected ? (
-              <textarea
-                ref={textareaRef}
-                value={otherText}
-                onChange={(e) => setOtherText(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-                placeholder={t("taskPreferencesSurface.otherPlaceholder")}
-                className="w-full resize-none overflow-hidden bg-transparent text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
-                style={{ fieldSizing: "content" } as CSSProperties}
-                rows={1}
-              />
-            ) : (
-              <div className="flex flex-col">
-                <div className="text-body-medium-default text-[var(--content-default)]">
-                  {t("taskPreferencesSurface.other")}
-                </div>
-                <div className="text-label-small-default text-[var(--content-tertiary)]">
-                  {t("taskPreferencesSurface.somethingElse")}
-                </div>
-              </div>
-            )}
-          </div>
-          {otherSelected && (
-            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[var(--primary-base)]">
-              <Check className="h-3 w-3 text-[var(--content-inset)]" />
-            </div>
-          )}
-        </div>
-      </div>
+        <OptionCard
+          className="col-span-2"
+          markPosition="end"
+          leading={<MessageSquare className="h-4 w-4" />}
+          title={t("taskPreferencesSurface.other")}
+          description={t("taskPreferencesSurface.somethingElse")}
+          selected={otherSelected}
+          onSelect={toggleOther}
+        />
+      </OptionCardGroup>
+
+      {/* The free-text field sits under the grid rather than inside the
+          "Other" tile: a tile is a real button, and a button cannot host a
+          textarea. */}
+      {otherSelected && (
+        <Textarea
+          ref={textareaRef}
+          fullWidth
+          rows={1}
+          value={otherText}
+          onChange={(e) => setOtherText(e.target.value)}
+          aria-label={t("taskPreferencesSurface.other")}
+          placeholder={t("taskPreferencesSurface.otherPlaceholder")}
+          className="min-h-0 resize-none overflow-hidden"
+          style={{ fieldSizing: "content" } as CSSProperties}
+        />
+      )}
 
       <Button
         variant="primary"

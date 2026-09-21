@@ -97,8 +97,13 @@ describe("ChoiceSurface", () => {
     );
 
     expect(getByText("Recommended")).toBeTruthy();
+    // Single-select options are radios in a group named by the surface title.
+    expect(getByRole("radiogroup", { name: "Pick an outcome" })).toBeTruthy();
+    const recommended = getByRole("radio", { name: /clean up my inbox/i });
+    expect(recommended.className).toContain("bg-[var(--primary-base)]/10");
+    expect(recommended.className).not.toContain("bg-[var(--surface-overlay)]");
 
-    fireEvent.click(getByRole("button", { name: /clean up my inbox/i }));
+    fireEvent.click(recommended);
 
     expect(onAction).toHaveBeenCalledWith("surface-1", "inbox", {
       choiceId: "inbox",
@@ -132,8 +137,8 @@ describe("ChoiceSurface", () => {
     const submit = getByRole("button", { name: /run these/i });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(getByRole("button", { name: /clean up my inbox/i }));
-    fireEvent.click(getByRole("button", { name: /plan my week/i }));
+    fireEvent.click(getByRole("checkbox", { name: /clean up my inbox/i }));
+    fireEvent.click(getByRole("checkbox", { name: /plan my week/i }));
     expect((submit as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(submit);
@@ -166,15 +171,15 @@ describe("ChoiceSurface", () => {
       />,
     );
 
-    const recommended = getByRole("button", { name: /clean up my inbox/i });
+    const recommended = getByRole("checkbox", { name: /clean up my inbox/i });
     const submit = getByRole("button", { name: /run these/i });
 
-    expect(recommended.getAttribute("aria-pressed")).toBe("true");
+    expect(recommended.getAttribute("aria-checked")).toBe("true");
     expect(recommended.querySelector("svg")).not.toBeNull();
     expect((submit as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(recommended);
-    expect(recommended.getAttribute("aria-pressed")).toBe("false");
+    expect(recommended.getAttribute("aria-checked")).toBe("false");
     expect(recommended.querySelector("svg")).toBeNull();
     expect((submit as HTMLButtonElement).disabled).toBe(true);
     expect(onAction).not.toHaveBeenCalled();
