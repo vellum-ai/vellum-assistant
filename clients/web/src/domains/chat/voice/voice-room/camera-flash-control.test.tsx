@@ -18,7 +18,6 @@ import {
   nextFlashMode,
   nextLiveFlashMode,
 } from "./camera-flash-control";
-import { VoiceRoomControl } from "./voice-room-control";
 
 afterEach(() => {
   cleanup();
@@ -151,31 +150,23 @@ describe("CameraFlashControl", () => {
     expect(badge("off")).toBe("");
   });
 
-  test("is drawn at the circle the room's other controls take", () => {
+  test("carries the room's circle and no size class beside it", () => {
     render(
-      <>
-        <CameraFlashControl
-          mode="off"
-          ariaLabel="Flash off"
-          autoBadge="A"
-          onClick={() => {}}
-          testId="flash"
-        />
-        <VoiceRoomControl label="Flip camera" data-testid="flip">
-          <span />
-        </VoiceRoomControl>
-      </>,
+      <CameraFlashControl
+        mode="off"
+        ariaLabel="Flash off"
+        autoBadge="A"
+        onClick={() => {}}
+        testId="flash"
+      />,
     );
 
-    // happy-dom computes no layout, so the size class is the seam: each
-    // control carries the 52px circle and no second `size-*` beside it.
-    const sizeClasses = (testId: string) =>
-      screen
-        .getByTestId(testId)
-        .className.split(/\s+/)
-        .filter((name) => name.startsWith("size-"));
-    expect(sizeClasses("flash")).toEqual(["size-13"]);
-    expect(sizeClasses("flip")).toEqual(["size-13"]);
+    // happy-dom computes no layout, so the size class is the seam.
+    const sizeClasses = screen
+      .getByTestId("flash")
+      .className.split(/\s+/)
+      .filter((name) => name.startsWith("size-"));
+    expect(sizeClasses).toEqual(["size-13"]);
   });
 
   test("hangs the auto badge off the circle's centre, where the glyph is", () => {

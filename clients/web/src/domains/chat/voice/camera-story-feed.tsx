@@ -158,8 +158,8 @@ export interface CameraRowSceneProps {
  * The shutter and the flash are the real components, since both are
  * presentational and read nothing from a store, so a story about either one in
  * place is a story about the pair. The flanks' inset and the circle they share
- * are the room's own, imported from the modules the room reads them from, so
- * the row cannot drift from the surface it stands in for.
+ * are the room's own, imported from `voice-room-layout.ts`, the module the room
+ * reads them from, so the row cannot drift from the surface it stands in for.
  */
 export function CameraRowScene({
   shutter = ROW_SHUTTER,
