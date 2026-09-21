@@ -241,8 +241,8 @@ export interface ConversationCreatedInfo {
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
   /**
-   * Mirrors the vellum adapter's `silent` flag: when true, the
-   * notification should raise no OS banner.
+   * Mirrors the vellum adapter's `silent` flag (true for low- and
+   * medium-urgency signals).
    */
   silent: boolean;
 }

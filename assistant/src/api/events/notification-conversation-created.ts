@@ -38,10 +38,9 @@ export const NotificationConversationCreatedEventSchema = z.object({
    */
   source: z.string().optional(),
   /**
-   * Mirrors `NotificationIntent.silent`: when true, the notification
-   * should raise no OS banner, and the always-on inbox is the only
-   * surfaced channel. Derived from the originating signal's
-   * `attentionHints.urgency`.
+   * Mirrors `NotificationIntent.silent`, which the server sets for
+   * low- and medium-urgency signals. No first-party client reads it
+   * today.
    */
   silent: z.boolean().optional(),
 });
