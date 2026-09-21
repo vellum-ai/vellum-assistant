@@ -1533,6 +1533,10 @@
     "cancel": "取消",
     "placeholder": "輸入您的回覆…"
   },
+  "rawDisclosure": {
+    "input": "原始輸入",
+    "output": "原始輸出"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "複製請求酬載",
     "copyResponsePayloadAriaLabel": "複製回應酬載",
@@ -1824,12 +1828,10 @@
   },
   "toolInputParameters": {
     "parameters": "參數",
-    "rawInput": "原始輸入",
     "moreCount": "{count, plural, other {另有 # 項，見「原始輸入」}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}",
-    "rawOutput": "原始輸出"
+    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}"
   },
   "valueFields": {
     "copyValue": "複製 {label}"

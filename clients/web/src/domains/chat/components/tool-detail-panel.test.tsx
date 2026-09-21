@@ -498,6 +498,120 @@ describe("ToolDetailPanel", () => {
     expect(getByText("3 more in Raw input")).toBeDefined();
   });
 
+  describe("raw data", () => {
+    const fetched = [
+      "Requested URL: https://example.com/page",
+      "Status: 200 OK",
+      "Content:",
+      "<external_content>A page about examples.</external_content>",
+    ].join("\n");
+    const cases: {
+      name: string;
+      detail: Partial<ToolDetailPayload>;
+      rawOutput: boolean;
+    }[] = [
+      {
+        name: "a structured result laid out as fields",
+        detail: {},
+        rawOutput: true,
+      },
+      {
+        name: "a text result, shown as it is",
+        detail: { toolName: "acme_notes_append", result: "Saved." },
+        rawOutput: false,
+      },
+      {
+        name: "a command, whose output is shown as printed",
+        detail: { toolName: "bash", input: { command: "ls" }, result: "a\nb" },
+        rawOutput: false,
+      },
+      {
+        name: "a fetched page, shown readably",
+        detail: {
+          toolName: "web_fetch",
+          input: { url: "https://example.com/page" },
+          result: fetched,
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a loaded skill, shown as its instructions",
+        detail: {
+          toolName: "skill_load",
+          input: { skill: "app-builder" },
+          result: [
+            "Skill: App Builder",
+            "ID: app-builder",
+            "",
+            "# App Builder",
+            "",
+            "Build apps.",
+          ].join("\n"),
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a web search, shown as its sources",
+        detail: {
+          toolName: "web_search",
+          kind: "web_search",
+          input: { query: "examples" },
+          searchQuery: "examples",
+          searchResults: [],
+          result: "1. Example page (https://example.com/page)",
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a refused call, which has no result of its own",
+        detail: { status: "denied" },
+        rawOutput: false,
+      },
+    ];
+
+    for (const { name, detail, rawOutput } of cases) {
+      test(`offers the raw input${rawOutput ? " and raw output" : ""} of ${name}`, () => {
+        const { getByText, queryByText } = render(
+          <ToolDetailPanel detail={makeDetail(detail)} onClose={noop} />,
+        );
+
+        expect(getByText("Raw input")).toBeDefined();
+        expect(queryByText("Raw output") !== null).toBe(rawOutput);
+      });
+    }
+
+    test("keeps raw data below what the call shows readably", () => {
+      const { getByText } = render(
+        <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+      );
+      const output = getByText("Output");
+      const rawInput = getByText("Raw input");
+
+      expect(
+        output.compareDocumentPosition(rawInput) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    test("builds the raw input only when it is opened", () => {
+      const { getByText, container } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ input: { label: "toronto-location" } })}
+          onClose={noop}
+        />,
+      );
+      expect(container.textContent).not.toContain(
+        '"label": "toronto-location"',
+      );
+
+      act(() => {
+        fireEvent.click(getByText("Raw input"));
+      });
+
+      expect(container.textContent).toContain('"label": "toronto-location"');
+    });
+  });
+
   test("omits the Technical details label", () => {
     const { queryByText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,

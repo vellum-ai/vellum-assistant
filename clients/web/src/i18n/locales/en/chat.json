@@ -1544,6 +1544,10 @@
     "cancel": "Cancel",
     "placeholder": "Type your reply…"
   },
+  "rawDisclosure": {
+    "input": "Raw input",
+    "output": "Raw output"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copy request payload",
     "copyResponsePayloadAriaLabel": "Copy response payload",
@@ -1835,12 +1839,10 @@
   },
   "toolInputParameters": {
     "parameters": "Parameters",
-    "rawInput": "Raw input",
     "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}",
-    "rawOutput": "Raw output"
+    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}"
   },
   "valueFields": {
     "copyValue": "Copy {label}"

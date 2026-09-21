@@ -1,12 +1,12 @@
 /**
- * A tool's raw data, behind a disclosure under the readable view of it. The
- * input, the output and every renderer that draws its own output show raw data
- * through this one control, so a reader finds it in the same place for every
- * tool.
+ * A tool call's raw input or raw output, behind a disclosure. `ToolDetailBody`
+ * draws both for every call, below whatever presents the call readably, so the
+ * raw data of every tool is in the same place under the same names.
  */
 
 import { CodeBlock } from "@/components/detail-primitives";
 import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
+import { useTranslation } from "@/i18n";
 
 /**
  * The raw text. Its own component so the disclosure, which unmounts closed
@@ -18,16 +18,21 @@ function RawText({ text }: { text: () => string }) {
 }
 
 export function RawDisclosure({
-  label,
+  side,
   text,
 }: {
-  /** The disclosure's label, e.g. "Raw input". */
-  label: string;
+  /** Which side of the call the raw text is. */
+  side: "input" | "output";
   /** The raw text, built only when the disclosure opens. */
   text: () => string;
 }) {
+  const { t } = useTranslation("chat");
   return (
-    <DetailDisclosure label={label}>
+    <DetailDisclosure
+      label={
+        side === "input" ? t("rawDisclosure.input") : t("rawDisclosure.output")
+      }
+    >
       <RawText text={text} />
     </DetailDisclosure>
   );

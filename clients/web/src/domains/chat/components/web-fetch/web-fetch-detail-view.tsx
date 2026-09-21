@@ -4,8 +4,8 @@
  * extracted page text in an `<external_content>` tag. Rather than dump that
  * verbatim, this renders a clickable source card, surfaces the fetch notices
  * (truncation, JS-rendered warnings), and shows the extracted text as readable
- * markdown, with the unparsed result behind the Raw output disclosure every
- * tool's raw data sits behind.
+ * markdown. The unparsed result is Raw output, which the drawer offers below
+ * every call.
  *
  * Parsing only: it reads the `result` its host resolved and never re-fetches.
  * That result is live wherever the host has a live source, so a fetch that
@@ -18,7 +18,6 @@ import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
-import { RawDisclosure } from "@/domains/chat/components/tool-activity/raw-disclosure";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
@@ -227,13 +226,6 @@ export function WebFetchDetailView({
           </Typography>
         )}
       </div>
-
-      {body && (
-        <RawDisclosure
-          label={t("toolOutputSection.rawOutput")}
-          text={() => body}
-        />
-      )}
     </div>
   );
 }

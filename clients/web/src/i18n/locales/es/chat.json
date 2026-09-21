@@ -1495,6 +1495,10 @@
     "cancel": "Cancelar",
     "placeholder": "Escribe tu respuesta…"
   },
+  "rawDisclosure": {
+    "input": "Entrada sin procesar",
+    "output": "Salida sin procesar"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copiar carga de la solicitud",
     "copyResponsePayloadAriaLabel": "Copiar carga de la respuesta",
@@ -1786,12 +1790,10 @@
   },
   "toolInputParameters": {
     "parameters": "Parámetros",
-    "rawInput": "Entrada sin procesar",
     "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}",
-    "rawOutput": "Salida sin procesar"
+    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}"
   },
   "valueFields": {
     "copyValue": "Copiar {label}"

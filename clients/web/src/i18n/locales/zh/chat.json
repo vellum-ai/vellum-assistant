@@ -1533,6 +1533,10 @@
     "cancel": "取消",
     "placeholder": "输入您的回复…"
   },
+  "rawDisclosure": {
+    "input": "原始输入",
+    "output": "原始输出"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "复制请求负载",
     "copyResponsePayloadAriaLabel": "复制响应负载",
@@ -1824,12 +1828,10 @@
   },
   "toolInputParameters": {
     "parameters": "参数",
-    "rawInput": "原始输入",
     "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}",
-    "rawOutput": "原始输出"
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}"
   },
   "valueFields": {
     "copyValue": "复制 {label}"

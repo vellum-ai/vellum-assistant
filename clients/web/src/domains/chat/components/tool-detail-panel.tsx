@@ -21,7 +21,11 @@ import { DetailShell } from "@/components/detail-shell";
 import { RiskChip } from "@/domains/chat/components/risk-chip";
 import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
-import { ToolOutputSection } from "@/domains/chat/components/tool-activity/tool-output-section";
+import { RawDisclosure } from "@/domains/chat/components/tool-activity/raw-disclosure";
+import {
+  ToolOutputSection,
+  useResultLayout,
+} from "@/domains/chat/components/tool-activity/tool-output-section";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
 import {
   TRANSCRIPT_TOOL_CALL_SOURCE,
@@ -36,6 +40,7 @@ import {
 } from "@/domains/chat/utils/tool-call-status";
 import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
 import { toolCallParams } from "@/domains/chat/utils/tool-input";
+import { jsonText } from "@/domains/chat/utils/value-layout";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
@@ -110,6 +115,22 @@ export function ToolDetailBody({
   // Tools with purpose-built activity UI replace the generic parameters; those
   // that also own their output suppress the shared Output section.
   const renderer = getToolActivityRenderer(detail);
+  const output = renderer?.output ?? "shared";
+  const settled = !isRunning && !isDenied && !isError;
+  const layout = useResultLayout(
+    output === "shared" ? result : undefined,
+    settled,
+  );
+  // The result is offered raw wherever what is shown of it above is not
+  // already the raw text: a renderer's readable view of it, or the shared
+  // section's fields. A refused, failed or running call has no result of its
+  // own to offer; what it shows is its state.
+  const rawOutput =
+    settled &&
+    result &&
+    (output === "own" || (output === "shared" && layout !== null))
+      ? result
+      : null;
 
   return (
     <>
@@ -128,19 +149,17 @@ export function ToolDetailBody({
         />
       ) : (
         <div className="flex flex-col gap-5">
-          <ToolInputParameters
-            params={toolCallParams(detail.input)}
-            rawInput={detail.input}
-          />
+          <ToolInputParameters params={toolCallParams(detail.input)} />
         </div>
       )}
 
       {/* Output, laid out like the input when the result is structured.
           Suppressed for tools whose renderer already presents the result. */}
-      {!renderer?.ownsOutput && (
+      {output === "shared" && (
         <div className="mt-5 flex flex-col gap-5">
           <ToolOutputSection
             result={result}
+            layout={layout}
             streamedOutput={streamedOutput}
             isDenied={isDenied}
             isRunning={isRunning}
@@ -148,6 +167,13 @@ export function ToolDetailBody({
           />
         </div>
       )}
+
+      {/* Every call's raw data, in one place under the same names whatever
+          renders the call above, so no renderer can leave it out. */}
+      <div className="mt-5 flex flex-col gap-1">
+        <RawDisclosure side="input" text={() => jsonText(detail.input)} />
+        {rawOutput && <RawDisclosure side="output" text={() => rawOutput} />}
+      </div>
     </>
   );
 }

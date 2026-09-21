@@ -133,25 +133,17 @@ describe("SkillLoadDetail", () => {
     expect(state.activeSkillDetailId).toBe("app-builder");
   });
 
-  test("shows the instructions, with the verbatim body under Raw output", () => {
+  test("shows the instructions readably, with no view switch of its own", () => {
     const { container, getByText, queryByRole } = renderDetail();
 
     expect(getByText("Output")).toBeDefined();
-    // The readable view strips the daemon's header lines and tool manifest.
-    expect(container.textContent).not.toContain("Path: /skills/app-builder");
-    // Raw data is the one disclosure every tool uses, not a view switch.
-    expect(queryByRole("radiogroup")).toBeNull();
-
-    act(() => {
-      fireEvent.click(getByText("Raw output"));
-    });
-
-    expect(container.textContent).toContain("Path: /skills/app-builder");
-    expect(container.textContent).toContain("## Available Tools");
-    // Both views at once: the instructions stay above the raw body.
     expect(container.textContent).toContain(
       "Detailed guidance about the skill.",
     );
+    // The readable view strips the daemon's header lines and tool manifest;
+    // the verbatim body is the drawer's Raw output, not a switch here.
+    expect(container.textContent).not.toContain("Path: /skills/app-builder");
+    expect(queryByRole("radiogroup")).toBeNull();
   });
 
   test("shows a body of only its header and tools verbatim, as the output", () => {
@@ -165,10 +157,9 @@ describe("SkillLoadDetail", () => {
       "### app_create",
       "Create a new app in the user's Library.",
     ].join("\n");
-    const { container, queryByText } = renderDetail({ result: manifestOnly });
+    const { container } = renderDetail({ result: manifestOnly });
 
     expect(container.textContent).toContain("Path: /skills/app-builder");
-    expect(queryByText("Raw output")).toBeNull();
   });
 
   test("folds a body taller than the fold behind Show more", () => {
