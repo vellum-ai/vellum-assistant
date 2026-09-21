@@ -495,6 +495,7 @@
     "apiKeyLabel": "Clave de API",
     "apiKeyPlaceholder": "Tu clave de API de TypeSafe",
     "apiKeyPlaceholderReplace": "Introduce una clave nueva para reemplazar la guardada",
+    "keyRejected": "TypeSafe rechazó la clave de API.",
     "modeAriaLabel": "Modo de clasificación",
     "modeLabel": "Modo",
     "modeManaged": "Vellum",

@@ -16,14 +16,18 @@ import {
   SaveButton,
 } from "@/components/service-form-controls";
 import {
-  classificationProvidersGetOptions,
   classificationProvidersGetQueryKey,
   configGetOptions,
   configGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
+import {
+  classificationProvidersGet,
+  configPatch,
+  secretsPost,
+} from "@/generated/daemon/sdk.gen";
 import type { ClassificationProvidersGetResponse } from "@/generated/daemon/types.gen";
 import { useDraftOverride } from "@/hooks/use-draft-override";
+import { toApiError } from "@/utils/api-errors";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
 import { Input } from "@vellumai/design-library/components/input";
@@ -37,14 +41,65 @@ type Availability = ClassificationProvidersGetResponse["availability"];
 /** Mirrors the daemon's `services.classification` schema defaults. */
 const DEFAULT_MODE: ClassificationMode = "your-own";
 
+/**
+ * The classification catalog, or `null` when the assistant predates
+ * `GET /v1/classification/providers`. The web bundle can be newer than the
+ * connected assistant; against one without the route the request 404s, and
+ * the card's feature-off state is to render nothing. Mapped here rather than
+ * thrown so React Query does not strand a stale success across a rollback
+ * (see `docs/BACKWARDS_COMPAT.md`, "When a gate is unnecessary"). Every
+ * write the card performs goes to routes every assistant serves, so no
+ * version gate is needed.
+ */
+async function fetchClassificationCatalog(
+  assistantId: string,
+  signal: AbortSignal,
+): Promise<ClassificationProvidersGetResponse | null> {
+  const { data, error, response } = await classificationProvidersGet({
+    path: { assistant_id: assistantId },
+    signal,
+    throwOnError: false,
+  });
+  if (!response || !response.ok) {
+    if (response?.status === 404) {
+      return null;
+    }
+    if (response) {
+      throw toApiError(error, response);
+    }
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to load classification providers.");
+  }
+  return data ?? null;
+}
+
 export function ClassificationCard() {
+  const assistantId = useActiveAssistantId();
+  const isOrgReady = useIsOrgReady();
   const { t } = useTranslation("settings");
+  const { data: catalog } = useQuery({
+    queryKey: classificationProvidersGetQueryKey({
+      path: { assistant_id: assistantId },
+    }),
+    queryFn: ({ signal }) => fetchClassificationCatalog(assistantId, signal),
+    enabled: isOrgReady,
+    staleTime: 30_000,
+    // Changes arrive through Save's own invalidation; against an assistant
+    // without the route a focus refetch would only repeat the 404.
+    refetchOnWindowFocus: false,
+  });
+  // `undefined` while loading, `null` when the assistant lacks the family:
+  // both render as feature-off rather than as empty controls.
+  if (!catalog) {
+    return null;
+  }
   return (
     <ByoServiceCard
       title={t("classificationCard.title")}
       subtitle={t("classificationCard.subtitle")}
     >
-      <ClassificationProviderForm />
+      <ClassificationProviderForm assistantId={assistantId} catalog={catalog} />
     </ByoServiceCard>
   );
 }
@@ -75,19 +130,17 @@ function statusKey(availability: Availability | undefined): StatusKey | null {
   }
 }
 
-function ClassificationProviderForm() {
-  const assistantId = useActiveAssistantId();
+function ClassificationProviderForm({
+  assistantId,
+  catalog,
+}: {
+  assistantId: string;
+  catalog: ClassificationProvidersGetResponse;
+}) {
   const isOrgReady = useIsOrgReady();
   const queryClient = useQueryClient();
   const { t } = useTranslation("settings");
 
-  const { data: catalog } = useQuery({
-    ...classificationProvidersGetOptions({
-      path: { assistant_id: assistantId },
-    }),
-    enabled: isOrgReady,
-    staleTime: 30_000,
-  });
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
     enabled: isOrgReady,
@@ -95,7 +148,7 @@ function ClassificationProviderForm() {
   });
 
   const providers: CatalogProvider[] = useMemo(
-    () => catalog?.providers ?? [],
+    () => catalog.providers,
     [catalog],
   );
   // `services.classification` falls under the ConfigGetResponse index
@@ -135,13 +188,15 @@ function ClassificationProviderForm() {
     setSaving(true);
     try {
       if (requiresApiKey && trimmedKey.length > 0) {
-        const { response: keyRes } = await credentialsSetPost({
+        // The provider-aware secrets route validates the key upstream before
+        // storing it. A rejected key comes back as 200 with success:false and
+        // is NOT stored, so the config must not be pointed at it.
+        const { data: keyData, response: keyRes } = await secretsPost({
           path: { assistant_id: assistantId },
           body: {
-            service: selectedProvider.apiKeyProviderName,
-            field: "api_key",
+            type: "api_key",
+            name: selectedProvider.apiKeyProviderName,
             value: trimmedKey,
-            label: `${selectedProvider.displayName} API Key`,
           },
           throwOnError: false,
         });
@@ -149,6 +204,9 @@ function ClassificationProviderForm() {
           throw new Error(
             `Failed to store API key (HTTP ${keyRes?.status ?? "?"})`,
           );
+        }
+        if (keyData && keyData.success === false) {
+          throw new Error(keyData.error ?? t("classificationCard.keyRejected"));
         }
       }
       const { response: cfgRes } = await configPatch({
@@ -203,7 +261,7 @@ function ClassificationProviderForm() {
       : []),
     { value: "your-own", label: t("classificationCard.modeYourOwn") },
   ];
-  const key = statusKey(catalog?.availability);
+  const key = statusKey(catalog.availability);
   const status = key ? t(key) : null;
 
   return (
@@ -250,7 +308,7 @@ function ClassificationProviderForm() {
             value={apiKeyText}
             onChange={(e) => setApiKeyText(e.target.value)}
             placeholder={
-              catalog?.availability.available &&
+              catalog.availability.available &&
               catalog.availability.source === "user-key"
                 ? t("classificationCard.apiKeyPlaceholderReplace")
                 : t("classificationCard.apiKeyPlaceholder")

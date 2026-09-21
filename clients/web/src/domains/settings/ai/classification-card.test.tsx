@@ -1,8 +1,10 @@
 /**
  * Tests for `ClassificationCard`: the provider list comes from the daemon's
- * classification catalog, Save with a typed key writes the credential and
- * `services.classification`, and choosing Vellum writes the managed mode
- * without touching the credential store.
+ * classification catalog, Save with a typed key validates and stores it
+ * through the provider-aware secrets route before writing
+ * `services.classification`, a rejected key leaves the config untouched,
+ * choosing Vellum writes the managed mode without a key write, and an
+ * assistant without the catalog route renders no card at all.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,8 +20,14 @@ const ASSISTANT_ID = "asst-test";
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
+const toastErrors: string[] = [];
 mock.module("@vellumai/design-library/components/toast", () => ({
-  toast: { success: () => {}, error: () => {} },
+  toast: {
+    success: () => {},
+    error: (message: string) => {
+      toastErrors.push(message);
+    },
+  },
   Toaster: () => null,
   ToastContent: () => null,
 }));
@@ -65,6 +73,8 @@ let catalogData: CatalogData = {
   },
 };
 let daemonConfigData: { services: Record<string, unknown> } = { services: {} };
+// `catalogStatus` 404 simulates an assistant that predates the route.
+let catalogStatus: 200 | 404 = 200;
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   configGetOptions: () => ({
     queryKey: ["config-get-test"],
@@ -72,11 +82,6 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     initialData: daemonConfigData,
   }),
   configGetQueryKey: () => ["config-get-test"],
-  classificationProvidersGetOptions: () => ({
-    queryKey: ["classification-providers-test"],
-    queryFn: () => Promise.resolve(catalogData),
-    initialData: catalogData,
-  }),
   classificationProvidersGetQueryKey: () => ["classification-providers-test"],
 }));
 
@@ -84,13 +89,28 @@ interface SdkCall {
   path?: unknown;
   body?: unknown;
   throwOnError?: boolean;
+  signal?: unknown;
 }
-const credentialsSetCalls: SdkCall[] = [];
+const secretsPostCalls: SdkCall[] = [];
 const configPatchCalls: SdkCall[] = [];
+// What the daemon answers on the secrets route: success, or a
+// provider-rejected key (200 with success:false, nothing stored).
+let secretsPostResult: { success: boolean; error?: string } = {
+  success: true,
+};
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  credentialsSetPost: (opts: SdkCall) => {
-    credentialsSetCalls.push(opts);
-    return Promise.resolve({ response: { ok: true, status: 200 } });
+  classificationProvidersGet: () =>
+    Promise.resolve(
+      catalogStatus === 404
+        ? { data: undefined, error: {}, response: { ok: false, status: 404 } }
+        : { data: catalogData, response: { ok: true, status: 200 } },
+    ),
+  secretsPost: (opts: SdkCall) => {
+    secretsPostCalls.push(opts);
+    return Promise.resolve({
+      data: secretsPostResult,
+      response: { ok: true, status: 200 },
+    });
   },
   configPatch: (opts: SdkCall) => {
     configPatchCalls.push(opts);
@@ -144,8 +164,11 @@ function selectOption(label: string): void {
 describe("ClassificationCard", () => {
   beforeEach(async () => {
     await changeLocale("en");
-    credentialsSetCalls.length = 0;
+    secretsPostCalls.length = 0;
     configPatchCalls.length = 0;
+    secretsPostResult = { success: true };
+    catalogStatus = 200;
+    toastErrors.length = 0;
     daemonConfigData = { services: {} };
     catalogData = {
       providers: [TYPESAFE],
@@ -163,34 +186,40 @@ describe("ClassificationCard", () => {
     cleanup();
   });
 
-  test("lists the daemon catalog providers and reports the missing key", () => {
+  test("lists the daemon catalog providers and reports the missing key", async () => {
     renderCard();
 
+    await screen.findByText("Add an API key to turn this on.");
     openSelect("Classification provider");
     expect(visibleOptions()).toContain("TypeSafe");
-    expect(screen.getByText("Add an API key to turn this on.")).toBeTruthy();
   });
 
-  test("saving a typed key stores the credential and writes services.classification", async () => {
+  test("renders nothing when the assistant predates the catalog route", async () => {
+    catalogStatus = 404;
+    const { container } = renderCard();
+
+    // Let the 404-mapped query settle; the feature-off state is no card.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.textContent).toBe("");
+    expect(screen.queryByText("Classification")).toBeNull();
+  });
+
+  test("saving a typed key validates it through the secrets route, then writes services.classification", async () => {
     renderCard();
 
-    fireEvent.change(screen.getByPlaceholderText("Your TypeSafe API key"), {
-      target: { value: "sk-typesafe" },
-    });
+    fireEvent.change(
+      await screen.findByPlaceholderText("Your TypeSafe API key"),
+      { target: { value: "sk-typesafe" } },
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(configPatchCalls.length).toBe(1);
     });
-    expect(credentialsSetCalls).toEqual([
+    expect(secretsPostCalls).toEqual([
       {
         path: { assistant_id: ASSISTANT_ID },
-        body: {
-          service: "typesafe",
-          field: "api_key",
-          value: "sk-typesafe",
-          label: "TypeSafe API Key",
-        },
+        body: { type: "api_key", name: "typesafe", value: "sk-typesafe" },
         throwOnError: false,
       },
     ]);
@@ -205,9 +234,34 @@ describe("ClassificationCard", () => {
     });
   });
 
-  test("choosing Vellum writes the managed mode without a credential write", async () => {
+  test("a key the provider rejects is surfaced and the config is left untouched", async () => {
+    secretsPostResult = { success: false, error: "TypeSafe rejected the key" };
     renderCard();
 
+    fireEvent.change(
+      await screen.findByPlaceholderText("Your TypeSafe API key"),
+      { target: { value: "sk-bad" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(secretsPostCalls.length).toBe(1);
+    });
+    // Save settles (the button re-enables) with no config write behind it.
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+    expect(configPatchCalls.length).toBe(0);
+    expect(toastErrors).toEqual(["TypeSafe rejected the key"]);
+  });
+
+  test("choosing Vellum writes the managed mode without a key write", async () => {
+    renderCard();
+
+    await screen.findByText("Add an API key to turn this on.");
     openSelect("Classification mode");
     selectOption("Vellum");
     expect(screen.queryByText("API Key")).toBeNull();
@@ -216,7 +270,7 @@ describe("ClassificationCard", () => {
     await waitFor(() => {
       expect(configPatchCalls.length).toBe(1);
     });
-    expect(credentialsSetCalls.length).toBe(0);
+    expect(secretsPostCalls.length).toBe(0);
     expect(configPatchCalls[0]?.body).toEqual({
       services: {
         classification: {
@@ -228,7 +282,7 @@ describe("ClassificationCard", () => {
     });
   });
 
-  test("a managed daemon config renders as Vellum and Save stays disabled until something changes", () => {
+  test("a managed daemon config renders as Vellum and Save stays disabled until something changes", async () => {
     daemonConfigData = {
       services: {
         classification: {
@@ -250,7 +304,7 @@ describe("ClassificationCard", () => {
     };
     renderCard();
 
-    expect(screen.getByText("Running through Vellum.")).toBeTruthy();
+    await screen.findByText("Running through Vellum.");
     expect(
       (screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
         .disabled,

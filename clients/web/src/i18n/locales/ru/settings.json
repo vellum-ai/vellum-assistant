@@ -481,6 +481,7 @@
     "apiKeyLabel": "API-ключ",
     "apiKeyPlaceholder": "Ваш API-ключ TypeSafe",
     "apiKeyPlaceholderReplace": "Введите новый ключ, чтобы заменить сохранённый",
+    "keyRejected": "TypeSafe отклонил API-ключ.",
     "modeAriaLabel": "Режим классификации",
     "modeLabel": "Режим",
     "modeManaged": "Vellum",

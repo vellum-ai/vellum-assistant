@@ -495,6 +495,7 @@
     "apiKeyLabel": "API 密钥",
     "apiKeyPlaceholder": "您的 TypeSafe API 密钥",
     "apiKeyPlaceholderReplace": "输入新密钥以替换已保存的密钥",
+    "keyRejected": "TypeSafe 拒绝了该 API 密钥。",
     "modeAriaLabel": "分类模式",
     "modeLabel": "模式",
     "modeManaged": "Vellum",
