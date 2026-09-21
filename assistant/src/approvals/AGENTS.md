@@ -13,7 +13,7 @@ The end-to-end lifecycle of interactive guardian requests (approvals, questions)
 
 Each assistant instance serves exactly one guardian. Multi-guardian is not supported and will never be. Only that guardian's principal decides guardian requests: `applyGuardianDecision()` requires it exactly. Do not introduce guardian-keyed maps, per-guardian routing logic, or multi-guardian multiplexing; they add complexity without a real use case and create the false impression that cross-guardian isolation is required.
 
-One guardian does not mean one person connected. The event stream (`GET /v1/events`) admits any actor principal with `chat.read`, and routes that must be guardian-only check `requireBoundGuardian` (`runtime/auth/require-bound-guardian.ts`, used by the host-browser result route among others) because a non-guardian actor can hold a valid token. Content meant only for the guardian is scoped to the guardian's principal at delivery (`targetActorPrincipalId` on the event hub), never assumed safe because it reached a connection.
+One guardian does not mean one person connected. The event stream (`GET /v1/events`) admits any actor principal with `chat.read`, so a non-guardian actor can hold a valid connection. Routes that must be guardian-only set `requireGuardian: true`, which `routes/http-adapter.ts` enforces with `requireBoundGuardian` (`runtime/auth/require-bound-guardian.ts`). Content meant only for the guardian is scoped to the guardian's principal at delivery (`targetActorPrincipalId` on the event hub), never assumed safe because it reached a connection.
 
 ## Guardian Verification Invariant
 
