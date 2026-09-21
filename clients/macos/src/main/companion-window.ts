@@ -4092,6 +4092,15 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
+      // Rehearsal keys never open a call. Both the avatar and the voice key
+      // reach this guard, including grants revoked since the card last read.
+      if (
+        action === "try" &&
+        (intro !== "try" ||
+          systemPreferences.getMediaAccessStatus("microphone") !== "granted")
+      ) {
+        return;
+      }
       // Resolved against the beat main is on when it runs, not the one this
       // press arrived on, which is the same rule the handler itself follows:
       // the hand-off below can put a window build in between, and anything the
@@ -4104,10 +4113,6 @@ export const installCompanionWindow = (): void => {
           return;
         }
         const next = introOnAdvance(from, action);
-        // **The offer is counted where it is taken, not where it lands.** A
-        // `try` on the last beat ends the run and a `try` before it does not,
-        // so the beat it was taken on is the only place the two are told
-        // apart, and that beat is gone a line later.
         if (action === "try") {
           reportIntro("offer_taken", from);
         }
@@ -4115,8 +4120,6 @@ export const installCompanionWindow = (): void => {
           finishIntro(introEndingFor(action));
         } else {
           setIntroBeat(next);
-          // `try` mid-run holds the beat, and a beat held is not a beat
-          // reached.
           if (next !== from) {
             reportIntro("advanced", next);
           }

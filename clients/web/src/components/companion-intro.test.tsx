@@ -1,5 +1,5 @@
-import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import {
   COMPANION_BASE_AVATAR_BOX,
@@ -529,5 +529,72 @@ describe("the introduction's card box", () => {
     back.click();
 
     expect(asked).toEqual(["back"]);
+  });
+});
+
+describe("permission setup in the coachmark", () => {
+  test.each([
+    ["talk", "microphone", "Enable microphone"],
+    ["key", "inputMonitoring", "Enable shortcut"],
+    ["share", "screen", "Enable screen sharing"],
+  ] as const)(
+    "offers explicit setup and skipping on %s",
+    (beat, kind, label) => {
+      const enable = mock(() => {});
+      const advance = mock((_action: string) => {});
+      const view = render(
+        <CompanionIntro
+          beat={beat}
+          onAdvance={advance}
+          permission={{
+            kind,
+            state: {
+              phase: "known",
+              item: {
+                kind,
+                status: "not-determined",
+                canRequest: true,
+                canOpenSettings: true,
+                requiresRestart: false,
+              },
+            },
+            enable,
+          }}
+        />,
+      );
+      expect(enable).not.toHaveBeenCalled();
+      fireEvent.click(view.getByRole("button", { name: label }));
+      expect(enable).toHaveBeenCalledTimes(1);
+      expect(advance).not.toHaveBeenCalled();
+      fireEvent.click(view.getByRole("button", { name: "Skip for now" }));
+      expect(advance).toHaveBeenCalledWith("next");
+    },
+  );
+  test("keeps the final step dismissible when the microphone is denied", () => {
+    const advance = mock((_action: string) => {});
+    const view = render(
+      <CompanionIntro
+        beat="try"
+        onAdvance={advance}
+        permission={{
+          kind: "microphone",
+          state: {
+            phase: "known",
+            item: {
+              kind: "microphone",
+              status: "denied",
+              canRequest: true,
+              canOpenSettings: true,
+              requiresRestart: false,
+            },
+          },
+          enable: () => {},
+        }}
+      />,
+    );
+    expect(view.getByRole("button", { name: "Open Settings" })).toBeTruthy();
+    expect(view.queryByText("Say hello and I’ll answer out loud.")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Got it" }));
+    expect(advance).toHaveBeenCalledWith("next");
   });
 });

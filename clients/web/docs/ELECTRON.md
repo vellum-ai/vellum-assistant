@@ -107,6 +107,20 @@ A subset of push signals — inbound deep links being the canonical case — can
 
 ---
 
+## Companion introduction permissions
+
+The macOS companion tour offers microphone setup on Talk, Input Monitoring on
+its voice-key lesson, and Screen Recording on Share. Setup is explicit and
+skippable. The permission bridge reads the capturing helper's Screen Recording
+grant; the Electron app's grant is not interchangeable with it.
+
+The tour stays on its current step while Settings is open and observes permission
+updates before restoring the rehearsal controls. Global keyboard registration
+never requests access. Permission updates re-arm the voice key and call chords.
+During the tour, holds do not dictate and double taps reach the same native
+microphone guard as the final avatar click. Only the final step with microphone
+access can start the tour's real call.
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.

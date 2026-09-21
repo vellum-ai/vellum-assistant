@@ -174,13 +174,26 @@
       "body": "Haz clic en mí para empezar una conversación.",
       "gesture": "O pulsa dos veces esta tecla:",
       "greeted": "¡Lo lograste! Así de simple.",
-      "prompt": "Te pediré permiso para usar tu micrófono",
       "title": "Habla conmigo"
     },
     "try": {
       "body": "Dime hola y te responderé en voz alta.",
       "how": "Haz clic en mí, o pulsa dos veces la tecla",
       "title": "Pruébalo"
+    },
+    "permission": {
+      "microphoneAction": "Activar micrófono",
+      "microphoneBody": "Permíteme usar tu micrófono para conversar por voz.",
+      "shortcutAction": "Activar atajo",
+      "shortcutBody": "Permíteme detectar el atajo mientras usas otras apps.",
+      "screenAction": "Activar pantalla compartida",
+      "screenBody": "Activa esta opción. Tú eliges qué compartir al usarla.",
+      "openSettings": "Abrir Ajustes",
+      "settingsHint": "Permite el acceso en Ajustes del Sistema y vuelve aquí.",
+      "restricted": "Tu Mac restringe este permiso. Puedes omitir este paso.",
+      "error": "No se pudo comprobar el acceso. Inténtalo de nuevo.",
+      "waiting": "Comprobando acceso…",
+      "skip": "Omitir"
     }
   },
   "companionPopover": {

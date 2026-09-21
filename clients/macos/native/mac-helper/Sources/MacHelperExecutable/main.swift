@@ -1615,6 +1615,10 @@ final class MacHelper: @unchecked Sendable {
         guard keyboardTap == nil else {
             return
         }
+        // Only an explicit setup action requests Input Monitoring.
+        guard IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted else {
+            throw HelperError.eventTap("Input Monitoring not granted")
+        }
         do {
             try installEventHandlers()
         } catch {

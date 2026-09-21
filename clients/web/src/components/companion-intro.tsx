@@ -17,6 +17,11 @@ import type { CSSProperties, ReactNode, Ref } from "react";
 import { Globe, Mic, Pencil, ScreenShare, X } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
+import { CompanionIntroPermission } from "./companion-intro-permission";
+import {
+  companionIntroNeedsPermission,
+  type CompanionIntroPermission as IntroPermission,
+} from "./use-companion-intro-permission";
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { COMPANION_PERCH_HOP } from "@/components/companion-surface";
@@ -333,13 +338,7 @@ export interface CompanionIntroProps {
   /** Advance or end the run. Absent leaves the controls inert, which is what
    *  Storybook wants. */
   onAdvance?: (action: CompanionIntroAction) => void;
-  /**
-   * Whether a call may already use the microphone, which is what decides
-   * whether the Talk beat warns that its offer raises a prompt. Undefined while
-   * the answer is unknown, which the card reads as nothing to warn about: a
-   * warning about a prompt that will not appear is worse than no warning.
-   */
-  micGranted?: boolean;
+  permission?: IntroPermission | null;
   /**
    * Whether the creature staged in this card has been clicked.
    *
@@ -387,7 +386,7 @@ export function CompanionIntro({
   assistantName,
   cardRef,
   onAdvance,
-  micGranted,
+  permission = null,
   greeted = false,
   voiceKeyTaps = 0,
   chordPresses = 0,
@@ -398,6 +397,7 @@ export function CompanionIntro({
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const isFirst = index <= 0;
   const copy = INTRO_COPY_KEYS[beat];
+  const needsPermission = companionIntroNeedsPermission(permission);
   /** Which subject the run is in, which is what the dots draw. */
   const group = COMPANION_INTRO_BEAT_GROUPS[beat];
   /** The control on the pill this beat is about, where it is about one. */
@@ -588,7 +588,7 @@ export function CompanionIntro({
           on every beat while the shortest beat simply leaves canvas empty
           underneath: a card that centred its contents would move every line in
           it on every press. */}
-      <div className="flex flex-1 flex-col gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2">
         {/* Clamped, because the only variable in this card is a name the user
             chose and there is no length it has to be. The card's box is fixed,
             so a title free to wrap is a title free to push the rest of the beat
@@ -602,18 +602,22 @@ export function CompanionIntro({
               : t(copy.title)}
           </span>
         </p>
-        {"body" in copy ? (
-          <p className="text-[12px] leading-[1.45] text-white/70">
-            {/* The click landing is worth more than the instruction to make
+        {needsPermission && permission !== null ? (
+          <CompanionIntroPermission permission={permission} />
+        ) : (
+          <>
+            {"body" in copy ? (
+              <p className="text-[12px] leading-[1.45] text-white/70">
+                {/* The click landing is worth more than the instruction to make
                 it: the user has just pressed the thing this whole run is
                 about, and a card that carried on asking would be a card that
                 did not notice. */}
-            {beat === "talk" && greeted
-              ? t("companionIntro.talk.greeted")
-              : t(copy.body)}
-          </p>
-        ) : null}
-        {/* **Where the creature stands while the card asks to be clicked.**
+                {beat === "talk" && greeted
+                  ? t("companionIntro.talk.greeted")
+                  : t(copy.body)}
+              </p>
+            ) : null}
+            {/* **Where the creature stands while the card asks to be clicked.**
             An empty box, because the creature is not drawn here: it belongs to
             the surface, which walks the real one into this spot and holds it
             over the card (`avatarStaged`). What is here is the room for it and
@@ -622,27 +626,12 @@ export function CompanionIntro({
 
             The reservation is why the click works at all. A creature drawn over
             prose would be a creature drawn over prose. */}
-        {beat === "talk" && (
-          <>
-            <div className="flex flex-1 items-center justify-center">
-              <span data-avatar-stage className="block size-11" aria-hidden />
-            </div>
-            {/* **What the real thing will ask for, said once the rehearsal is
-                over.** Under the creature, and only after the click: before it,
-                a line about a system prompt is a warning attached to a card
-                that raises none, and every beat of this run is trying to be two
-                lines. Here it is the answer to "so what happens when I mean
-                it", asked at the one moment the user has just found out how to
-                mean it. Dropped where the grant is already given, which is a
-                second install or a user who has talked to Vellum before. */}
-            {greeted && micGranted === false ? (
-              <p className="text-center text-[11px] leading-tight text-white/45">
-                {t("companionIntro.talk.prompt")}
-              </p>
-            ) : null}
-          </>
-        )}
-        {/* **The gesture, drawn as the key rather than spelled as one, and
+            {beat === "talk" && (
+              <div className="flex flex-1 items-center justify-center">
+                <span data-avatar-stage className="block size-11" aria-hidden />
+              </div>
+            )}
+            {/* **The gesture, drawn as the key rather than spelled as one, and
             pressable.** The beat before says what pressing the creature does;
             this is the other way in, the one that does not need the pointer to
             travel. A picture of the keycap, because that is how the user will
@@ -655,9 +644,9 @@ export function CompanionIntro({
             takes the press, and it is also what answers the real key: it lights
             on the first tap and fills on the second, which is the only feedback
             in this run that comes from something the user did off the card. */}
-        {beat === "key" && (
-          <>
-            {/* **The pointer's own press is answered, not ignored.** The cap is
+            {beat === "key" && (
+              <>
+                {/* **The pointer's own press is answered, not ignored.** The cap is
                 a picture of a key, and a picture of a key on a card that says
                 "double tap this" will be clicked: it is the only thing on the
                 beat that looks pressable. Answering the press is what tells the
@@ -665,27 +654,27 @@ export function CompanionIntro({
                 they were already reading. Silence would read as a broken
                 button, and a cap that started a conversation would teach the
                 click instead of the key. */}
-            <p className="text-[12px] leading-[1.45] text-white/70">
-              {scolded
-                ? t("companionIntro.key.scolded")
-                : t("companionIntro.talk.gesture")}
-            </p>
-            {/* Centred in the room the card has left, the way the creature is
+                <p className="text-[12px] leading-[1.45] text-white/70">
+                  {scolded
+                    ? t("companionIntro.key.scolded")
+                    : t("companionIntro.talk.gesture")}
+                </p>
+                {/* Centred in the room the card has left, the way the creature is
                 on the beat before: these two cards are the two ways in, and
                 each one puts the thing to press in the middle of itself. */}
-            <div className="flex flex-1 items-center justify-center">
-              <Keycap
-                label="fn"
-                taps={taps}
-                scolded={scolded}
-                take={() => {
-                  setScolded(true);
-                }}
-              />
-            </div>
-          </>
-        )}
-        {/* **The finish, which is the only press here that does the thing for
+                <div className="flex flex-1 items-center justify-center">
+                  <Keycap
+                    label="fn"
+                    taps={taps}
+                    scolded={scolded}
+                    take={() => {
+                      setScolded(true);
+                    }}
+                  />
+                </div>
+              </>
+            )}
+            {/* **The finish, which is the only press here that does the thing for
             real.** Eight cards about talking to something would otherwise end
             with the user never having said a word to it: the rehearsal on the
             Talk beat starts nothing on purpose, and this is where that is made
@@ -700,50 +689,54 @@ export function CompanionIntro({
 
             Done stays in the footer for anyone who would rather not be put in a
             call by an introduction. */}
-        {beat === "try" && (
-          <>
-            <div className="flex flex-1 items-center justify-center gap-3">
-              <span data-avatar-stage className="block size-11" aria-hidden />
-              <Keycap
-                label="fn"
-                taps={taps}
-                scolded={scolded}
-                take={() => {
-                  setScolded(true);
-                }}
-              />
-            </div>
-            <p className="text-center text-[11px] leading-tight text-white/45">
-              {scolded
-                ? t("companionIntro.key.scolded")
-                : t("companionIntro.try.how")}
-            </p>
-          </>
-        )}
-        {/* **The control this beat is about, as the mark and the key.** The
+            {beat === "try" && (
+              <>
+                <div className="flex flex-1 items-center justify-center gap-3">
+                  <span
+                    data-avatar-stage
+                    className="block size-11"
+                    aria-hidden
+                  />
+                  <Keycap
+                    label="fn"
+                    taps={taps}
+                    scolded={scolded}
+                    take={() => {
+                      setScolded(true);
+                    }}
+                  />
+                </div>
+                <p className="text-center text-[11px] leading-tight text-white/45">
+                  {scolded
+                    ? t("companionIntro.key.scolded")
+                    : t("companionIntro.try.how")}
+                </p>
+              </>
+            )}
+            {/* **The control this beat is about, as the mark and the key.** The
             same icon the pill draws, beside the key that reaches it: the beat
             lights that button on the bar, and the card carries its mark so the
             two are matched without reading either. Centred in the room the card
             has left, like the creature and the cap on the beats before, so
             every card in the run has one thing in the middle of it. */}
-        {control !== undefined && (
-          <div className="flex flex-1 items-center justify-center gap-4">
-            {/* **Each mark says what kind of thing it is.** Two marks side by
+            {control !== undefined && (
+              <div className="flex flex-1 items-center justify-center gap-4">
+                {/* **Each mark says what kind of thing it is.** Two marks side by
                 side are otherwise two pictures the reader has to work out: one
                 is a button on the pill and the other is a key on the keyboard,
                 and which is which is the whole point of showing both. The word
                 under each is what turns a pair of glyphs into "here are the two
                 ways to do this". */}
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-white/10 text-white/85">
-                {control.icon}
-              </span>
-              <span className="text-[10px] leading-none text-white/40">
-                {t("companionIntro.call.click")}
-              </span>
-            </div>
-            <div className="flex flex-col items-center gap-1.5">
-              {/* **It answers the real keys, and lights for nothing else.**
+                <div className="flex flex-col items-center gap-1.5">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-white/10 text-white/85">
+                    {control.icon}
+                  </span>
+                  <span className="text-[10px] leading-none text-white/40">
+                    {t("companionIntro.call.click")}
+                  </span>
+                </div>
+                <div className="flex flex-col items-center gap-1.5">
+                  {/* **It answers the real keys, and lights for nothing else.**
                   The chord is armed for as long as this beat is up and for no
                   longer, and a press of it does nothing but reach this chip:
                   the pill beside the card is a drawing of a call, so there is
@@ -752,23 +745,25 @@ export function CompanionIntro({
                   same thing, which is "that landed". A chip that stayed grey
                   while the user pressed the keys the card told them to press
                   would be teaching a shortcut that looks broken. */}
-              <span
-                className={`flex h-10 items-center rounded-xl border px-3 text-[13px] font-medium transition-colors ${
-                  shortcutPressed
-                    ? "border-emerald-300/90 bg-emerald-400/55 text-emerald-50"
-                    : "border-white/15 bg-white/10 text-white/85"
-                }`}
-              >
-                {control.shortcut}
-              </span>
-              <span className="text-[10px] leading-none text-white/40">
-                {t("companionIntro.call.shortcut")}
-              </span>
-            </div>
-          </div>
+                  <span
+                    className={`flex h-10 items-center rounded-xl border px-3 text-[13px] font-medium transition-colors ${
+                      shortcutPressed
+                        ? "border-emerald-300/90 bg-emerald-400/55 text-emerald-50"
+                        : "border-white/15 bg-white/10 text-white/85"
+                    }`}
+                  >
+                    {control.shortcut}
+                  </span>
+                  <span className="text-[10px] leading-none text-white/40">
+                    {t("companionIntro.call.shortcut")}
+                  </span>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
-      <div className="flex items-center justify-between gap-2 pt-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 pt-2">
         {/* Where the run is, as dots rather than "4 of 7". The count is not
             information anyone acts on; that it is nearly over is.
 
@@ -800,7 +795,7 @@ export function CompanionIntro({
           {isFirst ? null : (
             <button
               type="button"
-              className="h-7 rounded-full px-3 text-[12px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              className="h-7 whitespace-nowrap rounded-full px-3 text-[12px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               onClick={() => onAdvance?.("back")}
             >
               {t("companionIntro.back")}
@@ -808,10 +803,14 @@ export function CompanionIntro({
           )}
           <button
             type="button"
-            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+            className="h-7 whitespace-nowrap rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
             onClick={() => onAdvance?.("next")}
           >
-            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+            {isLast
+              ? t("companionIntro.done")
+              : needsPermission
+                ? t("companionIntro.permission.skip")
+                : t("companionIntro.next")}
           </button>
         </div>
       </div>

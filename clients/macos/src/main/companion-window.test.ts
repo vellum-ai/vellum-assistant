@@ -2660,12 +2660,7 @@ describe("taking the introduction's last offer", () => {
     expect(state().intro).toBe(null);
   });
 
-  /**
-   * Only the last beat. A session started from an earlier one is the run being
-   * interrupted by the user's own business, so the beat is held and the staging
-   * with it.
-   */
-  test("an earlier beat's offer leaves the run staged", async () => {
+  test("an earlier beat's rehearsal leaves the run staged without calling", async () => {
     openStagedRun();
     send("vellum:companion:advanceIntro", "next");
     send("vellum:companion:advanceIntro", "next");
@@ -2675,7 +2670,7 @@ describe("taking the introduction's last offer", () => {
     send("vellum:companion:advanceIntro", "try");
     await settleHandoff();
 
-    expect(mainTimeline).toEqual(["command:startVoice"]);
+    expect(mainTimeline).toEqual([]);
     expect(state().intro).toBe("talk");
     expect(introStage()).toBe(true);
   });
@@ -6001,7 +5996,9 @@ describe("the chord the introduction asks for", () => {
   const introChord = (): string | null => {
     const pull = invocable.get("vellum:companion:getIntroChord");
     if (!pull) {
-      throw new Error("No handler registered for vellum:companion:getIntroChord");
+      throw new Error(
+        "No handler registered for vellum:companion:getIntroChord",
+      );
     }
     return pull([]) as string | null;
   };
@@ -6253,6 +6250,36 @@ describe("the introduction's reports", () => {
     expect(reports().map((report) => [report.event, report.beat])).toEqual([
       ["dismissed", "idle"],
     ]);
+  });
+
+  test.each(["denied", "not-determined", "restricted", "unknown"])(
+    "keeps the final step open when microphone access is %s",
+    async (status) => {
+      startIntro();
+      for (const _beat of COMPANION_INTRO_BEATS.slice(1)) {
+        send("vellum:companion:advanceIntro", "next");
+      }
+      micStatus = status;
+      dispatched.length = 0;
+      mainSends.length = 0;
+      send("vellum:companion:advanceIntro", "try");
+      await settleHandoff();
+      expect(dispatched).toEqual([]);
+      expect(state().intro).toBe("try");
+      expect(reports()).toEqual([]);
+    },
+  );
+
+  test("a rehearsal double tap never starts a session", async () => {
+    startIntro();
+    for (let i = 0; i < 3; i += 1) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+    dispatched.length = 0;
+    send("vellum:companion:advanceIntro", "try");
+    await settleHandoff();
+    expect(dispatched).toEqual([]);
+    expect(state().intro).toBe("key");
   });
 
   /**
