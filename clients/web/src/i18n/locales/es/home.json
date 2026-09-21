@@ -33,6 +33,10 @@
       "unreachable": "Inaccesible"
     }
   },
+  "homeUpdatesList": {
+    "titleOne": "Habilidad actualizada: {name}",
+    "titleMany": "{count, plural, one {# habilidad actualizada} other {# habilidades actualizadas}}"
+  },
   "notificationsBell": {
     "ariaLabel": "Notificaciones",
     "ariaLabelUnread": "Notificaciones (sin leer)",

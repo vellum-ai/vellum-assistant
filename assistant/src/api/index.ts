@@ -832,6 +832,8 @@ export {
   FeedItemStatusSchema,
   type FeedItemType,
   FeedItemTypeSchema,
+  type FeedItemUpdate,
+  FeedItemUpdateSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,

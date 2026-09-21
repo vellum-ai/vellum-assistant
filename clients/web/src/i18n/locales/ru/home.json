@@ -33,6 +33,10 @@
       "unreachable": "Недоступно"
     }
   },
+  "homeUpdatesList": {
+    "titleOne": "Навык обновлён: {name}",
+    "titleMany": "{count, plural, one {Обновлён # навык} few {Обновлены # навыка} many {Обновлено # навыков} other {Обновлено # навыка}}"
+  },
   "notificationsBell": {
     "ariaLabel": "Уведомления",
     "ariaLabelUnread": "Уведомления (непрочитанные)",

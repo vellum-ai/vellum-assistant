@@ -25,9 +25,20 @@ import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
 import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { formatCompactLocalDate } from "@/utils/format-date";
-import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
+import type {
+  FeedItem,
+  FeedItemStatus,
+  FeedItemUpdate,
+} from "@vellumai/assistant-api";
 
-import { feedItem } from "../feed-test-fixtures";
+import {
+  feedItem,
+  FIXTURE_CONVERSATION_ID,
+  FIXTURE_SECOND_CONVERSATION_ID,
+  FIXTURE_SKILL_UPDATES,
+  skillUpdateReceipt,
+} from "../feed-test-fixtures";
+import type * as UpdateLinksModule from "../hooks/use-feed-item-update-links";
 
 const isTouchMobileRef = { value: false };
 const originalMatchMedia = window.matchMedia;
@@ -261,6 +272,47 @@ mock.module("@/domains/home/hooks/use-feed-item-conversation-link", () => ({
 function conversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
 }
+
+/**
+ * The targets a skill-update receipt's list validates, plus the `enabled`
+ * flag the hook was called with. Same lazy-loading property as the single
+ * links: the list view must not fetch anything for a receipt.
+ */
+const updateLinksRef: {
+  validSkillIds: Set<string>;
+  validConversationIds: Set<string>;
+  isPending: boolean;
+} = {
+  validSkillIds: new Set(),
+  validConversationIds: new Set(),
+  isPending: false,
+};
+
+const updateLinksEnabledCalls: boolean[] = [];
+
+mock.module(
+  "@/domains/home/hooks/use-feed-item-update-links",
+  (): Partial<typeof UpdateLinksModule> => ({
+    useFeedItemUpdateLinks: (
+      updates: FeedItemUpdate[],
+      assistantId: string | null | undefined,
+      enabled: boolean,
+    ) => {
+      const canFetch = enabled && Boolean(assistantId);
+      if (updates.length > 0) {
+        updateLinksEnabledCalls.push(canFetch);
+      }
+      if (!canFetch || updates.length === 0) {
+        return {
+          validSkillIds: new Set(),
+          validConversationIds: new Set(),
+          isPending: false,
+        };
+      }
+      return updateLinksRef;
+    },
+  }),
+);
 
 /**
  * The lists the detail validates its entity links against ("View schedule",
@@ -540,6 +592,10 @@ beforeEach(() => {
   conversationLinkRef.missing = new Set();
   conversationLinkRef.isPending = false;
   conversationLinkEnabledCalls.length = 0;
+  updateLinksRef.validSkillIds = new Set();
+  updateLinksRef.validConversationIds = new Set();
+  updateLinksRef.isPending = false;
+  updateLinksEnabledCalls.length = 0;
   schedulesRef.list = [];
   schedulesRef.isPending = false;
   schedulesRef.isError = false;
@@ -2251,5 +2307,172 @@ describe("NotificationsBell detail action items", () => {
     await act(async () => {});
 
     expect(triggerActionCalls.length).toBe(2);
+  });
+});
+
+describe("NotificationsBell skill-update receipt", () => {
+  const RECEIPT = skillUpdateReceipt({ id: "receipt-1", status: "seen" });
+
+  function allTargetsValid(): void {
+    updateLinksRef.validSkillIds = new Set(
+      FIXTURE_SKILL_UPDATES.map((update) => update.skillId),
+    );
+    updateLinksRef.validConversationIds = new Set([
+      FIXTURE_CONVERSATION_ID,
+      FIXTURE_SECOND_CONVERSATION_ID,
+    ]);
+  }
+
+  /** The list's skill sections, each with the names of its links. */
+  function skillSections(): Array<{ heading: string; links: string[] }> {
+    return screen.getAllByTestId("home-updates-list-skill").map((section) => ({
+      heading: section.firstElementChild?.textContent ?? "",
+      links: Array.from(section.querySelectorAll("button")).map(
+        (button) => button.textContent ?? "",
+      ),
+    }));
+  }
+
+  test("the row and the detail are titled by the skills the receipt counts", async () => {
+    feedRef.items = [RECEIPT];
+    allTargetsValid();
+
+    // Three skills, one of them rewritten twice: the count is of skills.
+    await openDetail("3 skills updated");
+
+    expect(
+      screen.getByRole("heading", { name: "3 skills updated" }),
+    ).toBeTruthy();
+  });
+
+  test("the list groups the rewrites by skill and links every target", async () => {
+    feedRef.items = [RECEIPT];
+    allTargetsValid();
+
+    await openDetail("3 skills updated");
+
+    expect(skillSections()).toEqual([
+      {
+        heading: "Approved PR Merge Gate",
+        links: [
+          "Approved PR Merge Gate",
+          "Go to Conversation",
+          "Go to Conversation",
+        ],
+      },
+      {
+        heading: "Release Notes Draft",
+        links: ["Release Notes Draft", "Go to Conversation"],
+      },
+      // No source conversation resolved for this rewrite.
+      { heading: "Weekly Report Export", links: ["Weekly Report Export"] },
+    ]);
+    for (const update of FIXTURE_SKILL_UPDATES) {
+      expect(screen.getByText(update.summary, { exact: false })).toBeTruthy();
+    }
+    // A receipt spanning several sources carries no footer conversation
+    // link; the timestamp is the footer's only occupant.
+    expect(footerLinkLabels(detailFooter())).toEqual([]);
+  });
+
+  test("a skill link opens the skill page", async () => {
+    feedRef.items = [RECEIPT];
+    allTargetsValid();
+
+    await openDetail("3 skills updated");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Release Notes Draft" }),
+    );
+    await act(async () => {});
+
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/skills/release-notes-draft",
+    );
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("a source link opens that rewrite's conversation", async () => {
+    feedRef.items = [RECEIPT];
+    allTargetsValid();
+
+    await openDetail("3 skills updated");
+    // The first skill's rewrites came from two conversations; the first
+    // source link belongs to the first rewrite.
+    const [firstSection] = screen.getAllByTestId("home-updates-list-skill");
+    const [, firstSource] = Array.from(
+      firstSection?.querySelectorAll("button") ?? [],
+    );
+    expect(firstSource?.textContent).toBe("Go to Conversation");
+    fireEvent.click(firstSource!);
+    await act(async () => {});
+
+    expect(navigateToConversationMock).toHaveBeenCalledWith(
+      navigateMock,
+      FIXTURE_CONVERSATION_ID,
+    );
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a target that is gone reads as text while the rest still link", async () => {
+    feedRef.items = [RECEIPT];
+    updateLinksRef.validSkillIds = new Set(["release-notes-draft"]);
+    updateLinksRef.validConversationIds = new Set([
+      FIXTURE_SECOND_CONVERSATION_ID,
+    ]);
+
+    await openDetail("3 skills updated");
+
+    expect(skillSections()).toEqual([
+      { heading: "Approved PR Merge Gate", links: ["Go to Conversation"] },
+      {
+        heading: "Release Notes Draft",
+        links: ["Release Notes Draft", "Go to Conversation"],
+      },
+      { heading: "Weekly Report Export", links: [] },
+    ]);
+  });
+
+  test("links hold their place but do nothing while validation is pending", async () => {
+    feedRef.items = [RECEIPT];
+    updateLinksRef.isPending = true;
+
+    await openDetail("3 skills updated");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Release Notes Draft" }),
+    );
+    await act(async () => {});
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(skillSections()[1]?.links).toEqual([
+      "Release Notes Draft",
+      "Go to Conversation",
+    ]);
+  });
+
+  test("the list view never validates a receipt's targets", async () => {
+    feedRef.items = [RECEIPT];
+
+    await openBell();
+
+    expect(updateLinksEnabledCalls).toEqual([]);
+  });
+
+  test("a receipt with no entries falls back to its summary", async () => {
+    feedRef.items = [
+      skillUpdateReceipt({
+        id: "receipt-empty",
+        status: "seen",
+        title: "Skill updated: Approved PR Merge Gate",
+        summary: "Added the receipt step after the merge.",
+        updates: [],
+      }),
+    ];
+
+    await openDetail("Skill updated: Approved PR Merge Gate");
+
+    expect(screen.queryByTestId("home-updates-list")).toBeNull();
+    expect(
+      screen.getByText("Added the receipt step after the merge."),
+    ).toBeTruthy();
   });
 });

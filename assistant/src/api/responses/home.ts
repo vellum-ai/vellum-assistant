@@ -168,6 +168,28 @@ export type FeedItemGuardianRequest = z.infer<
 >;
 
 /**
+ * One background rewrite of a managed skill, as a receipt item lists it.
+ *
+ * A receipt (`detailPanel.kind === "updatesList"`) collapses every skill
+ * update a background pass made within one burst into a single feed item, and
+ * `updates` keeps each rewrite whole: the skill it touched, the pass's own
+ * account of what changed, and the conversation the change came from, when
+ * lineage resolved. The same skill can appear more than once, one entry per
+ * rewrite, in the order the rewrites happened. Clients group on `skillId`
+ * alone, never on `name` or the summary text.
+ */
+export const FeedItemUpdateSchema = z.object({
+  skillId: z.string(),
+  /** The skill's display name at the time of the rewrite. */
+  name: z.string(),
+  /** The pass's own account of what it changed. Plain text, not markdown. */
+  summary: z.string(),
+  /** The conversation the rewrite was distilled from, when it resolved. */
+  conversationId: z.string().optional(),
+});
+export type FeedItemUpdate = z.infer<typeof FeedItemUpdateSchema>;
+
+/**
  * A single item rendered in the Home feed.
  *
  * Notes:
@@ -198,6 +220,11 @@ export const FeedItemSchema = z.object({
   // Present only on the canonical "Needs attention" item projecting a
   // guardian request; see FeedItemGuardianRequestSchema.
   guardianRequest: FeedItemGuardianRequestSchema.optional(),
+  // Present only on a skill-update receipt (`detailPanel.kind` is
+  // `updatesList`); see FeedItemUpdateSchema. `summary` still carries the
+  // same content as a plain list, so a client without the panel loses only
+  // the per-skill links.
+  updates: z.array(FeedItemUpdateSchema).optional(),
   category: FeedItemCategorySchema.optional(),
   noteworthy: z.boolean().optional(),
   fromAssistant: z.boolean().optional(),

@@ -15073,6 +15073,24 @@ paths:
                             - intent
                             - status
                           additionalProperties: false
+                        updates:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              skillId:
+                                type: string
+                              name:
+                                type: string
+                              summary:
+                                type: string
+                              conversationId:
+                                type: string
+                            required:
+                              - skillId
+                              - name
+                              - summary
+                            additionalProperties: false
                         category:
                           type: string
                           enum:
@@ -15308,6 +15326,24 @@ paths:
                       - intent
                       - status
                     additionalProperties: false
+                  updates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        skillId:
+                          type: string
+                        name:
+                          type: string
+                        summary:
+                          type: string
+                        conversationId:
+                          type: string
+                      required:
+                        - skillId
+                        - name
+                        - summary
+                      additionalProperties: false
                   category:
                     type: string
                     enum:
@@ -15637,6 +15673,24 @@ paths:
                             - intent
                             - status
                           additionalProperties: false
+                        updates:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              skillId:
+                                type: string
+                              name:
+                                type: string
+                              summary:
+                                type: string
+                              conversationId:
+                                type: string
+                            required:
+                              - skillId
+                              - name
+                              - summary
+                            additionalProperties: false
                         category:
                           type: string
                           enum:
@@ -24788,6 +24842,24 @@ paths:
                           - intent
                           - status
                         additionalProperties: false
+                      updates:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            skillId:
+                              type: string
+                            name:
+                              type: string
+                            summary:
+                              type: string
+                            conversationId:
+                              type: string
+                          required:
+                            - skillId
+                            - name
+                            - summary
+                          additionalProperties: false
                       category:
                         type: string
                         enum:
