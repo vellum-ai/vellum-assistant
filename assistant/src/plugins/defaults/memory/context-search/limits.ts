@@ -1,10 +1,13 @@
+import {
+  RecallDepthSchema,
+  RecallSourceSchema,
+} from "../../../../api/events/tool-result.js";
 import type { RecallDepth, RecallInput, RecallSource } from "./types.js";
 
-export const ALL_RECALL_SOURCES: readonly RecallSource[] = [
-  "memory",
-  "conversations",
-  "workspace",
-] as const;
+export const ALL_RECALL_SOURCES: readonly RecallSource[] =
+  RecallSourceSchema.options;
+
+export const RECALL_DEPTHS: readonly RecallDepth[] = RecallDepthSchema.options;
 
 const RECALL_SOURCE_SET: ReadonlySet<unknown> = new Set(ALL_RECALL_SOURCES);
 

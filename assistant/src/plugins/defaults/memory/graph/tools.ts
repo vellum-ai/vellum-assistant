@@ -6,10 +6,9 @@ import {
   ALL_RECALL_SOURCES,
   MAX_RECALL_MAX_RESULTS,
   MIN_RECALL_MAX_RESULTS,
+  RECALL_DEPTHS,
 } from "../context-search/limits.js";
 import type { ToolDefinition } from "../llm-helpers.js";
-
-const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
 
 /**
  * Explicit local information search across memory, conversations, and

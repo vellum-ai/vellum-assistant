@@ -1,3 +1,4 @@
+import type { RecallSearchedSource } from "../../../../api/events/tool-result.js";
 import { isAbortReason } from "../host-utils.js";
 import {
   ALL_RECALL_SOURCES,
@@ -15,18 +16,9 @@ import type {
   RecallSourceAdapter,
 } from "./types.js";
 
-export type DeterministicRecallSourceStatus = "searched" | "degraded";
-
-export interface DeterministicRecallSourceNote {
-  source: RecallSource;
-  status: DeterministicRecallSourceStatus;
-  evidenceCount: number;
-  error?: string;
-}
-
 export interface DeterministicRecallSearchResult extends RecallSearchResult {
   input: NormalizedRecallInput;
-  searchedSources: DeterministicRecallSourceNote[];
+  searchedSources: RecallSearchedSource[];
 }
 
 export interface DeterministicRecallSearchOptions {

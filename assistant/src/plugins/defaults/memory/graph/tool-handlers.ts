@@ -42,10 +42,14 @@ export interface RememberInput {
   finish_turn?: boolean;
 }
 
-export interface RememberResult {
-  success: boolean;
-  message: string;
-}
+export type RememberResult =
+  | {
+      success: true;
+      message: string;
+      /** The facts saved, trimmed, in the order they were given. */
+      facts: string[];
+    }
+  | { success: false; message: string };
 
 /**
  * Normalize the `remember` content input to a list of non-empty facts.
@@ -96,7 +100,7 @@ export function handleRemember(
     now,
   });
 
-  return { success: true, message };
+  return { success: true, message, facts };
 }
 
 // ---------------------------------------------------------------------------

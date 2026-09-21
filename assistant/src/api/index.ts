@@ -642,6 +642,18 @@ export {
   ToolOutputChunkSubTypeSchema,
 } from "./events/tool-output-chunk.js";
 export {
+  type RecallDepth,
+  RecallDepthSchema,
+  type RecallEvidenceItem,
+  RecallEvidenceItemSchema,
+  type RecallMetadata,
+  RecallMetadataSchema,
+  type RecallSearchedSource,
+  RecallSearchedSourceSchema,
+  type RecallSource,
+  RecallSourceSchema,
+  type RememberMetadata,
+  RememberMetadataSchema,
   type RiskScopeOption,
   RiskScopeOptionSchema,
   type ToolActivityMetadata,
