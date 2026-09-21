@@ -11,8 +11,11 @@
  * type safety but always allow the request through.
  */
 
+import { isTrustClass } from "@vellumai/gateway-client";
+
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
+import type { TrustClass } from "../trust-class.js";
 import { isNarrowScopeProfile } from "./scopes.js";
 import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
@@ -25,6 +28,8 @@ const log = getLogger("route-policy");
 export interface RoutePolicy {
   requiredScopes: Scope[];
   allowedPrincipalTypes: PrincipalType[];
+  /** Trust classes whose turn may call this route. Absent means guardian only. */
+  allowedTrustClasses?: TrustClass[];
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +67,37 @@ export const GATEWAY_PRINCIPALS: PrincipalType[] = ["svc_gateway"];
  * IPC socket.
  */
 export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
+
+// ---------------------------------------------------------------------------
+// Trust-class bundles
+//
+// The second "who can call this" axis: principal type names what kind of
+// credential arrived, trust class names whose turn it speaks for.
+// ---------------------------------------------------------------------------
+
+/** Only the guardian's turn. The default for a route naming no classes. */
+export const GUARDIAN_ONLY: TrustClass[] = ["guardian"];
+
+/** The guardian's turn and a trusted contact's. */
+export const CONTACT_ALLOWED: TrustClass[] = ["guardian", "trusted_contact"];
+
+/**
+ * Whether an actor of `trustClass` may call a route carrying `policy`.
+ *
+ * A null policy and an absent `allowedTrustClasses` both resolve to
+ * {@link GUARDIAN_ONLY}. A value outside the vocabulary is refused — a field
+ * statically typed {@link TrustClass} can still carry a legacy or wire-sourced
+ * value.
+ */
+export function trustClassAllowed(
+  policy: RoutePolicy | null,
+  trustClass: TrustClass | (string & {}) | undefined,
+): boolean {
+  if (typeof trustClass !== "string" || !isTrustClass(trustClass)) {
+    return false;
+  }
+  return (policy?.allowedTrustClasses ?? GUARDIAN_ONLY).includes(trustClass);
+}
 
 // ---------------------------------------------------------------------------
 // Enforcement

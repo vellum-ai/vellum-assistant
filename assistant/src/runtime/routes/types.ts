@@ -186,7 +186,7 @@ export interface RouteDefinition {
   endpoint: string;
   method: string;
   /**
-   * Scope + principal-type policy for this route.
+   * Scope, principal-type, and trust-class policy for this route.
    *
    * `null` means the route is intentionally unprotected — health
    * probes, public capability-token endpoints, and the like.
@@ -195,6 +195,9 @@ export interface RouteDefinition {
    * and which principal types are allowed. Both the HTTP server
    * (`enforcePolicy()`) and the gateway IPC proxy (via the route
    * schema served from `get_route_schema`) read this field.
+   *
+   * Its optional `allowedTrustClasses` names whose turn may call the
+   * route; absent means guardian only.
    *
    * Required so the type system catches every new route — there is
    * no separate registry to forget to update.
