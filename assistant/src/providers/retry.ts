@@ -1616,9 +1616,11 @@ export class RetryProvider implements Provider {
         ) {
           fallbackAttempted = true;
           // What the failure indicts: the whole upstream for an outage, only
-          // this model for a retirement or rename.
+          // this model for a retirement or rename. A malformed output that
+          // takes a corrective hint indicts neither: it is conditioned on this
+          // request, so the backup may serve it without diverting the route.
           const failedRoute =
-            breakerRoute === null
+            breakerRoute === null || correctiveRetryHint(error) !== undefined
               ? null
               : failureBreakerRoute(breakerRoute, error);
           let failureObservation: BreakerObservation | undefined;
