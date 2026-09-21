@@ -16,7 +16,7 @@ flowchart LR
   Chrome --> Stream[Existing desktop stream]
 ```
 
-The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a flat integrated tab bar, standard window controls, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Setup installs an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
+The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a plain dark native title bar, minimize/maximize/close controls, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Setup installs an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
 
 Chrome and WezTerm use explicit desktop window classes shared with their launcher entries. The desktop session bus and Plank share `XDG_DATA_HOME` so the D-Bus-activated window matcher can resolve the generated launchers and group running windows under their pinned icons.
 

@@ -17,10 +17,7 @@ import {
 } from "./desktop-browser-endpoint.js";
 
 const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
-const TERMINAL_HEADER_CONFIG = `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',
-  integrated_title_button_style = 'Gnome',
-  integrated_title_buttons = { 'Maximize', 'Close' },
-`;
+const TERMINAL_HEADER_CONFIG = "  window_decorations = 'TITLE|RESIZE',\n";
 
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
@@ -81,7 +78,13 @@ ${TERMINAL_HEADER_CONFIG}  font_size = 11,
 `;
   seedFile(terminalConfig, terminalConfigContents, [
     terminalConfigContents.replace(TERMINAL_HEADER_CONFIG, ""),
-    terminalConfigContents.replace(/  integrated_title_buttons = .*\n/, ""),
+    ...["", "  integrated_title_buttons = { 'Maximize', 'Close' },\n"].map(
+      (buttons) =>
+        terminalConfigContents.replace(
+          TERMINAL_HEADER_CONFIG,
+          `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',\n  integrated_title_button_style = 'Gnome',\n${buttons}`,
+        ),
+    ),
   ]);
 
   const applicationsDir = join(configDir, "applications");
