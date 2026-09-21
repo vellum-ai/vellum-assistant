@@ -40,7 +40,8 @@
     "saveFailed": "Failed to save contact",
     "verifyFailed": "Failed to verify channel",
     "rosterLoadFailed": "Couldn’t load the workspace roster. Check the Slack connection and try again.",
-    "emptyBody": "Select a contact"
+    "emptyBody": "Select a contact",
+    "notFoundBody": "This contact isn’t available."
   },
   "contactsList": {
     "heading": "Entries",

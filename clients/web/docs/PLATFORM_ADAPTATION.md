@@ -238,11 +238,15 @@ The rule:
 
 Contacts is the worked example. The list is `/assistant/contacts` and a contact is
 `/assistant/contacts/:contactId`, two sibling routes rather than a selection held in page state, so
-depth is a property of the URL. `IntelligenceLayout` derives the one Back from the path: the
-section's own route backs to the assistant overview, a contact backs to the list. On a phone the
-list fills the page and opening a contact pushes an entry marked with `PUSHED_FROM_LIST_STATE`
-(`utils/list-detail-navigation.ts`), so `returnToList` pops that entry instead of stacking a second
-copy of the list, and replaces instead when the detail was deep-linked and has no list behind it.
+depth is a property of the URL. `ContactsPage` measures its own pane and reports through
+`intelligence-layout-slots-store` whether the contact is a pushed full screen; `IntelligenceLayout`
+renders the one Back from that report, so a pushed contact backs to the list and everything else
+backs to the assistant overview. The page owns the signal because a mobile-width window can still
+hand it a pane roomy enough to seat the list beside the contact, and there a Back to the list would
+point at a list already on screen. On a phone the list fills the page and opening a contact pushes
+an entry marked with `PUSHED_FROM_LIST_STATE` (`utils/list-detail-navigation.ts`), so `returnToList`
+pops that entry instead of stacking a second copy of the list, and replaces instead when the detail
+was deep-linked and has no list behind it.
 On a window roomy enough to seat both, the same routes render as a list beside a detail and moving
 between rows replaces the entry, since that is not a step to walk back through.
 

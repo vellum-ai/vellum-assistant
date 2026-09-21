@@ -83,6 +83,14 @@ describe("routes", () => {
     );
   });
 
+  test("encodes contact ids into a single path segment", () => {
+    // Contact ids are caller-supplied, so a slash or a space must not split
+    // the segment or leave the URL unparseable.
+    expect(routes.contacts.detail("org/team c_1")).toBe(
+      "/assistant/contacts/org%2Fteam%20c_1",
+    );
+  });
+
   test("encodes namespaced skill ids into a single path segment", () => {
     // skills.sh catalog ids contain slashes (org/repo/skill); the produced
     // URL must keep the id as ONE segment so `skills/:skillId` can match it.

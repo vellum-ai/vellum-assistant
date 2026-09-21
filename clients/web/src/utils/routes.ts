@@ -244,10 +244,16 @@ export const routes = {
    * (`identity`). `detail` deep-links one contact. Path-based (not `?tab=`)
    * so the open contact is bookmarkable and shareable; both paths render
    * `ContactsPage`, which derives the selection from the URL.
+   *
+   * Contact ids are caller-supplied, so `detail` percent-encodes the id to
+   * keep it a single path segment: one carrying a slash would never match
+   * the `contacts/:contactId` route. React Router decodes route params, so
+   * `useParams()` in the page yields the original id unchanged.
    */
   contacts: {
     root: r("/assistant/contacts"),
-    detail: (contactId: string) => dyn(r("/assistant/contacts"), contactId),
+    detail: (contactId: string) =>
+      dyn(r("/assistant/contacts"), encodeURIComponent(contactId)),
   },
 
   /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout

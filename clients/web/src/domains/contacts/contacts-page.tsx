@@ -7,7 +7,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router";
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -51,7 +51,7 @@ import {
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
-import { useAssistantChannels } from "@/hooks/use-assistant-channels";
+import { useSlackConfigured } from "@/hooks/use-slack-configured";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -175,11 +175,6 @@ export function ContactsPage({
     select: (data) => data.contacts,
   });
 
-  const channelsController = useAssistantChannels({
-    assistantId,
-    onStartSetupConversation,
-  });
-
   const availabilityQuery = useQuery({
     ...channelsAvailableGetOptions({
       path: { assistant_id: assistantId },
@@ -230,7 +225,7 @@ export function ContactsPage({
   // detail sits beside or behind the list. As a screen the list is the whole
   // page and nothing is open.
   const selectedContactId =
-    routeContactId ?? (listIsScreen ? null : (guardian?.id ?? null));
+    routeContactId ?? (listFillsPage ? null : (guardian?.id ?? null));
   const selectedContact = useMemo<ContactPayload | null>(
     () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
     [contactsData, selectedContactId],
@@ -277,20 +272,15 @@ export function ContactsPage({
     navKey: pathname,
   });
 
-  // Positive evidence that this list is the whole list: a fetch has succeeded
-  // and none is in flight. A pending, revalidating, or failed query all fall
-  // short, and so does the offline case, which is why the test is on
-  // `fetchStatus` rather than `isFetching`: TanStack's default `networkMode`
-  // pauses the request without ever reporting a load or an error, so a paused
-  // fetch reads as neither fetching nor failed while nothing has been fetched.
+  // Positive evidence that this list is the whole list. `fetchStatus` rather
+  // than `isFetching` because TanStack's default `networkMode` pauses an
+  // offline request, which reads as neither fetching nor failed.
   const contactsListSettled =
     contactsQuery.isSuccess && contactsQuery.fetchStatus === "idle";
 
-  // An id no contact in the list carries keeps its URL: a cache cannot prove a
-  // contact is absent, and one that arrives later (an invalidation, a refetch,
-  // a reconnect) resolves the link on its own. Until the list settles the pane
-  // stays blank, since the empty state reads as "no such contact", which an
-  // unresolved link has not earned.
+  // An id no contact carries keeps its URL until the list settles: one that
+  // arrives later (an invalidation, a refetch, a reconnect) resolves the link
+  // on its own.
   const resolvingRouteContact =
     Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 
@@ -470,21 +460,20 @@ export function ContactsPage({
     [revokeMutation, assistantId],
   );
 
+  const createContact = createMutation.mutate;
+  const createPending = createMutation.isPending;
   const handleAddContact = useCallback(() => {
-    if (createMutation.isPending) {
+    if (createPending) {
       return;
     }
-    createMutation.mutate();
-  }, [createMutation]);
+    createContact();
+  }, [createContact, createPending]);
 
   // As a screen the list has no heading row of its own, so the add action
   // rides the layout's mobile top bar. Everywhere else the card's own plus
-  // carries it. The mutation object is new on every render, so the effect
-  // tracks the two fields it reads rather than the object.
+  // carries it.
   const setHeaderTrailing =
     useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
-  const addPending = createMutation.isPending;
-  const addContact = createMutation.mutate;
   useEffect(() => {
     if (!listFillsPage) {
       setHeaderTrailing(null);
@@ -498,15 +487,26 @@ export function ContactsPage({
         aria-label={t("contactsList.addAriaLabel")}
         tooltip={t("contactsList.addAriaLabel")}
         className="max-md:bg-[var(--surface-active)]"
-        loading={addPending}
-        disabled={addPending}
-        onClick={() => addContact()}
+        loading={createPending}
+        disabled={createPending}
+        onClick={handleAddContact}
       />,
     );
     return () => {
       setHeaderTrailing(null);
     };
-  }, [addContact, addPending, listFillsPage, setHeaderTrailing, t]);
+  }, [createPending, handleAddContact, listFillsPage, setHeaderTrailing, t]);
+
+  // The layout's Back returns to the list only while the detail is a pushed
+  // screen, which the pane's own width decides.
+  const setDetailIsScreen =
+    useIntelligenceLayoutSlotsStore.use.setDetailIsScreen();
+  useEffect(() => {
+    setDetailIsScreen(detailFillsPage);
+    return () => {
+      setDetailIsScreen(false);
+    };
+  }, [detailFillsPage, setDetailIsScreen]);
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
@@ -607,13 +607,8 @@ export function ContactsPage({
   });
 
   // Without configured Slack credentials the roster can only 503, so the Link
-  // action is offered only once Slack is set up. Configuration, not liveness:
-  // the roster is an outbound Web API call, so it answers perfectly well while
-  // the inbound Socket Mode connection is down, and gating on the connection
-  // state would hide a working action during a reconnect.
-  const slackReady = channelsController.channels.some(
-    (channel) => channel.key === "slack" && channel.configured,
-  );
+  // action is offered only once Slack is set up.
+  const slackReady = useSlackConfigured(assistantId);
 
   const handleLinkAccount = useCallback(
     (channelId: string) => {
@@ -699,8 +694,9 @@ export function ContactsPage({
         verified: isVerifiedContact(c.channels),
       })),
     selectedContactId,
+    onSelect: handleSelect,
     onAddContact: handleAddContact,
-    addingContact: createMutation.isPending,
+    addingContact: createPending,
     search: contactSearch,
     onSearchChange: setContactSearch,
   };
@@ -714,7 +710,7 @@ export function ContactsPage({
     >
       {hasRoomForList ? (
         <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
-          <ContactsList {...contactsListProps} onSelect={handleSelect} />
+          <ContactsList {...contactsListProps} />
         </aside>
       ) : listIsScreen ? null : (
         <>
@@ -727,7 +723,7 @@ export function ContactsPage({
             onClose={closeDrawer}
             title={t("contactsPage.title")}
           >
-            <ContactsList {...contactsListProps} onSelect={handleSelect} />
+            <ContactsList {...contactsListProps} />
           </SideListDrawer>
         </>
       )}
@@ -739,14 +735,10 @@ export function ContactsPage({
         className="min-h-0 min-w-0 flex-1 overflow-y-auto"
       >
         {listFillsPage ? (
-          <ContactsList
-            {...contactsListProps}
-            surface="screen"
-            onSelect={handleSelect}
-          />
-        ) : contactsQuery.isLoading ||
-          resolvingRouteContact ? null : optimisticContact &&
-          optimisticContact.id !== deletingContactId ? (
+          <ContactsList {...contactsListProps} surface="screen" />
+        ) : contactsQuery.isLoading || resolvingRouteContact ? (
+          <ContactsPaneSpinner />
+        ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
               contact={optimisticContact}
@@ -816,8 +808,10 @@ export function ContactsPage({
               }}
             />
           )
+        ) : routeContactId ? (
+          <ContactsPaneMessage text={t("contactsPage.notFoundBody")} />
         ) : (
-          <ContactsEmptyState />
+          <ContactsPaneMessage text={t("contactsPage.emptyBody")} />
         )}
       </section>
 
@@ -880,17 +874,24 @@ export function ContactsPage({
   );
 }
 
-function ContactsEmptyState() {
-  const { t } = useTranslation("contacts");
-
+/** The pane's resting copy: nothing picked, or a URL naming no contact. */
+function ContactsPaneMessage({ text }: { text: string }) {
   return (
     <div className="flex h-full items-center justify-center py-16">
       <p
         className="text-body-medium-lighter"
         style={{ color: "var(--content-tertiary)" }}
       >
-        {t("contactsPage.emptyBody")}
+        {text}
       </p>
+    </div>
+  );
+}
+
+function ContactsPaneSpinner() {
+  return (
+    <div className="flex h-full items-center justify-center py-16">
+      <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
     </div>
   );
 }

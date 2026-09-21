@@ -11,7 +11,8 @@
  * `setTopBarCenter`): the section label on section pages; the bare pages
  * set no title (the stage greeting already names the assistant). Library and
  * Contacts instead publish the complete mobile bar through `setMobileTopBar`,
- * and a detail route under one of them backs to that section's list.
+ * and back to that section's list while the page reports a pushed detail
+ * screen through `intelligence-layout-slots-store`.
  *
  * `useIsMobile` and the slots-store setter are mocked; the assistant name
  * is driven through the real identity store. `MemoryRouter` satisfies the
@@ -77,6 +78,7 @@ afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
+  useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
 });
 
 describe("IntelligenceLayout — section pages", () => {
@@ -150,51 +152,37 @@ describe("IntelligenceLayout — section pages", () => {
     );
   });
 
-  test("on mobile, Library registers one back, title, and action top bar", () => {
+  test.each([
+    { section: "Library", path: "/assistant/library", action: "Import" },
+    { section: "Contacts", path: "/assistant/contacts", action: "Add" },
+  ])(
+    "on mobile, $section registers one back, title, and action top bar",
+    ({ section, path, action }) => {
+      isMobileRef.value = true;
+      useIntelligenceLayoutSlotsStore
+        .getState()
+        .setHeaderTrailing(<button type="button">{action}</button>);
+      const { container } = renderLayoutAt(path);
+
+      const slot = lastMobileTopBar();
+      expect(slot).toBeDefined();
+      expect(
+        renderToStaticMarkup(slot?.center as React.ReactElement),
+      ).toContain(section);
+      expect(
+        renderToStaticMarkup(slot?.trailing as React.ReactElement),
+      ).toContain(action);
+      expect(isValidElement(slot?.leading)).toBe(true);
+      expect(slotProps(slot?.leading).shape).toBe("pill");
+      expect(container.querySelector("h1")).toBeNull();
+      expect(container.querySelector("a")).toBeNull();
+      expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+    },
+  );
+
+  test("on mobile, a pushed contact detail backs to the Contacts list", () => {
     isMobileRef.value = true;
-    useIntelligenceLayoutSlotsStore
-      .getState()
-      .setHeaderTrailing(<button type="button">Import</button>);
-    const { container } = renderLayoutAt("/assistant/library");
-
-    const slot = lastMobileTopBar();
-    expect(slot).toBeDefined();
-    expect(renderToStaticMarkup(slot?.center as React.ReactElement)).toContain(
-      "Library",
-    );
-    expect(
-      renderToStaticMarkup(slot?.trailing as React.ReactElement),
-    ).toContain("Import");
-    expect(isValidElement(slot?.leading)).toBe(true);
-    expect(slotProps(slot?.leading).shape).toBe("pill");
-    expect(container.querySelector("h1")).toBeNull();
-    expect(container.querySelector("a")).toBeNull();
-    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
-  });
-
-  test("on mobile, Contacts registers one back, title, and action top bar", () => {
-    isMobileRef.value = true;
-    useIntelligenceLayoutSlotsStore
-      .getState()
-      .setHeaderTrailing(<button type="button">Add</button>);
-    const { container } = renderLayoutAt("/assistant/contacts");
-
-    const slot = lastMobileTopBar();
-    expect(slot).toBeDefined();
-    expect(renderToStaticMarkup(slot?.center as React.ReactElement)).toContain(
-      "Contacts",
-    );
-    expect(
-      renderToStaticMarkup(slot?.trailing as React.ReactElement),
-    ).toContain("Add");
-    expect(slotProps(slot?.leading).shape).toBe("pill");
-    expect(container.querySelector("h1")).toBeNull();
-    expect(container.querySelector("a")).toBeNull();
-    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
-  });
-
-  test("on mobile, a contact detail path backs to the Contacts list", () => {
-    isMobileRef.value = true;
+    useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(true);
     renderLayoutAt("/assistant/contacts/c_1");
 
     const leading = slotProps(lastMobileTopBar()?.leading);
@@ -206,12 +194,13 @@ describe("IntelligenceLayout — section pages", () => {
     expect(leading.asChild).toBeUndefined();
   });
 
-  test("on mobile, a trailing slash on the list path is still the list", () => {
+  test("on mobile, a contact detail beside its list backs to the overview", () => {
+    // A mobile-width window whose pane still seats the list: the page reports
+    // no pushed screen, so a Back to the list would point at a list already
+    // on screen.
     isMobileRef.value = true;
-    renderLayoutAt("/assistant/contacts/");
+    renderLayoutAt("/assistant/contacts/c_1");
 
-    // The overview pill (`asChild` around a <Link>), not the detail route's
-    // "Back to Contacts" button, which would cost the user a second Back.
     const leading = slotProps(lastMobileTopBar()?.leading);
     expect(leading["aria-label"]).toBe("Back to Ada");
     expect(leading.asChild).toBe(true);
