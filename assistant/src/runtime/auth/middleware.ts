@@ -77,9 +77,11 @@ export function authenticateRequest(req: Request): AuthenticateResult {
   const rawToken = extractBearerToken(req);
   if (!rawToken) {
     // Dev bypass covers only a request that supplied no Authorization header
-    // at all. A header that is present but unusable (empty credential, a
-    // non-bearer scheme) is refused rather than handed the guardian context.
-    if (isHttpAuthDisabled() && !req.headers.get("authorization")) {
+    // at all. A header that is present but unusable (empty or whitespace-only
+    // value, a non-bearer scheme, a malformed credential) is refused rather
+    // than handed the guardian context. `has` rather than `get`: an empty
+    // value reads back as "" and would otherwise pass as absent.
+    if (isHttpAuthDisabled() && !req.headers.has("authorization")) {
       return { ok: true, context: buildDevBypassContext() };
     }
     log.warn(

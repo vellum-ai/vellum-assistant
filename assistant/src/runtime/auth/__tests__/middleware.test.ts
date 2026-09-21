@@ -444,6 +444,8 @@ describe("authenticateRequest with auth disabled and a bearer present", () => {
     ["lowercase scheme with a bad token", "bearer not-a-jwt.xxxxxxxx"],
     ["empty credential", "Bearer "],
     ["non-bearer scheme", "Basic dXNlcjpwYXNz"],
+    ["an empty header value", ""],
+    ["a whitespace-only header value", "   "],
   ])(
     "refuses %s instead of granting the dev-bypass context",
     (_label, header) => {
