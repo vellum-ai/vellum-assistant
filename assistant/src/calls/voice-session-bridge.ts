@@ -990,8 +990,7 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
-  const resumedUtterance = opts.routingUtterance?.trim() || undefined;
-  const routingUtterance = resumedUtterance ?? persistedContent;
+  const routingUtterance = opts.routingUtterance?.trim() || persistedContent;
   const routingLegRule = routingLegRuleFor(opts, routingUtterance);
   let voiceCallControlPrompt: string | null;
   if (opts.voiceControlPrompt === undefined) {
@@ -1998,13 +1997,14 @@ export async function startVoiceTurn(
   // The escalation judge runs beside the front-door leg's model call, so its
   // verdict is usually in before the leg's first answer word. Snapshot the
   // history now: the leg's own reply must not be part of what is judged.
+  // Hidden fresh-view follow-ups route with their image; this text-only judge
+  // cannot assess that context.
   const escalationJudgement =
-    opts.routingLeg === "front-door" &&
-    (!isHiddenSyntheticPrompt || resumedUtterance !== undefined)
+    opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt
       ? judgeEscalation({
           conversationId: opts.conversationId,
           history: conversation.getMessages(),
-          utterance: resumedUtterance ?? opts.content,
+          utterance: opts.content,
           ...(opts.signal ? { signal: opts.signal } : {}),
         }).then((judgement) => {
           if (judgement.outcome !== "unavailable") {

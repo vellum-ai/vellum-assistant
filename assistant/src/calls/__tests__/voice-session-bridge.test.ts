@@ -3466,9 +3466,11 @@ describe("startVoiceTurn escalation judge", () => {
     }
   });
 
-  test("a hidden look follow-up judges its original request", async () => {
+  test.each([
+    "What do you see on my screen?",
+    "Show me where to add a new page.",
+  ])("a captured look bypasses the text-only judge: %s", async (request) => {
     judgeEscalationVerdict = true;
-    const request = "Show me where to add a new page.";
     const handle = await startVoiceTurn({
       ...makeTurnOptions(),
       content: "(fresh view taken; answer from it now)",
@@ -3477,19 +3479,8 @@ describe("startVoiceTurn escalation judge", () => {
       hiddenSyntheticPrompt: true,
     });
 
-    expect(judgeEscalationCalls).toEqual([{ utterance: request }]);
-    expect(await handle.escalationJudgement).toBe(true);
-    expect(typeof handle.overrule).toBe("function");
-  });
-
-  test("an empty resumed request does not opt a hidden turn into judging", async () => {
-    const handle = await startVoiceTurn({
-      ...makeTurnOptions(),
-      routingUtterance: "  ",
-      routingLeg: "front-door",
-      hiddenSyntheticPrompt: true,
-    });
     expect(judgeEscalationCalls).toEqual([]);
     expect(handle.escalationJudgement).toBeUndefined();
+    expect(handle.overrule).toBeUndefined();
   });
 });
