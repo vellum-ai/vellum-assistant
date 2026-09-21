@@ -19,14 +19,13 @@ export type SeedQueryCache = (client: QueryClient) => void;
 /**
  * A query client for a story. Nothing retries, so an unseeded query settles as
  * an error at once instead of looping. A seeded entry never goes stale, and
- * nothing refetches it on mount, focus or reconnect, so it is never replaced by
- * a request to an assistant the story does not have, even from a query that
- * sets its own finite `staleTime`. A query that sets its own `refetchInterval`
- * still polls, since no client default can stop that. A query with no data
- * still loads on mount,
- * so a story of a loading or error state keeps it. Nothing is garbage-collected,
- * so an entry seeded for a query that mounts later (a section that starts
- * collapsed) is still there.
+ * nothing refetches it on mount, focus or reconnect, even under a query's own
+ * finite `staleTime`, so none of those replaces it with a request to an
+ * assistant the story does not have. A query that sets its own
+ * `refetchInterval` still polls, since no client default can stop that. A query
+ * with no data still loads on mount, so a story of a loading or error state
+ * keeps it. Nothing is garbage-collected, so an entry seeded for a query that
+ * mounts later (a section that starts collapsed) is still there.
  */
 export function createStoryQueryClient(seed?: SeedQueryCache): QueryClient {
   const client = new QueryClient({
