@@ -91,11 +91,12 @@ Each policy defines:
 
 ### Conversation Strategy Types
 
-| Strategy                         | Behavior                                                                                                                                                                                                                                     | Used by                                  |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `start_new_conversation`         | Creates a fresh conversation per delivery. The conversation is surfaced via SSE.                                                                                                                                                             | `vellum`                                 |
-| `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `whatsapp`, `slack`, `email` |
-| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `phone`                                  |
+| Strategy                         | Behavior                                                                                                                                                      | Used by                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `start_new_conversation`         | Pairs the delivery with a new or reused conversation, or appends to the producing one (see Conversation Pairing below).                                       | `vellum`                                                                                     |
+| `continue_existing_conversation` | Resolves the destination chat's home conversation, creating one on first delivery. The delivered post is written there only once the channel acknowledges it. | `telegram`, `slack`, `discord`, and the non-deliverable `whatsapp`, `email`, `a2a`, `plugin` |
+| `push_only`                      | Pairs nothing. The push deep-links through the vellum delivery's conversation.                                                                                | `platform`                                                                                   |
+| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                               | `phone`                                                                                      |
 
 ### Helper Functions
 
@@ -384,11 +385,17 @@ Every guardian reply, typed in the app or on a channel, goes through `routeGuard
 
 1. A button callback (`apr:<requestId>:<action>`).
 2. A request-code prefix on the reply. Matching is case-insensitive.
-3. A bare-text answer, when exactly one question is pending in the conversation it was asked in.
-4. An explicit approve or reject phrase, when exactly one request is pending.
-5. Natural-language classification, on channels that enable it (app sessions do not).
+3. `open invite flow` while an access request is pending, which passes through to the normal assistant turn.
+4. A bare-text answer, when exactly one question is pending in the conversation it was asked in.
+5. An explicit approve or reject phrase, applied when exactly one request is pending.
+6. Natural-language classification, only where the caller passes an `approvalConversationGenerator`: channels do, app sessions do not.
 
-When several requests are pending and the reply names none of them, the router answers with `composeDisambiguationReply()`, listing each request's code and how to reply to it, in two cases: the reply is an explicit approve or reject phrase, or natural-language classification reached a decision without identifying which request it answers. Any other reply that names no request falls through to the normal message pipeline. Every decision applies through `applyGuardianDecision()`. The end-to-end map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md).
+When several requests are pending and the reply names none of them, the router answers with `composeDisambiguationReply()`, listing each request's code and how to reply to it:
+
+- for an explicit approve or reject phrase, everywhere;
+- where classification runs, for any reply it does not resolve to one request. `runApprovalConversationTurn()` returns `keep_pending` for indecision and for every failure (generator error, malformed output, a decision with no target), so on those channels any other code-less reply is consumed here.
+
+Where classification does not run, any other code-less reply falls through to the normal message pipeline. With one request pending, a `keep_pending` classification returns the engine's own reply as `nl_keep_pending`: the channel intercept treats it as consumed, while `conversation-routes.ts` lets the message through. Every decision applies through `applyGuardianDecision()`. The end-to-end map is [docs/guardian-request-flow.md](../../docs/guardian-request-flow.md).
 
 ## Key Files
 
@@ -477,17 +484,17 @@ For vellum deliveries, the audit trail extends past the SSE broadcast to the OS 
 
 The ack populates three columns on `notification_deliveries`:
 
-| Column                   | Type    | Description                                                                 |
-| ------------------------ | ------- | --------------------------------------------------------------------------- |
-| `client_delivery_status` | TEXT    | `'delivered'` if the client handled the intent, `'client_failed'` otherwise |
-| `client_delivery_error`  | TEXT    | Error description when the post failed (e.g. authorization denied)          |
-| `client_delivery_at`     | INTEGER | Epoch ms timestamp of when the client reported the outcome                  |
+| Column                   | Type    | Description                                                                                               |
+| ------------------------ | ------- | --------------------------------------------------------------------------------------------------------- |
+| `client_delivery_status` | TEXT    | `'delivered'` if the client handled the intent, `'client_failed'` otherwise. Last writer wins (see below) |
+| `client_delivery_error`  | TEXT    | Error description when the post failed (e.g. authorization denied)                                        |
+| `client_delivery_at`     | INTEGER | Epoch ms timestamp of when the client reported the outcome                                                |
 
-`'delivered'` covers two outcomes the column cannot tell apart: the OS accepted a posted banner, or the client deliberately showed none (the user was already watching that conversation, or the sending assistant predates guardian targeting and the intent was guardian-scoped). So the audit trail answers three questions for each vellum delivery:
+`'delivered'` covers two outcomes the column cannot tell apart: the OS accepted a posted banner, or the client deliberately showed none (the user was already watching that conversation, or the sending assistant predates guardian targeting and the intent was guardian-scoped). The intent goes to every eligible connection, and each one acks the same `deliveryId`. `handleNotificationIntentResult()` in `runtime/routes/notification-routes.ts` overwrites the row with no client key, so the status holds the last client to report, not an aggregate, and `client_delivery_error` is only ever set, so it can outlive a later success. The audit trail answers three questions for each vellum delivery:
 
 1. **Was the intent broadcast?** -- existing `status` column (`sent`)
-2. **Did a client handle it?** -- `client_delivery_status` is non-null
-3. **Did handling fail, and why?** -- `client_delivery_status = 'client_failed'` + `client_delivery_error`
+2. **Did any client report back?** -- `client_delivery_status` is non-null
+3. **Did the last client to report fail, and why?** -- `client_delivery_status = 'client_failed'` + `client_delivery_error`
 
 Query examples:
 

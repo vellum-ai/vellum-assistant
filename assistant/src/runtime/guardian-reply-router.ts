@@ -9,7 +9,15 @@
  *
  *   1. Deterministic callback/ref parsing (button presses with `apr:<requestId>:<action>`)
  *   2. Request code parsing (6-char alphanumeric prefix matching)
- *   3. NL classification via the conversational approval engine
+ *   2.5. Invite handoff: "open invite flow" with a pending access request
+ *        passes through to the normal assistant turn
+ *   2.55. Bare-text answer to the single pending question, in the
+ *        conversation it was asked in
+ *   2.6. Explicit approve/reject phrase: applied when exactly one request is
+ *        pending, answered with a disambiguation reply when several are
+ *   3. NL classification via the conversational approval engine, only when
+ *      the caller passes an `approvalConversationGenerator` (app sessions do
+ *      not, so for them 2.6 is the last plain-text stage)
  *
  * All decisions flow through `applyGuardianDecision`, which handles identity
  * validation, expiry checks, the atomic gateway CAS+outcome commit,
@@ -319,17 +327,8 @@ function notConsumed(): GuardianReplyResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Route an inbound guardian reply through the guardian decision pipeline.
- *
- * This is the single entry point for all inbound guardian reply processing.
- * It handles messages from any channel (Telegram, WhatsApp) and
- * routes through priority-ordered matching:
- *
- *   1. Deterministic callback parsing (button presses)
- *   2. Request code parsing (6-char alphanumeric prefix)
- *   3. NL classification via the conversational approval engine
- *
- * All decisions flow through `applyGuardianDecision`.
+ * Route a guardian reply through the priority-ordered pipeline described in
+ * the file header. All decisions flow through `applyGuardianDecision`.
  */
 export async function routeGuardianReply(
   ctx: GuardianReplyContext,
@@ -665,11 +664,11 @@ export async function routeGuardianReply(
     );
 
     if (engineResult.disposition === "keep_pending") {
-      // When the engine returns keep_pending with multiple pending requests,
-      // this likely means the NL classification understood a decision intent
-      // but runApprovalConversationTurn fail-closed because no targetRequestId
-      // was provided. In this case, produce a disambiguation reply instead of
-      // a generic "I couldn't process that" message.
+      // keep_pending covers model indecision and every fail-closed path in
+      // runApprovalConversationTurn (generator error, malformed output, a
+      // decision without the targetRequestId that multi-pending requires).
+      // With several requests pending, answer with a disambiguation reply
+      // instead of a generic "I couldn't process that" message.
       if (pendingRequestsForClassification.length > 1) {
         log.info(
           {
