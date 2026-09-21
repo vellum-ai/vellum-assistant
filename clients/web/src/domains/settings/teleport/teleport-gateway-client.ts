@@ -89,6 +89,79 @@ export async function exportLocalBundle(
 }
 
 /**
+ * Ask a local/docker assistant's daemon to build a *debug* bundle and PUT it
+ * to a signed URL: `POST /v1/migrations/export-to-gcs` with
+ * `profile: "debug"`. The debug profile carries no credentials and adds the
+ * gateway's database and logs, for Vellum staff to open on a debug clone.
+ * Returns the 202 `job_id`; poll it with {@link pollLocalExportJob}.
+ */
+export async function exportLocalDebugBundle(
+  assistant: LockfileAssistant,
+  uploadUrl: string,
+): Promise<string> {
+  const base = localGatewayBase(assistant);
+  const token = await mintLocalGatewayToken(assistant, base);
+  const response = await fetch(`${base}/v1/migrations/export-to-gcs`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ upload_url: uploadUrl, profile: "debug" }),
+  });
+  if (!response.ok) {
+    throw new TeleportError(
+      "export_failed",
+      `Export failed (HTTP ${response.status}).`,
+    );
+  }
+  const jobId = ((await safeJson(response)) as { job_id?: string } | null)
+    ?.job_id;
+  if (!jobId) {
+    throw new TeleportError(
+      "export_failed",
+      "Export accepted but no job ID was returned.",
+    );
+  }
+  return jobId;
+}
+
+/**
+ * Poll a local/docker assistant's export job: `GET /v1/migrations/jobs/{id}`.
+ * Resolves to the job status; throws once the job reports failure.
+ */
+export async function pollLocalExportJob(
+  assistant: LockfileAssistant,
+  jobId: string,
+): Promise<string> {
+  const base = localGatewayBase(assistant);
+  const token = await mintLocalGatewayToken(assistant, base);
+  const response = await fetch(
+    `${base}/v1/migrations/jobs/${encodeURIComponent(jobId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (response.status >= 500) {
+    return "processing";
+  }
+  if (!response.ok) {
+    throw new TeleportError(
+      "export_job_failed",
+      `Job status check failed (HTTP ${response.status})`,
+    );
+  }
+  const job = (await safeJson(response)) as {
+    status?: string;
+    error?: { message?: string } | string;
+  } | null;
+  if (job?.status === "failed") {
+    const message =
+      typeof job.error === "string" ? job.error : job.error?.message;
+    throw new TeleportError("export_job_failed", message ?? "Export failed");
+  }
+  return job?.status ?? "processing";
+}
+
+/**
  * Import `.vbundle` bytes into a local/docker assistant via its gateway:
  * `POST /v1/migrations/import` (octet-stream body). Throws on a non-2xx status
  * or a `{success:false}` body.

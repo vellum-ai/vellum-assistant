@@ -116,11 +116,22 @@ async function throwIfInProgress(
 export async function localRuntimeExportToGcs(
   entry: Pick<AssistantEntry, "cloud" | "runtimeUrl" | "assistantId">,
   token: string,
-  params: { uploadUrl: string; description?: string },
+  params: {
+    uploadUrl: string;
+    description?: string;
+    /**
+     * `"debug"` builds a bundle for Vellum staff: no credentials, plus the
+     * gateway's database and logs. Omitted means a normal teleport bundle.
+     */
+    profile?: "migration" | "debug";
+  },
 ): Promise<{ jobId: string }> {
   const body: Record<string, unknown> = { upload_url: params.uploadUrl };
   if (params.description !== undefined) {
     body.description = params.description;
+  }
+  if (params.profile !== undefined) {
+    body.profile = params.profile;
   }
 
   const response = await loopbackSafeFetch(

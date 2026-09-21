@@ -79,10 +79,19 @@ mock.module("@/generated/api/client.gen", () => ({
   },
 }));
 
+let selfHosted = false;
 mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
-  useActiveAssistantIsPlatformHosted: () => true,
+  useActiveAssistantIsSelfHosted: () => selfHosted,
   useActiveAssistantLifecycleIsLoading: () => false,
+}));
+
+// The export row is its own component with its own tests; here only its
+// presence matters.
+mock.module("@/domains/settings/components/debug-bundle-export", () => ({
+  DebugBundleExport: ({ assistantId }: { assistantId: string }) => (
+    <div data-testid="debug-bundle-export">{assistantId}</div>
+  ),
 }));
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -117,6 +126,7 @@ describe("AccessConsentSetting", () => {
     expiresAt = null;
     neverExpires = false;
     platformSupportsKeepOn = true;
+    selfHosted = false;
     getCalls.length = 0;
     patchCalls.length = 0;
     patchGate.release = () => {};
@@ -268,5 +278,33 @@ describe("AccessConsentSetting", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(getCalls).toHaveLength(0);
     expect(patchCalls).toHaveLength(0);
+  });
+
+  test("a self-hosted assistant gets the same toggle, plus the export row while the grant is on", async () => {
+    selfHosted = true;
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    renderSetting();
+
+    await screen.findByText("Staff access ends in 3 hours.");
+    expect(screen.getByTestId("debug-bundle-export").textContent).toBe(
+      ASSISTANT_ID,
+    );
+    expect(getCalls[0]?.path?.id).toBe(ASSISTANT_ID);
+  });
+
+  test("the export row is absent while the grant is off, and for hosted assistants", async () => {
+    selfHosted = true;
+    renderSetting();
+    await waitFor(() => expect(getCalls).toHaveLength(1));
+    expect(screen.queryByTestId("debug-bundle-export")).toBeNull();
+
+    cleanup();
+    selfHosted = false;
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    renderSetting();
+    await screen.findByText("Staff access ends in 3 hours.");
+    expect(screen.queryByTestId("debug-bundle-export")).toBeNull();
   });
 });

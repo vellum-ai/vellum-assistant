@@ -673,6 +673,16 @@
     "toggleLabel": "Daily Credit Limit",
     "toggleSubtitle": "Daily limit only applies to extra usage credits"
   },
+  "debugBundleExport": {
+    "description": "Vellum staff can't reach this computer. To let them look, export a debug bundle: your assistant's workspace, its logs, and the gateway's own database, with no credentials. It is kept for 7 days.",
+    "export": "Export debug bundle",
+    "exporting": "Exporting…",
+    "sentAt": "Sent to Vellum at {time}.",
+    "toastFailed": "The debug bundle was not sent.",
+    "toastFailedWithReason": "The debug bundle was not sent: {reason}",
+    "toastSent": "Debug bundle sent to Vellum.",
+    "useDesktopApp": "Export from the Vellum desktop app on the computer running this assistant."
+  },
   "debugControlsPanel": {
     "backups": "Backups",
     "loadFailedToast": "Failed to load assistant info",

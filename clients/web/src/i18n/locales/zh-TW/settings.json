@@ -666,6 +666,16 @@
     "toggleLabel": "每日點數限制",
     "toggleSubtitle": "每日限制僅適用於額外用量點數"
   },
+  "debugBundleExport": {
+    "description": "Vellum 工作人員無法存取這台電腦。如需他們協助排查，請匯出偵錯套件：助理的工作區、記錄檔和閘道自身的資料庫，不含任何憑證。偵錯套件保留 7 天。",
+    "export": "匯出偵錯套件",
+    "exporting": "正在匯出…",
+    "sentAt": "已於 {time} 傳送給 Vellum。",
+    "toastFailed": "偵錯套件未傳送。",
+    "toastFailedWithReason": "偵錯套件未傳送：{reason}",
+    "toastSent": "偵錯套件已傳送給 Vellum。",
+    "useDesktopApp": "請在執行此助理的電腦上，透過 Vellum 桌面應用程式匯出。"
+  },
   "debugControlsPanel": {
     "backups": "備份",
     "loadFailedToast": "載入助理資訊失敗",
