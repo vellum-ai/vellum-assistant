@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,7 +10,6 @@ import { writeCombinedCABundle } from "../util/ca-bundle.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getExternalDir } from "../util/platform.js";
-import systemPackages from "./desktop-system-packages.json" with { type: "json" };
 
 const log = getLogger("desktop-dependencies");
 const CHROME_VERSION = "153.0.8010.36-1";
@@ -135,7 +134,7 @@ export class DesktopDependencyInstaller {
     ) {
       return status;
     }
-    this.status = { state: "installing", stage: "packages" };
+    this.status = { state: "installing", stage: "checking" };
     this.installing = Promise.resolve()
       .then(async () => {
         await this.dependencies.install((stage) =>
@@ -200,7 +199,6 @@ async function run(command: string[]): Promise<void> {
     env: {
       PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
       HOME: "/root",
-      DEBIAN_FRONTEND: "noninteractive",
     },
     stdin: "ignore",
     stdout: "pipe",
@@ -240,9 +238,6 @@ async function installDesktopDependencies(
       extraCA,
       caBundle,
     );
-    // apt's unprivileged downloader must be able to read the public CAs.
-    await chmod(caBundle, 0o644);
-    await chmod(caDir, 0o755);
     await installDesktopComponents(onStage, caBundle);
   } finally {
     await rm(caDir, { recursive: true, force: true });
@@ -253,48 +248,13 @@ async function installDesktopComponents(
   onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
   caBundle?: string,
 ): Promise<void> {
+  if (!desktopSystemDependenciesReady()) {
+    throw new Error(
+      "Desktop system dependencies are missing from the assistant image",
+    );
+  }
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
   await rm(desktopChromePath() + ".ready", { force: true });
-  if (!desktopSystemDependenciesReady()) {
-    const apt = [
-      "/usr/bin/apt-get",
-      ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
-    ];
-    // Desktop binaries, X assets and the loader share the image root.
-    await run([...apt, "update"]);
-    const terminal =
-      systemPackages.wezterm.architectures[
-        process.arch as keyof typeof systemPackages.wezterm.architectures
-      ];
-    const terminalDownloadDir = await mkdtemp(
-      join(tmpdir(), "desktop-terminal-"),
-    );
-    try {
-      const deb = join(terminalDownloadDir, "wezterm.deb");
-      await downloadDesktopPackage(
-        `https://github.com/wezterm/wezterm/releases/download/${systemPackages.wezterm.version}/wezterm-${systemPackages.wezterm.version}.${terminal.suffix}`,
-        deb,
-        terminal.sha256,
-        caBundle,
-      );
-      await chmod(terminalDownloadDir, 0o755);
-      await chmod(deb, 0o644);
-      await run([
-        ...apt,
-        "install",
-        "-y",
-        "--no-install-recommends",
-        "--no-upgrade",
-        "--no-remove",
-        "-o",
-        "DPkg::Lock::Timeout=120",
-        ...systemPackages.packages,
-        deb,
-      ]);
-    } finally {
-      await rm(terminalDownloadDir, { recursive: true, force: true });
-    }
-  }
   onStage("chrome");
   if (!existsSync(desktopChromePath())) {
     const downloadDir = await mkdtemp(join(tmpdir(), "desktop-chrome-"));
