@@ -809,8 +809,7 @@ describe("one backend per model", () => {
   /**
    * A backend-cache reset disposes the backend it evicts, and that disposal
    * waits for in-flight embeds. The next embed needs the model again inside
-   * that window. A second instance would read the busy worker as one it had
-   * lost track of and terminate it under the embeds still running on it.
+   * that window, and the embeds in flight keep their worker.
    */
   test("needing the model again while a disposal is pending keeps the busy worker", () => {
     const backend = LocalEmbeddingBackend.forModel(
@@ -857,5 +856,38 @@ describe("one backend per model", () => {
 
     expect(again).toBe(backend);
     await expect(again.embed(["hello"])).rejects.toThrow(/shutting down/);
+  });
+
+  /**
+   * The backend cache forgets a backend whose disposal is pending, so process
+   * teardown reaches it through the class's own list.
+   */
+  test("shutdownAll reaps a busy backend no cache still holds", async () => {
+    const backend = LocalEmbeddingBackend.forModel(
+      "per-model-evicted",
+    ) as Internals;
+    const proc = liveProc(7103);
+    backend.workerProc = proc;
+    backend.activeEmbeds = 1;
+    backend.dispose();
+
+    await LocalEmbeddingBackend.shutdownAll();
+
+    expect(proc.killed).toBe(true);
+    expect(backend.workerProc).toBeNull();
+  });
+
+  test("terminateAllNow kills a busy backend no cache still holds", () => {
+    const backend = LocalEmbeddingBackend.forModel(
+      "per-model-evicted-now",
+    ) as Internals;
+    const proc = liveProc(7104);
+    backend.workerProc = proc;
+    backend.activeEmbeds = 1;
+    backend.dispose();
+
+    LocalEmbeddingBackend.terminateAllNow();
+
+    expect(proc.killed).toBe(true);
   });
 });

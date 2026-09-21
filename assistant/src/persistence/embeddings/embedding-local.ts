@@ -122,8 +122,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private activeEmbeds = 0;
   /** Release the worker once idle. {@link forModel} withdraws the request. */
   private disposeRequested = false;
-  /** The process is exiting, so this backend never reopens. */
-  private shutDown = false;
+  /** Set by {@link shutdown}. The process is exiting, so nothing reopens this. */
+  private processExiting = false;
 
   private readonly initGuard = new PromiseGuard<void>();
   private initInFlight: Promise<void> | null = null;
@@ -135,23 +135,21 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
   /**
-   * The backend for each model, one per process.
+   * Every backend this process has handed out, one per model.
    *
-   * {@link reclaimOwnedWorkers} reads a same-model worker parented to this
-   * process, which this instance holds no handle for, as one it lost track of,
-   * and terminates it. That reading is sound only while no other instance in
-   * this process can be holding that worker, so instances are handed out by
-   * {@link forModel} and never constructed by callers.
+   * {@link reclaimOwnedWorkers} terminates a same-model worker parented to this
+   * process that the instance holds no handle for. That is sound only while no
+   * other instance in this process can hold that worker, so instances come from
+   * {@link forModel} and are never constructed by callers.
+   *
+   * This is also the complete list of workers the process owns. The backend
+   * cache is not: it forgets a backend whose disposal is still pending.
    */
   private static readonly byModel = new Map<string, LocalEmbeddingBackend>();
 
   /**
-   * The backend for `model`, reopened if a {@link dispose} is still pending.
-   *
-   * A backend-cache reset disposes the backend it evicts, and disposal waits
-   * for in-flight embeds. A caller that needs the model again inside that
-   * window gets the same instance and its live worker back, so the embeds still
-   * running on it finish instead of losing their worker to a replacement.
+   * The backend for `model`. A pending {@link dispose} is withdrawn, so embeds
+   * still running on the instance keep their worker.
    */
   static forModel(model: string): LocalEmbeddingBackend {
     let backend = LocalEmbeddingBackend.byModel.get(model);
@@ -159,10 +157,41 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       backend = new LocalEmbeddingBackend(model);
       LocalEmbeddingBackend.byModel.set(model, backend);
     }
-    if (!backend.shutDown) {
+    if (!backend.processExiting) {
       backend.disposeRequested = false;
     }
     return backend;
+  }
+
+  /** {@link shutdown} every backend, then reap any worker still parented here. */
+  static async shutdownAll(): Promise<void> {
+    await Promise.all(
+      [...LocalEmbeddingBackend.byModel.values()].map(async (backend) => {
+        try {
+          await backend.shutdown();
+          await backend.sweepOwnedWorkers();
+        } catch (err) {
+          log.warn(
+            { err, model: backend.model },
+            "Failed to shut down local embedding backend",
+          );
+        }
+      }),
+    );
+  }
+
+  /** {@link terminateNow} every backend. */
+  static terminateAllNow(): void {
+    for (const backend of LocalEmbeddingBackend.byModel.values()) {
+      try {
+        backend.terminateNow();
+      } catch (err) {
+        log.warn(
+          { err, model: backend.model },
+          "Failed to terminate local embedding worker",
+        );
+      }
+    }
   }
 
   private constructor(model: string) {
@@ -954,7 +983,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * the OS confirms the worker is gone.
    */
   async shutdown(): Promise<void> {
-    this.shutDown = true;
+    this.processExiting = true;
     this.disposeRequested = true;
 
     // An initialization already in flight has not necessarily assigned
