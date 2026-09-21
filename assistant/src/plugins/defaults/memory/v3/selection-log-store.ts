@@ -30,18 +30,18 @@ import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../logging.js";
-import { memorySqliteOrNull } from "../memory-db.js";
+import {
+  ensuredMemorySqlite,
+  memoryReader,
+  memorySqliteOrNull,
+} from "../memory-db.js";
 import { wrapMemoryBlock } from "../memory-marker.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../substrate/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3InjectionEntry } from "./page-content.js";
-import {
-  ensuredMemorySqlite,
-  ensureMemoryV3SelectionsSectionKeyOnce,
-  memoryReader,
-} from "./plugin-schema.js";
+import { ensureMemoryV3SelectionsSectionKeyOnce } from "./plugin-schema.js";
 import {
   type PoolRecord,
   readPoolForMessageIds,

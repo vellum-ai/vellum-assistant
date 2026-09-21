@@ -18,6 +18,7 @@ import { getConfig } from "../../../../config/loader.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
 import { getLogger } from "../logging.js";
 import { backfillRetrospectiveCursorTimestamps } from "../memory-retrospective-cursor-backfill.js";
+import { ensureSkillUpdateReceiptSchemaAtBoot } from "../skill-update-receipt-store.js";
 import { runMemoryStartup } from "../startup.js";
 import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 
@@ -48,6 +49,7 @@ const init: HookFunction<InitContext> = async () => {
   // first use of a connection in its process, which covers the memory
   // worker.
   ensureMemoryV3PluginSchema();
+  ensureSkillUpdateReceiptSchemaAtBoot();
 
   // Boot Qdrant, reconcile collections, and start the memory jobs worker in the
   // background so the daemon keeps accepting requests without waiting on it.

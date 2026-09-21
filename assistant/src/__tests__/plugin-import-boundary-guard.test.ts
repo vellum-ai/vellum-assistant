@@ -194,8 +194,16 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../daemon/tool-setup-types.js",
     "../../../daemon/trust-context-types.js",
     "../../../daemon/trust-context.js",
+    // The skill-update receipt job reads the home feed to learn whether the
+    // notification pipeline wrote a receipt's row (it never writes one),
+    // announces a receipt through the pipeline's single entry point, and
+    // finds the event an interrupted announcement left behind. No plugin-api
+    // equivalent for any of the three.
+    "../../../home/feed-writer.js",
     "../../../home/job-handlers/conversation-starters.js",
     "../../../media/job-handlers/media-processing.js",
+    "../../../notifications/emit-signal.js",
+    "../../../notifications/events-store.js",
     "../../../permissions/types.js",
     "../../../persistence/auto-analysis-constants.js",
     "../../../persistence/checkpoints.js",

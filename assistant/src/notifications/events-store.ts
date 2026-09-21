@@ -112,6 +112,21 @@ export function setEventDedupeKey(
     .run();
 }
 
+/**
+ * The id of the event holding `dedupeKey`, or null. A producer that emits
+ * under a key of its own can find the event a crash left behind and check
+ * what that event produced, without re-emitting.
+ */
+export function findEventIdByDedupeKey(dedupeKey: string): string | null {
+  const db = getDb();
+  const row = db
+    .select({ id: notificationEvents.id })
+    .from(notificationEvents)
+    .where(eq(notificationEvents.dedupeKey, dedupeKey))
+    .get();
+  return row?.id ?? null;
+}
+
 export interface ListEventsFilters {
   sourceEventName?: string;
   limit?: number;

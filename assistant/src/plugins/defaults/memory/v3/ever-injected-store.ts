@@ -40,7 +40,7 @@ import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { memoryV3InjectedSections } from "../../../../persistence/schema/index.js";
 import { getLogger } from "../logging.js";
-import { memoryDbOrNull } from "../memory-db.js";
+import { memoryDbOrNull, memoryReader } from "../memory-db.js";
 import { unwrapMemoryBlock } from "../memory-marker.js";
 import { capabilitySlugOf } from "../substrate/capability-slugs.js";
 import {
@@ -50,7 +50,6 @@ import {
 import {
   deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchemaOnce,
-  memoryReader,
 } from "./plugin-schema.js";
 import {
   type InjectedBlock,

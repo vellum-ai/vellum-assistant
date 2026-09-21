@@ -46,12 +46,11 @@ import { createHash } from "node:crypto";
 
 import { getLogger } from "../logging.js";
 import type { MemorySqlite } from "../memory-db.js";
+import { ensuredMemorySqlite, memoryReader } from "../memory-db.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import {
-  ensuredMemorySqlite,
   ensureMemoryV3PoolInputsSchemaOnce,
   ensureMemoryV3PoolsSchemaOnce,
-  memoryReader,
 } from "./plugin-schema.js";
 import { renderFinderLine } from "./pool-select.js";
 import {

@@ -65,6 +65,7 @@ import { getLogger } from "./logging.js";
 import { backfillRetrospectiveCursorTimestamps } from "./memory-retrospective-cursor-backfill.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
+import { maybeEnqueueSkillUpdateReceiptTick } from "./skill-update-receipt-job.js";
 // SUBSTRATE (v2+v3) — feeds `enqueueSubstrateMaintenanceJobs`.
 import {
   type ConsolidationFailureKind,
@@ -411,6 +412,7 @@ export async function runMemoryJobsOnce(
     }
     maybeEnqueueGraphMaintenanceJobs(config);
     maybeEnqueueRetrospectiveSweepJob(config);
+    maybeEnqueueSkillUpdateReceiptTick();
     if (memoryEnabled) {
       await maybeRunDbMaintenance();
       await maybeRunPassiveWalCheckpoint();

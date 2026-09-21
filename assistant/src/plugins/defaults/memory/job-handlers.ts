@@ -37,6 +37,7 @@ import {
 } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
+import { skillUpdateReceiptTickJob } from "./skill-update-receipt-job.js";
 // SUBSTRATE (v2+v3).
 import {
   type ConsolidationOutcome,
@@ -323,6 +324,10 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "skill_card_insert",
     handler: (job) => skillCardInsertJob(job),
+  },
+  {
+    type: "skill_update_receipt_tick",
+    handler: (job) => skillUpdateReceiptTickJob(job),
   },
 ];
 

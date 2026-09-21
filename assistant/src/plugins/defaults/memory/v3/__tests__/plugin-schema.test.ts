@@ -22,13 +22,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
+import { ensureOncePerConnection } from "../../memory-db.js";
 import {
   deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchema,
   ensureMemoryV3PoolInputsSchema,
   ensureMemoryV3PoolsSchema,
   ensureMemoryV3SelectionsSectionKeyOnce,
-  ensureOncePerConnection,
   SECTIONS_LEGACY_COPY_DONE_KEY,
 } from "../plugin-schema.js";
 

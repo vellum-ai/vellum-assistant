@@ -82,9 +82,12 @@ Everything else under the plugin root is **spine**:
   `conversation-memory-orphan-sweep`, `fork-conversation-memory`,
   `find-most-recent-retrospective-for`.
 - The `memory-retrospective-*` family — tier-agnostic, gated on
-  `memory.enabled` alone. The one exception is
-  `memory-retrospective-skill-card.ts`, whose upstream enqueue only fires when
-  `isV3TierActive()` holds (memory on and v3 live).
+  `memory.enabled` alone. The exceptions are
+  `memory-retrospective-skill-card.ts` and the `skill-update-receipt-*` pair
+  (the store owning the `skill_update_receipts` / `skill_update_receipt_entries`
+  tables on the memory connection, and the tick job that seals and announces
+  a receipt), whose upstream producers only fire when `isV3TierActive()`
+  holds (memory on and v3 live).
 - The rest of the spine: `startup.ts`, `jobs-worker.ts`, `job-handlers.ts`,
   `job-handler-registration.ts`, `indexer.ts`, `injectors.ts`, `tools.ts`,
   `hooks/`, `src/` (HTTP routes), `context-search/`.
@@ -499,7 +502,7 @@ Persisted in job rows; unknown types either throw or get silently drained.
 - v2 engine: `memory_v2_migrate`, `memory_v2_activation_recompute`
 - v3: `memory_v3_maintain`
 - Retrospective: `memory_retrospective`, `memory_retrospective_sweep`,
-  `skill_card_insert`
+  `skill_card_insert`, `skill_update_receipt_tick`
 - v1: `graph_extract`, `graph_decay`, `graph_consolidate`, `graph_pattern_scan`,
   `graph_narrative_refine`, `graph_bootstrap`, `embed_pkb_file`, `pkb_filing`,
   `pkb_compaction`, `rebuild_index`, `backfill`, `delete_qdrant_vectors`,
