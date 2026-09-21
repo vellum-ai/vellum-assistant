@@ -37,16 +37,24 @@ function snapshot(
   return { channel, setupStatus } as unknown as ChannelReadinessSnapshot;
 }
 
+/**
+ * Held outside the wrapper so a test can read the readiness query's own
+ * state: the hook answers `false` before the first response lands, so a
+ * negative case that asserts the answer alone passes on the first render,
+ * whatever the hook derives.
+ */
+let client: QueryClient;
+
 function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 beforeEach(() => {
   cleanup();
   snapshots = [];
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
 });
 
 test.each([
@@ -74,6 +82,7 @@ test.each([
   });
 
   await waitFor(() => {
+    expect(client.getQueryState(READINESS_KEY)?.status).toBe("success");
     expect(result.current).toBe(configured);
   });
 });

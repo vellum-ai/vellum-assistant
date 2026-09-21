@@ -9,6 +9,7 @@ import { CHANNEL_META } from "@/domains/channels/channel-meta";
 import { useSupportsDiscordChannel } from "@/lib/backwards-compat/use-supports-discord-channel";
 import { useSupportsDiscordConfig } from "@/lib/backwards-compat/use-supports-discord-config";
 import {
+  isChannelConfigured,
   SETUP_CHANNEL_IDS,
   type AssistantChannelState,
   type ChannelReadinessSnapshot,
@@ -349,7 +350,7 @@ function deriveChannelStates(
     return {
       key,
       status,
-      configured: snap?.setupStatus === "ready",
+      configured: isChannelConfigured(snap),
       // Discord's config routes are newer than its readiness probe, so both
       // per-daemon capabilities carry the same version gate; the other
       // channels' routes predate every daemon this client can meet.

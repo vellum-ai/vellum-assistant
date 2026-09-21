@@ -228,8 +228,6 @@ function ContactRow({
       ? channelTypes.join(" | ")
       : undefined;
 
-  /* The screen surface trails a row with its type tag alone, so both the tag
-     and the action icon are gated here rather than at every call site. */
   const verifiedTag =
     isScreen || verified === undefined ? null : (
       <Tag tone={verified ? "positive" : "neutral"}>

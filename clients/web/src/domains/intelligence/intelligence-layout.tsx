@@ -14,6 +14,7 @@ import { returnToList } from "@/utils/list-detail-navigation";
 import {
   type AboutAssistantSectionKey,
   aboutAssistantSectionForPath,
+  isPathExactly,
   routes,
 } from "@/utils/routes";
 
@@ -65,9 +66,7 @@ export function IntelligenceLayout() {
   const detailIsScreen = useIntelligenceLayoutSlotsStore.use.detailIsScreen();
 
   const section = aboutAssistantSectionForPath(pathname);
-  const sectionTitle = section
-    ? t(SECTION_LABEL_KEY[section.key as AboutAssistantSectionKey])
-    : null;
+  const sectionTitle = section ? t(SECTION_LABEL_KEY[section.key]) : null;
   // Library and Contacts own the complete mobile top bar (back, title, action)
   // so those affordances form one centered navigation row; every other section
   // registers only its title into the shared app bar.
@@ -76,9 +75,14 @@ export function IntelligenceLayout() {
   /**
    * The list the Back pill returns to, else null for the overview. The page
    * reports whether its detail is a pushed screen, since the pane it measures
-   * can still seat the list beside the detail on a mobile-width window.
+   * can still seat the list beside the detail on a mobile-width window. The
+   * path has to agree: on the list itself a Back to the list would point at
+   * the page already on screen, whoever set the flag and whenever.
    */
-  const backToListPath = ownsMobileTopBar && detailIsScreen ? section.to : null;
+  const backToListPath =
+    ownsMobileTopBar && detailIsScreen && !isPathExactly(pathname, section.to)
+      ? section.to
+      : null;
   const fallbackAssistantName =
     assistantName || t("identityOverview.defaultAssistantName");
   const backAriaLabel = t("intelligenceLayout.backToAriaLabel", {

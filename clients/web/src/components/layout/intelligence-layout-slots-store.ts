@@ -5,7 +5,7 @@
  * control off the trailing edge of the layout's heading row, the row that
  * carries the back chevron and the section's <h1>, and can report that its
  * detail is a pushed screen so the layout aims its Back at the section's
- * list. The page registers each from a `useEffect` and clears it on unmount,
+ * list. The page registers each from an effect and clears it on unmount,
  * the same contract the chat layout's top-bar slots follow.
  *
  * A store rather than outlet context for the reason `chat-layout-slots-store`
@@ -28,8 +28,8 @@ interface IntelligenceLayoutSlotsState {
    * True while a section page's detail is a pushed full screen with the
    * section's list behind it. The page owns this because it measures the pane
    * the list would otherwise sit in, and the layout renders its one Back from
-   * it: set, Back returns to the section's list; clear, Back returns to the
-   * assistant overview.
+   * it: set, Back returns to the section's list, unless the path already is
+   * that list; clear, Back returns to the assistant overview.
    */
   detailIsScreen: boolean;
 }

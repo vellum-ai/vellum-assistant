@@ -21,6 +21,19 @@ export function isSetupChannelId(value: string): value is SetupChannelId {
 }
 
 /**
+ * Whether a channel finished setup, whatever its delivery health. Sole owner
+ * of that rule: the channels controller reads it for every row's
+ * {@link AssistantChannelState.configured}, and the narrow Slack read
+ * (`hooks/use-slack-configured.ts`) answers the same question for one
+ * channel, so the two cannot drift.
+ */
+export function isChannelConfigured(
+  snapshot: ChannelReadinessSnapshot | undefined,
+): boolean {
+  return snapshot?.setupStatus === "ready";
+}
+
+/**
  * Channels set up by creating a bot in a third-party developer portal and
  * bringing its credential back, which is what gives them a step wizard, an
  * icon to upload, and a completion notice. Email and phone are provisioned
