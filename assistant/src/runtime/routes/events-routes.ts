@@ -735,8 +735,9 @@ function handleEventsTail({
       : window.filter((e) => typeof e.seq === "number" && e.seq <= toSeq);
   const lastSeq =
     bounded.length > 0 ? bounded[bounded.length - 1]?.seq : undefined;
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
   return {
-    events: bounded,
+    events: bounded.map((event) => localizeEvent(event, locale)),
     complete: true,
     frontier: typeof lastSeq === "number" ? lastSeq : fromSeq,
   };

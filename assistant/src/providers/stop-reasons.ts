@@ -37,7 +37,7 @@ export function isMaxTokensStopReason(
  * Provider stop-reason strings that mean the provider's content-safety filter
  * withheld the output: OpenAI `content_filter` (chat-completions
  * `finish_reason` and Responses `incomplete_details.reason`) and Gemini's
- * safety finish reasons. Anthropic's `refusal` is the model declining, not a
+ * safety finish reasons and prompt block reasons. Anthropic's `refusal` is the model declining, not a
  * filter, and is not part of this set.
  */
 const CONTENT_FILTER_STOP_REASONS = new Set([
@@ -45,6 +45,8 @@ const CONTENT_FILTER_STOP_REASONS = new Set([
   "safety",
   "prohibited_content",
   "blocklist",
+  "image_safety",
+  "spii",
 ]);
 
 /**
