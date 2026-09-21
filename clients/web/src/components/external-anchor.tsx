@@ -1,11 +1,14 @@
 import { ExternalLink } from "lucide-react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
+// Narrow paths, not the package root: this file sits under onboarding and
+// auth screens whose tests mock `lucide-react` with only the icons they use,
+// and the root barrel would load every component and every icon they import.
 import {
-  cn,
   textLinkVariants,
   type TextLinkTone,
-} from "@vellumai/design-library";
+} from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
