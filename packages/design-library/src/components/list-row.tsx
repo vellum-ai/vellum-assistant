@@ -1,4 +1,8 @@
-import { type ComponentProps, type ReactNode } from "react";
+import {
+  type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 
 import { ChevronRight } from "lucide-react";
 
@@ -38,11 +42,29 @@ export interface ListRowProps
   selected?: boolean;
   disabled?: boolean;
   /**
-   * Makes the title/subtitle/trailing cluster an interactive button. The
-   * `leading` slot stays outside it.
+   * Makes the title/subtitle/trailing cluster interactive: a button on its
+   * own, or the anchor's click handler when `href` is set too. The `leading`
+   * slot stays outside it.
    */
-  onClick?: () => void;
-  /** Render the interactive content area as an anchor instead of a button. */
+  onClick?: (event: ReactMouseEvent<HTMLElement>) => void;
+  /**
+   * Render the interactive content area as an anchor instead of a button.
+   *
+   * On its own this is a plain link, which is a full page load for an in-app
+   * route. For client-side navigation pass `onClick` as well and route there,
+   * the same way `SideMenu.Item` is used: let a modified or middle click fall
+   * through so new-tab and "copy link address" keep working, and
+   * `preventDefault()` a plain click before navigating.
+   *
+   *   <ListRow
+   *     href={to}
+   *     onClick={(e) => {
+   *       if (isModifiedLinkClick(e)) return;
+   *       e.preventDefault();
+   *       navigate(to);
+   *     }}
+   *   />
+   */
   href?: string;
   /** Accessible label for the interactive content area. */
   contentAriaLabel?: string;
@@ -55,9 +77,10 @@ export interface ListRowProps
  * separated by a hairline divider (`[&+&]` sibling border), so stack them flush
  * (no `space-y`) to get the divided-list look.
  *
- * Interactivity is opt-in: pass `onClick` (button) or `href` (anchor) to make
- * the content area activatable with hover + focus-ring treatment; omit both for
- * a read-only readout row.
+ * Interactivity is opt-in: pass `onClick` (button) or `href` (anchor, with
+ * `onClick` as its click handler when both are set) to make the content area
+ * activatable with hover + focus-ring treatment; omit both for a read-only
+ * readout row.
  */
 export function ListRow({
   leading,
@@ -103,13 +126,14 @@ export function ListRow({
   );
 
   const contentClassName =
-    "flex min-w-0 flex-1 items-center gap-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]";
+    "flex min-w-0 flex-1 items-center gap-4 rounded-sm text-left outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]";
 
   let contentNode: ReactNode;
   if (href && !disabled) {
     contentNode = (
       <a
         href={href}
+        onClick={onClick}
         aria-label={contentAriaLabel}
         className={cn(contentClassName, "cursor-pointer")}
       >
