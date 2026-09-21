@@ -10,7 +10,11 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createElement, Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
@@ -338,6 +342,9 @@ beforeEach(() => {
 afterEach(() => {
   process.off("unhandledRejection", onUnhandled);
   cleanup();
+  // The online manager is a module singleton, so an offline test would
+  // otherwise leave every later query paused.
+  onlineManager.setOnline(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -555,12 +562,48 @@ describe("ContactsPage URL-owned selection", () => {
       </Wrapper>,
     );
 
-    // The empty state marks the query as settled; only then could the
-    // stale-id effect have fired.
-    await waitFor(() => {
-      expect(document.body.textContent).toContain("Select a contact");
-    });
+    // The list's own empty state marks the query as settled; only then could
+    // the stale-id effect have fired.
+    await waitFor(() => getButtonByText("Add Contact"));
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+  });
+
+  // TanStack's default `networkMode` pauses a request made offline instead of
+  // running or failing it, so the list is neither fetching nor errored while
+  // it holds nothing the link can resolve against.
+  test("an offline mount with no cache holds the deep link", async () => {
+    onlineManager.setOnline(false);
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getButtonByText("Add Contact"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+  });
+
+  test("an offline mount holds a deep link the cached list lacks", async () => {
+    onlineManager.setOnline(false);
+
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={makeQueryClient([GUARDIAN])}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The cache renders straight away while its revalidation stays paused.
+    await waitFor(() => getButtonByText("Example User"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
   });
 });
 

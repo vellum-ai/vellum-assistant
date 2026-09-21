@@ -222,32 +222,28 @@ export function ContactsPage({
     [navigate],
   );
 
-  // An id the list does not carry (a deleted contact, a stale deep link) falls
-  // back to the bare route, and only once no fetch is in flight: cached data
-  // can predate a contact the pending response carries, and discarding the
-  // link on it would drop a valid deep link. `isError` holds the link across a
-  // failed fetch so a retry reopens the contact.
+  // Positive evidence that this list is the whole list: a fetch has succeeded
+  // and none is in flight. A pending, revalidating, or failed query all fall
+  // short, and so does the offline case, which is why the test is on
+  // `fetchStatus` rather than `isFetching`: TanStack's default `networkMode`
+  // pauses the request without ever reporting a load or an error, so a paused
+  // fetch reads as neither fetching nor failed while nothing has been fetched.
+  const contactsListSettled =
+    contactsQuery.isSuccess && contactsQuery.fetchStatus === "idle";
+
+  // An id the settled list does not carry (a deleted contact, a stale deep
+  // link) falls back to the bare route. Anything short of settled holds the
+  // link, so a retry or a reconnect reopens the contact.
   useEffect(() => {
-    if (
-      routeContactId &&
-      !contactsQuery.isFetching &&
-      !contactsQuery.isError &&
-      !selectedContact
-    ) {
+    if (routeContactId && contactsListSettled && !selectedContact) {
       void navigate(routes.contacts.root, { replace: true });
     }
-  }, [
-    routeContactId,
-    contactsQuery.isFetching,
-    contactsQuery.isError,
-    selectedContact,
-    navigate,
-  ]);
+  }, [routeContactId, contactsListSettled, selectedContact, navigate]);
 
-  // The pane stays blank while that fetch decides: the empty state reads as
-  // "no such contact", which a resolvable link has not earned.
+  // The pane stays blank on the same evidence: the empty state reads as "no
+  // such contact", which an unresolved link has not earned.
   const resolvingRouteContact =
-    Boolean(routeContactId) && !selectedContact && contactsQuery.isFetching;
+    Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
