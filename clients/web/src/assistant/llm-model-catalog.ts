@@ -1281,7 +1281,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
-  typesafe: false,
+  typesafe: true,
   vellum: true,
 };
 
