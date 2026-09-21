@@ -42,9 +42,9 @@ const log = getLogger("actor-trust-resolver");
 // ---------------------------------------------------------------------------
 
 /**
- * Trust classification for an inbound actor. Defined once in `./trust-class.ts`
- * (shared with the persistence metadata schema) and re-exported here, the
- * canonical import site for the resolver's consumers.
+ * Trust classification for an inbound actor. Declared in
+ * `@vellumai/gateway-client` and re-exported here for the resolver's
+ * consumers.
  */
 export type { TrustClass };
 

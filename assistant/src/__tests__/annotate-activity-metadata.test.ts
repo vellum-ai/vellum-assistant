@@ -44,6 +44,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -52,7 +53,6 @@ import {
   createEventHandlerState,
   handleToolResult,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

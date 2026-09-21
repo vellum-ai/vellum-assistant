@@ -22,7 +22,7 @@ import {
   upsertToolCall,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   isToolCallCompleted,

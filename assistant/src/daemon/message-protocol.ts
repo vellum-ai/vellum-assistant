@@ -18,7 +18,6 @@ export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
 export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
-export * from "./message-types/web-activity.js";
 
 // Client-message domain aliases for the ClientMessage union.
 import type { _ComputerUseClientMessages } from "./message-types/computer-use.js";

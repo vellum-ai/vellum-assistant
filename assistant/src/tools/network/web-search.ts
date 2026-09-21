@@ -1,8 +1,8 @@
-import { getConfig } from "../../config/loader.js";
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
-} from "../../daemon/message-types/web-activity.js";
+} from "../../api/events/tool-result.js";
+import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";

@@ -26,6 +26,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import type { AssistantEvent } from "../api/index.js";
 import { toolImageFilename } from "../daemon/assistant-attachments.js";
 import type {
@@ -37,7 +38,6 @@ import {
   handleToolResult,
   handleToolUse,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 
 type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
