@@ -4,7 +4,7 @@
  * so the user and the assistant start writing in it together.
  */
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useCreateDocument } from "@/hooks/use-create-document";
@@ -19,12 +19,16 @@ export function useNewDocumentInConversation(
   const { createDocument } = useCreateDocument();
   const openDocument = useOpenDocumentFromChat(assistantId ?? undefined);
   const { t } = useTranslation("chat");
+  // Each create mints a new document, so a second pick while the first is in
+  // flight is dropped rather than leaving a duplicate blank document behind.
+  const inFlight = useRef(false);
 
   return useCallback(
     async (conversationId) => {
-      if (!assistantId) {
+      if (!assistantId || inFlight.current) {
         return;
       }
+      inFlight.current = true;
       let surfaceId: string;
       try {
         ({ surfaceId } = await createDocument({ assistantId, conversationId }));
@@ -32,6 +36,8 @@ export function useNewDocumentInConversation(
         captureError(error, { context: "new_document_in_conversation" });
         toast.error(t("conversationActions.newDocumentFailed"));
         return;
+      } finally {
+        inFlight.current = false;
       }
       await openDocument(surfaceId);
     },

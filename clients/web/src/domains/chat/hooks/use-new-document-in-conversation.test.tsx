@@ -100,6 +100,32 @@ describe("useNewDocumentInConversation", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  test("a second pick while the first create is in flight is dropped", async () => {
+    let finish!: () => void;
+    post.mockImplementation(
+      (() =>
+        new Promise((resolve) => {
+          finish = () => resolve({ data: created });
+        })) as unknown as typeof daemonClient.post,
+    );
+    const { result } = renderHook(
+      () => useNewDocumentInConversation("assistant-1"),
+      { wrapper: Wrapper },
+    );
+
+    let first!: Promise<void>;
+    await act(async () => {
+      first = result.current("conv-1");
+      await result.current("conv-1");
+    });
+    await act(async () => {
+      finish();
+      await first;
+    });
+
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
   test("a failed create tells the user and opens nothing", async () => {
     post.mockImplementation((async () => {
       throw new Error("boom");

@@ -51,7 +51,7 @@ export function ChatConversationHeader({
   const shortcuts = useConversationMenuShortcuts(true);
   const { t } = useTranslation("chat");
   const displayTitle = useDisplayConversationTitle();
-  const supportsDocumentCreate = useSupportsDocumentCreate();
+  const supportsDocumentCreate = useSupportsDocumentCreate(assistantId);
   const newDocument = useNewDocumentInConversation(assistantId);
   if (!activeConversation) {
     if (!assistantId) {
