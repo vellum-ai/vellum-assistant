@@ -18,6 +18,10 @@ import {
   nextFlashMode,
   nextLiveFlashMode,
 } from "./camera-flash-control";
+import {
+  VOICE_ROOM_CONTROL_SIZE_CLASS,
+  VoiceRoomControl,
+} from "./voice-room-control";
 
 afterEach(() => {
   cleanup();
@@ -150,26 +154,45 @@ describe("CameraFlashControl", () => {
     expect(badge("off")).toBe("");
   });
 
-  test("the target reaches a thumb even though the circle does not", () => {
+  test("is drawn at the circle the room's other controls take", () => {
+    render(
+      <>
+        <CameraFlashControl
+          mode="off"
+          ariaLabel="Flash off"
+          autoBadge="A"
+          onClick={() => {}}
+          testId="flash"
+        />
+        <VoiceRoomControl label="Flip camera" data-testid="flip">
+          <span />
+        </VoiceRoomControl>
+      </>,
+    );
+
+    // happy-dom computes no layout, so the size class is the seam: each
+    // control carries the shared one and no second `size-*` beside it.
+    const sizeClasses = (testId: string) =>
+      screen
+        .getByTestId(testId)
+        .className.split(/\s+/)
+        .filter((name) => name.startsWith("size-"));
+    expect(sizeClasses("flash")).toEqual([VOICE_ROOM_CONTROL_SIZE_CLASS]);
+    expect(sizeClasses("flip")).toEqual([VOICE_ROOM_CONTROL_SIZE_CLASS]);
+  });
+
+  test("hangs the auto badge off the circle's centre, where the glyph is", () => {
     render(
       <CameraFlashControl
-        mode="off"
-        ariaLabel="Flash off"
+        mode="auto"
+        ariaLabel="Flash auto"
         autoBadge="A"
         onClick={() => {}}
-        testId="flash"
       />,
     );
 
-    // 46px of visible circle, because a wider one crowds the shutter beside it,
-    // and 4px of invisible margin on every side taking the pressable box to 54.
-    // The platform minimum is 44, and it is the pseudo-element that gets this
-    // control there, so a restyle that drops it breaks the one thing about this
-    // button nobody can see.
-    const className = screen.getByTestId("flash").className;
-    expect(className).toContain("size-[46px]");
-    expect(className).toContain("after:absolute");
-    expect(className).toContain("after:-inset-1");
-    expect(className).toContain("after:content-['']");
+    const badge = screen.getByText("A");
+    expect(badge.className).toContain("right-[calc(50%-10px)]");
+    expect(badge.className).toContain("bottom-[calc(50%-12px)]");
   });
 });

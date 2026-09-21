@@ -193,6 +193,15 @@ export interface VoiceRoomControlProps extends Omit<
   "data-testid"?: string;
 }
 
+/**
+ * The circle every round control in the room is drawn at: 52px, in every
+ * state. The row is the same one whether or not the viewfinder is up, and a
+ * control that resized as the camera opened would move under a thumb already
+ * on its way to it. Exported for the flash, which is an element of its own
+ * and still one of the set.
+ */
+export const VOICE_ROOM_CONTROL_SIZE_CLASS = "size-13";
+
 export function VoiceRoomControl({
   label,
   tooltip,
@@ -219,10 +228,8 @@ export function VoiceRoomControl({
         data-testid={testId}
         style={surface === "camera" ? cameraModeStyle() : undefined}
         className={cn(
-          // 52px, in every state. The row is the same one whether or not the
-          // viewfinder is up, and a control that resized as the camera opened
-          // would move under a thumb already on its way to it.
-          "flex size-13 items-center justify-center rounded-full transition",
+          VOICE_ROOM_CONTROL_SIZE_CLASS,
+          "flex items-center justify-center rounded-full transition",
           "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]",
           !bare && "border",
           treatmentClass({

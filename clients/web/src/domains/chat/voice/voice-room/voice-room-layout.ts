@@ -124,3 +124,16 @@ export const VOICE_ROOM_CORNER_RIGHT = `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_ARE
  * the ceiling the band gives it rather than overhanging a corner.
  */
 export const CAMERA_PILL_INSET = `calc(max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
+
+/**
+ * How far in from its own edge each of the shutter's flanks sits: flash on
+ * the left, flip on the right. One value read by both, so the pair is a
+ * mirror image around the shutter. The row publishes it as
+ * `--camera-flank-inset` and each flank takes it off its own side.
+ *
+ * 30px, or the deeper of the two side safe-area insets where a landscape
+ * cutout reaches further in than that. The same value on both sides for the
+ * reason {@link CAMERA_PILL_INSET} spells out: a cutout is not symmetric, and
+ * the flanks are read against each other.
+ */
+export const CAMERA_ROW_FLANK_INSET = `max(30px, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT})`;
