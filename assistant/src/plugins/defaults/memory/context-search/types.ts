@@ -1,17 +1,5 @@
-import type {
-  RecallDepth,
-  RecallSource,
-} from "../../../../api/events/tool-result.js";
+import type { RecallSource } from "../../../../api/events/tool-result.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-
-export type { RecallDepth, RecallSource };
-
-export interface RecallInput {
-  query: string;
-  sources?: RecallSource[];
-  max_results?: number;
-  depth?: RecallDepth;
-}
 
 export interface RecallEvidence {
   id: string;

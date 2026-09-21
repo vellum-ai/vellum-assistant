@@ -731,13 +731,13 @@ describe("renderHistoryContent", () => {
 
   test("drops a malformed activity entry and keeps a valid sibling", () => {
     const webFetch: WebFetchMetadata = {
-      url: "https://vellum.ai",
-      finalUrl: "https://vellum.ai",
+      url: "https://example.com",
+      finalUrl: "https://example.com",
       status: 200,
       byteCount: 1024,
       charCount: 900,
       truncated: false,
-      domain: "vellum.ai",
+      domain: "example.com",
       redirectCount: 0,
       durationMs: 40,
     };
@@ -745,19 +745,19 @@ describe("renderHistoryContent", () => {
       {
         type: "tool_use",
         id: "tu_1",
-        name: "recall",
-        input: { query: "x" },
+        name: "web_fetch",
+        input: { url: "https://example.com" },
         _activityMetadata: {
-          recall: { query: "x", evidence: "not a list" },
+          webSearch: { query: "x", results: "not a list" },
           webFetch,
         },
       },
       {
-        type: "tool_use",
+        type: "server_tool_use",
         id: "tu_2",
-        name: "remember",
-        input: { content: "x" },
-        _activityMetadata: { remember: { facts: [42] } },
+        name: "web_search",
+        input: { query: "x" },
+        _activityMetadata: { webSearch: { query: 42 } },
       },
     ]);
 

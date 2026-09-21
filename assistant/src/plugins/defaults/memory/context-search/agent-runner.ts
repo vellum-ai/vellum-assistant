@@ -6,7 +6,10 @@ import type {
 } from "@vellumai/plugin-api";
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
-import type { RecallMetadata } from "../../../../api/events/tool-result.js";
+import type {
+  RecallMetadata,
+  RecallSource,
+} from "../../../../api/events/tool-result.js";
 import { redactSecrets } from "../../../../security/secret-scanner.js";
 import {
   buildRecallAgentPromptBundle,
@@ -28,6 +31,7 @@ import {
   normalizeRecallMaxResults,
   normalizeRecallSources,
 } from "./limits.js";
+import type { RecallInput } from "./recall-input.js";
 import {
   type DeterministicRecallSearchOptions,
   type DeterministicRecallSearchResult,
@@ -42,9 +46,7 @@ import {
 import type {
   RecallAnswer,
   RecallEvidence,
-  RecallInput,
   RecallSearchContext,
-  RecallSource,
 } from "./types.js";
 
 type AgenticRecallFallbackReason =

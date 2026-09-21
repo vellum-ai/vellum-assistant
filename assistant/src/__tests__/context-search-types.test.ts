@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  ALL_RECALL_SOURCES,
+  type RecallSource,
+  RecallSourceSchema,
+} from "../api/events/tool-result.js";
+import {
   DEFAULT_RECALL_MAX_RESULTS,
   normalizeRecallInput,
   normalizeRecallMaxResults,
@@ -10,11 +13,8 @@ import {
   RECALL_SOURCE_ROUNDS_BY_DEPTH,
   RECALL_TOTAL_EVIDENCE_TEXT_CAP,
 } from "../plugins/defaults/memory/context-search/limits.js";
-import type {
-  RecallInput,
-  RecallSource,
-  RecallSourceAdapter,
-} from "../plugins/defaults/memory/context-search/types.js";
+import type { RecallInput } from "../plugins/defaults/memory/context-search/recall-input.js";
+import type { RecallSourceAdapter } from "../plugins/defaults/memory/context-search/types.js";
 
 describe("normalizeRecallInput", () => {
   test("defaults omitted sources, max results, and depth", () => {
@@ -22,7 +22,7 @@ describe("normalizeRecallInput", () => {
 
     expect(normalized).toEqual({
       query: "project notes",
-      sources: [...ALL_RECALL_SOURCES],
+      sources: [...RecallSourceSchema.options],
       maxResults: DEFAULT_RECALL_MAX_RESULTS,
       depth: "standard",
       sourceRounds: 2,

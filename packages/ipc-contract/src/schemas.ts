@@ -33,6 +33,9 @@ import {
   VERIFIED_NOTIFICATION_NAME_PROVENANCES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
+  VOICE_ACTIVITY_WORK_STATES,
+  VOICE_ACTIVITY_WORK_TEXT_MAX,
+  VOICE_ACTIVITY_WORK_MAX,
   COMPANION_DICTATION_OFFER_MAX,
   COMPANION_POPOVER_ACTIONS_MAX,
   COMPANION_PICKER_MICROPHONES,
@@ -219,6 +222,15 @@ export const windowAttentionPayloadSchema = z.object({
  */
 export const voiceActivityPhaseSchema = z.enum(VOICE_ACTIVITY_PHASES);
 
+export const voiceActivityWorkSchema = z.object({
+  id: z.string().max(200),
+  kind: z.enum(["turn", "subagent"]),
+  title: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
+  step: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
+  state: z.enum(VOICE_ACTIVITY_WORK_STATES),
+  startedAt: z.number().finite(),
+});
+
 export const voiceActivityContentSchema = z.object({
   phase: voiceActivityPhaseSchema,
   label: z.string(),
@@ -227,6 +239,10 @@ export const voiceActivityContentSchema = z.object({
   outputMuted: z.boolean(),
   detail: z.string(),
   approvalRequestId: z.string(),
+  work: z
+    .array(voiceActivityWorkSchema)
+    .max(VOICE_ACTIVITY_WORK_MAX)
+    .optional(),
 });
 
 export const voiceActivityStartSchema = voiceActivityContentSchema.extend({
@@ -414,9 +430,7 @@ export const companionPopoverSchema = z.discriminatedUnion("kind", [
     kind: z.literal("microphones"),
     id: z.literal(COMPANION_PICKER_MICROPHONES),
     options: z
-      .array(
-        z.object({ id: z.string().max(512), label: z.string().max(200) }),
-      )
+      .array(z.object({ id: z.string().max(512), label: z.string().max(200) }))
       .max(COMPANION_PICKER_OPTIONS_MAX),
     selected: z.string().max(512),
     needsPermission: z.boolean(),
