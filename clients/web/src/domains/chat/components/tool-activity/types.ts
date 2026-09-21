@@ -14,6 +14,7 @@
  * cannot leave either out.
  */
 
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import type { ReactNode } from "react";
 
 import type { ToolDetailPayload } from "@/stores/viewer-store";
@@ -26,6 +27,12 @@ export interface ToolActivityRendererProps {
    * `undefined` until the call lands.
    */
   result: unknown;
+  /**
+   * The call's structured result, live like `result`. `undefined` until the
+   * call lands, and for history recorded before its tool reported one, so a
+   * renderer that reads it keeps a way to show the result without it.
+   */
+  activityMetadata: ToolActivityMetadata | undefined;
   /** Live streamed output tail while the call runs, when the tool emits one. */
   streamedOutput: string | undefined;
   /** Whether the call is still in flight. */

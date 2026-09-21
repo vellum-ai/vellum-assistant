@@ -15,6 +15,9 @@ const STATE: CompanionSurfaceState = {
 
 const listeners = new Set<(state: CompanionSurfaceState) => void>();
 
+/** How many times the page told main the border is drawn. */
+let drawnReports = 0;
+
 const pushState = (state: CompanionSurfaceState) => {
   act(() => {
     for (const listener of listeners) {
@@ -29,6 +32,9 @@ mock.module("@/runtime/companion-surface", () => ({
   // only cares whether the layer is on the page at all.
   annotateCompanionShare: () => undefined,
   setCompanionFrameScrolling: () => undefined,
+  reportCompanionFrameDrawn: () => {
+    drawnReports += 1;
+  },
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
@@ -44,7 +50,15 @@ const { CompanionWatchFramePage } =
 afterEach(() => {
   cleanup();
   listeners.clear();
+  drawnReports = 0;
 });
+
+/** Let the page's animation frames run. */
+const nextFrames = async (): Promise<void> => {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+};
 
 const frameOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(".companion-watch-frame");
@@ -84,6 +98,36 @@ const LISTENING_CALL = {
   approvalRequestId: "",
   assistantName: "Ziggy",
 };
+
+/**
+ * Main holds the frame's window off the screen until the page says the border
+ * is drawn, so the report has to follow the border rather than the page load.
+ */
+describe("telling main the border is drawn", () => {
+  test("says nothing while there is no border", async () => {
+    render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, call: LISTENING_CALL, dialing: true });
+    await nextFrames();
+    expect(drawnReports).toBe(0);
+  });
+
+  test("reports once, after the border is on the page", async () => {
+    const { container } = render(<CompanionWatchFramePage />);
+    pushState({ ...STATE, screenShare: { kind: "display", displayId: 7 } });
+    expect(frameOf(container)).not.toBeNull();
+    await nextFrames();
+    expect(drawnReports).toBe(1);
+
+    // A later state that keeps the border up is not a second first draw.
+    pushState({
+      ...STATE,
+      accentHex: "#a78bfa",
+      screenShare: { kind: "display", displayId: 7 },
+    });
+    await nextFrames();
+    expect(drawnReports).toBe(1);
+  });
+});
 
 /**
  * The frame around what is being read. The window exists only while the shell

@@ -2082,5 +2082,23 @@
     "skip": "Skip",
     "showMore": "Show more",
     "showLess": "Show less"
+  },
+  "rememberDetail": {
+    "saved": "Saved",
+    "saving": "Saving",
+    "notSaved": "Not saved"
+  },
+  "recallDetail": {
+    "searchedFor": "Searched for",
+    "scope": "{depth} · {sources}",
+    "answer": "Answer",
+    "evidence": "{count, plural, one {# result} other {# results}}",
+    "noEvidence": "Nothing relevant turned up.",
+    "degraded": "Some places couldn't be fully searched",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Memory} conversations {Conversations} workspace {Workspace files} other {{source}}}",
+    "depth": "{depth, select, fast {Quick search} standard {Standard search} deep {Deep search} other {Search}}"
   }
 }

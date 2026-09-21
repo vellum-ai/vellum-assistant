@@ -126,6 +126,7 @@ function renderView(detail: ReturnType<typeof payload>) {
       detail={detail}
       result={detail.result}
       streamedOutput={undefined}
+      activityMetadata={undefined}
       isRunning={detail.status === "running"}
       isError={detail.status === "error"}
       isDenied={detail.status === "denied"}
@@ -183,6 +184,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "denied", result: refusal })}
         result={refusal}
         streamedOutput={undefined}
+        activityMetadata={undefined}
         isRunning={false}
         isError
         isDenied
@@ -204,6 +206,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "running", result: undefined })}
         result={payload({}).result}
         streamedOutput={undefined}
+        activityMetadata={undefined}
         isRunning={false}
         isError={false}
         isDenied={false}

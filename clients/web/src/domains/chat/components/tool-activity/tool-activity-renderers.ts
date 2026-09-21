@@ -14,6 +14,8 @@
 
 import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
 import { FileChangeDetail } from "@/domains/chat/components/tool-activity/file-change-detail";
+import { RecallDetail } from "@/domains/chat/components/tool-activity/recall-detail";
+import { RememberDetail } from "@/domains/chat/components/tool-activity/remember-detail";
 import { SkillExecuteDetail } from "@/domains/chat/components/tool-activity/skill-execute-detail";
 import { SkillLoadDetail } from "@/domains/chat/components/tool-activity/skill-load-detail";
 import type { ToolActivityRenderer } from "@/domains/chat/components/tool-activity/types";
@@ -42,6 +44,11 @@ const RENDERERS: Record<string, ToolActivityRenderer> = {
   skill_execute: { Component: SkillExecuteDetail, output: "shared" },
   // The fetched page is the result, presented as a page rather than as text.
   web_fetch: { Component: WebFetchDetailView, output: "own" },
+  // The facts saved, as a list. The result only confirms the save, which the
+  // list's label says, so it is offered raw rather than repeated.
+  remember: { Component: RememberDetail, output: "own" },
+  // The answer and the evidence under it, read from the structured result.
+  recall: { Component: RecallDetail, output: "own" },
 };
 
 /** A search presents its query and sources in place of input and output. */

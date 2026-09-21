@@ -376,3 +376,17 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 | Approval prompt not delivered to guardian                      | The assistant's channel transport could not send it (for example a missing or invalid bot token), or the guardian's chat ID is stale               | Check the assistant log for the transport's delivery error and confirm the channel's bot token is configured. For a channel with a transport the assistant never dials the `replyCallbackUrl`, so gateway reachability is not the cause. Re-verify the guardian if the chat ID has changed.                                                                                         |
 | Guardian approval expired                                      | The 30-minute TTL elapsed without a decision. A proactive sweep (every 60s) auto-denied the approval and notified both the requester and guardian. | The non-guardian user must re-trigger the action.                                                                                                                                                                                                                                                                                                                                   |
 | "Only the verified guardian can approve or deny"               | A non-guardian sender attempted to respond to a guardian approval prompt                                                                           | Only the guardian whose `actorExternalId` matches the approval request can approve or deny.                                                                                                                                                                                                                                                                                         |
+
+### Binary virtual desktop tunnel
+
+The gateway advertises `X-Vellum-Velay-Binary-WebSocket: 1` when registering.
+It uses binary tunnel messages only when Velay sends `binary_messages: true`
+on a `/v1/desktop/stream` open frame. The envelope is byte `0x01`, 32 lowercase
+ASCII hex connection-ID bytes, then the unchanged payload (including empty
+payloads). Control and text messages remain JSON. Other routes and older relays
+retain JSON/base64 framing. Deploy Velay support before updating gateways;
+older gateways can continue using the upgraded relay.
+
+Malformed tunnel messages retain the existing log-and-ignore behavior. Raw binary
+frames addressed to streams without desktop negotiation are ignored, preserving
+other active streams on the shared tunnel.

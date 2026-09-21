@@ -1135,5 +1135,23 @@
   },
   "fileUploadSurface": {
     "removeFile": "Удалить {name}"
+  },
+  "rememberDetail": {
+    "saved": "Сохранено",
+    "saving": "Сохранение",
+    "notSaved": "Не сохранено"
+  },
+  "recallDetail": {
+    "searchedFor": "Запрос",
+    "scope": "{depth} · {sources}",
+    "answer": "Ответ",
+    "evidence": "{count, plural, one {# результат} few {# результата} many {# результатов} other {# результата}}",
+    "noEvidence": "Ничего подходящего не нашлось.",
+    "degraded": "Некоторые места не удалось просмотреть полностью",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Память} conversations {Беседы} workspace {Файлы рабочей области} other {{source}}}",
+    "depth": "{depth, select, fast {Быстрый поиск} standard {Обычный поиск} deep {Глубокий поиск} other {Поиск}}"
   }
 }

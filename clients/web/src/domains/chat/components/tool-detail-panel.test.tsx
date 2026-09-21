@@ -554,6 +554,24 @@ describe("ToolDetailPanel", () => {
         rawOutput: true,
       },
       {
+        name: "a remember call, shown as the facts it saved",
+        detail: {
+          toolName: "remember",
+          input: { content: "Prefers window seats." },
+          result: "Saved to knowledge base.",
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a recall, shown as its answer and evidence",
+        detail: {
+          toolName: "recall",
+          input: { query: "seat preference" },
+          result: "Window seats.\n\nSearched sources: memory.",
+        },
+        rawOutput: true,
+      },
+      {
         name: "a refused call, which has no result of its own",
         detail: { status: "denied" },
         rawOutput: false,
@@ -800,6 +818,58 @@ describe("ToolDetailPanel", () => {
       "This tool call was not approved, so it did not run.",
     );
     expect(queryByText(/Do NOT retry/)).toBeNull();
+  });
+
+  test("reads a recall's structured result that lands while the drawer is open", () => {
+    // Opened mid-call: the snapshot has neither the result nor its metadata.
+    // Both reach the drawer through the live tool call.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "recall",
+            input: { query: "seat preference" },
+            result: "Window seats.\n\nSearched sources: memory.",
+            activityMetadata: {
+              recall: {
+                query: "seat preference",
+                depth: "fast",
+                sources: ["memory"],
+                answer: "Window seats.",
+                evidence: [
+                  {
+                    source: "memory",
+                    title: "Travel preferences",
+                    locator: "memory/travel.md",
+                    excerpt: "Prefers window seats on morning flights.",
+                  },
+                ],
+                searchedSources: [
+                  { source: "memory", status: "searched", evidenceCount: 1 },
+                ],
+              },
+            },
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "recall",
+          input: { query: "seat preference" },
+          result: undefined,
+          status: "running",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Travel preferences")).toBeDefined();
+    expect(getByText("Quick search · Memory")).toBeDefined();
   });
 
   test("picks up a denial that lands while the drawer is open", () => {

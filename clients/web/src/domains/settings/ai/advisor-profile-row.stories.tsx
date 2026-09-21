@@ -1,5 +1,5 @@
-import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useArgs } from "storybook/preview-api";
 
 import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
 
@@ -16,6 +16,26 @@ const PROFILE_OPTIONS = [
 const meta: Meta<typeof AdvisorProfileRow> = {
   title: "Settings/AI/AdvisorProfileRow",
   component: AdvisorProfileRow,
+  args: {
+    value: "quality-optimized",
+    profileOptions: PROFILE_OPTIONS,
+    disabled: false,
+  },
+  argTypes: {
+    onChange: { control: false },
+  },
+  // The row is controlled, so a pick writes back to the `value` arg; a story
+  // that passed a bare `value` would render a picker that won't move.
+  render: function Render(args) {
+    const [{ value }, updateArgs] = useArgs<{ value: string }>();
+    return (
+      <AdvisorProfileRow
+        {...args}
+        value={value}
+        onChange={(next) => updateArgs({ value: next })}
+      />
+    );
+  },
   decorators: [
     (Story) => (
       <div style={{ maxWidth: 520, padding: 24 }}>
@@ -28,30 +48,8 @@ const meta: Meta<typeof AdvisorProfileRow> = {
 export default meta;
 type Story = StoryObj<typeof AdvisorProfileRow>;
 
-/**
- * Interactive wrapper. The row is controlled, so a story that passes a bare
- * `value` renders a picker that won't move when clicked.
- */
-function Controlled(props: {
-  initial: string;
-  options?: { value: string; label: string }[];
-  disabled?: boolean;
-}) {
-  const [value, setValue] = useState(props.initial);
-  return (
-    <AdvisorProfileRow
-      value={value}
-      profileOptions={props.options ?? PROFILE_OPTIONS}
-      disabled={props.disabled}
-      onChange={setValue}
-    />
-  );
-}
-
 /** The common case: `llm.advisorProfile` is seeded, so a profile is selected. */
-export const Default: Story = {
-  render: () => <Controlled initial="quality-optimized" />,
-};
+export const Default: Story = {};
 
 /**
  * No selection. Only reachable between deleting the profile the advisor
@@ -59,7 +57,7 @@ export const Default: Story = {
  * the next daemon boot, whose seeding re-fills the key.
  */
 export const NoSelection: Story = {
-  render: () => <Controlled initial="" />,
+  args: { value: "" },
 };
 
 /**
@@ -67,19 +65,17 @@ export const NoSelection: Story = {
  * (and suffixed) so the trigger has a label and there's a way back out.
  */
 export const DisabledProfileSelected: Story = {
-  render: () => (
-    <Controlled
-      initial="speed-tier"
-      options={[
-        { value: "quality-optimized", label: "Quality" },
-        { value: "balanced", label: "Balanced" },
-        { value: "speed-tier", label: "Speed (Disabled)" },
-      ]}
-    />
-  ),
+  args: {
+    value: "speed-tier",
+    profileOptions: [
+      { value: "quality-optimized", label: "Quality" },
+      { value: "balanced", label: "Balanced" },
+      { value: "speed-tier", label: "Speed (Disabled)" },
+    ],
+  },
 };
 
 /** Held inert while the panel's Save is in flight. */
 export const Saving: Story = {
-  render: () => <Controlled initial="balanced" disabled />,
+  args: { value: "balanced", disabled: true },
 };

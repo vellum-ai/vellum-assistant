@@ -89,6 +89,7 @@ function renderDetail(overrides: Partial<DetailProps> = {}) {
       detail={makeDetail()}
       result={loadResult}
       streamedOutput={undefined}
+      activityMetadata={undefined}
       isRunning={false}
       isError={false}
       isDenied={false}

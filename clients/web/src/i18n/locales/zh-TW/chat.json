@@ -2082,5 +2082,23 @@
     "skip": "略過",
     "showMore": "展開",
     "showLess": "收起"
+  },
+  "rememberDetail": {
+    "saved": "已儲存",
+    "saving": "正在儲存",
+    "notSaved": "未儲存"
+  },
+  "recallDetail": {
+    "searchedFor": "搜尋內容",
+    "scope": "{depth} · {sources}",
+    "answer": "回答",
+    "evidence": "{count, plural, other {# 筆結果}}",
+    "noEvidence": "沒有找到相關內容。",
+    "degraded": "部分位置未能完整搜尋",
+    "degradedSource": "{source}：{error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {記憶} conversations {對話} workspace {工作區檔案} other {{source}}}",
+    "depth": "{depth, select, fast {快速搜尋} standard {標準搜尋} deep {深度搜尋} other {搜尋}}"
   }
 }

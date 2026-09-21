@@ -2016,5 +2016,23 @@
     "skip": "Omitir",
     "showMore": "Mostrar más",
     "showLess": "Mostrar menos"
+  },
+  "rememberDetail": {
+    "saved": "Guardado",
+    "saving": "Guardando",
+    "notSaved": "No guardado"
+  },
+  "recallDetail": {
+    "searchedFor": "Se buscó",
+    "scope": "{depth} · {sources}",
+    "answer": "Respuesta",
+    "evidence": "{count, plural, one {# resultado} other {# resultados}}",
+    "noEvidence": "No apareció nada relevante.",
+    "degraded": "No se pudo buscar por completo en algunos lugares",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Memoria} conversations {Conversaciones} workspace {Archivos del espacio de trabajo} other {{source}}}",
+    "depth": "{depth, select, fast {Búsqueda rápida} standard {Búsqueda estándar} deep {Búsqueda profunda} other {Búsqueda}}"
   }
 }

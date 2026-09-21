@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { type ComponentProps, useState } from "react";
+import { useArgs } from "storybook/preview-api";
 
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import {
@@ -162,21 +162,22 @@ function seededClient(options: {
   return client;
 }
 
-/**
- * Holds the selected tab the way the route page does (there it rides
- * `?tab=`), so clicking the tab strip works in a story. `tab` in args is the
- * tab the story opens on.
- */
-function SkillDetailWithTabState(props: ComponentProps<typeof SkillDetail>) {
-  const [tab, setTab] = useState(props.tab);
-  return <SkillDetail {...props} tab={tab} onTabChange={setTab} />;
-}
-
 const meta: Meta<typeof SkillDetail> = {
   title: "Intelligence/Skills/SkillDetail",
   component: SkillDetail,
   parameters: { layout: "fullscreen" },
-  render: (args) => <SkillDetailWithTabState {...args} />,
+  // The tab rides `?tab=` on the route page; here it rides the `tab` arg, so
+  // clicking the tab strip works and Controls follows it.
+  render: function Render(args) {
+    const [{ tab }, updateArgs] = useArgs<{ tab: typeof args.tab }>();
+    return (
+      <SkillDetail
+        {...args}
+        tab={tab}
+        onTabChange={(next) => updateArgs({ tab: next })}
+      />
+    );
+  },
   args: {
     assistantId: ASSISTANT_ID,
     skill: SKILL,
