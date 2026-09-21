@@ -21403,6 +21403,10 @@ paths:
                                               type: string
                                             timestampMs:
                                               type: number
+                                            path:
+                                              type: string
+                                            conversationId:
+                                              type: string
                                           required:
                                             - source
                                             - title
@@ -22011,6 +22015,10 @@ paths:
                                                       type: string
                                                     timestampMs:
                                                       type: number
+                                                    path:
+                                                      type: string
+                                                    conversationId:
+                                                      type: string
                                                   required:
                                                     - source
                                                     - title
