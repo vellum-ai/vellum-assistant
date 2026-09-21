@@ -303,9 +303,8 @@ function makePendingApprovalConversation(
 // ---------------------------------------------------------------------------
 
 // This suite mocks isHttpAuthDisabled() to true, so a request carrying no
-// bearer authenticates through the dev bypass. A bearer that IS present is
-// verified on its own terms, and the placeholder string these requests used
-// to carry is not a signed JWT.
+// bearer authenticates through the dev bypass. A bearer that is present is
+// verified against the signing key, which these tests do not set up.
 const AUTH_HEADERS: Record<string, string> = {};
 
 describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
