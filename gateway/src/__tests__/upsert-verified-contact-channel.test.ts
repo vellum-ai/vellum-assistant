@@ -211,7 +211,7 @@ mock.module("../ipc/endpoint.js", () => ({
 }));
 
 // Import after mocks
-const { upsertVerifiedContactChannel } =
+const { upsertVerifiedContactChannel, applyVerifiedChannelGatewayWrites } =
   await import("../verification/contact-helpers.js");
 
 beforeEach(() => {
@@ -251,6 +251,27 @@ describe("upsertVerifiedContactChannel — reserved channel types", () => {
       }),
     ).rejects.toThrow(/reserved/);
 
+    expect(mirrorUpserts()).toHaveLength(0);
+  });
+
+  test("refuses the vellum channel type on the direct write-core path", () => {
+    // Guardian-request outcomes call the write core directly, so the refusal
+    // has to hold there and not just in the wrapper above.
+    queryRows = [];
+
+    expect(() =>
+      applyVerifiedChannelGatewayWrites({
+        sourceChannel: "vellum",
+        externalUserId: "prin-fake-001",
+        externalChatId: "local",
+        verifiedVia: "invite",
+        allowRevokedReactivation: true,
+        existingMirrorChannel: null,
+      }),
+    ).toThrow(/reserved/);
+
+    expect(gwInserts).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
     expect(mirrorUpserts()).toHaveLength(0);
   });
 });

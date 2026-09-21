@@ -395,6 +395,37 @@ describe("decide — CAS conflict semantics", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Reserved channel types
+// ---------------------------------------------------------------------------
+
+describe("decide — reserved channel types", () => {
+  test("an activate_member outcome on a reserved channel type is refused and rolls back", async () => {
+    const request = seedRequest();
+
+    await expect(
+      decideGuardianRequest(
+        activateDecision(request.id, {
+          aclOutcome: {
+            type: "activate_member",
+            sourceChannel: "vellum",
+            externalUserId: "prin-fake-001",
+            externalChatId: "local",
+            displayName: "Alice",
+            verifiedVia: "manual_channel_claim",
+          },
+        }),
+      ),
+    ).rejects.toThrow(/reserved/);
+
+    const row = requestRow(request.id);
+    expect(row?.status).toBe("pending");
+    expect(row?.decidedByPrincipalId).toBeNull();
+    expect(channelRows()).toHaveLength(0);
+    expect(mirrorCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // THE ATL-463 PIN — the crash window does not exist
 // ---------------------------------------------------------------------------
 

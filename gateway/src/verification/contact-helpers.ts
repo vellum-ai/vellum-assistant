@@ -556,6 +556,10 @@ export function applyVerifiedChannelGatewayWrites(params: {
   } = params;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
+  // Every verified-channel write funnels through here, so the reserved-type
+  // refusal lives here rather than in a caller.
+  assertChannelTypeWritable(sourceChannel);
+
   const address =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
@@ -824,6 +828,9 @@ export async function upsertVerifiedContactChannel(params: {
   softMirrorFailures?: boolean;
 }): Promise<{ verified: boolean }> {
   const { sourceChannel } = params;
+  // Also asserted in the write core below. Repeated here because the core's
+  // throw is caught below and reported as `{ verified: false }`, which would
+  // read as "the gateway refused this actor" rather than a bad caller.
   assertChannelTypeWritable(sourceChannel);
   const mirrorSoft = params.softMirrorFailures === true;
 
