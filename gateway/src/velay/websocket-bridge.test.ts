@@ -474,3 +474,80 @@ describe("VelayWebSocketBridge", () => {
     expect(bridge.getConnectionCount()).toBe(0);
   });
 });
+
+describe("negotiated desktop binary messages", () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  test("buffers raw bytes until local open, then forwards both directions and preserves text", async () => {
+    bridge.handleFrame(
+      makeOpenFrame({
+        connection_id: id,
+        path: "/v1/desktop/stream",
+        binary_messages: true,
+      }),
+    );
+    const payload = new Uint8Array([0, 255, 128]);
+    bridge.handleFrame({
+      type: "websocket_binary",
+      connection_id: id,
+      payload,
+    });
+    expect(fakeSocket.sent).toEqual([]);
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+    expect(fakeSocket.sent).toEqual([payload]);
+    fakeSocket.emit("message", { data: payload.buffer });
+    fakeSocket.emit("message", { data: new ArrayBuffer(0) });
+    await flushPromises();
+    expect(sentFrames.slice(1)).toEqual([
+      { type: "websocket_binary", connection_id: id, payload },
+      {
+        type: "websocket_binary",
+        connection_id: id,
+        payload: new Uint8Array(),
+      },
+    ]);
+    fakeSocket.emit("message", { data: "text" });
+    await flushPromises();
+    expect(sentFrames.at(-1)).toEqual({
+      type: "websocket_message",
+      connection_id: id,
+      message_type: "text",
+      body_base64: base64("text"),
+    });
+    bridge.handleFrame({
+      type: "websocket_close",
+      connection_id: id,
+      code: 4013,
+      reason: "busy",
+    });
+    expect(fakeSocket.closes).toEqual([{ code: 4013, reason: "busy" }]);
+    expect(bridge.getConnectionCount()).toBe(0);
+  });
+
+  for (const args of [
+    { path: "/v1/desktop/stream" },
+    { path: "/v1/live-voice", binary_messages: true },
+  ]) {
+    test(`retains JSON/base64 without desktop negotiation: ${args.path}`, async () => {
+      bridge.handleFrame(makeOpenFrame({ connection_id: id, ...args }));
+      fakeSocket.readyState = WS_OPEN;
+      fakeSocket.emit("open");
+      const payload = new Uint8Array([0, 255]);
+      fakeSocket.emit("message", { data: payload.buffer });
+      await flushPromises();
+      expect(sentFrames.at(-1)).toEqual({
+        type: "websocket_message",
+        connection_id: id,
+        message_type: "binary",
+        body_base64: base64(payload),
+      });
+      bridge.handleFrame({
+        type: "websocket_binary",
+        connection_id: id,
+        payload,
+      });
+      expect(fakeSocket.sent).toEqual([]);
+      expect(bridge.getConnectionCount()).toBe(0);
+    });
+  }
+});
