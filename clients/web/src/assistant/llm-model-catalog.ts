@@ -1299,6 +1299,7 @@ export const VELLUM_SERVED_PROVIDERS = [
   "gemini",
   "fireworks",
   "together",
+  "typesafe",
   "vellum",
 ] as const;
 
