@@ -16,7 +16,7 @@ import { useMemo } from "react";
 import type { WebFetchMetadata } from "@vellumai/assistant-api";
 import { CardRoot, Notice, Typography } from "@vellumai/design-library";
 
-import { ExternalAnchor } from "@/components/external-anchor";
+import { ExternalAnchor, isWebUrl } from "@/components/external-anchor";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
@@ -131,9 +131,58 @@ function sourceFromMetadata(meta: WebFetchMetadata): WebFetchSource | null {
   };
 }
 
+/**
+ * The page a fetch read or tried. A link only to a url the app follows out to
+ * the web: the url can be one the daemon refused (`file:`, `mailto:`, a bare
+ * word the model passed), and that reads as text, never as a target.
+ */
 function SourceCard({ source }: { source: WebFetchSource }) {
   const { url, status, title, domain, faviconUrl } = source;
+  const name = title || domain || url;
   const ok = status ? /^\s*2\d\d/.test(status) : false;
+  const body = (
+    <>
+      <SiteFavicon faviconUrl={faviconUrl} domain={domain} title={name} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Typography
+          variant="body-medium-default"
+          as="span"
+          className="truncate text-[var(--content-default)]"
+        >
+          {name}
+        </Typography>
+        <Typography
+          variant="body-small-default"
+          as="span"
+          className="truncate text-[var(--content-tertiary)]"
+        >
+          {url}
+        </Typography>
+      </div>
+      {status && (
+        <span
+          className={`shrink-0 rounded-[6px] px-2 py-0.5 text-body-small-emphasised ${
+            ok
+              ? "text-[var(--system-positive-strong)]"
+              : "text-[var(--content-tertiary)]"
+          }`}
+        >
+          {status}
+        </span>
+      )}
+    </>
+  );
+  if (!isWebUrl(url)) {
+    return (
+      <CardRoot
+        surface="overlay"
+        padding="sm"
+        className="flex items-center gap-2"
+      >
+        {body}
+      </CardRoot>
+    );
+  }
   return (
     <CardRoot
       asChild
@@ -143,38 +192,7 @@ function SourceCard({ source }: { source: WebFetchSource }) {
       className="flex items-center gap-2"
     >
       <ExternalAnchor href={url} glyph={false}>
-        <SiteFavicon
-          faviconUrl={faviconUrl}
-          domain={domain}
-          title={title ?? domain}
-        />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Typography
-            variant="body-medium-default"
-            as="span"
-            className="truncate text-[var(--content-default)]"
-          >
-            {title ?? domain}
-          </Typography>
-          <Typography
-            variant="body-small-default"
-            as="span"
-            className="truncate text-[var(--content-tertiary)]"
-          >
-            {url}
-          </Typography>
-        </div>
-        {status && (
-          <span
-            className={`shrink-0 rounded-[6px] px-2 py-0.5 text-body-small-emphasised ${
-              ok
-                ? "text-[var(--system-positive-strong)]"
-                : "text-[var(--content-tertiary)]"
-            }`}
-          >
-            {status}
-          </span>
-        )}
+        {body}
       </ExternalAnchor>
     </CardRoot>
   );

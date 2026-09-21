@@ -1394,6 +1394,8 @@ export async function executeFirecrawlCompatScrape(
         );
       }
 
+      // A provider can pass an empty upstream title through; empty is no title.
+      const title = scrapeMeta.title?.trim() || undefined;
       const content = formatWebFetchOutput({
         requestedUrl: safeRequestedUrl,
         finalUrl,
@@ -1405,7 +1407,7 @@ export async function executeFirecrawlCompatScrape(
         startIndex: safeStart,
         endIndex: safeEnd,
         content: sliced,
-        title: scrapeMeta.title,
+        title,
         description: scrapeMeta.description,
         notices,
         raw: false,
@@ -1422,7 +1424,7 @@ export async function executeFirecrawlCompatScrape(
         byteCount: bytesRead,
         charCount: sliced.length,
         truncated: safeEnd < processed.length,
-        title: scrapeMeta.title,
+        title,
         domain: finalDomain,
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: 0,
@@ -1670,6 +1672,8 @@ export async function executeTinyfishFetch(
         );
       }
 
+      // A provider can pass an empty upstream title through; empty is no title.
+      const title = page.title?.trim() || undefined;
       const content = formatWebFetchOutput({
         requestedUrl: safeRequestedUrl,
         finalUrl,
@@ -1681,7 +1685,7 @@ export async function executeTinyfishFetch(
         startIndex: safeStart,
         endIndex: safeEnd,
         content: sliced,
-        title: page.title ?? undefined,
+        title,
         description: page.description ?? undefined,
         notices,
         raw: false,
@@ -1697,7 +1701,7 @@ export async function executeTinyfishFetch(
         byteCount: bytesRead,
         charCount: sliced.length,
         truncated: safeEnd < processed.length,
-        title: page.title ?? undefined,
+        title,
         domain: finalDomain,
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: finalUrl === safeRequestedUrl ? 0 : 1,

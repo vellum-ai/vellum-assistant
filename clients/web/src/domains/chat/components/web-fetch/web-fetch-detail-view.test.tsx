@@ -256,6 +256,9 @@ describe("WebFetchDetailView", () => {
       expect(
         getByTestId("site-favicon").querySelector("img")?.getAttribute("src"),
       ).toBe("https://favicons.example/cnbc.png");
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        "https://www.cnbc.com/2025/09/22/michelob.html",
+      );
     });
 
     test("warns from the metadata's flags, not the header's notices for the model", () => {
@@ -286,6 +289,35 @@ describe("WebFetchDetailView", () => {
       );
       expect(getByText("Error: HTTP 404")).toBeDefined();
       expect(getByText("404")).toBeDefined();
+    });
+
+    test("an empty title leaves the card named by its domain", () => {
+      const { getByText } = renderView(payload({}), { ...META, title: "" });
+      expect(getByText("www.cnbc.com")).toBeDefined();
+    });
+
+    test("a url the daemon refused reads as text, not a link", () => {
+      const { getByText, getAllByText, container } = renderView(
+        payload({
+          status: "error",
+          result: "Error: url must use http or https",
+          input: { url: "file:///etc/hosts" },
+        }),
+        {
+          ...META,
+          url: "file:///etc/hosts",
+          finalUrl: "file:///etc/hosts",
+          status: 0,
+          title: undefined,
+          domain: "",
+          faviconUrl: undefined,
+          errorMessage: "Error: url must use http or https",
+        },
+      );
+      expect(getByText("Error: url must use http or https")).toBeDefined();
+      // Named by the url itself, since it has no title or domain.
+      expect(getAllByText("file:///etc/hosts")).toHaveLength(2);
+      expect(container.querySelector("a")).toBeNull();
     });
 
     test("a fetch that got no response shows no status", () => {
