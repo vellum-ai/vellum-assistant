@@ -27,6 +27,14 @@ import { LocalEmbeddingBackend } from "../embedding-local.js";
 type Internals = any;
 
 /**
+ * A backend of its own for one test. Production gets the per-model instance
+ * from `forModel`; constructing directly keeps tests from sharing state.
+ */
+function newBackend(): Internals {
+  return new (LocalEmbeddingBackend as Internals)("test-model");
+}
+
+/**
  * A stand-in for a Bun subprocess whose stdin pipe is broken. `write` throws
  * EPIPE the way a real worker's pipe does once the child is gone.
  */
@@ -196,7 +204,7 @@ describe("PID file ownership", () => {
    */
   test("releasePidFile leaves an entry that names someone else's worker", () => {
     writeFileSync(pidPath, "777");
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
 
     backend.releasePidFile(888);
 
@@ -206,7 +214,7 @@ describe("PID file ownership", () => {
 
   test("releasePidFile drops the entry when it names our worker", () => {
     writeFileSync(pidPath, "777");
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
 
     backend.releasePidFile(777);
 
@@ -219,7 +227,7 @@ describe("PID file ownership", () => {
    */
   test("disposing an instance with no worker keeps another's PID entry", () => {
     writeFileSync(pidPath, "777");
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.disposeRequested = true;
     backend.workerProc = null;
 
@@ -237,7 +245,7 @@ describe("broken worker pipe", () => {
    * come back as an ordinary failed embed the backend chain can fall back from.
    */
   test("EPIPE on write resolves the request as an error", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerProc = brokenPipeProc();
 
     const response = await backend.sendRequest(["hello"]);
@@ -247,7 +255,7 @@ describe("broken worker pipe", () => {
   });
 
   test("EPIPE surfaces to embed() as a rejection, not a process crash", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerProc = brokenPipeProc();
     // Skip initialization: the worker is already (notionally) running.
     backend.ensureInitialized = async () => {};
@@ -264,7 +272,7 @@ describe("broken worker pipe", () => {
    * the worker dies. A synchronous guard never sees that rejection.
    */
   test("a write still pending when the worker dies resolves the request as an error", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     const proc = Bun.spawn({
       cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
       stdin: "pipe",
@@ -283,7 +291,7 @@ describe("broken worker pipe", () => {
   });
 
   test("a failed write does not leak the pending request", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerProc = brokenPipeProc();
 
     await backend.sendRequest(["hello"]);
@@ -299,7 +307,7 @@ describe("releasing ownership of a worker", () => {
    * strands it: no handle, no PID entry, invisible to every later reclaim.
    */
   test("stdout ending kills the child before clearing workerProc", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     const proc = liveProc();
     backend.workerProc = proc;
 
@@ -310,7 +318,7 @@ describe("releasing ownership of a worker", () => {
   });
 
   test("shutdown reaps the worker and resolves only once it exits", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     const proc = liveProc(555);
     backend.workerProc = proc;
     writeFileSync(getEmbedWorkerPidPath(), "555");
@@ -323,7 +331,7 @@ describe("releasing ownership of a worker", () => {
   });
 
   test("shutdown settles in-flight requests instead of hanging them", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerProc = liveProc(556);
 
     const inFlight = backend.sendRequest(["hello"]);
@@ -340,7 +348,7 @@ describe("releasing ownership of a worker", () => {
    * pending requests are only settled after the wait.
    */
   test("a worker that ignores SIGTERM is escalated to SIGKILL, not waited on forever", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 50;
     const signals: (string | undefined)[] = [];
     const wedged = {
@@ -379,7 +387,7 @@ describe("termination that cannot be confirmed", () => {
   }
 
   test("keeps the PID publication instead of unpublishing a possibly-live child", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 20;
     const proc = wedgedProc();
     backend.workerProc = proc;
@@ -395,7 +403,7 @@ describe("termination that cannot be confirmed", () => {
   });
 
   test("refuses to start a replacement while the child may still be alive", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     // No workerPath recorded, so liveness falls back to a PID probe. Our own
     // PID is certainly alive, standing in for a child that will not die.
     backend.unconfirmedWorker = process.pid;
@@ -406,7 +414,7 @@ describe("termination that cannot be confirmed", () => {
   });
 
   test("surfaces the incomplete teardown through embed() rather than failing silently", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.unconfirmedWorker = process.pid;
 
     await expect(backend.embed(["hello"])).rejects.toThrow(
@@ -426,7 +434,7 @@ describe("termination that cannot be confirmed", () => {
     });
     await Bun.sleep(400);
 
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerPath = scriptPath;
     backend.unconfirmedWorker = proc.pid;
     writeFileSync(getEmbedWorkerPidPath(), String(proc.pid));
@@ -465,7 +473,7 @@ describe("reclaiming before spawning a replacement", () => {
     await Bun.sleep(400);
     writeFileSync(getEmbedWorkerPidPath(), String(proc.pid));
 
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     await backend.reclaimOwnedWorkers(scriptPath);
 
     // Confirmed gone by the time reclaim returns, not merely signalled.
@@ -489,7 +497,7 @@ describe("reclaiming before spawning a replacement", () => {
     spawned.push(proc);
     await Bun.sleep(400);
 
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 300;
     await backend.reclaimOwnedWorkers(scriptPath);
 
@@ -522,7 +530,7 @@ setTimeout(() => {}, 60_000);\n`,
     expect(workers.length).toBe(1);
     expect(workers[0].ppid).toBe(parent.pid);
 
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 300;
     await backend.reclaimOwnedWorkers(scriptPath);
 
@@ -546,7 +554,7 @@ describe("shutdown versus in-flight initialization", () => {
    * lets the initializer spawn a worker afterwards, with nobody left to reap it.
    */
   test("shutdown waits for an in-flight init and reaps the worker it creates", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     const proc = liveProc(600);
 
     let finishInit: () => void = () => {};
@@ -589,7 +597,7 @@ describe("parent exit orderings", () => {
    * process's and left it alone. So it kills its own child on the way out.
    */
   test("terminateNow kills the worker and releases the entry without waiting", () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     const signals: string[] = [];
     const proc = {
       pid: 909,
@@ -615,7 +623,7 @@ describe("parent exit orderings", () => {
    * process while the child was still being adopted.
    */
   test("shutdown does not inherit the model-load wait when init never settles", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 50;
     // An initialization that never resolves, as during a cold model load.
     backend.initInFlight = new Promise<void>(() => {});
@@ -627,7 +635,7 @@ describe("parent exit orderings", () => {
   });
 
   test("a backend already shutting down refuses to spawn a replacement", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.disposeRequested = true;
 
     await expect(backend.embed(["hello"])).rejects.toThrow(/shutting down/);
@@ -646,7 +654,7 @@ describe("transient failures stay transient", () => {
   const PERMANENT_FAILURE_SENTINEL = "Local embedding backend unavailable";
 
   test("an unconfirmed termination does not claim permanent unavailability", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.unconfirmedWorker = process.pid;
 
     const err = await backend.ensureInitialized().catch((e: Error) => e);
@@ -656,7 +664,7 @@ describe("transient failures stay transient", () => {
   });
 
   test("shutting down does not claim permanent unavailability", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.disposeRequested = true;
 
     const err = await backend.embed(["hello"]).catch((e: Error) => e);
@@ -677,7 +685,7 @@ describe("audit regressions", () => {
    * embed queued behind it.
    */
   test("a startup failure against a wedged worker does not hang", async () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.terminateGraceMs = 30;
     const signals: (string | undefined)[] = [];
     backend.workerProc = {
@@ -705,7 +713,7 @@ describe("audit regressions", () => {
    * startup for the full two-minute timeout.
    */
   test("terminateNow clears the stdout buffer so a retry can parse ready", () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.stdoutBuffer = '{"id":5,"vect';
     backend.workerProc = null;
 
@@ -732,7 +740,7 @@ describe("audit regressions", () => {
     spawned.push(proc);
     await Bun.sleep(400);
 
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerPath = scriptPath;
     backend.workerProc = null; // spawned, never adopted
 
@@ -747,7 +755,7 @@ describe("audit regressions", () => {
    * contract, so it must leave the instance able to start a replacement.
    */
   test("terminateNow leaves the instance reusable", () => {
-    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const backend = newBackend();
     backend.workerProc = null;
     backend.stdoutReaderActive = true;
 
@@ -790,4 +798,66 @@ test("orphan reclaim outlasts the embedding reap it must not truncate", () => {
   expect(ORPHAN_STOP_TIMEOUT_MS).toBeGreaterThan(
     EMBEDDING_SHUTDOWN_BUDGET_MS + 1_000,
   );
+});
+
+describe("one backend per model", () => {
+  test("forModel hands out one instance per model", () => {
+    const first = LocalEmbeddingBackend.forModel("per-model-a");
+
+    expect(LocalEmbeddingBackend.forModel("per-model-a")).toBe(first);
+    expect(LocalEmbeddingBackend.forModel("per-model-b")).not.toBe(first);
+  });
+
+  /**
+   * A backend-cache reset disposes the backend it evicts, and that disposal
+   * waits for in-flight embeds. The next embed needs the model again inside
+   * that window. A second instance would read the busy worker as one it had
+   * lost track of and terminate it under the embeds still running on it.
+   */
+  test("needing the model again while a disposal is pending keeps the busy worker", () => {
+    const backend = LocalEmbeddingBackend.forModel(
+      "per-model-reopen",
+    ) as Internals;
+    const proc = liveProc(7101);
+    backend.workerProc = proc;
+    backend.activeEmbeds = 1;
+    backend.dispose();
+
+    const again = LocalEmbeddingBackend.forModel(
+      "per-model-reopen",
+    ) as Internals;
+    backend.activeEmbeds = 0;
+    backend.disposeIfIdle();
+
+    expect(again).toBe(backend);
+    expect(again.workerProc).toBe(proc);
+    expect(proc.killed).toBe(false);
+  });
+
+  test("a pending disposal nobody withdraws still releases the worker once idle", () => {
+    const backend = LocalEmbeddingBackend.forModel(
+      "per-model-dispose",
+    ) as Internals;
+    const proc = liveProc(7102);
+    backend.workerProc = proc;
+    backend.activeEmbeds = 1;
+    backend.dispose();
+
+    backend.activeEmbeds = 0;
+    backend.disposeIfIdle();
+
+    expect(backend.workerProc).toBeNull();
+    expect(proc.killed).toBe(true);
+  });
+
+  /** The process is exiting, so nothing may spawn a worker behind the reap. */
+  test("a shut-down backend stays shut down", async () => {
+    const backend = LocalEmbeddingBackend.forModel("per-model-shutdown");
+    await backend.shutdown();
+
+    const again = LocalEmbeddingBackend.forModel("per-model-shutdown");
+
+    expect(again).toBe(backend);
+    await expect(again.embed(["hello"])).rejects.toThrow(/shutting down/);
+  });
 });

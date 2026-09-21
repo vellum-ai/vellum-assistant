@@ -120,7 +120,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   >();
   private stdoutReaderActive = false;
   private activeEmbeds = 0;
+  /** Release the worker once idle. {@link forModel} withdraws the request. */
   private disposeRequested = false;
+  /** The process is exiting, so this backend never reopens. */
+  private shutDown = false;
 
   private readonly initGuard = new PromiseGuard<void>();
   private initInFlight: Promise<void> | null = null;
@@ -131,7 +134,38 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   /** Overridable so tests can exercise the escalation path without the wait. */
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
-  constructor(model: string) {
+  /**
+   * The backend for each model, one per process.
+   *
+   * {@link reclaimOwnedWorkers} reads a same-model worker parented to this
+   * process, which this instance holds no handle for, as one it lost track of,
+   * and terminates it. That reading is sound only while no other instance in
+   * this process can be holding that worker, so instances are handed out by
+   * {@link forModel} and never constructed by callers.
+   */
+  private static readonly byModel = new Map<string, LocalEmbeddingBackend>();
+
+  /**
+   * The backend for `model`, reopened if a {@link dispose} is still pending.
+   *
+   * A backend-cache reset disposes the backend it evicts, and disposal waits
+   * for in-flight embeds. A caller that needs the model again inside that
+   * window gets the same instance and its live worker back, so the embeds still
+   * running on it finish instead of losing their worker to a replacement.
+   */
+  static forModel(model: string): LocalEmbeddingBackend {
+    let backend = LocalEmbeddingBackend.byModel.get(model);
+    if (!backend) {
+      backend = new LocalEmbeddingBackend(model);
+      LocalEmbeddingBackend.byModel.set(model, backend);
+    }
+    if (!backend.shutDown) {
+      backend.disposeRequested = false;
+    }
+    return backend;
+  }
+
+  private constructor(model: string) {
     this.model = model;
   }
 
@@ -924,6 +958,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * the OS confirms the worker is gone.
    */
   async shutdown(): Promise<void> {
+    this.shutDown = true;
     this.disposeRequested = true;
 
     // An initialization already in flight has not necessarily assigned

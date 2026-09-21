@@ -146,7 +146,7 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
         try {
           const { LocalEmbeddingBackend } =
             await import("./embedding-local.js");
-          this.delegate = new LocalEmbeddingBackend(this.model);
+          this.delegate = LocalEmbeddingBackend.forModel(this.model);
           return this.delegate;
         } catch (err) {
           localBackendBroken = true;
