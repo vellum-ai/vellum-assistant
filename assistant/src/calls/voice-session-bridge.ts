@@ -524,6 +524,8 @@ export interface VoiceTurnOptions {
    * fixed sentinel.
    */
   hiddenSyntheticPrompt?: boolean;
+  /** Original caller request resumed by a synthetic turn, used for routing. */
+  routingUtterance?: string;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -988,10 +990,9 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
-  // The front-door rule anchors on the words the model sees as the user
-  // turn, which for a phone sentinel is its neutral persisted form rather
-  // than the marker itself.
-  const routingLegRule = routingLegRuleFor(opts, persistedContent);
+  const resumedUtterance = opts.routingUtterance?.trim() || undefined;
+  const routingUtterance = resumedUtterance ?? persistedContent;
+  const routingLegRule = routingLegRuleFor(opts, routingUtterance);
   let voiceCallControlPrompt: string | null;
   if (opts.voiceControlPrompt === undefined) {
     voiceCallControlPrompt = buildVoiceCallControlPrompt({
@@ -1998,11 +1999,12 @@ export async function startVoiceTurn(
   // verdict is usually in before the leg's first answer word. Snapshot the
   // history now: the leg's own reply must not be part of what is judged.
   const escalationJudgement =
-    opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt
+    opts.routingLeg === "front-door" &&
+    (!isHiddenSyntheticPrompt || resumedUtterance !== undefined)
       ? judgeEscalation({
           conversationId: opts.conversationId,
           history: conversation.getMessages(),
-          utterance: opts.content,
+          utterance: resumedUtterance ?? opts.content,
           ...(opts.signal ? { signal: opts.signal } : {}),
         }).then((judgement) => {
           if (judgement.outcome !== "unavailable") {

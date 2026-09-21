@@ -974,6 +974,22 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(frontDoorDecisionRule({ includeHold: true }));
   });
 
+  test("a hidden look follow-up routes the original request", async () => {
+    const installed = captureInstalledPrompt();
+    const callerUtterance = "Show me where to add a new page.";
+    const content = "(fresh view taken; answer from it now)";
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content,
+      routingUtterance: callerUtterance,
+      hiddenSyntheticPrompt: true,
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain(frontDoorDecisionRule({ callerUtterance }));
+    expect(installed()).not.toContain(JSON.stringify(content));
+  });
+
   test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({
@@ -3448,5 +3464,32 @@ describe("startVoiceTurn escalation judge", () => {
       expect(handle.escalationJudgement).toBeUndefined();
       expect(handle.overrule).toBeUndefined();
     }
+  });
+
+  test("a hidden look follow-up judges its original request", async () => {
+    judgeEscalationVerdict = true;
+    const request = "Show me where to add a new page.";
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "(fresh view taken; answer from it now)",
+      routingUtterance: request,
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([{ utterance: request }]);
+    expect(await handle.escalationJudgement).toBe(true);
+    expect(typeof handle.overrule).toBe("function");
+  });
+
+  test("an empty resumed request does not opt a hidden turn into judging", async () => {
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingUtterance: "  ",
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+    expect(judgeEscalationCalls).toEqual([]);
+    expect(handle.escalationJudgement).toBeUndefined();
   });
 });

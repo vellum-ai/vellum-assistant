@@ -22,6 +22,7 @@ import type {
   VoiceTurnCallbacks,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+import { ESCALATION_CONTINUATION_CONTENT } from "../../calls/voice-triage-escalate.js";
 import { Conversation } from "../../daemon/conversation.js";
 import {
   deleteConversation,
@@ -63,6 +64,8 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   readonly boundaryId = "daemon-streaming" as const;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
+  constructor(private readonly transcript: string) {}
+
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
   }
@@ -70,12 +73,12 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   sendAudio(): void {}
 
   stop(): void {
-    this.onEvent?.({ type: "final", text: "look at my screen" });
+    this.onEvent?.({ type: "final", text: this.transcript });
     this.onEvent?.({ type: "closed" });
   }
 }
 
-function createHarness(options: { lookFrames: boolean }) {
+function createHarness(options: { lookFrames: boolean; request?: string }) {
   const conversation = createConversation("Look follow-up");
   const { provider } = createMockProvider([textResponse("")]);
   const activeConversation = new Conversation(
@@ -128,7 +131,10 @@ function createHarness(options: { lookFrames: boolean }) {
 
   let turnCount = 0;
   const session = new LiveVoiceSession(context, {
-    resolveTranscriber: mock(async () => new MockStreamingTranscriber()),
+    resolveTranscriber: mock(
+      async () =>
+        new MockStreamingTranscriber(options.request ?? "look at my screen"),
+    ),
     startVoiceTurn,
     streamTtsAudio,
     createTurnId: () => `live-turn-${++turnCount}`,
@@ -138,8 +144,7 @@ function createHarness(options: { lookFrames: boolean }) {
   const callbacks = (index: number): VoiceTurnCallbacks | undefined =>
     turns[index]?.callbacks;
 
-  /** Finish turn `index` with `text` and wait for its speech to drain. */
-  const reply = async (index: number, text: string): Promise<void> => {
+  const emitReply = (index: number, text: string): void => {
     const turnCallbacks = callbacks(index);
     turnCallbacks?.assistant_text_delta?.({
       type: "assistant_text_delta",
@@ -151,7 +156,13 @@ function createHarness(options: { lookFrames: boolean }) {
       conversationId: conversation.id,
       messageId: `assistant-message-${index}`,
     });
-    const doneCount = index + 1;
+  };
+
+  /** Finish turn `index` with `text` and wait for its speech to drain. */
+  const reply = async (index: number, text: string): Promise<void> => {
+    const doneCount =
+      frames.filter((frame) => frame.type === "tts_done").length + 1;
+    emitReply(index, text);
     await waitFor(
       () =>
         frames.filter((frame) => frame.type === "tts_done").length >= doneCount,
@@ -201,6 +212,7 @@ function createHarness(options: { lookFrames: boolean }) {
     frames,
     session,
     turns,
+    emitReply,
     reply,
     askForLook,
     sendFrame,
@@ -232,9 +244,57 @@ describe("live-voice look follow-up", () => {
       const followUp = harness.turns[1];
       expect(followUp?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
       expect(followUp?.hiddenSyntheticPrompt).toBe(true);
+      expect(followUp?.routingUtterance).toBe("look at my screen");
       expect(followUp?.voiceControlPrompt).toContain(
         "You just took a fresh look at their screen",
       );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("carries an annotation request through capture and escalation", async () => {
+    const request = "Show me on my screen where to add a new page.";
+    const harness = createHarness({ lookFrames: true, request });
+    try {
+      await harness.askForLook();
+      expect(harness.turns).toHaveLength(1);
+      expect(harness.turns[0]?.routingUtterance).toBeUndefined();
+
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await waitFor(() => harness.turns.length === 2);
+      const followUp = harness.turns[1];
+      expect(followUp?.routingLeg).toBe("front-door");
+      expect(followUp?.routingUtterance).toBe(request);
+      expect(followUp?.voiceControlPrompt).toContain(JSON.stringify(request));
+      expect(followUp?.voiceControlPrompt).toContain("screen-annotation tools");
+
+      harness.emitReply(1, "[1] I'll point out the new page button.");
+      await waitFor(() => harness.turns.length === 3);
+      const escalated = harness.turns[2];
+      expect(escalated?.routingLeg).toBe("escalated");
+      expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
+      expect(escalated?.routingUtterance).toBe(request);
+      expect(escalated?.voiceControlPrompt).toContain(JSON.stringify(request));
+      expect(escalated?.voiceControlPrompt).toContain(
+        "screen-annotation tools",
+      );
+      await harness.reply(2, "The new page button is highlighted.");
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("an observation can answer from the fresh frame without escalating", async () => {
+    const request = "What do you see on my screen?";
+    const harness = createHarness({ lookFrames: true, request });
+    try {
+      await harness.askForLook();
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await waitFor(() => harness.turns.length === 2);
+      expect(harness.turns[1]?.routingUtterance).toBe(request);
+      await harness.reply(1, "There is a page editor with an empty document.");
+      expect(harness.turns).toHaveLength(2);
     } finally {
       await harness.dispose();
     }
@@ -301,6 +361,7 @@ describe("live-voice look follow-up", () => {
         message: "Timed out waiting for the look to be answered",
       });
       expect(harness.turns[2]?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
+      expect(harness.turns[2]?.routingUtterance).toBe("look at my screen");
     } finally {
       await harness.dispose();
     }
