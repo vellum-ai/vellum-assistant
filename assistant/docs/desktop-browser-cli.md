@@ -72,3 +72,11 @@ Files manages the assistant's files. Files on your personal computer must first
 be uploaded or otherwise copied into the assistant workspace. Existing desktops
 receive the Files dock shortcut once during upgrade; removing or rearranging it
 is preserved across restarts.
+
+## Viewer encoding
+
+The noVNC viewer requests compression level 1 to limit server encoding work.
+Read-only previews request JPEG quality level 3; taking control restores level 6
+on the same connection. These are RFB encoding preferences, so clients remain
+compatible with existing desktop servers. Text readability and input-to-paint
+latency should be checked together when tuning these values.
