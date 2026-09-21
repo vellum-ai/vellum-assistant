@@ -31,6 +31,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Select } from "@vellumai/design-library/components/select";
 import { toast } from "@vellumai/design-library/components/toast";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 function releaseLabel(
   release: ReleaseListItem,
@@ -393,7 +394,7 @@ export function AssistantUpgrades({
               stableLink: (
                 <a
                   href="#preview-release-channel"
-                  className="text-[var(--primary-base)] underline-offset-2 hover:underline"
+                  className={textLinkVariants()}
                 />
               ),
             }}

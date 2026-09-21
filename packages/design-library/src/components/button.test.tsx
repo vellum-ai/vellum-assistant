@@ -328,7 +328,10 @@ describe("Button class output", () => {
     expect(html).toContain("h-auto");
     expect(html).toContain("p-0");
     expect(html).toContain("rounded-none");
-    expect(html).toContain("hover:underline");
+    // Underlined at rest, like TextLink, never only on hover.
+    expect(html).toMatch(/(^|\s)underline(\s|")/);
+    expect(html).not.toContain("hover:underline");
+    expect(html).toContain("hover:[--vbtn-fg:var(--content-link-hover)]");
     expect(html).not.toContain("h-8");
     expect(html).not.toContain("px-2.5");
   });

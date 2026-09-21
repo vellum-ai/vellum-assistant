@@ -74,7 +74,8 @@ export function VercelTokenDialog({
             </Typography>
             <ExternalAnchor
               href="https://vercel.com/account/tokens"
-              className="text-body-medium-default text-(--primary-base) hover:underline"
+              tone="default"
+              className="text-body-medium-default"
               glyph={false}
             >
               {t("vercelTokenDialog.createToken")}

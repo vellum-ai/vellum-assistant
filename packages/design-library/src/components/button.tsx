@@ -127,9 +127,12 @@ const buttonVariants = cva(
           "disabled:[--vbtn-fg:var(--content-disabled)]",
         ].join(" "),
         link: [
+          // The same look as `TextLink`, so an action that reads as a link
+          // and a link that navigates cannot be told apart by their ink:
+          // underlined at rest, never only on hover.
           "[--vbtn-fg:var(--content-link)]",
           "inline bg-transparent border-transparent",
-          "hover:underline",
+          "underline hover:[--vbtn-fg:var(--content-link-hover)]",
           "active:scale-100",
           "disabled:[--vbtn-fg:var(--content-disabled)]",
         ].join(" "),

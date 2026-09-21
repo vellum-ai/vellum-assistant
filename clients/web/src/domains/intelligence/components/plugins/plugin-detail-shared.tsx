@@ -151,8 +151,8 @@ export function PluginDetailMetadata({
             {row.href ? (
               <ExternalAnchor
                 href={row.href}
-                className="inline-flex items-center gap-1 underline"
-                style={{ color: "var(--primary-base, #60a5fa)" }}
+                tone="default"
+                className="inline-flex items-center gap-1"
                 glyph={false}
               >
                 {row.value}

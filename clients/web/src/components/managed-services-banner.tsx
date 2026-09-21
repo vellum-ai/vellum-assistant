@@ -9,7 +9,8 @@ function ManagedServicesPricingLink({ children }: PropsWithChildren) {
   return (
     <ExternalAnchor
       href="https://www.vellum.ai/docs/pricing"
-      className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
+      tone="default"
+      className="inline-flex items-center gap-1"
       glyph={false}
     >
       {children}

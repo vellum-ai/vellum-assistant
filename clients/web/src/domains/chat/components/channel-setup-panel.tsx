@@ -239,7 +239,7 @@ function TwilioCredentialForm({
             consoleLink: (
               <ExternalAnchor
                 href="https://console.twilio.com"
-                className="text-[color:var(--content-link)] hover:underline"
+                tone="default"
                 glyph={false}
               />
             ),

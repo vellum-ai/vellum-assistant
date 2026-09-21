@@ -22,6 +22,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * OAuth provider callback handler for the **web** login flow.
@@ -137,7 +139,10 @@ export function ProviderCallbackPage() {
           </ExternalAnchor>
           <Link
             to={routes.account.login}
-            className="text-sm font-medium text-[var(--content-emphasised)] hover:underline"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm font-medium text-[var(--content-emphasised)]",
+            )}
           >
             {t("providerCallbackPage.backToSignIn")}
           </Link>
