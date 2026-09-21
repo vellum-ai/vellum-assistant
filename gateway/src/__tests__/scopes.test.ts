@@ -57,7 +57,7 @@ describe("isNarrowScopeProfile", () => {
     // flipped onto a single-route grant would open every unscoped route to it.
     const narrow: Record<ScopeProfile, boolean> = {
       actor_client_v1: false,
-      contact_client_v1: false,
+      contact_client_v1: true,
       gateway_ingress_v1: false,
       gateway_service_v1: false,
       local_v1: false,

@@ -9,7 +9,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import { getGatewayDb } from "../db/connection.js";
@@ -326,6 +326,54 @@ export interface GuardianBindingGatewayWrites {
 }
 
 /**
+ * Whether a contact principal still holds a credential it can present: an
+ * unexpired access token, or a refresh token it can rotate into one. Status
+ * alone would read an expired row as live, and access rows alone would miss a
+ * contact whose only live credential is a refresh token.
+ */
+function hasLiveContactCredential(
+  db: ReturnType<typeof getGatewayDb>,
+  principalId: string,
+): boolean {
+  const now = Date.now();
+
+  const access = db
+    .select({ id: actorTokenRecords.id })
+    .from(actorTokenRecords)
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, principalId),
+        eq(actorTokenRecords.role, "contact"),
+        eq(actorTokenRecords.status, "active"),
+        // A null expiry is an unexpiring row, not an expired one.
+        or(
+          isNull(actorTokenRecords.expiresAt),
+          gt(actorTokenRecords.expiresAt, now),
+        ),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (access) return true;
+
+  const refresh = db
+    .select({ id: actorRefreshTokenRecords.id })
+    .from(actorRefreshTokenRecords)
+    .where(
+      and(
+        eq(actorRefreshTokenRecords.guardianPrincipalId, principalId),
+        eq(actorRefreshTokenRecords.role, "contact"),
+        eq(actorRefreshTokenRecords.status, "active"),
+        gt(actorRefreshTokenRecords.absoluteExpiresAt, now),
+        gt(actorRefreshTokenRecords.inactivityExpiresAt, now),
+      ),
+    )
+    .limit(1)
+    .get();
+  return refresh !== undefined;
+}
+
+/**
  * Refuse a guardian binding on an address held by a contact that still has an
  * active contact-role token.
  *
@@ -360,19 +408,7 @@ function assertAddressNotHeldByCredentialedContact(
     return;
   }
 
-  const liveToken = db
-    .select({ id: actorTokenRecords.id })
-    .from(actorTokenRecords)
-    .where(
-      and(
-        eq(actorTokenRecords.guardianPrincipalId, holder.principalId),
-        eq(actorTokenRecords.role, "contact"),
-        eq(actorTokenRecords.status, "active"),
-      ),
-    )
-    .limit(1)
-    .get();
-  if (!liveToken) {
+  if (!hasLiveContactCredential(db, holder.principalId)) {
     return;
   }
 

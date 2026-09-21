@@ -92,7 +92,9 @@ export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
  */
 const BROAD_SCOPE_PROFILES: Record<ScopeProfile, boolean> = {
   actor_client_v1: true,
-  contact_client_v1: true,
+  // Narrow: a route naming no scope is a route no one has judged a contact
+  // against, so it refuses them rather than admitting any valid token.
+  contact_client_v1: false,
   gateway_ingress_v1: true,
   gateway_service_v1: true,
   local_v1: true,
