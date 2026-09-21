@@ -39,7 +39,6 @@ export function WakeDetailPanel({ payload, onClose }: WakeDetailPanelProps) {
       Glyph={Sparkles}
       title={payload.title || t("wakeDetailPanel.title")}
       closeLabel={t("wakeDetailPanel.closeAria")}
-      closeTooltip={t("wakeDetailPanel.close")}
       closeVariant="outlined"
       onClose={onClose}
     >

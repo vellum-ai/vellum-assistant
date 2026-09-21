@@ -1952,7 +1952,6 @@
     "workflowFinished": "工作流程已完成"
   },
   "wakeDetailPanel": {
-    "close": "關閉",
     "details": "詳細資料",
     "result": "結果",
     "runStatus": "執行狀態",

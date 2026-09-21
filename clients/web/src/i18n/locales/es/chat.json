@@ -1913,7 +1913,6 @@
     "workflowFinished": "Flujo de trabajo finalizado"
   },
   "wakeDetailPanel": {
-    "close": "Cerrar",
     "details": "Detalles",
     "result": "Resultado",
     "runStatus": "Estado de la ejecución",

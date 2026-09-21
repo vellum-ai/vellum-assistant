@@ -1963,7 +1963,6 @@
     "workflowFinished": "Workflow finished"
   },
   "wakeDetailPanel": {
-    "close": "Close",
     "details": "Details",
     "result": "Result",
     "runStatus": "Run status",

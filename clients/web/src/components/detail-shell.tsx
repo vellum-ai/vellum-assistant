@@ -86,12 +86,14 @@ export interface DetailShellHeaderProps {
   headerTrailing?: ReactNode;
   /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
   headerActions?: ReactNode;
+  /**
+   * Close-button accessible name. Defaults to the shared catalog's "Close
+   * panel"; pass one to name what the panel is ("Close tool details").
+   */
   closeLabel?: string;
   /**
-   * Close-button hover tooltip. Defaults to the untranslated "Close": fine
-   * for domains outside the i18n cutover, but callers whose path is on the
-   * `local/no-untranslated-strings` allowlist (see `eslint.config.mjs`) must
-   * pass their own `t()`'d copy here instead.
+   * Close-button hover tooltip. Defaults to the shared catalog's "Close";
+   * pass one only to say something different.
    */
   closeTooltip?: string;
   /** Close-button style. Every current caller uses the bordered "outlined" X. */
