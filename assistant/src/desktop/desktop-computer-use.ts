@@ -5,8 +5,6 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
-import sharp from "sharp";
-
 import { getConfig } from "../config/loader.js";
 import type {
   CuObservationResult,
@@ -86,6 +84,7 @@ const backend: DesktopComputerUseBackend = {
   bindObservation: (id) => accessibility.bindObservation(id),
   input: (args, signal) => run("xdotool", args, signal),
   capture: async (signal) => {
+    const { default: sharp } = await import("sharp");
     const dir = await mkdtemp(join(tmpdir(), "desktop-cu-"));
     try {
       const path = join(dir, "screen.png");
