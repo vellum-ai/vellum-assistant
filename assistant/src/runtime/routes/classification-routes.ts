@@ -1,7 +1,7 @@
 /**
  * Transport-agnostic route definitions for the classification family.
  *
- * GET /v1/classification/providers — catalog of classification providers
+ * GET /v1/classification/providers: catalog of classification providers
  *   plus whether the configured one currently resolves.
  */
 

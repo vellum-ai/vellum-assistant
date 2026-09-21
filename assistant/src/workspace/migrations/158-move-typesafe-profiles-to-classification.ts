@@ -5,7 +5,8 @@ import { Database } from "bun:sqlite";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Move TypeSafe out of `llm.profiles` into `services.classification`.
+ * Move TypeSafe out of `llm.profiles` and `provider_connections` into
+ * `services.classification`.
  *
  * A profile is a TypeSafe profile when its `provider` is the literal
  * `"typesafe"` or names a `provider_connections` row of that kind (an
@@ -23,9 +24,16 @@ import type { WorkspaceMigration } from "./types.js";
  *     `advisorProfile`, and each call site's `profile`, `fallbackProfile`,
  *     and `mix`; a call-site entry left empty is removed.
  *
- * Connection rows are judged against the real table, so the run fails and
- * is retried on the next start when the database cannot be read.
- * Idempotent: a config with no TypeSafe profile has nothing to rewrite.
+ * The TypeSafe connection rows are deleted last, after the config has been
+ * judged against them; the classification family reads the `typesafe`
+ * credential slot directly and never dispatches through a row. This runs as
+ * a workspace migration rather than a persistence one because persistence
+ * migrations run first at startup and would remove the rows before the
+ * config could be read. The run fails and is retried on the next start when
+ * the database cannot be read or written.
+ *
+ * Idempotent: a config with no TypeSafe profile has nothing to rewrite, and
+ * a second run finds no rows to delete.
  */
 const TYPESAFE_PROVIDER = "typesafe";
 const DEFAULT_CLASSIFICATION_MODEL = "jev-latest";
@@ -34,7 +42,7 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
   {
     id: "158-move-typesafe-profiles-to-classification",
     description:
-      "Move llm.profiles that route to TypeSafe into services.classification and repair their references",
+      "Move llm.profiles that route to TypeSafe into services.classification, repair their references, and delete TypeSafe provider_connections rows",
     retryFailedCheckpoint: true,
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
@@ -54,12 +62,6 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
         return;
       }
 
-      const llm = asRecord(config.llm);
-      const profiles = asRecord(llm?.profiles);
-      if (!llm || !profiles) {
-        return;
-      }
-
       const connectionKinds = readConnectionKinds(workspaceDir);
       if (connectionKinds === null) {
         throw new Error(
@@ -67,88 +69,18 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
         );
       }
 
-      const removed = new Set<string>();
-      let model: string = DEFAULT_CLASSIFICATION_MODEL;
-      for (const [name, value] of Object.entries(profiles)) {
-        const profile = asRecord(value);
-        const provider = profile?.provider;
-        const routesToTypesafe =
-          provider === TYPESAFE_PROVIDER ||
-          (typeof provider === "string" &&
-            connectionKinds.get(provider) === TYPESAFE_PROVIDER);
-        if (!routesToTypesafe) {
-          continue;
-        }
-        if (
-          removed.size === 0 &&
-          typeof profile?.model === "string" &&
-          profile.model
-        ) {
-          model = profile.model;
-        }
-        removed.add(name);
-        delete profiles[name];
-      }
-      if (removed.size === 0) {
-        return;
+      const llm = asRecord(config.llm);
+      const profiles = asRecord(llm?.profiles);
+      if (llm && profiles) {
+        moveProfiles(config, llm, profiles, connectionKinds);
+        writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
       }
 
-      const services = asRecord(config.services) ?? {};
-      if (asRecord(services.classification) === null) {
-        services.classification = {
-          mode: "your-own",
-          provider: TYPESAFE_PROVIDER,
-          model,
-        };
+      if (!deleteTypesafeConnections(workspaceDir)) {
+        throw new Error(
+          "provider_connections is not writable; retrying the TypeSafe row deletion on the next run",
+        );
       }
-      config.services = services;
-
-      const collapsed = repairProfileMixes(profiles, removed);
-      const resolve = referenceResolver(collapsed, removed);
-
-      for (const key of ["activeProfile", "advisorProfile"]) {
-        const target = llm[key];
-        if (typeof target !== "string") {
-          continue;
-        }
-        const resolved = resolve(target);
-        if (resolved === undefined) {
-          delete llm[key];
-        } else if (resolved !== target) {
-          llm[key] = resolved;
-        }
-      }
-
-      const callSites = asRecord(llm.callSites);
-      if (callSites) {
-        for (const [site, value] of Object.entries(callSites)) {
-          const entry = asRecord(value);
-          if (!entry) {
-            continue;
-          }
-          for (const key of ["profile", "fallbackProfile"]) {
-            const target = entry[key];
-            if (typeof target !== "string") {
-              continue;
-            }
-            const resolved = resolve(target);
-            if (resolved === undefined) {
-              delete entry[key];
-            } else if (resolved !== target) {
-              entry[key] = resolved;
-            }
-          }
-          const survivor = repairMixArms(entry, resolve);
-          if (survivor !== undefined && typeof entry.profile !== "string") {
-            entry.profile = survivor;
-          }
-          if (Object.keys(entry).length === 0) {
-            delete callSites[site];
-          }
-        }
-      }
-
-      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
     },
 
     down(_workspaceDir: string): void {
@@ -156,6 +88,94 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
       // profile would fail the loader's provider check.
     },
   };
+
+function moveProfiles(
+  config: Record<string, unknown>,
+  llm: Record<string, unknown>,
+  profiles: Record<string, unknown>,
+  connectionKinds: ReadonlyMap<string, string>,
+): void {
+  const removed = new Set<string>();
+  let model: string = DEFAULT_CLASSIFICATION_MODEL;
+  for (const [name, value] of Object.entries(profiles)) {
+    const profile = asRecord(value);
+    const provider = profile?.provider;
+    const routesToTypesafe =
+      provider === TYPESAFE_PROVIDER ||
+      (typeof provider === "string" &&
+        connectionKinds.get(provider) === TYPESAFE_PROVIDER);
+    if (!routesToTypesafe) {
+      continue;
+    }
+    if (
+      removed.size === 0 &&
+      typeof profile?.model === "string" &&
+      profile.model
+    ) {
+      model = profile.model;
+    }
+    removed.add(name);
+    delete profiles[name];
+  }
+  if (removed.size === 0) {
+    return;
+  }
+
+  const services = asRecord(config.services) ?? {};
+  if (asRecord(services.classification) === null) {
+    services.classification = {
+      mode: "your-own",
+      provider: TYPESAFE_PROVIDER,
+      model,
+    };
+  }
+  config.services = services;
+
+  const collapsed = repairProfileMixes(profiles, removed);
+  const resolve = referenceResolver(collapsed, removed);
+
+  for (const key of ["activeProfile", "advisorProfile"]) {
+    const target = llm[key];
+    if (typeof target !== "string") {
+      continue;
+    }
+    const resolved = resolve(target);
+    if (resolved === undefined) {
+      delete llm[key];
+    } else if (resolved !== target) {
+      llm[key] = resolved;
+    }
+  }
+
+  const callSites = asRecord(llm.callSites);
+  if (callSites) {
+    for (const [site, value] of Object.entries(callSites)) {
+      const entry = asRecord(value);
+      if (!entry) {
+        continue;
+      }
+      for (const key of ["profile", "fallbackProfile"]) {
+        const target = entry[key];
+        if (typeof target !== "string") {
+          continue;
+        }
+        const resolved = resolve(target);
+        if (resolved === undefined) {
+          delete entry[key];
+        } else if (resolved !== target) {
+          entry[key] = resolved;
+        }
+      }
+      const survivor = repairMixArms(entry, resolve);
+      if (survivor !== undefined && typeof entry.profile !== "string") {
+        entry.profile = survivor;
+      }
+      if (Object.keys(entry).length === 0) {
+        delete callSites[site];
+      }
+    }
+  }
+}
 
 /**
  * Repair every mix profile against `removed`, cascading until stable.
@@ -237,6 +257,42 @@ function repairMixArms(
 }
 
 /**
+ * Delete the TypeSafe rows. Returns false when the database exists but
+ * cannot be opened or written; a workspace without a database or without
+ * the table (pre-migration-243) has nothing to delete.
+ */
+function deleteTypesafeConnections(workspaceDir: string): boolean {
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+  if (!existsSync(dbPath)) {
+    return true;
+  }
+  let db: Database;
+  try {
+    db = new Database(dbPath);
+  } catch {
+    return false;
+  }
+  try {
+    const tableExists = db
+      .query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'`,
+      )
+      .get();
+    if (!tableExists) {
+      return true;
+    }
+    db.prepare(`DELETE FROM provider_connections WHERE provider = ?`).run(
+      TYPESAFE_PROVIDER,
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+/**
  * Connection name -> provider kind, or null when the database or table is
  * not readable. A missing database means a workspace with no connections.
  */
@@ -252,6 +308,14 @@ function readConnectionKinds(workspaceDir: string): Map<string, string> | null {
     return null;
   }
   try {
+    const tableExists = db
+      .query(
+        `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_connections'`,
+      )
+      .get();
+    if (!tableExists) {
+      return new Map();
+    }
     const rows = db
       .query(`SELECT name, provider FROM provider_connections`)
       .all() as Array<{ name: string; provider: string }>;

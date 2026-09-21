@@ -493,7 +493,6 @@ import {
   migrateCreateConversationModeSessions,
 } from "./migrations/381-create-conversation-mode-sessions.js";
 import { migrateCreateClientConnectionEvents } from "./migrations/382-create-client-connection-events.js";
-import { migrateDeleteTypesafeProviderConnections } from "./migrations/383-delete-typesafe-provider-connections.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1650,5 +1649,4 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateCreateClientConnectionEvents,
-  migrateDeleteTypesafeProviderConnections,
 ];

@@ -9,7 +9,7 @@
  *   2. Search providers — names come from `SEARCH_PROVIDER_CATALOG` in
  *      `search-provider-catalog.ts`. `getSearchProviderEnvVar` consults
  *      the catalog directly.
- *   3. Classification providers — names come from the classification
+ *   3. Classification providers: names come from the classification
  *      catalog in `classification/provider-catalog.ts`; only the
  *      any-provider lookup consults it.
  *
@@ -50,7 +50,7 @@ export function getSearchProviderEnvVar(
 }
 
 /**
- * Resolve a provider env-var name from any source — LLM catalog first, then
+ * Resolve a provider env-var name from any source: LLM catalog first, then
  * the search-provider mirror, then the classification catalog. Returns
  * `undefined` when no provider scope declares an env var for the given ID
  * (keyless LLM providers like Ollama, unknown IDs, etc.).

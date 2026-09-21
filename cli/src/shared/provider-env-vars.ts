@@ -58,7 +58,7 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
 };
 
 /**
- * Combined provider env var names — the union of LLM, search, and
+ * Combined provider env var names: the union of LLM, search, and
  * classification providers.
  * Used by the cloud-infra flows (docker/aws/gcp) to forward every supported
  * provider API key from the caller's environment.

@@ -30,6 +30,19 @@ function seedConnections(
   db.close();
 }
 
+function connectionProviders(dir: string): string[] {
+  const db = new Database(join(dir, "data", "db", "assistant.db"));
+  try {
+    return (
+      db
+        .query(`SELECT provider FROM provider_connections ORDER BY provider`)
+        .all() as { provider: string }[]
+    ).map((row) => row.provider);
+  } finally {
+    db.close();
+  }
+}
+
 function readConfig(dir: string): any {
   return JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
 }
@@ -64,6 +77,38 @@ describe("158-move-typesafe-profiles-to-classification", () => {
       voiceContinuationJudge: { effort: "low" },
       mainAgent: { profile: "balanced" },
     });
+  });
+
+  test("deletes TypeSafe connection rows after judging the config against them", () => {
+    const dir = workspaceWith({
+      llm: {
+        profiles: {
+          "jev-work": { provider: "jev-work", model: "jev-custom" },
+          balanced: BALANCED,
+        },
+      },
+    });
+    seedConnections(dir, [
+      { name: "jev-work", provider: "typesafe" },
+      { name: "typesafe-personal", provider: "typesafe" },
+      { name: "anthropic-personal", provider: "anthropic" },
+    ]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    expect(readConfig(dir).services.classification.model).toBe("jev-custom");
+    expect(connectionProviders(dir)).toEqual(["anthropic"]);
+  });
+
+  test("deletes stray TypeSafe connection rows even without a TypeSafe profile", () => {
+    const original = { llm: { profiles: { balanced: BALANCED } } };
+    const dir = workspaceWith(original);
+    seedConnections(dir, [{ name: "typesafe-personal", provider: "typesafe" }]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    expect(readConfig(dir)).toEqual(original);
+    expect(connectionProviders(dir)).toEqual([]);
   });
 
   test("recognizes a profile bound to a TypeSafe connection by entry name", () => {

@@ -234,6 +234,38 @@ describe("ClassificationCard", () => {
     });
   });
 
+  test("replacing the key keeps a configured non-default model", async () => {
+    daemonConfigData = {
+      services: {
+        classification: {
+          mode: "your-own",
+          provider: "typesafe",
+          model: "jev-custom",
+        },
+      },
+    };
+    renderCard();
+
+    fireEvent.change(
+      await screen.findByPlaceholderText("Your TypeSafe API key"),
+      { target: { value: "sk-typesafe" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(configPatchCalls.length).toBe(1);
+    });
+    expect(configPatchCalls[0]?.body).toEqual({
+      services: {
+        classification: {
+          mode: "your-own",
+          provider: "typesafe",
+          model: "jev-custom",
+        },
+      },
+    });
+  });
+
   test("a key the provider rejects is surfaced and the config is left untouched", async () => {
     secretsPostResult = { success: false, error: "TypeSafe rejected the key" };
     renderCard();

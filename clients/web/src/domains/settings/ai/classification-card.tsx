@@ -159,6 +159,11 @@ function ClassificationProviderForm({
 
   const serverProvider =
     daemonClassification?.provider ?? providers[0]?.id ?? "";
+  const serverModel =
+    typeof daemonClassification?.model === "string" &&
+    daemonClassification.model.length > 0
+      ? daemonClassification.model
+      : undefined;
   const serverMode: ClassificationMode =
     daemonClassification?.mode ?? DEFAULT_MODE;
 
@@ -209,6 +214,14 @@ function ClassificationProviderForm({
           throw new Error(keyData.error ?? t("classificationCard.keyRejected"));
         }
       }
+      // Keep a configured model when the provider stays the same: a key
+      // replacement or a mode flip must not reset a model the user (or the
+      // profile migration) chose. The catalog default applies only when the
+      // provider changes or nothing is configured yet.
+      const model =
+        selectedProvider.id === daemonClassification?.provider && serverModel
+          ? serverModel
+          : selectedProvider.defaultModel;
       const { response: cfgRes } = await configPatch({
         path: { assistant_id: assistantId },
         body: {
@@ -216,7 +229,7 @@ function ClassificationProviderForm({
             classification: {
               mode: effectiveMode,
               provider: selectedProvider.id,
-              model: selectedProvider.defaultModel,
+              model,
             },
           },
         },
@@ -247,10 +260,12 @@ function ClassificationProviderForm({
     }
   }, [
     assistantId,
+    daemonClassification?.provider,
     effectiveMode,
     queryClient,
     requiresApiKey,
     selectedProvider,
+    serverModel,
     t,
     trimmedKey,
   ]);
