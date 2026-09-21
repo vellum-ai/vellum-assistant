@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { __resetForTesting, publish, subscribe } from "@/lib/event-bus";
+
+// Registered before the bus is imported so the bus binds to the mock.
+const captureErrorMock = mock(() => {});
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: captureErrorMock,
+}));
+
+const { __resetForTesting, publish, subscribe } = await import(
+  "@/lib/event-bus"
+);
 
 function avatarEnvelope(): AssistantEventEnvelope {
   return {
@@ -13,6 +22,7 @@ function avatarEnvelope(): AssistantEventEnvelope {
 
 beforeEach(() => {
   __resetForTesting();
+  captureErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -79,15 +89,41 @@ describe("event-bus", () => {
     const good = mock(() => {});
     subscribe("app.online", bad);
     subscribe("app.online", good);
-    const originalConsoleError = console.error;
-    console.error = () => {};
-    try {
-      publish("app.online", {});
-    } finally {
-      console.error = originalConsoleError;
-    }
+
+    expect(() => publish("app.online", {})).not.toThrow();
+
     expect(bad).toHaveBeenCalledTimes(1);
     expect(good).toHaveBeenCalledTimes(1);
+  });
+
+  test("a throwing handler is reported, tagged with the event it was handling", () => {
+    const failure = new Error("boom");
+    subscribe("sse.event", () => {
+      throw failure;
+    });
+    subscribe("app.online", () => {});
+
+    publish("sse.event", avatarEnvelope());
+    publish("app.online", {});
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(captureErrorMock).toHaveBeenCalledWith(failure, {
+      context: "event_bus.handler",
+      tags: { bus_event: "sse.event" },
+    });
+  });
+
+  test("each throwing handler of one publish is reported", () => {
+    subscribe("app.online", () => {
+      throw new Error("first");
+    });
+    subscribe("app.online", () => {
+      throw new Error("second");
+    });
+
+    publish("app.online", {});
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(2);
   });
 
   test("unsubscribing during dispatch does not skip remaining handlers", () => {

@@ -2,9 +2,8 @@
  * `notification_conversation_created` SSE event.
  *
  * Server → client broadcast emitted when an incoming notification
- * creates a new vellum conversation. Clients use it to place the
- * conversation in the sidebar (`groupId`, `source`) and decide whether
- * to raise a fallback OS banner (`silent`). A guardian-sensitive
+ * creates a new vellum conversation. First-party clients ignore it; the
+ * web client lists it as a no-op. A guardian-sensitive
  * conversation is announced only to connections authenticated as the
  * guardian named in `targetGuardianPrincipalId`.
  *
@@ -28,22 +27,19 @@ export const NotificationConversationCreatedEventSchema = z.object({
    */
   targetGuardianPrincipalId: z.string().optional(),
   /**
-   * Conversation group identifier propagated from the signal producer.
-   * Clients use this to place the conversation in the correct sidebar
-   * folder (e.g. "system:scheduled" for schedule completion threads).
+   * Conversation group identifier propagated from the signal producer:
+   * the sidebar folder the conversation belongs in (e.g.
+   * "system:scheduled" for schedule completion threads).
    */
   groupId: z.string().optional(),
   /**
-   * Semantic source of the conversation (e.g. "schedule", "reminder").
-   * Allows clients to override the default "notification" source so the
-   * conversation is attributed correctly.
+   * Semantic source of the conversation (e.g. "schedule", "reminder"),
+   * overriding the default "notification" source.
    */
   source: z.string().optional(),
   /**
-   * Mirrors `NotificationIntent.silent`. When true the client must not
-   * post a fallback OS banner for this conversation — the sidebar entry
-   * still appears, but the always-on inbox is the only surfaced channel.
-   * Derived from the originating signal's `attentionHints.urgency`.
+   * Mirrors `NotificationIntent.silent`, which the server sets for
+   * low- and medium-urgency signals. Clients act on the intent's copy.
    */
   silent: z.boolean().optional(),
 });

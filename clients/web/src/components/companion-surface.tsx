@@ -1057,8 +1057,15 @@ export function CompanionSurface({
    * user and so always outranks it, or else the call's work while its list is
    * open.
    */
+  /**
+   * The host's prompt, which only a row carries: a column has no edge for a
+   * list of answers, and the host draws those in a window of their own there.
+   * The call's own list stands beside a column instead.
+   */
+  const sideDocked = dock === "left" || dock === "right";
+  const rowPrompt = sideDocked ? undefined : hostPrompt;
   const workShelfShown =
-    hostPrompt === null || hostPrompt === undefined
+    rowPrompt === null || rowPrompt === undefined
       ? workShelfOpen && hasWork
       : false;
   useEffect(() => {
@@ -1066,11 +1073,11 @@ export function CompanionSurface({
   }, [onWorkShelfChange, workShelfShown]);
   const prompt = useMemo(
     () =>
-      hostPrompt ??
+      rowPrompt ??
       (workShelfOpen && hasWork ? (
         <CompanionCallWorkShelf work={work} accentHex={accentHex} />
       ) : undefined),
-    [hostPrompt, workShelfOpen, hasWork, work, accentHex],
+    [rowPrompt, workShelfOpen, hasWork, work, accentHex],
   );
   /**
    * Whether the pill is drawn.
@@ -1206,12 +1213,12 @@ export function CompanionSurface({
     height: number;
   } | null>(null);
   /**
-   * The width the call's line was given past its own while the bar carries a
-   * wider prompt, as last drawn. Taken back out of every measurement, so the
-   * content is measured at its own width and the bar never grows to fit a
-   * line that was only stretched to fill it.
+   * The length the call's line was given past its own while the bar carries a
+   * bigger prompt, as last drawn: across a row, or down a column. Taken back
+   * out of every measurement, so the content is measured at its own size and
+   * the bar never grows to fit a line that was only stretched to fill it.
    */
-  const lineExtraRef = useRef(0);
+  const lineExtraRef = useRef({ width: 0, height: 0 });
 
   // The body is measured while it is still clipped, so the pill knows how wide
   // to grow before it starts growing. `scrollWidth` reports the content's own
@@ -1224,8 +1231,8 @@ export function CompanionSurface({
     }
     const measure = () => {
       setContentSize({
-        width: element.scrollWidth - lineExtraRef.current,
-        height: element.scrollHeight,
+        width: element.scrollWidth - lineExtraRef.current.width,
+        height: element.scrollHeight - lineExtraRef.current.height,
       });
     };
     measure();
@@ -1297,12 +1304,12 @@ export function CompanionSurface({
     : (contentSize?.height ?? FALLBACK_COLUMN.height) + 2 * INNER_GAP;
 
   /**
-   * Whether the call's bar carries a prompt row, joined to it as one shape.
-   * Only a row can: a column has no edge to stand a line of words on.
+   * Whether the call's bar carries a prompt, joined to it as one shape: over
+   * or under a row, beside a column.
    */
-  const joined = inCall && !vertical && prompt !== null && prompt !== undefined;
+  const joined = inCall && prompt !== null && prompt !== undefined;
   const promptMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [promptWidth, setPromptWidth] = useState(0);
+  const [promptSize, setPromptSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const element = promptMeasureRef.current;
     if (!joined || element === null) {
@@ -1312,7 +1319,11 @@ export function CompanionSurface({
       // Its fractional width, rounded up, in the surface's own units: a
       // whole-point width rounded down leaves the row a fraction too narrow
       // for its words, and they wrap onto a second line they do not need.
-      setPromptWidth(Math.ceil(element.getBoundingClientRect().width / scale));
+      const rect = element.getBoundingClientRect();
+      setPromptSize({
+        width: Math.ceil(rect.width / scale),
+        height: Math.ceil(rect.height / scale),
+      });
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -1326,16 +1337,25 @@ export function CompanionSurface({
    * two, so the prompt's words are never cut to fit the call's controls and
    * the two keep one edge.
    */
-  const barWidth = joined ? Math.max(width, promptWidth) : width;
+  const barWidth =
+    joined && !vertical ? Math.max(width, promptSize.width) : width;
+  /**
+   * The column's length while a list stands beside it, for the same reason:
+   * as long as the longer of the two, so the two keep one edge.
+   */
+  const barHeight =
+    joined && vertical ? Math.max(height, promptSize.height) : height;
   /**
    * What the prompt widened the bar by, given to the call's line: the line
    * says more of what the session is doing, and the controls end at the
    * bar's far edge under the prompt's answers rather than short of it.
    */
-  const lineExtra = barWidth - width;
+  const lineExtra = vertical ? barHeight - height : barWidth - width;
   useLayoutEffect(() => {
-    lineExtraRef.current = lineExtra;
-  }, [lineExtra]);
+    lineExtraRef.current = vertical
+      ? { width: 0, height: lineExtra }
+      : { width: lineExtra, height: 0 };
+  }, [lineExtra, vertical]);
 
   /**
    * The line the creature stands on, as the CSS edge the surface is drawn
@@ -1399,7 +1419,7 @@ export function CompanionSurface({
     ? {
         width: barWidth,
         // A column has a length of its own; a row is one row tall.
-        ...(vertical ? { height } : {}),
+        ...(vertical ? { height: barHeight } : {}),
         // **Centred on the creature's own point.** The bar takes the point
         // the creature holds everywhere else and stands on its centre line
         // rather than on its baseline, and the canvas is symmetric about
@@ -1488,7 +1508,9 @@ export function CompanionSurface({
         <PromptShelf
           dock={dock}
           top={avatarLine}
-          width={barWidth}
+          width={vertical ? promptSize.width : barWidth}
+          height={barHeight}
+          barThickness={vertical ? width : 44}
           accentHex={accentHex}
           lit={expanded}
           promptRef={promptRef}
@@ -1505,7 +1527,11 @@ export function CompanionSurface({
           inert
           aria-hidden
           data-theme="dark"
-          className="pointer-events-none invisible absolute top-0 left-0 w-max max-w-[640px]"
+          className={`pointer-events-none invisible absolute top-0 left-0 w-max ${
+            // Beside a column the list has the room the canvas keeps for the
+            // capture picker, which stands on the same side.
+            vertical ? "max-w-[400px]" : "max-w-[640px]"
+          }`}
         >
           {prompt}
         </div>
@@ -1655,14 +1681,9 @@ export function CompanionSurface({
                   onReviewPrompts={onReviewPrompts}
                   accentHex={accentHex}
                   workShelfOpen={workShelfShown}
-                  onToggleWorkShelf={
-                    // The column has no edge to stand a list on.
-                    vertical
-                      ? undefined
-                      : () => {
-                          setWorkShelfOpen((open) => !open);
-                        }
-                  }
+                  onToggleWorkShelf={() => {
+                    setWorkShelfOpen((open) => !open);
+                  }}
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -2508,6 +2529,8 @@ function PromptShelf({
   dock,
   top,
   width,
+  height,
+  barThickness,
   accentHex,
   lit,
   promptRef,
@@ -2515,29 +2538,65 @@ function PromptShelf({
 }: {
   dock: CompanionSurfaceDock;
   top: string;
+  /** Across a row, the bar's width; beside a column, the list's own. */
   width: number;
+  /** The column's length, which the list beside it matches. */
+  height: number;
+  /** How thick the bar is across: a row's height, or a column's width. */
+  barThickness: number;
   accentHex: string;
   /** Whether the call's light travels the shape's edge. */
   lit: boolean;
   promptRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
-  const below = dock === "top";
+  const half = barThickness / 2;
+  // Which way the shelf stands off the bar: toward the middle of the screen.
+  const side =
+    dock === "top"
+      ? "below"
+      : dock === "left"
+        ? "right"
+        : dock === "right"
+          ? "left"
+          : "above";
+  const across = side === "left" || side === "right";
+  const placed: CSSProperties = across
+    ? {
+        // Beside the column: its own width plus the half of the column it
+        // runs behind, as long as the column, and centred on the same line.
+        left: "50%",
+        top,
+        width: width + half,
+        height,
+        transform:
+          side === "right" ? "translate(0, -50%)" : "translate(-100%, -50%)",
+        [side === "right" ? "paddingLeft" : "paddingRight"]: half,
+      }
+    : {
+        left: "50%",
+        top,
+        width,
+        transform:
+          side === "below" ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        // The half of the bar the shelf runs behind.
+        [side === "below" ? "paddingTop" : "paddingBottom"]: half,
+      };
+  const rounded = {
+    above: "rounded-t-[22px]",
+    below: "rounded-b-[22px]",
+    left: "rounded-l-[22px]",
+    right: "rounded-r-[22px]",
+  }[side];
   return (
     <div
       ref={promptRef}
       // The surface paints its own dark ground in every host theme, so the
       // design-library tokens the row is drawn with resolve against dark.
       data-theme="dark"
+      data-shelf-side={side}
       className="absolute"
-      style={{
-        left: "50%",
-        top,
-        width,
-        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-        // The half of the bar the shelf runs behind.
-        [below ? "paddingTop" : "paddingBottom"]: 22,
-      }}
+      style={placed}
       onPointerDown={(event) => {
         // A press here is an answer, not a grab of the surface.
         event.stopPropagation();
@@ -2545,14 +2604,14 @@ function PromptShelf({
     >
       <span
         aria-hidden
-        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${
-          below ? "rounded-b-[22px]" : "rounded-t-[22px]"
-        }`}
+        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${rounded}`}
       />
       <span
         aria-hidden
-        className="absolute right-4 left-4 h-px bg-white/10"
-        style={below ? { top: 22 } : { bottom: 22 }}
+        className={`absolute bg-white/10 ${
+          across ? "top-4 bottom-4 w-px" : "right-4 left-4 h-px"
+        }`}
+        style={{ [oppositeEdge[side]]: half }}
       />
       {/* The call's light, travelling the edge of the whole shape: the shelf
           and the half of the bar it does not run behind. The bar's own ring
@@ -2563,8 +2622,9 @@ function PromptShelf({
         style={{
           left: -2,
           right: -2,
-          top: below ? -24 : -2,
-          bottom: below ? -2 : -24,
+          top: -2,
+          bottom: -2,
+          [oppositeEdge[side]]: -(half + 2),
           borderRadius: 24,
           opacity: lit ? 1 : 0,
           ["--companion-ring-accent" as string]: accentHex,
@@ -2574,6 +2634,14 @@ function PromptShelf({
     </div>
   );
 }
+
+/** The edge of the shelf that runs behind the bar, by the side it stands on. */
+const oppositeEdge = {
+  above: "bottom",
+  below: "top",
+  left: "right",
+  right: "left",
+} as const;
 
 function CallBody({
   call,
@@ -2891,7 +2959,7 @@ function CallLine({
       <span
         className="mt-1 shrink-0 truncate text-[12px] text-white/85"
         style={{
-          height: CALL_COLUMN_LINE_LENGTH,
+          height: CALL_COLUMN_LINE_LENGTH + extra,
           writingMode: "vertical-rl",
         }}
         data-label="line"

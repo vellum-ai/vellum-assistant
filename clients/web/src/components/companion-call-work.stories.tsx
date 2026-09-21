@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent } from "storybook/test";
 import { useEffect, useState } from "react";
 
 import type {
+  CompanionDock,
   VoiceActivityState,
   VoiceActivityWork,
 } from "@vellumai/ipc-contract";
@@ -156,14 +158,21 @@ function callAt(t: number): VoiceActivityState {
   return { ...CALL, ...PHASES[phase], work };
 }
 
-function Stage({ call }: { call: VoiceActivityState }) {
+function Stage({
+  call,
+  dock,
+}: {
+  call: VoiceActivityState;
+  dock?: CompanionDock;
+}) {
+  const side = dock === "left" || dock === "right";
   return (
     <div
       data-theme="dark"
       className="relative overflow-hidden rounded-xl"
       style={{
         width: 720,
-        height: 300,
+        height: side ? 520 : 300,
         background:
           "radial-gradient(120% 90% at 20% 10%, #b3391d 0%, transparent 60%), linear-gradient(140deg, #8e2a14 0%, #6d1f10 55%, #4a150b 100%)",
       }}
@@ -175,11 +184,41 @@ function Stage({ call }: { call: VoiceActivityState }) {
           assistantName="Ziggy"
           accentHex={ACCENT}
           character={CHARACTER}
+          dock={dock}
         />
       </div>
     </div>
   );
 }
+
+/** Press every count on the page, which opens each list. */
+const openLists = async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+  for (const chip of canvasElement.querySelectorAll<HTMLElement>(
+    'button[data-control="work"]',
+  )) {
+    await userEvent.click(chip);
+  }
+};
+
+/** Two sub-agents and the turn's own step, with the list open. */
+export const ListOpen: Story = {
+  render: () => <Stage call={callAt(9.5)} />,
+  play: openLists,
+};
+
+/**
+ * Docked to a side, the bar is a column and the list stands beside it,
+ * toward the middle of the screen, joined to it the way it joins a row.
+ */
+export const DockedSides: Story = {
+  render: () => (
+    <div className="flex flex-col gap-6">
+      <Stage call={callAt(9.5)} dock="right" />
+      <Stage call={callAt(9.5)} dock="left" />
+    </div>
+  ),
+  play: openLists,
+};
 
 function Playing() {
   const [t, setT] = useState(0);

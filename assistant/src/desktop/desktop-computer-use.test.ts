@@ -20,10 +20,10 @@ function driver(userGuidance?: string) {
     capture: mock(async (_signal: AbortSignal) => ({
       userGuidance,
       screenshot: "anBlZw==",
-      screenshotWidthPx: 1600,
-      screenshotHeightPx: 900,
-      screenWidthPt: 1600,
-      screenHeightPt: 900,
+      screenshotWidthPx: 1440,
+      screenshotHeightPx: 810,
+      screenWidthPt: 1440,
+      screenHeightPt: 810,
     })),
   };
 }
@@ -252,7 +252,7 @@ describe("virtual desktop computer use", () => {
   for (const [tool, input] of [
     ["computer_use_observe", { capture_window_id: 12 }],
     ["computer_use_run_applescript", { script: "return 1" }],
-    ["computer_use_click", { x: 1600, y: 10 }],
+    ["computer_use_click", { x: 1440, y: 10 }],
     ["computer_use_key", { key: "Return click 1" }],
     ["computer_use_scroll", { direction: "down", amount: 100 }],
   ] as const) {
@@ -320,7 +320,7 @@ describe("virtual desktop computer use", () => {
         },
       },
     ]);
-    expect(result.content).toContain("1600x900 px");
+    expect(result.content).toContain("1440x810 px");
     expect(proxy.actionHistory).toHaveLength(1);
     expect(
       (await proxy.executeLocal("computer_use_click", { x: 1, y: 2 }, execute))
