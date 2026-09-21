@@ -84,6 +84,12 @@ enum HostCuActionRunner {
     /// Per-session previous AX elements for computing diffs between steps.
     private static var previousAXElements: [String: [AXElement]] = [:]
 
+    /// Per-session elements of the last tree the model was shown, which is
+    /// the numbering its element IDs use. Unlike `previousAXElements` this
+    /// includes a scoped read: a window or display observation is no baseline
+    /// for a desktop diff, but its IDs are the ones the model acts on next.
+    private static var observedElements: [String: [AXElement]] = [:]
+
     /// Last time each session was touched, for reclaiming state from sessions
     /// that end without a terminal done/respond (cancelled, or conversation
     /// closed mid-flight).
@@ -115,6 +121,7 @@ enum HostCuActionRunner {
     static func clearSession(_ conversationId: String) {
         verifiers.removeValue(forKey: conversationId)
         previousAXElements.removeValue(forKey: conversationId)
+        observedElements.removeValue(forKey: conversationId)
         lastAccess.removeValue(forKey: conversationId)
     }
 
@@ -124,6 +131,7 @@ enum HostCuActionRunner {
         for (id, seen) in lastAccess where now.timeIntervalSince(seen) > sessionTTL {
             verifiers.removeValue(forKey: id)
             previousAXElements.removeValue(forKey: id)
+            observedElements.removeValue(forKey: id)
             lastAccess.removeValue(forKey: id)
         }
         lastAccess[conversationId] = now
@@ -221,7 +229,6 @@ enum HostCuActionRunner {
                     requestId: requestId,
                     input: input,
                     reasoning: reasoning,
-                    enumerator: enumerator,
                     verifier: verifier,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
@@ -250,7 +257,6 @@ enum HostCuActionRunner {
             let resolveStart = DispatchTime.now()
             let resolution = await resolveCoordinatesIfNeeded(
                 for: agentAction,
-                enumerator: enumerator,
                 stepNumber: stepNumber,
                 conversationId: conversationId
             )
@@ -403,12 +409,13 @@ enum HostCuActionRunner {
     /// gate, resolution, verification and settle as a single step, in order,
     /// stopping at the first one that is refused or fails. The caller takes
     /// one observation afterwards. Element IDs resolve against the last
-    /// observation, which is the tree the model chose them from.
+    /// observation, which is the tree the model chose them from, and each
+    /// click checks its element is still there, since an earlier action in
+    /// the batch can have moved it.
     private static func runSequence(
         requestId: String,
         input: [String: Any],
         reasoning: String?,
-        enumerator: AccessibilityTreeEnumerator,
         verifier: ActionVerifier,
         stepNumber: Int,
         conversationId: String,
@@ -448,7 +455,6 @@ enum HostCuActionRunner {
             let resolveStart = DispatchTime.now()
             let resolution = await resolveCoordinatesIfNeeded(
                 for: action,
-                enumerator: enumerator,
                 stepNumber: stepNumber,
                 conversationId: conversationId
             )
@@ -592,10 +598,10 @@ enum HostCuActionRunner {
 
     // MARK: - Coordinate Resolution
 
-    /// Resolve element IDs to screen coordinates when x/y are not provided.
+    /// Resolve element IDs to screen coordinates when x/y are not provided. A
+    /// click checks that its element is still under that point first.
     private static func resolveCoordinatesIfNeeded(
         for action: AgentAction,
-        enumerator: AccessibilityTreeEnumerator,
         stepNumber: Int,
         conversationId: String
     ) async -> Result<AgentAction, CoordinateProblem> {
@@ -608,9 +614,14 @@ enum HostCuActionRunner {
                     log.error("[\(stepNumber)] Action requires either x/y coordinates or element_id")
                     return .failure(.missingTarget(resolved.type))
                 }
-                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
+                guard let element = observedElement(sourceId, conversationId: conversationId) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return .failure(.unknownElement(sourceId))
+                }
+                let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
+                if case .differentElement(let found) = await clickVerdict(for: element, at: center) {
+                    log.warning("[\(stepNumber)] Element [\(sourceId)] \(element.role, privacy: .public) is no longer under its point; \(found.role, privacy: .public) is")
+                    return .failure(.elementChanged(id: sourceId, observed: element, found: found))
                 }
                 resolved.x = center.x
                 resolved.y = center.y
@@ -618,26 +629,24 @@ enum HostCuActionRunner {
 
         case .scroll:
             if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
-                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
+                guard let element = observedElement(sourceId, conversationId: conversationId) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return .failure(.unknownElement(sourceId))
                 }
-                resolved.x = center.x
-                resolved.y = center.y
+                resolved.x = element.frame.midX
+                resolved.y = element.frame.midY
             }
 
         case .drag:
-            if resolved.x == nil || resolved.y == nil, let sourceId = resolved.resolvedFromElementId {
-                if let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) {
-                    resolved.x = center.x
-                    resolved.y = center.y
-                }
+            if resolved.x == nil || resolved.y == nil, let sourceId = resolved.resolvedFromElementId,
+               let element = observedElement(sourceId, conversationId: conversationId) {
+                resolved.x = element.frame.midX
+                resolved.y = element.frame.midY
             }
-            if resolved.toX == nil || resolved.toY == nil, let targetId = resolved.resolvedToElementId {
-                if let center = await elementCenter(for: targetId, conversationId: conversationId, enumerator: enumerator) {
-                    resolved.toX = center.x
-                    resolved.toY = center.y
-                }
+            if resolved.toX == nil || resolved.toY == nil, let targetId = resolved.resolvedToElementId,
+               let element = observedElement(targetId, conversationId: conversationId) {
+                resolved.toX = element.frame.midX
+                resolved.toY = element.frame.midY
             }
 
         default:
@@ -652,6 +661,7 @@ enum HostCuActionRunner {
     enum CoordinateProblem: Error {
         case missingTarget(ActionType)
         case unknownElement(Int)
+        case elementChanged(id: Int, observed: AXElement, found: AXClickTarget.Element)
 
         var message: String {
             switch self {
@@ -659,30 +669,52 @@ enum HostCuActionRunner {
                 return "\(type.rawValue) needs element_id, or x and y. Nothing was done."
             case .unknownElement(let id):
                 return "Element [\(id)] is not in the latest observation. Nothing was done. Observe again and use an ID from that tree, or pass x and y."
+            case .elementChanged(let id, let observed, let found):
+                let x = Int(observed.frame.midX)
+                let y = Int(observed.frame.midY)
+                return "Element [\(id)] \(Self.describe(role: observed.role, label: observed.title)) is no longer at (\(x), \(y)); \(Self.describe(role: found.role, label: found.label)) is there now. Nothing was done. Observe again and use an ID from that tree, or pass x and y for what the screenshot shows."
             }
+        }
+
+        private static func describe(role: String, label: String?) -> String {
+            let name = AccessibilityTreeEnumerator.cleanRole(role)
+            guard let label else { return name }
+            return "\(name) \"\(AXLabel.singleLine(label))\""
         }
     }
 
-    /// Find the center point of an AX element by ID. The IDs the model names
-    /// come from the last observation it was shown, so that stored tree is
-    /// read first: it costs nothing, and it is the numbering the model used.
-    /// A walk renumbers from scratch, so it only runs when the stored tree
-    /// does not have the element, and it goes to full depth so a shallow
-    /// observation cannot hide it.
-    private static func elementCenter(
-        for elementId: Int,
-        conversationId: String,
-        enumerator: AccessibilityTreeEnumerator
-    ) async -> CGPoint? {
-        if let element = previousAXElements[conversationId]?.first(where: { $0.id == elementId }) {
-            return CGPoint(x: element.frame.midX, y: element.frame.midY)
-        }
-        enumerator.depthLimit = AXDepthPolicy.fullDepth
-        guard let result = await enumerator.enumerateCurrentWindow() else { return nil }
-        let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
-        guard let element = flat.first(where: { $0.id == elementId }) else { return nil }
-        let frame = element.frame
-        return CGPoint(x: frame.midX, y: frame.midY)
+    /// The element `elementId` names in the last tree the model was shown.
+    /// Nothing else is searched: a fresh walk numbers its elements from
+    /// scratch, so the same number there can be a different control.
+    private static func observedElement(_ elementId: Int, conversationId: String) -> AXElement? {
+        observedElements[conversationId]?.first(where: { $0.id == elementId })
+    }
+
+    /// How long to wait before asking again when the first hit test settled
+    /// nothing. Chromium answers a hit test at once with the root of its web
+    /// content and resolves the real element in the background: measured on
+    /// Slack, 3 of 62 controls were found on the first ask and 52 on a second
+    /// ask 20ms later, with no gain from waiting 100ms.
+    private static let hitTestRetryNanoseconds: UInt64 = 30_000_000
+
+    /// What accessibility says is under `point` now, judged against `element`.
+    private static func clickVerdict(for element: AXElement, at point: CGPoint) async -> AXClickTarget.Verdict {
+        let target = AXClickTarget.Element(
+            role: element.role,
+            label: element.title,
+            frame: element.frame,
+            actionable: AccessibilityTreeEnumerator.interactiveRoles.contains(element.role)
+        )
+        let verdict = AXClickTarget.verdict(
+            target: target,
+            hitChain: await AccessibilityTreeEnumerator.hitChain(at: point)
+        )
+        guard verdict == .unknown else { return verdict }
+        try? await Task.sleep(nanoseconds: hitTestRetryNanoseconds)
+        return AXClickTarget.verdict(
+            target: target,
+            hitChain: await AccessibilityTreeEnumerator.hitChain(at: point)
+        )
     }
 
     // MARK: - Observation Builder
@@ -692,6 +724,8 @@ enum HostCuActionRunner {
         let axTree: String?
         let axDiff: String?
         let currentElements: [AXElement]?
+        /// Every element of the tree that was read, scoped or not.
+        let shownElements: [AXElement]?
         let screenshot: String?
         let screenshotWidthPx: Int?
         let screenshotHeightPx: Int?
@@ -740,6 +774,7 @@ enum HostCuActionRunner {
         var axTreeText: String?
         var axDiffText: String?
         var currentElements: [AXElement]?
+        var shownElements: [AXElement]?
         var screenshotBase64: String?
         var screenshotWidthPx: Int?
         var screenshotHeightPx: Int?
@@ -752,6 +787,7 @@ enum HostCuActionRunner {
         // the next ordinary observation also starts with a fresh baseline.
         if captureTarget != nil {
             previousAXElements.removeValue(forKey: conversationId)
+            observedElements.removeValue(forKey: conversationId)
         }
 
         // The tree stays inside what the screenshot shows. A window target
@@ -823,6 +859,7 @@ enum HostCuActionRunner {
             }
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil
+            shownElements = flat
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
             treeSummary = "AX tree: \(result.appName) \"\(result.windowTitle)\", \(flat.count) elements (\(interactiveCount) interactive)"
 
@@ -873,6 +910,7 @@ enum HostCuActionRunner {
             axTree: axTreeText,
             axDiff: axDiffText,
             currentElements: currentElements,
+            shownElements: shownElements,
             screenshot: screenshotBase64,
             screenshotWidthPx: screenshotWidthPx,
             screenshotHeightPx: screenshotHeightPx,
@@ -894,6 +932,9 @@ enum HostCuActionRunner {
         // Update previous AX elements for next step's diff
         if let elements = observation.currentElements {
             previousAXElements[conversationId] = elements
+        }
+        if let elements = observation.shownElements {
+            observedElements[conversationId] = elements
         }
 
         return HostCuResultPayload(
