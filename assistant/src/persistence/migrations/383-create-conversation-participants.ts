@@ -7,9 +7,8 @@ const TABLE = "conversation_participants";
  * Create `conversation_participants`: which principals take part in a
  * conversation, and in what capacity.
  *
- * A conversation with no rows belongs to the guardian alone, which is
- * every conversation that exists before this table. Removal is a
- * `removed_at` stamp rather than a delete, so authorship stays
+ * A conversation with no rows belongs to the guardian alone. Removal is
+ * a `removed_at` stamp rather than a delete, so authorship stays
  * attributable after access ends.
  *
  * Idempotent via IF NOT EXISTS.

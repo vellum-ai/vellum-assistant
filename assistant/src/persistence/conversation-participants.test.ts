@@ -161,6 +161,41 @@ describe("conversation participants store", () => {
     expect(rows("conv-1")).toHaveLength(1);
   });
 
+  test("re-adding a live participant leaves the existing row alone", () => {
+    const { rows, options } = createStore();
+    addParticipant(
+      {
+        conversationId: "conv-1",
+        principalId: "principal-a",
+        role: "creator",
+        addedBy: "principal-owner",
+        addedAt: 100,
+      },
+      options,
+    );
+
+    const readded = addParticipant(
+      {
+        conversationId: "conv-1",
+        principalId: "principal-a",
+        role: "participant",
+        addedBy: "principal-b",
+        addedAt: 900,
+      },
+      options,
+    );
+
+    expect(readded).toMatchObject({
+      role: "creator",
+      addedBy: "principal-owner",
+      addedAt: 100,
+      removedAt: null,
+    });
+    expect(rows("conv-1")).toEqual([
+      { principal_id: "principal-a", role: "creator", removed_at: null },
+    ]);
+  });
+
   test("lists only the conversations a principal is still in", () => {
     const { options } = createStore();
     addParticipant(

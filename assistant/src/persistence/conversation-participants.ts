@@ -6,7 +6,7 @@
  * took part.
  */
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { type DrizzleDb, getDb } from "./db-connection.js";
 import { conversationParticipants } from "./schema/index.js";
@@ -54,7 +54,8 @@ function rowToParticipant(
 /**
  * Add a principal to a conversation, or re-add one whose row was stamped
  * removed. Re-adding clears `removed_at` and takes the new role and
- * timestamps.
+ * timestamps. A principal who is already a live participant keeps the
+ * role and provenance they have; use a dedicated update to change those.
  */
 export function addParticipant(
   input: AddParticipantInput,
@@ -64,7 +65,7 @@ export function addParticipant(
   const addedAt = input.addedAt ?? Date.now();
   const addedBy = input.addedBy ?? null;
 
-  const row = db
+  const written = db
     .insert(conversationParticipants)
     .values({
       conversationId: input.conversationId,
@@ -80,11 +81,33 @@ export function addParticipant(
         conversationParticipants.principalId,
       ],
       set: { role: input.role, addedBy, addedAt, removedAt: null },
+      setWhere: isNotNull(conversationParticipants.removedAt),
     })
     .returning()
     .get();
 
-  return rowToParticipant(row);
+  if (written) {
+    return rowToParticipant(written);
+  }
+
+  const existing = db
+    .select()
+    .from(conversationParticipants)
+    .where(
+      and(
+        eq(conversationParticipants.conversationId, input.conversationId),
+        eq(conversationParticipants.principalId, input.principalId),
+      ),
+    )
+    .get();
+
+  if (!existing) {
+    throw new Error(
+      `conversation_participants row vanished for ${input.conversationId}/${input.principalId}`,
+    );
+  }
+
+  return rowToParticipant(existing);
 }
 
 /** Stamp a participant removed. Returns false when no live row matched. */
