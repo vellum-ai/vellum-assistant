@@ -378,11 +378,15 @@ export function gatewayChannelStatus(
  * address as stored, for a caller that has to compare it exactly, and the
  * role of the contact that owns it, for a caller that has to know whether the
  * row is the guardian's.
+ *
+ * A left join: the status is reported for the row whatever its contact, so a
+ * blocked row reads as blocked even if its owner cannot be found, and such a
+ * row carries a null role, which is not the guardian's.
  */
 export function gatewayChannelRow(
   type: string,
   address: string,
-): { status: string; address: string; contactRole: string } | null {
+): { status: string; address: string; contactRole: string | null } | null {
   const row = getGatewayDb()
     .select({
       status: gwContactChannels.status,
@@ -390,7 +394,7 @@ export function gatewayChannelRow(
       contactRole: gwContacts.role,
     })
     .from(gwContactChannels)
-    .innerJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
+    .leftJoin(gwContacts, eq(gwContactChannels.contactId, gwContacts.id))
     .where(
       and(
         eq(gwContactChannels.type, type),
