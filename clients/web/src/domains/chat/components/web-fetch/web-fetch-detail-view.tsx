@@ -14,7 +14,7 @@
 
 import { useMemo } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { CardRoot, Typography } from "@vellumai/design-library";
 
 import { ExternalAnchor } from "@/components/external-anchor";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -110,40 +110,44 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
   const host = hostnameOf(url);
   const ok = status ? /^\s*2\d\d/.test(status) : false;
   return (
-    <ExternalAnchor
-      href={url}
-      className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 transition-colors hover:border-[var(--border-hover)]"
-      glyph={false}
+    <CardRoot
+      asChild
+      interactive
+      surface="overlay"
+      padding="sm"
+      className="flex items-center gap-2"
     >
-      <SiteFavicon domain={host} title={host} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className="truncate text-[var(--content-default)]"
-        >
-          {host}
-        </Typography>
-        <Typography
-          variant="body-small-default"
-          as="span"
-          className="truncate text-[var(--content-tertiary)]"
-        >
-          {url}
-        </Typography>
-      </div>
-      {status && (
-        <span
-          className={`shrink-0 rounded-[6px] px-2 py-0.5 text-body-small-emphasised ${
-            ok
-              ? "text-[var(--system-positive-strong)]"
-              : "text-[var(--content-tertiary)]"
-          }`}
-        >
-          {status}
-        </span>
-      )}
-    </ExternalAnchor>
+      <ExternalAnchor href={url} glyph={false}>
+        <SiteFavicon domain={host} title={host} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Typography
+            variant="body-medium-default"
+            as="span"
+            className="truncate text-[var(--content-default)]"
+          >
+            {host}
+          </Typography>
+          <Typography
+            variant="body-small-default"
+            as="span"
+            className="truncate text-[var(--content-tertiary)]"
+          >
+            {url}
+          </Typography>
+        </div>
+        {status && (
+          <span
+            className={`shrink-0 rounded-[6px] px-2 py-0.5 text-body-small-emphasised ${
+              ok
+                ? "text-[var(--system-positive-strong)]"
+                : "text-[var(--content-tertiary)]"
+            }`}
+          >
+            {status}
+          </span>
+        )}
+      </ExternalAnchor>
+    </CardRoot>
   );
 }
 
@@ -190,7 +194,11 @@ export function WebFetchDetailView({
       {parsed.url && <SourceCard url={parsed.url} status={parsed.status} />}
 
       {parsed.notices.length > 0 && (
-        <div className="flex flex-col gap-1 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
+        <CardRoot
+          surface="overlay"
+          padding="sm"
+          className="flex flex-col gap-1"
+        >
           {parsed.notices.map((notice, i) => (
             <Typography
               key={i}
@@ -201,7 +209,7 @@ export function WebFetchDetailView({
               {notice}
             </Typography>
           ))}
-        </div>
+        </CardRoot>
       )}
 
       <div>

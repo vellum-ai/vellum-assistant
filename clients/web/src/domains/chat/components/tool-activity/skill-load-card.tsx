@@ -13,7 +13,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, CardRoot, Typography } from "@vellumai/design-library";
 
 import { SkillIcon } from "@/components/skill-icon";
 import { skillsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -44,7 +44,11 @@ export function SkillLoadCard({
   });
 
   return (
-    <div className="flex items-center gap-4 rounded-xl bg-[var(--surface-overlay)] p-4">
+    <CardRoot
+      surface="overlay"
+      bordered={false}
+      className="flex items-center gap-4"
+    >
       <SkillIcon
         skill={skill ?? { id: skillId }}
         className="h-8 w-8 shrink-0 text-[32px] leading-none"
@@ -76,6 +80,6 @@ export function SkillLoadCard({
           {t("skillLoadCard.view")}
         </Button>
       )}
-    </div>
+    </CardRoot>
   );
 }
