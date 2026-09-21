@@ -2469,6 +2469,38 @@ export const COMPANION_INTRO_CALL_CONTROLS = [
 export type CompanionIntroCallControl =
   (typeof COMPANION_INTRO_CALL_CONTROLS)[number];
 
+/** Whether a beat is one of those controls, as a narrowing. */
+const isCallControlBeat = (
+  beat: CompanionIntroBeat,
+): beat is CompanionIntroCallControl =>
+  (COMPANION_INTRO_CALL_CONTROLS as readonly CompanionIntroBeat[]).includes(
+    beat,
+  );
+
+/**
+ * Which call control a beat is about, or `undefined` where it is about none.
+ *
+ * **The one derivation, because three processes act on the same answer.** Main
+ * arms a chord from it, the card draws a control and a key from it, and the
+ * pill lights a button from it, and those run in the main process and in two
+ * renderers with no symbol table in common. A switch on the beat repeated
+ * either side of the IPC is a control the host listens for that the surface
+ * never points at, or a key printed on a card that nothing is listening for.
+ * So it lives here, beside the beats themselves, the way
+ * {@link COMPANION_INTRO_BEAT_GROUPS} does.
+ *
+ * `undefined` for absence rather than `null`, which is the shape the optional
+ * fields carrying it across the wire take.
+ */
+export const companionIntroCallControlFor = (
+  beat: CompanionIntroBeat | null,
+): CompanionIntroCallControl | undefined =>
+  // The list is widened to the beats for the lookup, which is an upcast and so
+  // carries no claim, and the narrowing back is the predicate's: the beats the
+  // type is built from are the beats it answers yes to, so the two cannot come
+  // apart.
+  beat !== null && isCallControlBeat(beat) ? beat : undefined;
+
 /**
  * Which introduction this is, counted up whenever the run is rewritten enough
  * that somebody who has already seen one is owed the new one.

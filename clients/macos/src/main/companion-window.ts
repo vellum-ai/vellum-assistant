@@ -33,6 +33,7 @@ import {
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_VERSION,
+  companionIntroCallControlFor,
   companionBoxFor,
   companionCardSideFor,
   companionDockIsSide,
@@ -682,23 +683,21 @@ const setIntroScrim = (on: boolean): void => {
  * when it is asking for none, which is most of the run and all of the rest of
  * the install.
  *
- * The three beats that draw a call control draw the chord for it beside the
- * button, and the window that can hear a chord is the app's rather than the
- * surface's. So main, which is the side that holds the beat, is the side that
- * says which chord is worth taking off the desktop.
+ * The beats that draw a call control draw the chord for it beside the button,
+ * and the window that can hear a chord is the app's rather than the surface's.
+ * So main, which is the side that holds the beat, is the side that says which
+ * chord is worth taking off the desktop.
+ *
+ * **Which beats those are is the contract's to say**
+ * ({@link companionIntroCallControlFor}), not this file's. A copy of the
+ * answer here is a chord main arms for a card the surface draws no shortcut
+ * on, or a shortcut on a card that nothing is listening for. All this adds is
+ * the `null` the wire carries absence as.
  */
 const introChordFor = (
   beat: CompanionIntroBeat | null,
-): CompanionIntroCallControl | null => {
-  switch (beat) {
-    case "share":
-    case "draw":
-    case "mute":
-      return beat;
-    default:
-      return null;
-  }
-};
+): CompanionIntroCallControl | null =>
+  companionIntroCallControlFor(beat) ?? null;
 
 /**
  * What the app's window was last told to listen for, so the run's other five

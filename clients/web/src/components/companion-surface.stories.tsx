@@ -11,7 +11,6 @@ import {
 import {
   CompanionIntro,
   INTRO_DEMO_SHORTCUTS,
-  introCallControl,
   introDemoState,
   introPhase,
   introSpotlight,
@@ -33,6 +32,7 @@ import {
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   companionBoxFor,
+  companionIntroCallControlFor,
   type CompanionIntroBeat,
   type CompanionSizeAxis,
   type VoiceActivityState,
@@ -1376,7 +1376,7 @@ function IntroWalkthrough({
               greeted={greeted}
               voiceKeyTaps={taps}
               chordPresses={chordPresses}
-              chordControl={introCallControl(beat)}
+              chordControl={companionIntroCallControlFor(beat)}
               // The assistant's own name, which the greeting cards use. A real
               // surface is told one by the app's window; clear it here to see
               // the cold-launch cards, which greet with no name at all.

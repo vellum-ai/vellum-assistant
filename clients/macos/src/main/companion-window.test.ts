@@ -8,6 +8,7 @@ import {
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_CALL_CONTROLS,
   COMPANION_INTRO_VERSION,
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
@@ -6038,13 +6039,20 @@ describe("the chord the introduction asks for", () => {
     expect(asked()).toEqual([]);
   });
 
-  test("names each of the three in turn", () => {
+  /**
+   * Read off the contract's own list rather than spelled again here, because
+   * that list is what the card draws its chips from and what the binding takes
+   * its keys from: a control added there and not armed here is a shortcut
+   * printed on a card that nothing is listening for.
+   */
+  test("names every control the contract carries, in the run's order", () => {
     startIntro();
 
-    walk(6);
+    walk(COMPANION_INTRO_BEATS.length - 1);
 
-    expect(state().intro).toBe("mute");
-    expect(asked()).toEqual(["share", "draw", "mute"]);
+    expect(asked().filter((control) => control !== null)).toEqual([
+      ...COMPANION_INTRO_CALL_CONTROLS,
+    ]);
   });
 
   /** The last of the three is walked off onto the offer, which asks for none. */

@@ -3,6 +3,7 @@ import {
   COMPANION_INTRO_BEAT_GROUPS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_GROUPS,
+  companionIntroCallControlFor,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
@@ -161,46 +162,23 @@ const INTRO_COPY_KEYS = {
 >;
 
 /**
- * Which call control a beat is about, where it is about one.
+ * Which control on the pill the beat is about, drawn as though the pointer were
+ * on it: its name and its key are revealed and the rest of the bar dims, so the
+ * sentence on the card has the one thing it names lit beside it.
  *
  * One beat, one control, which is why each of the call's three has a beat. The
  * rest have none: `idle` and `meet` are the surface itself, and the Talk beats
  * and the closing offer point at the creature by walking it into the card
  * instead.
  *
- * The beats are named after their controls, so this is a narrowing rather than
- * a lookup, and that is the point of it: the card, the spotlight on the pill
- * and the chord armed on the keyboard all address the same control by the same
- * name, and none of them needs a table to get from the beat to it. It is also
- * how a press crossing from another window says which card it answers
- * (`CompanionSurfaceState.introChordControl`).
- */
-export const introCallControl = (
-  beat: CompanionIntroBeat | null,
-): CompanionIntroCallControl | undefined => {
-  switch (beat) {
-    case "share":
-    case "draw":
-    case "mute":
-      return beat;
-    default:
-      return undefined;
-  }
-};
-
-/**
- * Which control on the pill the beat is about, drawn as though the pointer were
- * on it: its name and its key are revealed and the rest of the bar dims, so the
- * sentence on the card has the one thing it names lit beside it.
- *
- * The beats that light one are the beats that are about one, so this is
- * {@link introCallControl} under the name the surface reads it by. Shared with
- * the page and the stories so a beat cannot be introduced in one place and
- * spotlighted in another.
+ * Which beats those are is {@link companionIntroCallControlFor}'s to say, so
+ * the button lit on the bar, the key armed on the keyboard and the chip drawn
+ * on the card are one answer read three times. This is that answer under the
+ * name the surface reads it by.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
-): CompanionSurfaceSpotlight | undefined => introCallControl(beat);
+): CompanionSurfaceSpotlight | undefined => companionIntroCallControlFor(beat);
 
 /**
  * The session the `call` beat draws the pill around: a call that is not
@@ -249,6 +227,13 @@ export const INTRO_DEMO_SHORTCUTS = {
  * The key is here rather than in a caption on the control itself, because the
  * card is already naming that control and a caption in between would be the
  * same word again with a beak through it.
+ *
+ * **One row per control the contract names, and the compiler checks it.** A
+ * `ReactNode` cannot live in the contract, so this table has to stay here; what
+ * must not stay here is which controls exist. Typed as the whole of
+ * {@link CompanionIntroCallControl} rather than as some of the beats, so a
+ * control added to the contract without a mark and a key on this card is a
+ * typecheck failure rather than a card that draws nothing where its chip goes.
  */
 const BEAT_CONTROLS = {
   share: {
@@ -263,8 +248,9 @@ const BEAT_CONTROLS = {
     icon: <Mic className="size-5" />,
     shortcut: INTRO_DEMO_SHORTCUTS.muteMicrophone,
   },
-} as const satisfies Partial<
-  Record<CompanionIntroBeat, { icon: ReactNode; shortcut: string }>
+} as const satisfies Record<
+  CompanionIntroCallControl,
+  { icon: ReactNode; shortcut: string }
 >;
 
 /**
@@ -415,7 +401,7 @@ export function CompanionIntro({
   /** Which subject the run is in, which is what the dots draw. */
   const group = COMPANION_INTRO_BEAT_GROUPS[beat];
   /** The control on the pill this beat is about, where it is about one. */
-  const controlOfBeat = introCallControl(beat);
+  const controlOfBeat = companionIntroCallControlFor(beat);
   const control: { icon: ReactNode; shortcut: string } | undefined =
     controlOfBeat === undefined ? undefined : BEAT_CONTROLS[controlOfBeat];
   /**

@@ -4,8 +4,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_CALL_CONTROLS,
+  companionIntroCallControlFor,
   type CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
+
+import { INTRO_CALL_CHORD_KEYS } from "@/domains/chat/voice/live-voice/intro-call-chords";
 
 import {
   CompanionIntro,
@@ -275,6 +279,62 @@ describe("the introduction's keycap", () => {
     rerender(<CompanionIntro beat="key" voiceKeyTaps={1} />);
     expect(keycapOf(container).className).not.toContain("scale-90");
     expect(keycapOf(container).className).toContain("emerald");
+  });
+});
+
+/**
+ * The card draws a control for exactly the beats the contract says carry one.
+ *
+ * Three things act on that answer in three processes: main arms a chord, this
+ * card draws a mark and a key, and the pill lights a button. The contract owns
+ * the answer ({@link companionIntroCallControlFor}) and the compiler holds this
+ * card's own tables to it, since a `ReactNode` cannot live in the contract.
+ * These are the runtime half of that: a control the card cannot draw, or a card
+ * drawing one the contract does not name, is a beat where the user is shown a
+ * key nobody is listening for.
+ */
+describe("the introduction's call controls", () => {
+  /** The caption under the chip, which every beat that draws a control has. */
+  const shortcutCaptions = (container: HTMLElement): HTMLElement[] =>
+    [...container.querySelectorAll<HTMLElement>("span")].filter(
+      (span) => span.textContent === "Shortcut",
+    );
+
+  test("draws a mark and a key for every control the contract names", () => {
+    for (const control of COMPANION_INTRO_CALL_CONTROLS) {
+      const { container } = render(<CompanionIntro beat={control} />);
+
+      expect(shortcutCaptions(container).length).toBe(1);
+    }
+  });
+
+  test("draws one on no other beat", () => {
+    for (const beat of COMPANION_INTRO_BEATS.filter(
+      (each) => companionIntroCallControlFor(each) === undefined,
+    )) {
+      const { container } = render(<CompanionIntro beat={beat} />);
+
+      expect(shortcutCaptions(container).length).toBe(0);
+    }
+  });
+
+  /**
+   * The key printed and the key armed are two statements about one chord, made
+   * in different files: the card spells it for a reader (`⌥S`) and the binding
+   * names it for the host (`s`). A card teaching a key the host does not take
+   * is the failure this whole change exists to remove.
+   */
+  test("prints the key the binding actually arms", () => {
+    for (const control of COMPANION_INTRO_CALL_CONTROLS) {
+      const { container } = render(<CompanionIntro beat={control} />);
+      const chip = [...container.querySelectorAll<HTMLElement>("span")].find(
+        (span) => span.textContent?.startsWith("⌥"),
+      );
+
+      expect(chip?.textContent).toBe(
+        `⌥${INTRO_CALL_CHORD_KEYS[control].toUpperCase()}`,
+      );
+    }
   });
 });
 
