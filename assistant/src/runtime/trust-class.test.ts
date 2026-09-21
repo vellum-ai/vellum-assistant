@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { TRUST_CLASS_VALUES } from "@vellumai/gateway-client";
+
 import { resolveCapabilities } from "./capabilities.js";
 import {
   derivePersonaTrustFlags,
   isContactTrustClass,
   type PersonaTrustFlags,
-  trustClassSchema,
 } from "./trust-class.js";
 
 describe("isContactTrustClass", () => {
@@ -27,7 +28,7 @@ describe("isContactTrustClass", () => {
   test("agrees with derivePersonaTrustFlags for every trust class", () => {
     // The predicate and the persona flags encode the same grouping; pin them
     // together so neither can drift without failing here.
-    for (const trustClass of trustClassSchema.options) {
+    for (const trustClass of TRUST_CLASS_VALUES) {
       expect(isContactTrustClass(trustClass)).toBe(
         derivePersonaTrustFlags(trustClass).isTrustedContact,
       );
@@ -46,7 +47,7 @@ describe("derivePersonaTrustFlags", () => {
   });
 
   test("trusted_contact and unverified_contact derive identical contact flags", () => {
-    // The admission-only equivalence documented on trustClassSchema: the two
+    // The admission-only equivalence documented in trust-class.ts: the two
     // classes must never drift apart at the persona layer.
     const expected: PersonaTrustFlags = {
       trustClass: "trusted_contact",
@@ -82,9 +83,9 @@ describe("derivePersonaTrustFlags", () => {
   });
 
   test("exactly one flag is true for every trust class", () => {
-    // Iterates the Zod enum so a newly added class is covered automatically
+    // Iterates the canonical class list so a newly added class is covered
     // (the helper itself won't compile until the new class gets a case).
-    for (const trustClass of trustClassSchema.options) {
+    for (const trustClass of TRUST_CLASS_VALUES) {
       const flags = derivePersonaTrustFlags(trustClass);
       const trueCount = [
         flags.isGuardian,
@@ -128,7 +129,7 @@ describe("derivePersonaTrustFlags", () => {
       isTrustedContact: "social-engineering-defense",
       isStranger: "stranger-warning",
     };
-    for (const trustClass of trustClassSchema.options) {
+    for (const trustClass of TRUST_CLASS_VALUES) {
       const flags = derivePersonaTrustFlags(trustClass);
       const guidance = resolveCapabilities(trustClass).promptTrustGuidance;
       for (const [flag, expected] of Object.entries(guidanceByFlag)) {

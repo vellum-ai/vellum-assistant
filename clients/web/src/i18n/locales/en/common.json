@@ -255,7 +255,13 @@
     "unmuteAssistantNamed": "Unmute {name}",
     "unmuteMicrophone": "Unmute microphone",
     "chooseMicrophone": "Choose microphone",
-    "chooseVoice": "Choose voice"
+    "chooseVoice": "Choose voice",
+    "workCount": "{count, plural, =0 {Nothing running} one {# thing running} other {# things running}}",
+    "workDone": "Done",
+    "workStopped": "Stopped",
+    "workMore": "{count} more",
+    "workWaiting": "{count, plural, one {# waiting on you} other {# waiting on you}}",
+    "workWaitingStep": "Waiting on you"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Sharing your screen",

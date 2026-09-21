@@ -60,7 +60,6 @@ import {
   captureScreenshotJpeg,
   dispatchClickAt,
   dispatchHoverAt,
-  dispatchInsertText,
   dispatchKeyPress,
   dispatchWheelScroll,
   evaluateExpression,
@@ -68,6 +67,7 @@ import {
   getCenterPoint,
   getCurrentUrl,
   getPageTitle,
+  insertTextIntoElement,
   navigateAndWait,
   querySelectorBackendNodeId,
   scrollIntoViewIfNeeded,
@@ -1761,60 +1761,6 @@ export async function executeBrowserClick(
   }
 }
 
-// ── Shared input helpers ─────────────────────────────────────────────
-
-/**
- * Focus an element, clear its existing value (handling both
- * `<input>`/`<textarea>` and `contentEditable` targets), re-focus
- * (sites sometimes blur on a programmatic value reset), and insert
- * the requested text via `Input.insertText`.
- *
- * Used by both `executeBrowserType` and `executeBrowserFillCredential`
- * so credential fills cannot append to autofilled / pre-populated
- * fields — appending would leak the existing value into the broker
- * payload and corrupt the resulting password.
- */
-async function clearAndInsertText(
-  cdp: CdpClient,
-  backendNodeId: number,
-  value: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  await focusElement(cdp, backendNodeId, signal);
-
-  // Resolve the node to a Runtime.RemoteObject so we can invoke a
-  // function on the element itself via Runtime.callFunctionOn. This
-  // is more reliable than a keyboard select-all + delete sequence
-  // across input, textarea, and contenteditable targets.
-  const { object } = await cdp.send<{ object: { objectId: string } }>(
-    "DOM.resolveNode",
-    { backendNodeId },
-    signal,
-  );
-  await cdp.send(
-    "Runtime.callFunctionOn",
-    {
-      objectId: object.objectId,
-      functionDeclaration: `function() {
-        if (typeof this.value === "string") {
-          this.value = "";
-        } else if (this.isContentEditable) {
-          this.textContent = "";
-        }
-        this.dispatchEvent(new Event("input", { bubbles: true }));
-      }`,
-      arguments: [],
-    },
-    signal,
-  );
-
-  // Re-focus after clearing — some sites move focus when the value
-  // property is reassigned programmatically.
-  await focusElement(cdp, backendNodeId, signal);
-
-  await dispatchInsertText(cdp, value, signal);
-}
-
 // ── browser_type ─────────────────────────────────────────────────────
 
 export async function executeBrowserType(
@@ -1860,10 +1806,21 @@ export async function executeBrowserType(
     }
 
     if (clearFirst) {
-      await clearAndInsertText(cdp, backendNodeId, text, context.signal);
+      await insertTextIntoElement(
+        cdp,
+        backendNodeId,
+        text,
+        { clearFirst: true },
+        context.signal,
+      );
     } else {
-      await focusElement(cdp, backendNodeId, context.signal);
-      await dispatchInsertText(cdp, text, context.signal);
+      await insertTextIntoElement(
+        cdp,
+        backendNodeId,
+        text,
+        { clearFirst: false },
+        context.signal,
+      );
     }
 
     if (pressEnter) {
@@ -2502,7 +2459,13 @@ export async function executeBrowserFillCredential(
         // would append the credential to the existing value,
         // producing a corrupted password and leaking partial state
         // back into the page.
-        await clearAndInsertText(cdp, backendNodeId, value, context.signal);
+        await insertTextIntoElement(
+          cdp,
+          backendNodeId,
+          value,
+          { clearFirst: true, verify: false },
+          context.signal,
+        );
       },
     });
 
