@@ -343,6 +343,30 @@ async function applyGuardianSideEffects(params: {
     actorUsername,
   } = params;
 
+  // The only await before the binding is written, so it runs first. From the
+  // refusal check below to the gateway writes inside createGuardianBinding
+  // (a synchronous transaction, ahead of that function's own first await)
+  // nothing yields, so two codes redeemed at once cannot both pass the check.
+  // A sender verifying again keeps the name their contact already has. The
+  // read is for that name only: a daemon that cannot answer falls back to the
+  // name the channel gave, so no outcome below depends on the daemon.
+  let existingContact: Awaited<ReturnType<typeof findContactChannelByAddress>> =
+    null;
+  try {
+    existingContact = await findContactChannelByAddress(
+      sourceChannel,
+      canonicalUserId,
+    );
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Guardian display name lookup failed; using the name the channel gave",
+    );
+  }
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
+
   // The guardian is one person, and a channel holds at most one linked
   // identity for them. A guardian code links an identity where none is linked,
   // or links the same one again. It never swaps one identity for another, and
@@ -394,15 +418,6 @@ async function applyGuardianSideEffects(params: {
 
   // Resolve canonical principal — unify all channel bindings
   const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
-
-  // Determine display name — preserve existing if user is re-verifying
-  const existingContact = await findContactChannelByAddress(
-    sourceChannel,
-    canonicalUserId,
-  );
-  const displayName = existingContact?.displayName?.trim().length
-    ? existingContact.displayName
-    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
   // Create guardian binding (dual-writes to both DBs)
   await createGuardianBinding({

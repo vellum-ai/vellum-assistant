@@ -19,12 +19,15 @@ import {
 
 import { hashVerificationSecret } from "@vellumai/gateway-client";
 
+/** The daemon's answer to every IPC call; a test swaps it to fail. */
+let ipcCallAssistantImpl: () => Promise<unknown> = async () => ({});
+
 // Spread the actual module so untouched exports stay importable by
 // later-loaded files when suites share a bun process.
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
   ...actualAssistantClient,
-  ipcCallAssistant: async () => ({}),
+  ipcCallAssistant: () => ipcCallAssistantImpl(),
 }));
 
 await import("./test-preload.js");
@@ -119,11 +122,14 @@ function activeGuardianAccounts(): string[] {
 }
 
 /** A guardian code bound to an account. */
-function mintCodeFor(account: string): void {
+function mintCodeFor(
+  account: string,
+  session: { id: string; code: string } = { id: "session-1", code: CODE },
+): void {
   createOutboundSession({
-    id: "session-1",
+    id: session.id,
     channel: CHANNEL,
-    challengeHash: hashVerificationSecret(CODE),
+    challengeHash: hashVerificationSecret(session.code),
     expiresAt: Date.now() + 10 * 60 * 1000,
     status: "awaiting_response",
     expectedExternalUserId: account,
@@ -159,6 +165,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  ipcCallAssistantImpl = async () => ({});
   getGatewayDb().delete(channelVerificationSessions).run();
   getGatewayDb().delete(contactChannels).run();
   getGatewayDb().delete(contacts).run();
@@ -234,6 +241,17 @@ describe("a guardian code from an identity other than the one linked on the chan
     expect(channelOf(NEW_ACCOUNT)?.status).toBe("revoked");
   });
 
+  test("refuses without the daemon when another identity is linked", async () => {
+    ipcCallAssistantImpl = async () => {
+      throw new Error("assistant unreachable");
+    };
+    mintCodeFor(NEW_ACCOUNT);
+
+    expectRefused(await redeem(CODE, NEW_ACCOUNT));
+
+    expect(activeGuardianAccounts()).toEqual([OLD_ACCOUNT]);
+  });
+
   test("still lets the current guardian verify their own account again", async () => {
     mintCodeFor(OLD_ACCOUNT);
 
@@ -247,6 +265,38 @@ describe("a guardian code from an identity other than the one linked on the chan
 
 describe("a guardian code on a channel with no linked identity", () => {
   test("binds a new account", async () => {
+    mintCodeFor(NEW_ACCOUNT);
+
+    expect(await redeem(CODE, NEW_ACCOUNT)).toMatchObject({
+      outcome: "verified",
+      trustClass: "guardian",
+    });
+    expect(activeGuardianAccounts()).toEqual([NEW_ACCOUNT]);
+  });
+
+  test("links only one identity when two codes are redeemed at once", async () => {
+    // Both redemptions are in flight before either binds. The second to
+    // reach the refusal check has to see the first one's binding.
+    mintCodeFor(NEW_ACCOUNT, { id: "session-1", code: "111111" });
+    mintCodeFor(OTHER_ACCOUNT, { id: "session-2", code: "222222" });
+
+    const results = await Promise.all([
+      redeem("111111", NEW_ACCOUNT),
+      redeem("222222", OTHER_ACCOUNT),
+    ]);
+
+    expect(
+      results
+        .map((r) => (r.intercepted ? r.outcome : "not intercepted"))
+        .sort(),
+    ).toEqual(["failed", "verified"]);
+    expect(activeGuardianAccounts()).toHaveLength(1);
+  });
+
+  test("binds with the name the channel gave when the daemon cannot answer", async () => {
+    ipcCallAssistantImpl = async () => {
+      throw new Error("assistant unreachable");
+    };
     mintCodeFor(NEW_ACCOUNT);
 
     expect(await redeem(CODE, NEW_ACCOUNT)).toMatchObject({
