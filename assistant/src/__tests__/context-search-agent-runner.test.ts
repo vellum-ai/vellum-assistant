@@ -1087,6 +1087,91 @@ describe("runAgenticRecall activity", () => {
     expect(byTitle["conversations:c1:m1 title"]?.path).toBeUndefined();
   });
 
+  test("reports a source that degrades on a follow-up search", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("search_sources", {
+        query: "decision notes",
+        sources: ["workspace"],
+      }),
+      toolResponse("finish_recall", {
+        answer: "Friday.",
+        confidence: "medium",
+        citation_ids: ["workspace:seed"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search(query) {
+                if (query === "decision notes") {
+                  throw new Error("index unavailable");
+                }
+                return { evidence: [makeEvidence("workspace:seed")] };
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.activity.searchedSources).toEqual([
+      {
+        source: "workspace",
+        status: "degraded",
+        evidenceCount: 1,
+        error: "index unavailable",
+      },
+    ]);
+    expect(result.content).toContain(
+      "Degraded sources: workspace (index unavailable).",
+    );
+  });
+
+  test("clears a degradation that a follow-up search recovers from", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("search_sources", {
+        query: "decision notes",
+        sources: ["workspace"],
+      }),
+      toolResponse("finish_recall", {
+        answer: "Friday.",
+        confidence: "medium",
+        citation_ids: ["workspace:decision"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search(query) {
+                if (query === "launch notes") {
+                  throw new Error("index warming up");
+                }
+                return { evidence: [makeEvidence("workspace:decision")] };
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.activity.searchedSources).toEqual([
+      { source: "workspace", status: "searched", evidenceCount: 1 },
+    ]);
+    expect(result.content).not.toContain("Degraded sources");
+  });
+
   test("reports a degraded source and no evidence when nothing is found", async () => {
     const result = await runAgenticRecall(
       { query: "launch notes", sources: ["workspace"] },
