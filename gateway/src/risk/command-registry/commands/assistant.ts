@@ -85,6 +85,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels send",
   "clients",
   "clients disconnect",
+  "clients history",
   "clients list",
   "completions",
   "config",

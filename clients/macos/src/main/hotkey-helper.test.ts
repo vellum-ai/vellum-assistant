@@ -138,6 +138,7 @@ const {
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
   installHotkeyHelper,
+  postFrontAppShortcut,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
@@ -671,6 +672,53 @@ describe("installHotkeyHelper", () => {
       "vellum:helper:hotkey:event",
       { kind: "modifierHold", state: "up", reason: "chord" },
     );
+  });
+
+  /**
+   * Whether the paste may be sent again another way turns on this answer: a
+   * helper that says it sent nothing can be retried, and one whose reply was
+   * lost cannot, since the keystroke may have gone before the reply did.
+   */
+  describe("front app shortcut", () => {
+    const reply = (json: string) => {
+      lastChild?.stdout.emit("data", Buffer.from(`${json}\n`));
+    };
+
+    test("reports a posted shortcut", async () => {
+      installHotkeyHelper();
+      const pending = postFrontAppShortcut("v");
+      reply('{"jsonrpc":"2.0","id":1,"result":{"outcome":"posted"}}');
+
+      expect(lastChild?.stdin.writes[0]).toContain('"method":"keys.shortcut"');
+      expect(lastChild?.stdin.writes[0]).toContain('"key":"v"');
+      expect(await pending).toBe("posted");
+    });
+
+    test("reads a helper without Accessibility as declined", async () => {
+      installHotkeyHelper();
+      const pending = postFrontAppShortcut("v");
+      reply('{"jsonrpc":"2.0","id":1,"result":{"outcome":"untrusted"}}');
+
+      expect(await pending).toBe("declined");
+    });
+
+    test("reads a helper that does not know the method as declined", async () => {
+      installHotkeyHelper();
+      const pending = postFrontAppShortcut("v");
+      reply(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}',
+      );
+
+      expect(await pending).toBe("declined");
+    });
+
+    test("reads a helper that exits before replying as unknown", async () => {
+      installHotkeyHelper();
+      const pending = postFrontAppShortcut("v");
+      lastChild?.emit("close", 1, null);
+
+      expect(await pending).toBe("unknown");
+    });
   });
 
   test("reads what is highlighted in the application in front", async () => {

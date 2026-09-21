@@ -11,6 +11,7 @@ let mockFirecrawlSecureKey: string | undefined;
 let mockKeenableSecureKey: string | undefined;
 let mockFastcrwSecureKey: string | undefined;
 let mockSearxngSecureKey: string | undefined;
+let mockTinyfishSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
 let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
@@ -61,6 +62,9 @@ mock.module("../../../security/secure-keys.js", () => ({
     if (provider === "searxng") {
       return mockSearxngSecureKey;
     }
+    if (provider === "tinyfish") {
+      return mockTinyfishSecureKey;
+    }
     return undefined;
   },
 }));
@@ -106,6 +110,7 @@ describe("web_search tool", () => {
     mockKeenableSecureKey = undefined;
     mockFastcrwSecureKey = undefined;
     mockSearxngSecureKey = undefined;
+    mockTinyfishSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
     mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
@@ -1252,6 +1257,93 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("did not return JSON");
   });
+
+  // ---- TinyFish provider --------------------------------------------------
+
+  test("executes TinyFish search with X-API-Key and freshness", async () => {
+    seedWebSearch("your-own", "tinyfish");
+    mockTinyfishSecureKey = "tf_test";
+    let capturedUrl = "";
+    let capturedApiKey = "";
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedApiKey = new Headers(init?.headers).get("x-api-key") ?? "";
+      return new Response(
+        JSON.stringify({
+          query: "fresh tools",
+          results: [
+            {
+              position: 1,
+              site_name: "example.com",
+              title: "TinyFish Result",
+              snippet: "Fresh from TinyFish",
+              url: "https://example.com/tinyfish",
+              date: "2026-09-18",
+            },
+          ],
+          total_results: 1,
+          page: 0,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "fresh tools", freshness: "pw" });
+
+    expect(result.isError).toBe(false);
+    const url = new URL(capturedUrl);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://api.search.tinyfish.ai/",
+    );
+    expect(url.searchParams.get("query")).toBe("fresh tools");
+    expect(url.searchParams.get("recency_minutes")).toBe("10080");
+    expect(capturedApiKey).toBe("tf_test");
+    expect(result.content).toContain("TinyFish Result");
+    expect(result.content).toContain("Fresh from TinyFish");
+    expect(result.activityMetadata?.webSearch?.provider).toBe("tinyfish");
+  });
+
+  test("TinyFish uses a custom API base and trims to count", async () => {
+    seedWebSearch("your-own", "tinyfish", "https://search.example.com/api/");
+    mockTinyfishSecureKey = "tf_test";
+    let capturedUrl = "";
+    globalThis.fetch = (async (url: string) => {
+      capturedUrl = url;
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", url: "https://a.example.com", snippet: "a" },
+            { title: "B", url: "https://b.example.com", snippet: "b" },
+            { title: "C", url: "https://c.example.com", snippet: "c" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+
+    expect(capturedUrl).toContain("https://search.example.com/api/");
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.example.com");
+    expect(result.activityMetadata?.webSearch?.resultCount).toBe(2);
+  });
+
+  test.each([401, 402, 403])(
+    "TinyFish handles %d access error",
+    async (status) => {
+      seedWebSearch("your-own", "tinyfish");
+      mockTinyfishSecureKey = "tf_test";
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ error: "denied" }), { status })) as any;
+
+      const result = await execute({ query: "test" });
+
+      expect(result.isError).toBe(true);
+      expect(result.activityMetadata?.webSearch?.provider).toBe("tinyfish");
+    },
+  );
 
   // ---- Provider fallback --------------------------------------------------
 

@@ -11,6 +11,126 @@ index 50e325e84c01305ac5b7a909856b56662eeb6ea7..a7a049147a7d182d60c1e84f291c036b
      ],
      targets: [
          .target(
+diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
+--- a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
++++ b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraActivity.java
+@@ -69,7 +69,7 @@
+     public FrameLayout frameContainerLayout;
+
+     private Preview mPreview;
+-    private boolean canTakePicture = true;
++    private volatile boolean canTakePicture = true;
+
+     private View view;
+     private Camera.Parameters cameraParameters;
+@@ -793,54 +793,60 @@
+
+             new Thread() {
+                 public void run() {
+-                    Camera.Parameters params = mCamera.getParameters();
+-
+-                    Camera.Size size = getOptimalPictureSize(width, height, params.getPreviewSize(), params.getSupportedPictureSizes());
+-                    params.setPictureSize(size.width, size.height);
+-                    currentQuality = quality;
+-
+-                    if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && !storeToFile) {
+-                        // The image will be recompressed in the callback
+-                        params.setJpegQuality(99);
+-                    } else {
+-                        params.setJpegQuality(quality);
++                    try {
++                        Camera.Parameters params = mCamera.getParameters();
++
++                        Camera.Size size = getOptimalPictureSize(width, height, params.getPreviewSize(), params.getSupportedPictureSizes());
++                        params.setPictureSize(size.width, size.height);
++                        currentQuality = quality;
++
++                        if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && !storeToFile) {
++                            // The image will be recompressed in the callback
++                            params.setJpegQuality(99);
++                        } else {
++                            params.setJpegQuality(quality);
++                        }
++
++                        if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && disableExifHeaderStripping) {
++                            Activity activity = getActivity();
++                            int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
++                            int degrees = 0;
++                            switch (rotation) {
++                                case Surface.ROTATION_0:
++                                    degrees = 0;
++                                    break;
++                                case Surface.ROTATION_90:
++                                    degrees = 180;
++                                    break;
++                                case Surface.ROTATION_180:
++                                    degrees = 270;
++                                    break;
++                                case Surface.ROTATION_270:
++                                    degrees = 0;
++                                    break;
++                            }
++                            int orientation;
++                            Camera.CameraInfo info = new Camera.CameraInfo();
++                            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
++                                orientation = (info.orientation + degrees) % 360;
++                                if (degrees != 0) {
++                                    orientation = (360 - orientation) % 360;
++                                }
++                            } else {
++                                orientation = (info.orientation - degrees + 360) % 360;
++                            }
++                            params.setRotation(orientation);
++                        } else {
++                            params.setRotation(mPreview.getDisplayOrientation());
++                        }
++
++                        mCamera.setParameters(params);
++                        mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
++                    } catch (RuntimeException e) {
++                        Log.e(TAG, "CameraPreview takePicture failed", e);
++                        canTakePicture = true;
++                        eventListener.onPictureTakenError("Failed to capture picture");
+                     }
+-
+-                    if (cameraCurrentlyLocked == Camera.CameraInfo.CAMERA_FACING_FRONT && disableExifHeaderStripping) {
+-                        Activity activity = getActivity();
+-                        int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
+-                        int degrees = 0;
+-                        switch (rotation) {
+-                            case Surface.ROTATION_0:
+-                                degrees = 0;
+-                                break;
+-                            case Surface.ROTATION_90:
+-                                degrees = 180;
+-                                break;
+-                            case Surface.ROTATION_180:
+-                                degrees = 270;
+-                                break;
+-                            case Surface.ROTATION_270:
+-                                degrees = 0;
+-                                break;
+-                        }
+-                        int orientation;
+-                        Camera.CameraInfo info = new Camera.CameraInfo();
+-                        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+-                            orientation = (info.orientation + degrees) % 360;
+-                            if (degrees != 0) {
+-                                orientation = (360 - orientation) % 360;
+-                            }
+-                        } else {
+-                            orientation = (info.orientation - degrees + 360) % 360;
+-                        }
+-                        params.setRotation(orientation);
+-                    } else {
+-                        params.setRotation(mPreview.getDisplayOrientation());
+-                    }
+-
+-                    mCamera.setParameters(params);
+-                    mCamera.takePicture(shutterCallback, null, jpegPictureCallback);
+                 }
+             }
+                 .start();
 diff --git a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java b/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java
 index 854aeee57dc88c115e6e294af1a5a8866d10d30c..cf23806dec64d1023d3d06e8f87a94ad859e44f2 100644
 --- a/android/src/main/java/com/ahm/capacitor/camera/preview/CameraPreview.java

@@ -100,10 +100,10 @@ export function ResearchResultsView({
         <div className="flex shrink-0 justify-end">
           <Button
             variant="primary"
-            size="regular"
+            size="large"
             onClick={onContinue}
             disabled={!canContinue}
-            className="h-11 px-6 text-base"
+            className="px-6"
           >
             {t("researchResultsView.continue")}
           </Button>

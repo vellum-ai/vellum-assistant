@@ -19,7 +19,14 @@ export function usePluginUninstall(
   assistantId: string,
   options?: {
     onRemoved?: (name: string) => void;
-    onRemoveError?: (name: string) => void;
+    onRemoveError?: (name: string, error: unknown) => void;
+    /**
+     * Whether the daemon's cleanup warnings are worth a toast. A removal the
+     * user asked for has to say what it could not tidy up; one that undoes an
+     * install of its own has nothing to report to a user who asked for
+     * nothing.
+     */
+    announceWarnings?: boolean;
   },
 ) {
   const { t } = useTranslation("intelligence");
@@ -30,10 +37,12 @@ export function usePluginUninstall(
       const name = variables.path.name;
       invalidatePluginQueries(queryClient, assistantId, name);
       options?.onRemoved?.(name);
-      showPluginUninstallWarnings(result?.warnings, t);
+      if (options?.announceWarnings !== false) {
+        showPluginUninstallWarnings(result?.warnings, t);
+      }
     },
-    onError: (_error, variables) => {
-      options?.onRemoveError?.(variables.path.name);
+    onError: (error, variables) => {
+      options?.onRemoveError?.(variables.path.name, error);
     },
   });
 

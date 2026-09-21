@@ -40,7 +40,7 @@ const CHIP_CLASS =
   "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-[var(--surface-overlay)] px-2 py-1 align-middle text-[0.85em] leading-tight text-[var(--content-secondary)]";
 
 const ICON_BUTTON_CLASS =
-  "shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]";
+  "shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]";
 
 export interface RedactedCredentialChipProps {
   /** Secret type label from the scanner, e.g. "Anthropic API Key". */
@@ -201,7 +201,7 @@ export function RedactedCredentialChip({
           disabled={isRevealing}
           aria-label={t("redactedCredentialChip.revealValueAria", { name })}
           title={t("redactedCredentialChip.clickToRevealTitle", { label })}
-          className="min-w-0 select-none truncate rounded-sm text-left blur-[3px] transition-[filter] hover:blur-[2px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+          className="min-w-0 select-none truncate rounded-sm text-left blur-[3px] transition-[filter] hover:blur-[2px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         >
           {name}
         </button>

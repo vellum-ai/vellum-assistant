@@ -662,10 +662,16 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
     const manifestOverride = resolveManifestOverride(toolName);
     // Permission Simulator path: registered tool wins, then explicit
     // manifest override, then the standard inference rules.
-    const executionTarget =
-      getTool(toolName)?.executionTarget ??
-      manifestOverride?.execution_target ??
-      resolveExecutionTarget({ name: toolName });
+    const tool = getTool(toolName);
+    const executionTarget = resolveExecutionTarget(
+      {
+        name: toolName,
+        executionTarget:
+          tool?.executionTarget ?? manifestOverride?.execution_target,
+        getExecutionTarget: tool?.getExecutionTarget,
+      },
+      input,
+    );
     const executionContext =
       isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;

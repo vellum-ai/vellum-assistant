@@ -14,7 +14,7 @@ import {
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 import {
   deriveStepLabel,
   type IconName,

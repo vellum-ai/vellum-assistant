@@ -29,6 +29,7 @@ import type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
@@ -99,6 +100,7 @@ export type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
@@ -404,6 +406,15 @@ declare global {
         /** Optional: shells that predate the staged introduction have none. */
         getIntroStage?(): Promise<boolean>;
         onIntroStage?(callback: (staged: boolean) => void): () => void;
+        /**
+         * Optional for the same reason: a shell that predates the run's call
+         * beats asks for no chord. Pushed to the app's own window only, since
+         * that is the window a chord reaches.
+         */
+        getIntroChord?(): Promise<CompanionIntroCallControl | null>;
+        onIntroChord?(
+          callback: (control: CompanionIntroCallControl | null) => void,
+        ): () => void;
         /**
          * Optional for the same reason: a shell that predates the run reports
          * nothing about it. Pushed to the app's own window only, since it is

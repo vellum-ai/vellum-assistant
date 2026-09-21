@@ -184,13 +184,8 @@ export function SkillDetail({
             variant={removable ? "dangerOutline" : "outlined"}
             onClick={onRemove}
             disabled={!removable || isRemoving || !onRemove}
-            leftIcon={
-              isRemoving ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Trash2 aria-hidden />
-              )
-            }
+            loading={isRemoving}
+            leftIcon={<Trash2 aria-hidden />}
           >
             {t("skillDetail.remove")}
           </Button>

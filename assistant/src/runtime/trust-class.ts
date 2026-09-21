@@ -1,10 +1,9 @@
 /**
- * Trust classification for an inbound actor — the single source of truth for
- * both the {@link TrustClass} type and the Zod enum ({@link trustClassSchema})
- * that validates it in persisted message metadata.
- *
- * Kept as a leaf module (imports only `zod`) so the runtime trust layer and the
- * persistence schema can share one definition without a circular import.
+ * The daemon's reading of an inbound actor's trust class. The vocabulary
+ * itself ({@link TrustClass}, `TrustClassSchema`) belongs to the gateway,
+ * which classifies every actor; it lives in `@vellumai/gateway-client`
+ * (`trust-verdict-contract.ts`) and is re-exported here, never redeclared.
+ * This module holds what the daemon derives from a class:
  *
  * - `'guardian'`: The sender matches the active guardian binding for this
  *   (assistant, channel). Guardians have full control-plane access and
@@ -21,21 +20,14 @@
  *   actors are fail-closed with no escalation path.
  */
 
-import { z } from "zod";
+import type { TrustClass } from "@vellumai/gateway-client";
 
-export const trustClassSchema = z.enum([
-  "guardian",
-  "trusted_contact",
-  "unverified_contact",
-  "unknown",
-]);
-
-export type TrustClass = z.infer<typeof trustClassSchema>;
+export type { TrustClass };
 
 /**
  * Whether a trust class names a known non-guardian contact — the
  * `trusted_contact` / `unverified_contact` pair whose admission-only
- * equivalence is documented on {@link trustClassSchema}.
+ * equivalence is documented in this module's header.
  *
  * Accepts a raw string (not just `TrustClass`) because several call sites
  * classify trust classes read back from persisted turn metadata, which may
@@ -75,7 +67,7 @@ export interface PersonaTrustFlags {
  *   needs the opposite default — fail closed, so a turn that never resolved an
  *   actor still renders the guardrail rather than a guardian exemption.
  * - `unverified_contact` derives identically to `trusted_contact`, making the
- *   admission-only equivalence documented on {@link trustClassSchema}
+ *   admission-only equivalence documented in this module's header
  *   executable in one place.
  * - The switch is exhaustive with no default: adding a `TrustClass` member is a
  *   compile error here, forcing a deliberate persona decision for the new

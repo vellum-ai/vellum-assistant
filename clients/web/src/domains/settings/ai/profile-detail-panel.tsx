@@ -1,4 +1,4 @@
-import { Loader2, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -138,13 +138,8 @@ export function ProfileDetailPanel({
               variant="dangerOutline"
               // Icon-only, so the in-flight state rides the glyph and the
               // accessible name rather than a visible "Deleting…" label.
-              iconOnly={
-                deletePending ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Trash2 />
-                )
-              }
+              loading={deletePending}
+              iconOnly={<Trash2 />}
               aria-label={
                 deletePending
                   ? t("profileDetailPanel.deleting")

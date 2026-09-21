@@ -95,4 +95,13 @@ describe("search-provider-catalog", () => {
     expect(searxng?.defaultApiBase).toBeUndefined();
     expect(searxng?.envVar).toBe("SEARXNG_API_KEY");
   });
+
+  test("TinyFish is a keyed BYOK provider with a cloud API base", () => {
+    const tinyfish = getSearchProvider("tinyfish");
+    expect(tinyfish?.kind).toBe("byok");
+    expect(tinyfish?.keyless).toBeUndefined();
+    expect(tinyfish?.supportsApiBase).toBe(true);
+    expect(tinyfish?.defaultApiBase).toBe("https://api.search.tinyfish.ai");
+    expect(tinyfish?.envVar).toBe("TINYFISH_API_KEY");
+  });
 });

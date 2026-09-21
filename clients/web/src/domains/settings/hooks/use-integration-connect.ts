@@ -3,9 +3,11 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePluginsInstallPostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { usePluginUninstall } from "@/hooks/use-plugin-actions";
 import { requiresTenantHost } from "@/hooks/use-tenant-host-requirement";
 import { useTranslation } from "@/i18n";
 import { invalidatePluginQueries } from "@/lib/invalidate-plugin-queries";
+import { captureError } from "@/lib/sentry/capture-error";
 
 import type { ManagedConnectReport } from "../components/managed-connect-controller";
 import type { ConnectAttempt } from "../components/integration-connect-modal";
@@ -35,6 +37,15 @@ interface McpAttemptRecord {
   methodKind: ConnectMethodKind;
   setupGuideUrl?: string;
   operationId: string;
+}
+
+/** A plugin an attempt installed on its way to the sign-in. */
+interface AttemptInstall {
+  /** The integration whose tile has to wait while this install is undone. */
+  itemId: string;
+  pluginName: string;
+  /** True once the install has landed, false if the request failed. */
+  landed: Promise<boolean>;
 }
 
 /** The managed authorization a tile started. */
@@ -94,7 +105,11 @@ export interface IntegrationConnect {
   stateFor: (itemId: string, name: string) => TileConnectState;
   /** The same attempt, in the shape the connect modal reads. */
   attemptFor: (itemId: string) => ConnectAttempt | null;
-  /** True while another integration is mid-attempt. */
+  /**
+   * True while this integration cannot start an attempt: another one is
+   * mid-attempt, or this one's own cancelled install is still being taken
+   * back, which a connect started over would be handed on its way out.
+   */
   isBusyElsewhere: (itemId: string) => boolean;
   /** True while a tile is already reporting the MCP sign-in in flight. */
   ownsMcpAttempt: boolean;
@@ -139,6 +154,8 @@ export function useIntegrationConnect({
   const [managedReport, setManagedReport] =
     useState<ManagedConnectReport | null>(null);
   const [modal, setModal] = useState<ConnectModalTarget | null>(null);
+  /** The integration whose cancelled install is still being taken back. */
+  const [rollingBack, setRollingBack] = useState<string | null>(null);
 
   /** An MCP attempt asked for but not yet matched to an operation id. */
   const pendingMcp = useRef<
@@ -147,6 +164,9 @@ export function useIntegrationConnect({
       })
     | null
   >(null);
+
+  /** The install the live attempt made, and has to take back if it is given up. */
+  const attemptInstall = useRef<AttemptInstall | null>(null);
 
   const authAttempt = mcp.auth.attempt;
   const authConnect = mcp.auth.connect;
@@ -175,10 +195,23 @@ export function useIntegrationConnect({
       }
     }
     // The attempt ended, or another surface replaced it with one of its own.
+    // Either way its install is no longer this hook's to take back: a sign-in
+    // that got as far as ending is one a later cancel must not undo.
     if (mcpAttempt && authAttempt?.operationId !== mcpAttempt.operationId) {
       setMcpAttempt(null);
+      attemptInstall.current = null;
     }
   }, [authAttempt, mcpAttempt]);
+
+  // The grant has landed and the connection is coming up. Whatever happens to
+  // the wait from here, the plugin holds credentials the user just gave it,
+  // so the install is part of a connection rather than part of an attempt and
+  // nothing may take it back.
+  useEffect(() => {
+    if (authAttempt?.phase === "connecting") {
+      attemptInstall.current = null;
+    }
+  }, [authAttempt?.phase]);
 
   // The connection the platform reports moves the integration to the
   // connected list on its own; all that is left to say is that it landed.
@@ -207,32 +240,105 @@ export function useIntegrationConnect({
     [refetchServers],
   );
 
-  const installPlugin = useCallback(
-    async (pluginName: string) => {
-      await installPluginAsync({
-        path: { assistant_id: assistantId },
-        body: { name: pluginName },
+  const { remove: uninstallPlugin } = usePluginUninstall(assistantId, {
+    onRemoved: () => {
+      // The plugin took its servers with it, and only the plugin queries are
+      // invalidated for us.
+      void refetchServers();
+      setRollingBack(null);
+    },
+    // The plugin is still installed, with nothing authorized on it. Nothing
+    // to tell the user, who asked for a cancel and got one: the integration
+    // reads it as never configured and offers itself again.
+    onRemoveError: (pluginName, error) => {
+      captureError(error, {
+        context: "integrations.connectRollback",
+        tags: { plugin: pluginName },
       });
-      invalidatePluginQueries(queryClient, assistantId, pluginName);
+      setRollingBack(null);
+    },
+    announceWarnings: false,
+  });
+
+  /**
+   * Install the plugin that owns the server, and remember that this attempt
+   * is what put it there. A plugin that was already installed predates the
+   * attempt, so it is never recorded and never taken back.
+   */
+  const installPlugin = useCallback(
+    (pluginName: string, itemId: string) => {
+      const request = (async () => {
+        await installPluginAsync({
+          path: { assistant_id: assistantId },
+          body: { name: pluginName },
+        });
+        invalidatePluginQueries(queryClient, assistantId, pluginName);
+      })();
+      attemptInstall.current = {
+        itemId,
+        pluginName,
+        landed: request.then(
+          () => true,
+          () => false,
+        ),
+      };
+      return request;
     },
     [assistantId, installPluginAsync, queryClient],
   );
 
-  // Whatever was on screen for the last attempt, gone. A method picked from
-  // "Try another way" is a replacement, and the failure it replaces must not
-  // outlive it: `stateFor` reads one record per integration, so a stale one
-  // would hide the attempt the user just started and come back afterwards.
+  /**
+   * Undo the install the attempt being given up made.
+   *
+   * A plugin installed to reach a sign-in that never happened leaves a server
+   * nothing has ever authorized. The integration is not connected, so the
+   * install goes with the attempt rather than sitting in the connected list
+   * asking to be dealt with. The cancel can be clicked while the install is
+   * still in flight, so the removal waits on the same request the preparation
+   * does instead of racing it.
+   */
+  const rollbackAttemptInstall = useCallback(() => {
+    const install = attemptInstall.current;
+    attemptInstall.current = null;
+    if (!install) {
+      return;
+    }
+    // The integration is held until the removal settles. Its tile is idle
+    // again the moment the wait ends, and a connect started over a removal
+    // still in flight would be handed the plugin that removal is taking away.
+    setRollingBack(install.itemId);
+    void install.landed.then((landed) => {
+      if (!landed) {
+        setRollingBack(null);
+        return;
+      }
+      uninstallPlugin(install.pluginName);
+    });
+  }, [uninstallPlugin]);
+
+  // Whatever was on screen for the last attempt, gone, and whatever it
+  // installed to get there with it. A method picked from "Try another way" is
+  // a replacement, and the failure it replaces must not outlive it: `stateFor`
+  // reads one record per integration, so a stale one would hide the attempt
+  // the user just started and come back afterwards.
   const cancel = useCallback(() => {
     if (mcpAttempt) {
       authStopWaiting();
     }
     setManaged(null);
     setManagedReport(null);
-  }, [authStopWaiting, mcpAttempt]);
+    rollbackAttemptInstall();
+  }, [authStopWaiting, mcpAttempt, rollbackAttemptInstall]);
 
   /**
    * Hand an MCP sign-in to the machine and record that this hook asked for it,
    * so the attempt it mints on the next render is drawn where it was started.
+   *
+   * An integration whose cancelled install is still being taken back has no
+   * sign-in to start: the plugin behind it is on its way out, and the removal
+   * would land on whatever this attempt reached in the meantime. The surfaces
+   * disable the action for exactly as long, and this is the same rule where a
+   * surface cannot.
    */
   const claimMcp = useCallback(
     (
@@ -241,6 +347,9 @@ export function useIntegrationConnect({
       displayName: string,
       prepare?: () => Promise<string | null>,
     ) => {
+      if (rollingBack === record.itemId) {
+        return;
+      }
       cancel();
       pendingMcp.current = {
         ...record,
@@ -248,7 +357,7 @@ export function useIntegrationConnect({
       };
       authConnect(serverId, prepare, displayName);
     },
-    [authAttempt, authConnect, cancel],
+    [authAttempt, authConnect, cancel, rollingBack],
   );
 
   const startMcp = useCallback(
@@ -279,7 +388,7 @@ export function useIntegrationConnect({
         preparePluginMcpConnect({
           install: installed
             ? () => Promise.resolve()
-            : () => installPlugin(definition.pluginName),
+            : () => installPlugin(definition.pluginName, item.id),
           loadPluginServers: () => loadPluginServers(definition.pluginName),
         }),
       );
@@ -477,8 +586,9 @@ export function useIntegrationConnect({
   const isBusyElsewhere = useCallback(
     (itemId: string) =>
       (authIsBusy && mcpAttempt?.itemId !== itemId) ||
-      (managed !== null && managed.itemId !== itemId),
-    [authIsBusy, managed, mcpAttempt],
+      (managed !== null && managed.itemId !== itemId) ||
+      rollingBack === itemId,
+    [authIsBusy, managed, mcpAttempt, rollingBack],
   );
 
   const openModal = useCallback(

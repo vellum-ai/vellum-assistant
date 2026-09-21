@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { extractWorkspaceMcpJsonMigration } from "../156-extract-workspace-mcp-json.js";
 import { WORKSPACE_MIGRATIONS } from "../registry.js";
+
+const extractWorkspaceMcpJsonMigration = WORKSPACE_MIGRATIONS.find(
+  (migration) => migration.id === "156-extract-workspace-mcp-json",
+)!;
 
 const MIGRATION_156_SCHEMA_URL =
   "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
@@ -23,15 +26,6 @@ function readJson(dir: string, name: string): Record<string, unknown> {
 }
 
 describe("156-extract-workspace-mcp-json", () => {
-  test("has the next migration id and is registered last", () => {
-    expect(extractWorkspaceMcpJsonMigration.id).toBe(
-      "156-extract-workspace-mcp-json",
-    );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
-      "156-extract-workspace-mcp-json",
-    );
-  });
-
   test("moves servers into a spec-pure mcp.json and drops mcp from config", () => {
     const dir = workspaceWith({
       llm: { activeProfile: "balanced" },

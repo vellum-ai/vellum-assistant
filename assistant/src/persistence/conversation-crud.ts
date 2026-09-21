@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 
+import { TrustClassSchema } from "@vellumai/gateway-client";
 import {
   and,
   asc,
@@ -48,7 +49,6 @@ import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
-import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
@@ -387,7 +387,7 @@ export const messageMetadataSchema = z
      * trust status changes later. Used by the memory write gate (indexer)
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
-    provenanceTrustClass: trustClassSchema.optional(),
+    provenanceTrustClass: TrustClassSchema.optional(),
     /**
      * Model that actually served this assistant row, carried on the agent
      * loop's `message_complete` event (the provider's `response.model`, the
@@ -402,6 +402,22 @@ export const messageMetadataSchema = z
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
+    /**
+     * Contact id of the person who wrote this row, from the gateway trust
+     * verdict at persist time. Stamped only on a person's own message or
+     * reaction (`actorAuthorProvenance`), never on rows the assistant writes
+     * during their turn: the other `provenance*` fields describe the turn,
+     * this one the author. Absent when the author resolved to no contact.
+     */
+    provenanceContactId: z.string().optional(),
+    /**
+     * Set on a backfilled row whose sender was looked up but no usable gateway
+     * verdict came back, so its trust class is the guardian-address fallback
+     * and it names no author. Distinguishes that row from a sender the gateway
+     * resolved as a stranger, so the lookup can be re-run later. Live ingress
+     * never persists such a row: it denies a turn whose verdict failed.
+     */
+    provenanceLookupFailed: z.boolean().optional(),
     automated: z.boolean().optional(),
     /**
      * Transcript-suppression flag: the row is a machine signal (e.g. the
@@ -473,10 +489,10 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     /**
-     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
-     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
-     * `<interrupted_turn>` note from it; the row's own content is exactly what
-     * the user sent, so clients render nothing extra.
+     * Marks a role-`"user"` row whose arrival interrupted a running turn.
+     * `loadFromDb` rebuilds the LLM-facing `<interrupted_turn>` note from it;
+     * the row's own content is exactly what the user sent, so clients render
+     * nothing extra.
      */
     interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),

@@ -167,11 +167,10 @@ export function ResearchOnboardingScreen({
             <Button
               type="submit"
               variant="primary"
-              size="regular"
+              size="large"
               rightIcon={<ArrowRight size={16} />}
               fullWidth
               disabled={!canSubmit}
-              className="h-11 text-base"
             >
               {t("actions.continue")}
             </Button>

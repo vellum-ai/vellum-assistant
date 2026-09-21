@@ -22,6 +22,7 @@ import type { Pluggable, PluggableList } from "unified";
 
 import { asyncOnce } from "../utils/async-once";
 import { cn } from "../utils/cn";
+import { textLinkVariants } from "./text-link";
 import {
   splitMarkdownBlocks,
   type MarkdownBlockSplit,
@@ -238,7 +239,8 @@ function DefaultLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-forest-600 underline hover:text-forest-700 dark:text-forest-400 dark:hover:text-forest-300"
+      data-slot="text-link"
+      className={textLinkVariants()}
     >
       {children}
     </a>

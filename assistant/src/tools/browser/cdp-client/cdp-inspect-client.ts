@@ -406,14 +406,7 @@ export class CdpInspectClient implements ScopedCdpClient {
     httpError: unknown,
     signal: AbortSignal,
   ): Promise<AttachedSession> {
-    let wsUrl: string;
-    try {
-      wsUrl = this.helpers.buildBrowserWsUrl(host, port);
-    } catch (err) {
-      // buildBrowserWsUrl enforces loopback — if it throws, the host
-      // is non-loopback and we should not attempt any WS connection.
-      throw err;
-    }
+    const wsUrl = this.helpers.buildBrowserWsUrl(host, port);
 
     let transport: CdpWsTransport;
     try {

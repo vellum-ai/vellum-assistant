@@ -444,6 +444,8 @@
     "markRead": "Отметить как прочитанный",
     "markUnread": "Отметить как непрочитанный",
     "moveToGroup": "Перенести в группу",
+    "newDocument": "Новый документ",
+    "newDocumentFailed": "Не удалось создать документ. Попробуйте ещё раз.",
     "newGroup": "Новая группа…",
     "openInNewWindow": "Открыть в новом окне",
     "pin": "Закрепить",
@@ -923,6 +925,10 @@
     "noContentAvailable": "Содержимое недоступно.",
     "promptSectionsTitle": "Секции промпта"
   },
+  "rawDisclosure": {
+    "input": "Исходные входные данные",
+    "output": "Исходные выходные данные"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Скопировать тело запроса",
     "copyResponsePayloadAriaLabel": "Скопировать тело ответа",
@@ -1049,6 +1055,7 @@
     "reactionSomeone": "Кто-то"
   },
   "toolDetailPanel": {
+    "output": "Вывод",
     "changes": "Изменения",
     "command": "Команда",
     "denied": "Этот вызов инструмента не был одобрен, поэтому он не выполнился.",
@@ -1057,12 +1064,10 @@
   },
   "toolInputParameters": {
     "parameters": "Параметры",
-    "rawInput": "Исходные входные данные",
     "moreCount": "{count, plural, one {Ещё # в «Исходные входные данные»} few {Ещё # в «Исходные входные данные»} many {Ещё # в «Исходные входные данные»} other {Ещё # в «Исходные входные данные»}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {Ещё # в «Исходные выходные данные»} few {Ещё # в «Исходные выходные данные»} many {Ещё # в «Исходные выходные данные»} other {Ещё # в «Исходные выходные данные»}}",
-    "rawOutput": "Исходные выходные данные"
+    "moreCount": "{count, plural, one {Ещё # в «Исходные выходные данные»} few {Ещё # в «Исходные выходные данные»} many {Ещё # в «Исходные выходные данные»} other {Ещё # в «Исходные выходные данные»}}"
   },
   "valueFields": {
     "copyValue": "Скопировать {label}"
@@ -1130,5 +1135,11 @@
     "skip": "Пропустить",
     "showMore": "Показать больше",
     "showLess": "Показать меньше"
+  },
+  "dynamicPageSurface": {
+    "collapse": "Свернуть"
+  },
+  "fileUploadSurface": {
+    "removeFile": "Удалить {name}"
   }
 }

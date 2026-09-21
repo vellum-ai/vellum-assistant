@@ -260,6 +260,35 @@ describe("processChannelMessageInBackground — reply delivery", () => {
   const flush = (): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, 10));
 
+  test("names the inbound sender as the persisted message's author", async () => {
+    let capturedAuthor: TrustContext | undefined;
+    const processMessage: MessageProcessor = async (
+      _conversationId,
+      _content,
+      options,
+    ) => {
+      capturedAuthor = options?.author;
+      return { messageId: "user-msg-author" };
+    };
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId: "conv-author",
+      eventId: "evt-author",
+      content: "the export endpoint needs a scoped token",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: "C-AUTHOR",
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: "https://example.test/deliver/slack?channel=C-AUTHOR",
+    });
+
+    await flush();
+
+    expect(capturedAuthor).toBe(trustCtx);
+  });
+
   test("records callback delivery failures without failing processing", async () => {
     const conversationId = "conv-delivery-failure";
     const channelId = "C-DELIVERY-FAILURE";

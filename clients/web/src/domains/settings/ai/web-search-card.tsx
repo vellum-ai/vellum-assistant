@@ -26,7 +26,10 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { ByoServiceCard } from "@/components/byo-service-card";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_SEARCH_PROVIDER } from "@/utils/local-settings-keys";
-import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/utils";
+import {
+  allowsKeylessCustomWebProviderBase,
+  getWebSearchProviderKeyStorage,
+} from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
@@ -128,6 +131,10 @@ export function WebSearchCard() {
   const hasNewApiKey = webSearchApiKey.trim().length > 0;
   const trimmedApiBase = webSearchApiBase.trim();
   const hasCustomApiBase = showsApiBase && trimmedApiBase.length > 0;
+  const allowsKeylessCustomBase = allowsKeylessCustomWebProviderBase(
+    webSearchProvider,
+    hasCustomApiBase,
+  );
   const configChanged =
     webSearchProvider !== serverWebSearchProvider ||
     (showsApiBase && trimmedApiBase !== serverApiBase.trim());
@@ -136,7 +143,7 @@ export function WebSearchCard() {
   const needsKeyBeforeSave =
     requiresProviderCredential &&
     !isKeylessByok &&
-    !hasCustomApiBase &&
+    !allowsKeylessCustomBase &&
     !webSearchHasStoredKey &&
     !hasNewApiKey;
   const needsApiBaseBeforeSave =
@@ -245,11 +252,7 @@ export function WebSearchCard() {
     setDraftWebSearchApiBase("");
     setDraftWebSearchProvider("inference-provider-native");
     setLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native");
-  }, [
-    webSearchProvider,
-    setDraftWebSearchProvider,
-    setDraftWebSearchApiBase,
-  ]);
+  }, [webSearchProvider, setDraftWebSearchProvider, setDraftWebSearchApiBase]);
 
   return (
     <ByoServiceCard

@@ -2,8 +2,11 @@
  * Bus consumer for `notification_intent` SSE events.
  *
  * Turns daemon-pushed notification intents into local browser or
- * Capacitor notifications. Skips guardian-scoped notifications from an
- * assistant that broadcasts them to every connection (see
+ * Capacitor notifications. Skips intents the daemon marks `silent`, which
+ * it sets for low- and medium-urgency signals: those reach their
+ * conversation (and the home feed, for background work) without a banner.
+ * Skips guardian-scoped notifications from an assistant that broadcasts
+ * them to every connection (see
  * `lib/backwards-compat/guardian-notification-targeting.ts`), and
  * notifications for the conversation the user is watching right now,
  * which takes three facts: the store's active conversation, a route
@@ -63,9 +66,10 @@ export function useNotificationIntentSync(assistantId: string | null): void {
   const authUser = useAuthStore.use.user();
   const requestOrganizationId = useRequestOrganizationId();
   const assistants = useResolvedAssistantsStore.use.assistants();
-  const assistant = assistants.find((candidate) => candidate.id === assistantId);
-  const platformAccountId =
-    authUser?.kind === "platform" ? authUser.id : null;
+  const assistant = assistants.find(
+    (candidate) => candidate.id === assistantId,
+  );
+  const platformAccountId = authUser?.kind === "platform" ? authUser.id : null;
   const connectionFallback =
     getSelfHostedIngressUrl() ??
     (typeof globalThis.location === "undefined"
@@ -80,16 +84,11 @@ export function useNotificationIntentSync(assistantId: string | null): void {
           connectionFallback,
         )
       : null;
-  const platformAssistantId =
-    resolveAssistantNotificationPlatformId(assistant);
+  const platformAssistantId = resolveAssistantNotificationPlatformId(assistant);
   const notificationIdentity = useMemo(
     () =>
       assistantId && scopeId
-        ? createNotificationIdentity(
-            scopeId,
-            assistantId,
-            platformAssistantId,
-          )
+        ? createNotificationIdentity(scopeId, assistantId, platformAssistantId)
         : null,
     [assistantId, platformAssistantId, scopeId],
   );
@@ -125,6 +124,20 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       event.targetGuardianPrincipalId &&
       !supportsGuardianNotificationTargeting(originatingAssistantId)
     ) {
+      if (originatingAssistantId && event.deliveryId) {
+        void sendNotificationIntentAck(
+          originatingAssistantId,
+          event.deliveryId,
+          true,
+        );
+      }
+      return;
+    }
+
+    // Non-urgent intents never reach the OS notification surface. Nothing is
+    // posted and no chime plays, so the ack records a handled intent rather
+    // than a failure.
+    if (event.silent === true) {
       if (originatingAssistantId && event.deliveryId) {
         void sendNotificationIntentAck(
           originatingAssistantId,

@@ -1,3 +1,4 @@
+import { Card } from "@vellumai/design-library";
 import { ArrowRight } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
@@ -20,25 +21,32 @@ export interface SuggestionCardProps {
 export function SuggestionCard({ suggestion, onSelect }: SuggestionCardProps) {
   const { t } = useTranslation("chat");
   return (
-    <button
-      type="button"
-      data-slot="suggestion-card"
-      aria-label={t("suggestionCard.openAria", { title: suggestion.title })}
-      onClick={() => onSelect(suggestion)}
+    <Card.Root
+      asChild
+      interactive
+      bordered={false}
+      noPadding
       className={cn(
-        "flex cursor-pointer flex-col items-center justify-center gap-4 text-center",
+        "flex flex-col items-center justify-center gap-4 text-center",
         "rounded-2xl px-4 py-6",
-        "bg-[var(--surface-overlay)] text-[color:var(--content-default)]",
-        "transition-colors hover:bg-[var(--surface-lift)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary-base)] focus-visible:ring-offset-2",
+        // A flat overlay tile that lifts on hover, one step below Card's own
+        // resting fill.
+        "bg-[var(--surface-overlay)] hover:bg-[var(--surface-lift)]",
       )}
     >
-      <SuggestionIcon iconKey={suggestion.iconKey} size={40} />
-      <span className="text-title-small">{suggestion.title}</span>
-      <ArrowRight
-        aria-hidden
-        className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
-      />
-    </button>
+      <button
+        type="button"
+        data-slot="suggestion-card"
+        aria-label={t("suggestionCard.openAria", { title: suggestion.title })}
+        onClick={() => onSelect(suggestion)}
+      >
+        <SuggestionIcon iconKey={suggestion.iconKey} size={40} />
+        <span className="text-title-small">{suggestion.title}</span>
+        <ArrowRight
+          aria-hidden
+          className="h-3.5 w-3.5 text-[var(--content-tertiary)]"
+        />
+      </button>
+    </Card.Root>
   );
 }

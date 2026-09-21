@@ -237,6 +237,7 @@
     "offerDiscard": "Descartar",
     "offerHeard": "{app} pegó eso",
     "offerNowhere": "No hay dónde ponerlas",
+    "offerPasteFailed": "No se pudieron pegar",
     "offerQuit": "Salir de {app}",
     "offerUse": "Usar la de Vellum",
     "offerVersion": "Vellum oyó",
@@ -252,7 +253,13 @@
     "unmuteAssistantNamed": "Activar sonido de {name}",
     "unmuteMicrophone": "Activar micrófono",
     "chooseMicrophone": "Elegir micrófono",
-    "chooseVoice": "Elegir voz"
+    "chooseVoice": "Elegir voz",
+    "workCount": "{count, plural, =0 {Nada en curso} one {# tarea en curso} other {# tareas en curso}}",
+    "workDone": "Hecho",
+    "workStopped": "Detenido",
+    "workMore": "{count} más",
+    "workWaiting": "{count, plural, one {# esperando tu respuesta} other {# esperando tu respuesta}}",
+    "workWaitingStep": "Esperando tu respuesta"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Compartiendo tu pantalla",
@@ -483,7 +490,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "Pregunta lo que quieras a Vellum..."
+    "placeholder": "Pregunta lo que quieras a Vellum...",
+    "send": "Enviar mensaje"
   },
   "referralContent": {
     "copied": "¡Copiado!",

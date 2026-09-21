@@ -4,19 +4,21 @@
  * extracted page text in an `<external_content>` tag. Rather than dump that
  * verbatim, this renders a clickable source card, surfaces the fetch notices
  * (truncation, JS-rendered warnings), and shows the extracted text as readable
- * markdown, with a "View raw" toggle for the unparsed result.
+ * markdown. The unparsed result is Raw output, which the drawer offers below
+ * every call.
  *
  * Parsing only: it reads the `result` its host resolved and never re-fetches.
  * That result is live wherever the host has a live source, so a fetch that
  * lands while the drawer is open reaches the reader.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { CodeBlock } from "@/components/detail-primitives";
+import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
@@ -108,11 +110,10 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
   const host = hostnameOf(url);
   const ok = status ? /^\s*2\d\d/.test(status) : false;
   return (
-    <a
+    <ExternalAnchor
       href={url}
-      target="_blank"
-      rel="noopener noreferrer"
       className="flex items-center gap-2 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 transition-colors hover:border-[var(--border-hover)]"
+      glyph={false}
     >
       <SiteFavicon domain={host} title={host} />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -142,7 +143,7 @@ function SourceCard({ url, status }: { url: string; status: string | null }) {
           {status}
         </span>
       )}
-    </a>
+    </ExternalAnchor>
   );
 }
 
@@ -154,7 +155,6 @@ export function WebFetchDetailView({
   isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
-  const [showRaw, setShowRaw] = useState(false);
   // The live result, not the open-time snapshot: this renderer owns its output,
   // so a fetch that lands while the drawer is open reaches the user only if the
   // view reads what `ToolDetailBody` resolved.
@@ -204,34 +204,9 @@ export function WebFetchDetailView({
         </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <Typography
-            variant="body-medium-default"
-            as="h3"
-            className="text-[var(--content-emphasised)]"
-          >
-            {showRaw
-              ? t("webFetchDetailView.rawResult")
-              : t("webFetchDetailView.content")}
-          </Typography>
-          {body && (
-            <button
-              type="button"
-              onClick={() => setShowRaw((v) => !v)}
-              className="cursor-pointer text-[var(--content-secondary)] transition-colors hover:text-[var(--content-default)]"
-            >
-              <Typography variant="label-small-default" as="span">
-                {showRaw
-                  ? t("webFetchDetailView.viewExtracted")
-                  : t("webFetchDetailView.viewRaw")}
-              </Typography>
-            </button>
-          )}
-        </div>
-        {showRaw ? (
-          <CodeBlock text={body} />
-        ) : parsed.content ? (
+      <div>
+        <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+        {parsed.content ? (
           // Deliberately NO `assistantId`: this is text extracted from a
           // remote page, the least-trusted content in the app. Passing one
           // would let a fetched page's `![](vellum://workspace/…)` reference

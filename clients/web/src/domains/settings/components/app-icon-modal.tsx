@@ -218,7 +218,7 @@ export function AppIconModal({
           {failed ? (
             <p
               role="alert"
-              className="text-body-small-lighter text-[color:var(--content-negative)]"
+              className="text-body-small-lighter text-[color:var(--system-negative-strong)]"
             >
               {t(isAndroidShell ? "appIcon.androidError" : "appIcon.error")}
             </p>

@@ -70,7 +70,7 @@ export function SkillExecuteDetail({
         </Typography>
       )}
 
-      <ToolInputParameters params={params} rawInput={detail.input} />
+      <ToolInputParameters params={params} />
     </div>
   );
 }

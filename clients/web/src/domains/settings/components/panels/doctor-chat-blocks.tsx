@@ -21,10 +21,7 @@ import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
-import {
-  EXTERNAL_LINK_CLASS,
-  ExternalAnchor,
-} from "@/components/external-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import type {
   ApprovalMeta,
   BackupPromptMeta,
@@ -106,6 +103,7 @@ export function ToolCallBlock({
     <div className="my-1 w-full">
       <button
         type="button"
+        aria-expanded={canExpand ? expanded : undefined}
         onClick={() => {
           if (canExpand) {
             setExpanded(!expanded);
@@ -275,6 +273,7 @@ export function ApprovalBlock({
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
             className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
           >
             <ChevronRight
@@ -494,7 +493,7 @@ export function UserMessage({ entry }: { entry: ChatEntry }) {
  * native shells.
  */
 const DoctorLink: MarkdownLinkComponent = ({ href, children }) => (
-  <ExternalAnchor href={href} className={EXTERNAL_LINK_CLASS}>
+  <ExternalAnchor href={href} tone="default">
     {children}
   </ExternalAnchor>
 );

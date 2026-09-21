@@ -160,13 +160,9 @@ describe("IntelligenceLayout — section pages", () => {
     ).toContain("Import");
     expect(isValidElement(slot?.leading)).toBe(true);
     expect(
-      (
-        slot?.leading as
-          | { props?: { className?: string } }
-          | null
-          | undefined
-      )?.props?.className,
-    ).toContain("rounded-full");
+      (slot?.leading as { props?: { shape?: string } } | null | undefined)
+        ?.props?.shape,
+    ).toBe("pill");
     expect(container.querySelector("h1")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);

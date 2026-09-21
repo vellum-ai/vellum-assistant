@@ -16,8 +16,7 @@
     "downloadMacOSApp": "Скачать приложение для macOS",
     "downloadWindowsApp": "Скачать приложение для Windows",
     "claim": "Забрать",
-    "skipForNow": "Пока пропустить",
-    "starting": "Запускаем…"
+    "skipForNow": "Пока пропустить"
   },
   "welcome": {
     "title": "Добро пожаловать в Vellum",
@@ -283,10 +282,5 @@
         "prompt": "Набросай текст по нескольким черновым заметкам, которые я дам."
       }
     }
-  },
-  "letsChatReadyStep": {
-    "title": "Всё готово",
-    "setupNote": "Плагины уже настроены под этот профиль.",
-    "letsChat": "Давай поговорим"
   }
 }

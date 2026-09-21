@@ -5,9 +5,15 @@ import {
   parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
+import {
+  canUseVirtualDesktop,
+  supportsVirtualDesktopComputerUse,
+} from "../desktop/virtual-desktop-feature.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import type { ToolContext } from "./types.js";
 
 interface HostClientContext {
+  trustClass?: ToolContext["trustClass"];
   clientOs?: ClientOs;
   transportInterface?: InterfaceId;
   sourceActorPrincipalId?: string;
@@ -85,6 +91,15 @@ export function supportsClientOsForSkillTool(
   toolName: string,
   context: HostClientContext,
 ): boolean {
+  if (
+    supportsVirtualDesktopComputerUse(toolName) &&
+    canUseVirtualDesktop({
+      ...context,
+      trustClass: context.trustClass ?? "unknown",
+    })
+  ) {
+    return true;
+  }
   if (supportedClientOs === undefined) {
     return true;
   }

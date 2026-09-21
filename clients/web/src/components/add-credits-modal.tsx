@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
@@ -17,6 +17,8 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Select } from "@vellumai/design-library/components/select";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
   "10.00",
@@ -191,7 +193,10 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
 
             <Link
               to={routes.settings.usageBillingConfigureTopUps}
-              className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
+              className={cn(
+                textLinkVariants({ tone: "quiet" }),
+                "flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)]",
+              )}
               onClick={() => onOpenChange(false)}
             >
               {t("addCreditsModal.configureAutoReload")}
@@ -208,11 +213,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
           </Modal.Close>
           <Button
             variant="primary"
-            leftIcon={
-              checkoutMutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : undefined
-            }
+            loading={checkoutMutation.isPending}
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >

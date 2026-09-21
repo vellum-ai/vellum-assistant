@@ -703,6 +703,8 @@
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
+    "newDocument": "新增文件",
+    "newDocumentFailed": "無法建立文件。請再試一次。",
     "newGroup": "新增群組…",
     "openInNewWindow": "在新視窗中開啟",
     "pin": "釘選",
@@ -850,6 +852,7 @@
     "notFound": "找不到文件。"
   },
   "dynamicPageSurface": {
+    "collapse": "收合",
     "titleFallback": "動態內容"
   },
   "exportProgressModal": {
@@ -889,6 +892,7 @@
     "accepted": "已接受：{types}",
     "dropHint": "將檔案拖曳至此，或點擊以瀏覽",
     "maxSize": "最大大小：{size}",
+    "removeFile": "移除 {name}",
     "upload": "上傳",
     "uploading": "正在上傳..."
   },
@@ -1533,6 +1537,10 @@
     "cancel": "取消",
     "placeholder": "輸入您的回覆…"
   },
+  "rawDisclosure": {
+    "input": "原始輸入",
+    "output": "原始輸出"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "複製請求酬載",
     "copyResponsePayloadAriaLabel": "複製回應酬載",
@@ -1700,10 +1708,6 @@
     "unnamedSkill": "技能",
     "usedSkill": "已使用技能"
   },
-  "skillLoadOutput": {
-    "output": "輸出",
-    "outputFormatAria": "輸出格式"
-  },
   "skillToolList": {
     "fromSkill": "來自 {name}"
   },
@@ -1828,12 +1832,10 @@
   },
   "toolInputParameters": {
     "parameters": "參數",
-    "rawInput": "原始輸入",
     "moreCount": "{count, plural, other {另有 # 項，見「原始輸入」}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}",
-    "rawOutput": "原始輸出"
+    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}"
   },
   "valueFields": {
     "copyValue": "複製 {label}"
@@ -1970,13 +1972,9 @@
     "now": "現在"
   },
   "webFetchDetailView": {
-    "content": "內容",
     "fetchFailed": "擷取失敗。",
     "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。",
-    "rawResult": "原始結果",
-    "viewExtracted": "檢視已擷取內容",
-    "viewRaw": "檢視原始內容"
+    "noContent": "未擷取到內容。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",

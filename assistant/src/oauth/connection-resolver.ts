@@ -467,12 +467,11 @@ async function fetchPlatformConnections(options: {
   }
 
   const body = (await response.json()) as unknown;
-  const connections = (
+  return (
     Array.isArray(body)
       ? body
       : ((body as Record<string, unknown>).results ?? [])
   ) as PlatformConnectionEntry[];
-  return connections;
 }
 
 /**

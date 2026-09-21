@@ -35,12 +35,14 @@ assistant notifications send --title "..." --message "..." --urgent
 
 ### Command Reference
 
-| Flag                  | Required        | Description                                                                                                                                          |
-| --------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--message <message>` | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
-| `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
-| `--urgent`            | No              | Mark as needing attention now/soon                                                                                                                   |
-| `--json`              | No              | Output machine-readable JSON                                                                                                                         |
+| Flag                   | Required        | Description                                                                                                                                          |
+| ---------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--message <message>`  | Yes             | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text.                                                       |
+| `--title <title>`      | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
+| `--urgent`             | No              | Mark as needing attention now/soon                                                                                                                   |
+| `--preferred-channels` | No              | Additive channel hints. Vellum stays selected.                                                                                                       |
+| `--channels`           | No              | Exclusive allowlist (e.g. `telegram`). Replaces the default set. Urgent delivery does not add vellum or platform. Wins over `--preferred-channels`.  |
+| `--json`               | No              | Output machine-readable JSON                                                                                                                         |
 
 ### Title
 
@@ -67,6 +69,10 @@ Avoid large headings (`#`, `##`) and wide tables — they render fine in the pan
 
 Use `--urgent` for items needing attention now/soon (blocked work, broken auth, time-sensitive issues). Skip for items the user should see when they have time.
 
+### Channel routing
+
+`--preferred-channels` adds extra surfaces on top of the default set (vellum stays selected). `--channels` is exclusive: only those connected channels are selected. Use `--channels telegram` when the user asked for Telegram only. Home does not mirror an exclusive send unless `vellum` is in the list. When both flags are set, `--channels` wins.
+
 ### Examples
 
 ```bash
@@ -85,8 +91,17 @@ assistant notifications send \
 ### Response Format
 
 ```json
-{ "ok": true, "signalId": "...", "dispatched": true }
+{
+  "ok": true,
+  "signalId": "...",
+  "dispatched": true,
+  "selectedChannels": ["telegram"],
+  "deliveryResults": [],
+  "receiptClass": "unknown"
+}
 ```
+
+`dispatched` means the pipeline attempted delivery. `receiptClass` is the strongest proof the adapters reported (`provider_accepted`, `gateway_accepted`, `client_os_posted`, or `unknown`). It is not proof the user saw a banner. Check `selectedChannels` and `deliveryResults` before telling the user the alert landed.
 
 ## Reading Surfaced Notifications
 

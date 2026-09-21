@@ -21,13 +21,20 @@ function printUsage(): void {
   console.log("  upvote   <slug>");
   console.log("  unvote   <slug>");
   console.log("");
+  console.log(
+    "update: --status and --tag are staff-only. Anyone else can edit only the",
+  );
+  console.log(
+    "title and description of an item they filed, while it is still open.",
+  );
+  console.log("");
   console.log("Examples:");
   console.log('  $ vellum roadmap list --query "dark mode"');
   console.log("  $ vellum roadmap list --status planned --sort upvotes");
   console.log("  $ vellum roadmap get my-feature-slug");
   console.log('  $ vellum roadmap create --title "Add dark mode"');
   console.log(
-    "  $ vellum roadmap update my-feature --status planned --tag integrations",
+    '  $ vellum roadmap update my-feature --description "Follow the OS setting"',
   );
   console.log("  $ vellum roadmap upvote my-feature-slug");
 }

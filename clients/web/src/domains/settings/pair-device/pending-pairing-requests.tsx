@@ -1,7 +1,6 @@
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { cn } from "@vellumai/design-library/utils/cn";
-import { Loader2 } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 
@@ -103,9 +102,7 @@ export function PendingPairingRequests({
                     size="compact"
                     disabled={actingOn !== null}
                     aria-busy={approving || undefined}
-                    leftIcon={
-                      approving ? <Loader2 className="animate-spin" /> : undefined
-                    }
+                    loading={approving}
                     onClick={() => void approve(request.requestId)}
                   >
                     {t("pendingPairingRequests.approveButton")}
@@ -115,9 +112,7 @@ export function PendingPairingRequests({
                     size="compact"
                     disabled={actingOn !== null}
                     aria-busy={denying || undefined}
-                    leftIcon={
-                      denying ? <Loader2 className="animate-spin" /> : undefined
-                    }
+                    loading={denying}
                     onClick={() => void deny(request.requestId)}
                   >
                     {t("pendingPairingRequests.denyButton")}

@@ -714,6 +714,8 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
+    "newDocument": "New Document",
+    "newDocumentFailed": "Couldn't create the document. Try again.",
     "newGroup": "New group…",
     "openInNewWindow": "Open in New Window",
     "pin": "Pin",
@@ -861,6 +863,7 @@
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {
+    "collapse": "Collapse",
     "titleFallback": "Dynamic content"
   },
   "exportProgressModal": {
@@ -900,6 +903,7 @@
     "accepted": "Accepted: {types}",
     "dropHint": "Drag and drop files here, or click to browse",
     "maxSize": "Max size: {size}",
+    "removeFile": "Remove {name}",
     "upload": "Upload",
     "uploading": "Uploading..."
   },
@@ -1544,6 +1548,10 @@
     "cancel": "Cancel",
     "placeholder": "Type your reply…"
   },
+  "rawDisclosure": {
+    "input": "Raw input",
+    "output": "Raw output"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copy request payload",
     "copyResponsePayloadAriaLabel": "Copy response payload",
@@ -1711,10 +1719,6 @@
     "unnamedSkill": "Skill",
     "usedSkill": "Used Skill"
   },
-  "skillLoadOutput": {
-    "output": "Output",
-    "outputFormatAria": "Output format"
-  },
   "skillToolList": {
     "fromSkill": "From {name}"
   },
@@ -1839,12 +1843,10 @@
   },
   "toolInputParameters": {
     "parameters": "Parameters",
-    "rawInput": "Raw input",
     "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}",
-    "rawOutput": "Raw output"
+    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}"
   },
   "valueFields": {
     "copyValue": "Copy {label}"
@@ -1981,13 +1983,9 @@
     "now": "Now"
   },
   "webFetchDetailView": {
-    "content": "Content",
     "fetchFailed": "Fetch failed.",
     "fetching": "Fetching…",
-    "noContent": "No content extracted.",
-    "rawResult": "Raw result",
-    "viewExtracted": "View extracted",
-    "viewRaw": "View raw"
+    "noContent": "No content extracted."
   },
   "webSearchDetailView": {
     "noSources": "No sources found.",

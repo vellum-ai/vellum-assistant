@@ -175,6 +175,18 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
     privacyPolicyUrl: "https://docs.searxng.org/own-instance.html",
     supportsApiBase: true,
   },
+  {
+    id: "tinyfish",
+    displayName: "TinyFish",
+    kind: "byok",
+    apiKeyPrefix: "TinyFish API key...",
+    envVar: "TINYFISH_API_KEY",
+    secretKey: "tinyfish",
+    fallbackOrder: 8,
+    privacyPolicyUrl: "https://www.tinyfish.ai/privacy-policy",
+    supportsApiBase: true,
+    defaultApiBase: "https://api.search.tinyfish.ai",
+  },
 ];
 
 /** Provider ids accepted by the web-search config schema. */

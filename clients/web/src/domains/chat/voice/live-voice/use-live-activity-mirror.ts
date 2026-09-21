@@ -6,7 +6,8 @@
  *
  * **One snapshot, two sinks.** The payload is identical because the two
  * surfaces show the same facts, so the content is computed once here and
- * handed to whichever transport the host has: `runtime/native-live-activity`
+ * handed to whichever transport the host has (the desktop's alone carries the
+ * call's work list, which the island has no room for): `runtime/native-live-activity`
  * (Capacitor → ActivityKit) and `runtime/desktop-voice-activity` (Electron IPC
  * → BrowserWindow). Each no-ops off its own host, so this hook needs no
  * platform branch of its own. A mirror that asked "which platform am I on"
@@ -54,6 +55,7 @@ import { useEffect, useRef } from "react";
 
 import {
   isLiveVoiceSessionActive,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
@@ -79,6 +81,13 @@ import {
   startVoiceActivity,
   updateVoiceActivity,
 } from "@/runtime/desktop-voice-activity";
+import type { VoiceActivityWork } from "@vellumai/ipc-contract";
+import {
+  buildCallWork,
+  createCallWorkTracker,
+  sameCallWork,
+} from "@/domains/chat/voice/live-voice/call-work";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { memoizedAvatarEncode } from "@/utils/avatar-island-encode";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
@@ -110,6 +119,8 @@ function toActivityContent(
     session.reconnecting,
     session.assistantAudioActive,
     session.muted,
+    null,
+    isOnToolStep(session),
   );
   return {
     phase,
@@ -186,6 +197,7 @@ async function islandAvatarBase64(): Promise<string | undefined> {
  */
 async function startWithAvatar(
   currentStart: () => VoiceLiveActivityStart | null,
+  currentWork: () => VoiceActivityWork[],
 ): Promise<void> {
   const avatarBase64 = await islandAvatarBase64();
   const start = currentStart();
@@ -196,12 +208,13 @@ async function startWithAvatar(
     ...start,
     ...(avatarBase64 ? { avatarBase64 } : {}),
   };
-  // Handed to both sinks unchanged. `VoiceActivityStart`'s `phase` is the same
+  // Handed to both sinks, the desktop's with the call's work added (the island
+  // has no room for it). `VoiceActivityStart`'s `phase` is the same
   // vocabulary as `ActiveLiveVoiceSessionState`, restated in the IPC contract
   // rather than imported across the package boundary. This assignment is what
   // holds the two in step, so a phase added to the store without a matching
   // case in `@vellumai/ipc-contract` fails to compile here.
-  startVoiceActivity(payload);
+  startVoiceActivity({ ...payload, work: currentWork() });
   await startVoiceLiveActivity(payload);
 }
 
@@ -249,6 +262,55 @@ export function useLiveActivityMirror(): void {
      * no gain — `update`/`end` are native no-ops when nothing is running.
      */
     let pushed: VoiceLiveActivityContent | null = null;
+    /**
+     * The work list last handed to the desktop surface. Desktop only: the
+     * island's content has no room for it, so it is compared and pushed apart
+     * from {@link pushed}.
+     */
+    let pushedWork: VoiceActivityWork[] = [];
+    let workTracker = createCallWorkTracker();
+    /** Wakes the mirror when a finished item is due off the list. */
+    let workTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * The last settled session, for a resync driven by something other than
+     * the session (a sub-agent moving, a finished item lingering out). Reading
+     * the store's raw state there would catch a transition half-applied.
+     */
+    let lastSession: LiveVoiceState | null = null;
+    const clearWorkTimer = (): void => {
+      if (workTimer !== null) {
+        clearTimeout(workTimer);
+        workTimer = null;
+      }
+    };
+    const currentWork = (session: LiveVoiceState): VoiceActivityWork[] => {
+      const now = Date.now();
+      const { work, nextChangeAt } = buildCallWork(
+        {
+          activityLabel: isOnToolStep(session) ? session.activityLabel : "",
+          assistantName: assistantDisplayName(
+            useAssistantIdentityStore.getState().name,
+          ),
+          conversationId: session.conversationId,
+          subagents: Object.values(useSubagentStore.getState().byId),
+          now,
+        },
+        workTracker,
+      );
+      clearWorkTimer();
+      if (nextChangeAt !== null) {
+        workTimer = setTimeout(
+          () => {
+            workTimer = null;
+            if (lastSession !== null) {
+              sync(lastSession);
+            }
+          },
+          Math.max(0, nextChangeAt - now),
+        );
+      }
+      return work;
+    };
     /**
      * Bumped on every start and every end, so an in-flight `startWithAvatar`
      * can tell whether the session it was starting is still the current one.
@@ -317,7 +379,8 @@ export function useLiveActivityMirror(): void {
       });
     };
 
-    const sync = (session: LiveVoiceState): void => {
+    function sync(session: LiveVoiceState): void {
+      lastSession = session;
       const content = toActivityContent(session, translate.current);
 
       if (content === null) {
@@ -325,6 +388,9 @@ export function useLiveActivityMirror(): void {
           return;
         }
         pushed = null;
+        pushedWork = [];
+        workTracker = createCallWorkTracker();
+        clearWorkTimer();
         generation += 1;
         // Dropped before the token is retired: the registration outlives the
         // activity otherwise, and the platform would push a phase at an island
@@ -338,39 +404,48 @@ export function useLiveActivityMirror(): void {
       }
 
       syncPushRegistration(session, content);
+      const work = currentWork(session);
 
       if (pushed === null) {
         pushed = content;
+        pushedWork = work;
         generation += 1;
         const started = generation;
-        void startWithAvatar(() =>
-          // Read at start time, not capture time. `pushed` tracks the newest
-          // content, so a phase that landed during the avatar encode is what
-          // the island opens on; its own `update` was dropped natively for
-          // want of an activity to update.
-          generation === started && pushed !== null
-            ? {
-                ...pushed,
-                // An `ActivityAttributes` field, not `ContentState`: fixed for
-                // the activity's lifetime, so it is read once here and never
-                // pushed again. The avatar is added by `startWithAvatar` for
-                // the same reason.
-                assistantName: assistantDisplayName(
-                  useAssistantIdentityStore.getState().name,
-                ),
-              }
-            : null,
+        void startWithAvatar(
+          () =>
+            // Read at start time, not capture time. `pushed` tracks the newest
+            // content, so a phase that landed during the avatar encode is what
+            // the island opens on; its own `update` was dropped natively for
+            // want of an activity to update.
+            generation === started && pushed !== null
+              ? {
+                  ...pushed,
+                  // An `ActivityAttributes` field, not `ContentState`: fixed for
+                  // the activity's lifetime, so it is read once here and never
+                  // pushed again. The avatar is added by `startWithAvatar` for
+                  // the same reason.
+                  assistantName: assistantDisplayName(
+                    useAssistantIdentityStore.getState().name,
+                  ),
+                }
+              : null,
+          () => pushedWork,
         );
         return;
       }
 
-      if (sameContent(pushed, content)) {
+      const contentChanged = !sameContent(pushed, content);
+      const workChanged = !sameCallWork(pushedWork, work);
+      if (!contentChanged && !workChanged) {
         return;
       }
       pushed = content;
-      void updateVoiceLiveActivity(content);
-      updateVoiceActivity(content);
-    };
+      pushedWork = work;
+      if (contentChanged) {
+        void updateVoiceLiveActivity(content);
+      }
+      updateVoiceActivity({ ...content, work });
+    }
 
     // A session can already be running when this mounts — the controller
     // remounts across layout-level route changes while the store persists. The
@@ -379,6 +454,14 @@ export function useLiveActivityMirror(): void {
     sync(useLiveVoiceStore.getState());
     resync.current = () => sync(useLiveVoiceStore.getState());
     const unsubscribe = subscribeSettledLiveVoiceState(sync);
+    // Sub-agents move on their own clock, and only the desktop's list reads
+    // them. Resynced against the last settled session, which a sub-agent's
+    // event does not change.
+    const unsubscribeSubagents = useSubagentStore.subscribe((next, prev) => {
+      if (next.byId !== prev.byId && lastSession !== null) {
+        sync(lastSession);
+      }
+    });
     // Subscribed for the mirror's whole lifetime rather than per activity: the
     // token can arrive before the next settled state does, and a listener
     // attached per `start` would miss it.
@@ -399,6 +482,8 @@ export function useLiveActivityMirror(): void {
     return () => {
       resync.current = null;
       unsubscribe();
+      unsubscribeSubagents();
+      clearWorkTimer();
       unsubscribeToken();
       // A surface that outlives its mirror sits on the Lock Screen, or floats
       // over the desktop, showing a phase nothing is driving.

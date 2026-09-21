@@ -359,3 +359,32 @@ export const telemetryEvents = sqliteTable(
     index("idx_telemetry_events_conversation_id").on(table.conversationId),
   ],
 );
+
+/**
+ * Append-only hub subscribe/dispose ledger. Support reconstructs client
+ * uptime and reconnect flaps from these rows. No message bodies or page
+ * URLs: client UUID, interface, close reason, and optional build
+ * fingerprint only.
+ */
+export const clientConnectionEvents = sqliteTable(
+  "client_connection_events",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id").notNull(),
+    interfaceId: text("interface_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    reason: text("reason").notNull(),
+    occurredAt: integer("occurred_at").notNull(),
+    actorPrincipalId: text("actor_principal_id"),
+    clientVersion: text("client_version"),
+    sseWatchdog: integer("sse_watchdog", { mode: "boolean" }),
+    machineName: text("machine_name"),
+  },
+  (table) => [
+    index("idx_client_connection_events_client_occurred").on(
+      table.clientId,
+      table.occurredAt,
+    ),
+    index("idx_client_connection_events_occurred").on(table.occurredAt),
+  ],
+);

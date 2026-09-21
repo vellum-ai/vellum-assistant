@@ -69,28 +69,22 @@ async function request<T>(
   const canRetry = isIdempotent(method);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    let resp: OAuthConnectionResponse;
-    try {
-      const extraHeaders =
-        options?.headers &&
-        typeof options.headers === "object" &&
-        !Array.isArray(options.headers)
-          ? (options.headers as Record<string, string>)
-          : {};
-      resp = await connection.request({
-        method,
-        path,
-        query,
-        headers: {
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: options?.body ? JSON.parse(options.body as string) : undefined,
-      });
-    } catch (err) {
-      // Network-level errors from connection.request() are not retryable
-      throw err;
-    }
+    const extraHeaders =
+      options?.headers &&
+      typeof options.headers === "object" &&
+      !Array.isArray(options.headers)
+        ? (options.headers as Record<string, string>)
+        : {};
+    const resp: OAuthConnectionResponse = await connection.request({
+      method,
+      path,
+      query,
+      headers: {
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: options?.body ? JSON.parse(options.body as string) : undefined,
+    });
 
     if (resp.status < 200 || resp.status >= 300) {
       if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {

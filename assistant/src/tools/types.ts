@@ -6,6 +6,7 @@ import type {
 import { z } from "zod";
 
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import {
   CLIENT_OS_VALUES,
   type ClientOs,
@@ -13,7 +14,6 @@ import {
 } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
@@ -605,7 +605,13 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<
   Omit<ToolDefinition, "exclusive" | "supportedClientOs">
 > &
-  Pick<ToolDefinition, "exclusive" | "supportedClientOs">;
+  Pick<ToolDefinition, "exclusive" | "supportedClientOs"> & {
+    /** Invocation-specific boundary for trusted tool implementations. */
+    getExecutionTarget?: (
+      input: Record<string, unknown>,
+      context?: ToolContext,
+    ) => "sandbox" | "host";
+  };
 
 /**
  * The kind of entity that owns a tool. `"default"` is the built-in tool set

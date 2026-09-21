@@ -974,6 +974,22 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(frontDoorDecisionRule({ includeHold: true }));
   });
 
+  test("a hidden look follow-up routes the original request", async () => {
+    const installed = captureInstalledPrompt();
+    const callerUtterance = "Show me where to add a new page.";
+    const content = "(fresh view taken; answer from it now)";
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content,
+      routingUtterance: callerUtterance,
+      hiddenSyntheticPrompt: true,
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain(frontDoorDecisionRule({ callerUtterance }));
+    expect(installed()).not.toContain(JSON.stringify(content));
+  });
+
   test("appends the escalated continuation rule to a caller-supplied prompt", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({
@@ -3448,5 +3464,23 @@ describe("startVoiceTurn escalation judge", () => {
       expect(handle.escalationJudgement).toBeUndefined();
       expect(handle.overrule).toBeUndefined();
     }
+  });
+
+  test.each([
+    "What do you see on my screen?",
+    "Show me where to add a new page.",
+  ])("a captured look bypasses the text-only judge: %s", async (request) => {
+    judgeEscalationVerdict = true;
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "(fresh view taken; answer from it now)",
+      routingUtterance: request,
+      routingLeg: "front-door",
+      hiddenSyntheticPrompt: true,
+    });
+
+    expect(judgeEscalationCalls).toEqual([]);
+    expect(handle.escalationJudgement).toBeUndefined();
+    expect(handle.overrule).toBeUndefined();
   });
 });

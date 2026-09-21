@@ -84,7 +84,8 @@ export function QuickInputPage() {
         <button
           type="submit"
           disabled={!input.trim()}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--surface-accent)] text-[var(--content-on-accent)] transition-opacity disabled:opacity-30"
+          aria-label={t("quickInputPage.send")}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--primary-base)] text-[var(--content-inset)] transition-opacity disabled:opacity-30"
         >
           <ArrowUp size={16} />
         </button>

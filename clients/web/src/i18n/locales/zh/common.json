@@ -235,6 +235,7 @@
     "offerDiscard": "丢弃",
     "offerHeard": "{app} 已粘贴了那段",
     "offerNowhere": "没有地方可以放",
+    "offerPasteFailed": "无法粘贴这些内容",
     "offerQuit": "退出 {app}",
     "offerUse": "使用 Vellum 的版本",
     "offerVersion": "Vellum 听到的是",
@@ -252,7 +253,13 @@
     "dictating": "正在聆听",
     "dictatingTranscribing": "正在思考",
     "chooseMicrophone": "选择麦克风",
-    "chooseVoice": "选择声音"
+    "chooseVoice": "选择声音",
+    "workCount": "{count, plural, =0 {没有正在进行的任务} other {# 项任务进行中}}",
+    "workDone": "已完成",
+    "workStopped": "已停止",
+    "workMore": "还有 {count} 项",
+    "workWaiting": "{count, plural, other {# 项等待你的回复}}",
+    "workWaitingStep": "等待你的回复"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的屏幕",
@@ -483,7 +490,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "向 Vellum 提问..."
+    "placeholder": "向 Vellum 提问...",
+    "send": "发送消息"
   },
   "referralContent": {
     "copied": "已复制！",

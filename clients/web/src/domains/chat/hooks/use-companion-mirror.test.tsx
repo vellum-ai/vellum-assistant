@@ -109,6 +109,10 @@ const { useInteractionStore } =
   await import("@/domains/chat/interaction-store");
 const { offerSurfaceToCompanion, useCompanionPopoverStore } =
   await import("@/domains/chat/companion-popover");
+const { useVoiceKeyTapStore } =
+  await import("@/domains/chat/voice/voice-key-tap-store");
+const { useIntroCallChordStore } =
+  await import("@/domains/chat/voice/intro-call-chord-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -854,5 +858,78 @@ describe("the popover the companion mirror publishes", () => {
     await waitFor(() => {
       expect(latest().popover).toBeUndefined();
     });
+  });
+});
+
+/**
+ * The tap count reaches the surface unfiltered, because the filter is upstream.
+ *
+ * The bridge counts a tap only while an introduction is staged, so by the time
+ * the store moves there is a card waiting for it. A gate here instead would let
+ * the store climb behind a closed publish and hand the next run a total it never
+ * earned, which the card would read as presses already made.
+ */
+describe("the tap count the companion mirror publishes", () => {
+  test("publishes every move of the count", async () => {
+    render(<Mirror />);
+    const before = latest().voiceKeyTaps ?? 0;
+
+    act(() => {
+      useVoiceKeyTapStore.getState().countTap();
+    });
+
+    await waitFor(() => {
+      expect(latest().voiceKeyTaps).toBe(before + 1);
+    });
+  });
+
+  test("publishes nothing while the count stands still", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    // What a tap outside a run amounts to here: the bridge declines to count
+    // it, so this store never hears about it and neither does the surface.
+    expect(published.length).toBe(pushes);
+    expect(latest().voiceKeyTaps).toBe(useVoiceKeyTapStore.getState().taps);
+  });
+});
+
+/**
+ * The presses of a call's shortcut reach the surface the same way, and for the
+ * same reason: the chord is heard by the window that armed it, and the card
+ * drawing that chord is a different renderer.
+ *
+ * The control travels with the count. A count alone says a chord was pressed
+ * and not which one, and the run walks between cards while a press is still
+ * crossing.
+ */
+describe("the shortcut presses the companion mirror publishes", () => {
+  test("publishes the press and the control it was for", async () => {
+    render(<Mirror />);
+    const before = latest().introChordPresses ?? 0;
+
+    act(() => {
+      useIntroCallChordStore.getState().countPress("draw");
+    });
+
+    await waitFor(() => {
+      expect(latest().introChordPresses).toBe(before + 1);
+      expect(latest().introChordControl).toBe("draw");
+    });
+  });
+
+  /**
+   * Nothing is armed to hear one of these outside the three beats that ask
+   * for it, so a store standing still is the resting state of every window
+   * that is not in a run.
+   */
+  test("publishes nothing while no press has been made", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    expect(published.length).toBe(pushes);
+    expect(latest().introChordPresses).toBe(
+      useIntroCallChordStore.getState().presses,
+    );
   });
 });

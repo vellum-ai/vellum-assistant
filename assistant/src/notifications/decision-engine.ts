@@ -36,6 +36,10 @@ import {
   buildToolApprovalSeedContentBlocks,
 } from "./approval-card-data.js";
 import {
+  intersectChannelAllowlist,
+  readChannelAllowlist,
+} from "./channel-allowlist.js";
+import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
@@ -52,6 +56,7 @@ import {
   nonEmpty,
   readPayloadObject,
   readPayloadString,
+  readPayloadStringArray,
 } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
@@ -887,22 +892,27 @@ export async function evaluateSignal(
       signal.attentionHints.urgency,
       availableChannels,
     );
-    // Honor `--preferred-channels` as ADDITIVE push targets on top of
-    // the default channel set. The notification center (vellum) is the
-    // always-on canonical inbox; preferred channels add push surfaces
-    // on top, they never replace vellum. Disconnected channels are
-    // filtered out so we never try to deliver on something unavailable.
-    const preferredChannelsRaw = Array.isArray(payload.preferredChannels)
-      ? (payload.preferredChannels as unknown[]).filter(
-          (c): c is string => typeof c === "string",
-        )
-      : undefined;
+    // `channelAllowlist` is exclusive: only those available channels are
+    // selected. `preferredChannels` is additive on top of the default set
+    // (vellum stays the canonical inbox) and is ignored when an allowlist
+    // is present. Disconnected names are dropped so we never deliver on
+    // something unavailable.
+    const exclusiveAllowlist = readChannelAllowlist(payload);
+    const preferredChannelsRaw = readPayloadStringArray(
+      payload,
+      "preferredChannels",
+    );
     let selectedChannels = defaultChannels;
-    if (preferredChannelsRaw && preferredChannelsRaw.length > 0) {
+    if (exclusiveAllowlist) {
+      selectedChannels = intersectChannelAllowlist(
+        exclusiveAllowlist,
+        availableChannels,
+      );
+    } else if (preferredChannelsRaw && preferredChannelsRaw.length > 0) {
       const availableSet = new Set<string>(availableChannels);
-      const preferredAvailable = preferredChannelsRaw.filter((c) =>
-        availableSet.has(c),
-      ) as NotificationChannel[];
+      const preferredAvailable = preferredChannelsRaw.filter((c) => {
+        return availableSet.has(c);
+      }) as NotificationChannel[];
       if (preferredAvailable.length > 0) {
         selectedChannels = Array.from(
           new Set<NotificationChannel>([

@@ -71,6 +71,25 @@ export function readPayloadObject(
   return isPlainObject(value) ? value : undefined;
 }
 
+/**
+ * Safely read a string-array property from an unknown-typed payload object.
+ * Non-string entries are dropped. Returns `undefined` when the payload is
+ * not an object or the key does not hold an array.
+ */
+export function readPayloadStringArray(
+  payload: unknown,
+  key: string,
+): string[] | undefined {
+  if (!isPlainObject(payload)) {
+    return undefined;
+  }
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
 /** Truncate `text` to `maxLength`, appending "…" when exceeded. */
 export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) {

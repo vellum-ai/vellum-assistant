@@ -18,7 +18,7 @@ function text(role: "user" | "assistant", body: string): Message {
 }
 
 function jevResponse(noul: number): ProviderResponse {
-  const answers = { needs_escalation: { type: "noul", noul } };
+  const answers = { answer: { type: "noul", noul } };
   return {
     content: [{ type: "text", text: JSON.stringify(answers) }],
     model: "jev-latest",
@@ -102,7 +102,7 @@ describe("judgeEscalation", () => {
     const request = seen as unknown as {
       body: {
         state: { caller_just_said: string; recent_conversation: string };
-        questions: { needs_escalation: { type: string } };
+        questions: { answer: { type: string } };
       };
       options: SendMessageOptions;
     };
@@ -110,7 +110,7 @@ describe("judgeEscalation", () => {
     expect(request.body.state.recent_conversation).toBe(
       "assistant: Hi, what can I do?",
     );
-    expect(request.body.questions.needs_escalation.type).toBe("noul");
+    expect(request.body.questions.answer.type).toBe("noul");
     expect(
       (request.options.config as { callSite?: string } | undefined)?.callSite,
     ).toBe(VOICE_ESCALATION_JUDGE_CALL_SITE);

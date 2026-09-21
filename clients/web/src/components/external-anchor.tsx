@@ -1,6 +1,15 @@
 import { ExternalLink } from "lucide-react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
+// Narrow paths, not the package root: this file sits under onboarding and
+// auth screens whose tests mock `lucide-react` with only the icons they use,
+// and the root barrel would load every component and every icon they import.
+import {
+  textLinkVariants,
+  type TextLinkTone,
+} from "@vellumai/design-library/components/text-link";
+import { cn } from "@vellumai/design-library/utils/cn";
+
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 type ExternalAnchorProps = Omit<
@@ -8,12 +17,24 @@ type ExternalAnchorProps = Omit<
   "target" | "rel" | "onClick"
 > & {
   href: string | undefined;
-  children: ReactNode;
+  /**
+   * Optional so a self-closing element can be handed to `<Trans components>`,
+   * which clones it and injects the translated text as its children.
+   */
+  children?: ReactNode;
+  /**
+   * Set to `false` to drop the trailing external-link glyph: for a link shaped
+   * like a button, pill, card or row, and for one that draws its own icon.
+   * Defaults to `true`.
+   */
+  glyph?: boolean;
+  /**
+   * Wear the design library's `TextLink` look in this tone. Leave it unset for
+   * an anchor that is not a text link (a button, pill, card or row), which
+   * styles itself through `className`.
+   */
+  tone?: TextLinkTone;
 };
-
-/** Anchor styling for a link that leaves the app. */
-export const EXTERNAL_LINK_CLASS =
-  "text-[var(--system-positive-strong)] underline hover:opacity-80";
 
 /**
  * True for an `http(s)` destination, the links that leave the app for the web
@@ -50,7 +71,9 @@ export function ExternalLinkGlyph() {
  * links through here so a surface cannot ship with two of the three.
  *
  * An `http(s)` destination also gets the external-link glyph, so the affordance
- * travels with the behaviour instead of being re-declared per surface.
+ * travels with the behaviour instead of being re-declared per surface. A
+ * surface where a trailing glyph does not fit opts out with `glyph={false}` and
+ * keeps the behaviour.
  *
  * The `href` stays on the element in every case, so "copy link address" and
  * middle-click keep working.
@@ -58,18 +81,27 @@ export function ExternalLinkGlyph() {
 export function ExternalAnchor({
   href,
   children,
+  glyph = true,
+  tone,
+  className,
   ...rest
 }: ExternalAnchorProps) {
   return (
     <a
       {...rest}
+      className={
+        tone === undefined
+          ? className
+          : cn(textLinkVariants({ tone }), className)
+      }
+      data-slot={tone === undefined ? undefined : "text-link"}
       href={href}
       target="_blank"
       rel="noopener noreferrer"
       onClick={(event) => handleNativeAnchorClick(event, href)}
     >
       {children}
-      {isWebUrl(href) ? <ExternalLinkGlyph /> : null}
+      {glyph && isWebUrl(href) ? <ExternalLinkGlyph /> : null}
     </a>
   );
 }

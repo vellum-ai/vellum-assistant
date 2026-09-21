@@ -1,10 +1,9 @@
 /**
- * An interrupt whose abort landed during the provider call leaves no
- * `tool_use` to answer, so nothing in the history tells the model its turn was
- * cut off. The interrupting user message carries the notice instead, on its
- * LLM-facing content only: the persisted row stays exactly what the user
- * typed, so no client renders it, and `interruptedPriorTurn` in the row's
- * metadata is what rebuilds the identical block on every later load.
+ * The message that interrupted a turn carries the note saying what to do about
+ * the interruption, on its LLM-facing content only: the persisted row stays
+ * exactly what the user typed, so no client renders it, and
+ * `interruptedPriorTurn` in the row's metadata is what rebuilds the identical
+ * block on every later load.
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 

@@ -55,3 +55,19 @@ export function canonicalizeInboundIdentity(
 
   return trimmed;
 }
+
+/**
+ * Whether two raw identifiers name the same sender on `channel`. An empty
+ * identifier matches nothing.
+ */
+export function inboundIdentitiesMatch(
+  channel: ChannelId,
+  left: string,
+  right: string,
+): boolean {
+  const canonicalLeft = canonicalizeInboundIdentity(channel, left);
+  return (
+    canonicalLeft !== null &&
+    canonicalLeft === canonicalizeInboundIdentity(channel, right)
+  );
+}

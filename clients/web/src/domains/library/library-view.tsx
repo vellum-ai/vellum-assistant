@@ -9,7 +9,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Download, Search } from "lucide-react";
+import { Download, FilePlus, Search } from "lucide-react";
 import {
   type ChangeEvent,
   useCallback,
@@ -43,6 +43,10 @@ export interface LibraryViewProps {
   assistantName?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
+  /** Create a blank document and open it. Omitted when the assistant cannot. */
+  onNewDocument?: () => void;
+  /** True while a document from {@link onNewDocument} is being created. */
+  isCreatingDocument?: boolean;
   onOpenApp: (appId: string) => void;
 }
 
@@ -51,6 +55,8 @@ export function LibraryView({
   assistantName,
   onNewConversation,
   onOpenDocument,
+  onNewDocument,
+  isCreatingDocument = false,
   onOpenApp,
 }: LibraryViewProps) {
   const { t } = useTranslation("library");
@@ -149,9 +155,10 @@ export function LibraryView({
     [togglePin],
   );
 
-  // --- Header action ---
-  // Import is the only way a `.vellum` recipient gets their first app, so it
-  // stays reachable on the empty library as well as the populated one. It
+  // --- Header actions ---
+  // New Document sits right of Import as the primary action. Import is the
+  // only way a `.vellum` recipient gets their first app, so it stays
+  // reachable on the empty library as well as the populated one. It
   // sits on the layout's heading row, to the right of the "Library" title,
   // rather than on a row of its own above the search field; the file input
   // it opens stays down in the body, so the click reaches a mounted input.
@@ -165,38 +172,77 @@ export function LibraryView({
       setHeaderTrailing(null);
       return;
     }
-    const importIcon = isImporting ? (
+    const spinner = (
       <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    );
+    const importIcon = isImporting ? spinner : <Download aria-hidden />;
+    const newDocumentIcon = isCreatingDocument ? (
+      spinner
     ) : (
-      <Download aria-hidden />
+      <FilePlus aria-hidden />
     );
     setHeaderTrailing(
       isMobile ? (
-        <Button
-          variant="ghost"
-          iconOnly={importIcon}
-          aria-label={t("libraryView.import")}
-          tooltip={t("libraryView.import")}
-          className="rounded-full max-md:bg-[var(--surface-active)]"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isImporting}
-        />
+        <div className="flex items-center gap-2">
+          <Button
+            shape="pill"
+            variant="ghost"
+            iconOnly={importIcon}
+            aria-label={t("libraryView.import")}
+            tooltip={t("libraryView.import")}
+            className="max-md:bg-[var(--surface-active)]"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          />
+          {onNewDocument ? (
+            <Button
+              shape="pill"
+              variant="ghost"
+              iconOnly={newDocumentIcon}
+              aria-label={t("libraryView.newDocument")}
+              tooltip={t("libraryView.newDocument")}
+              className="max-md:bg-[var(--surface-active)]"
+              onClick={onNewDocument}
+              disabled={isCreatingDocument}
+            />
+          ) : null}
+        </div>
       ) : (
-        <Button
-          variant="outlined"
-          size="regular"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isImporting}
-        >
-          {importIcon}
-          <span className="ml-1.5">{t("libraryView.import")}</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outlined"
+            size="regular"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          >
+            {importIcon}
+            <span className="ml-1.5">{t("libraryView.import")}</span>
+          </Button>
+          {onNewDocument ? (
+            <Button
+              size="regular"
+              onClick={onNewDocument}
+              disabled={isCreatingDocument}
+            >
+              {newDocumentIcon}
+              <span className="ml-1.5">{t("libraryView.newDocument")}</span>
+            </Button>
+          ) : null}
+        </div>
       ),
     );
     return () => {
       setHeaderTrailing(null);
     };
-  }, [isMobile, showsImport, isImporting, setHeaderTrailing, t]);
+  }, [
+    isMobile,
+    showsImport,
+    isImporting,
+    onNewDocument,
+    isCreatingDocument,
+    setHeaderTrailing,
+    t,
+  ]);
 
   // --- Render: loading ---
   if (loading) {

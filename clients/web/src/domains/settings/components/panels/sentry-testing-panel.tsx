@@ -56,7 +56,7 @@ export function SentryTestingPanel() {
         />
         <SentryTestRow
           icon={
-            <XCircle className="h-4 w-4 text-[var(--system-negative-default)]" />
+            <XCircle className="h-4 w-4 text-[var(--system-negative-strong)]" />
           }
           label={t("sentryTestingPanel.errorLabel")}
           description={t("sentryTestingPanel.errorDescription")}
@@ -64,7 +64,7 @@ export function SentryTestingPanel() {
         />
         <SentryTestRow
           icon={
-            <AlertTriangle className="h-4 w-4 text-[var(--system-warning-default)]" />
+            <AlertTriangle className="h-4 w-4 text-[var(--system-mid-strong)]" />
           }
           label={t("sentryTestingPanel.warningLabel")}
           description={t("sentryTestingPanel.warningDescription")}
@@ -78,7 +78,7 @@ export function SentryTestingPanel() {
         />
         <SentryTestRow
           icon={
-            <Timer className="h-4 w-4 text-[var(--system-positive-default)]" />
+            <Timer className="h-4 w-4 text-[var(--system-positive-strong)]" />
           }
           label={t("sentryTestingPanel.performanceLabel")}
           description={t("sentryTestingPanel.performanceDescription")}

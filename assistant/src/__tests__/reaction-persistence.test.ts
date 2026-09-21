@@ -116,9 +116,12 @@ function resetState(): void {
   _conversationMocks.clear();
 }
 
+const REACTOR_CONTACT_ID = "contact-reactor";
+
 function seedActiveMember(): void {
   seedContactChannel({
     sourceChannel: "slack",
+    contactId: REACTOR_CONTACT_ID,
     externalUserId: SLACK_USER_ID,
     externalChatId: SLACK_CHANNEL_ID,
     status: "active",
@@ -276,6 +279,8 @@ describe("Slack reaction event persistence", () => {
     // filterMessagesForUntrustedActor drops rows with no trust class.
     expect(envelope.provenanceTrustClass).toBe("trusted_contact");
     expect(envelope.provenanceSourceChannel).toBe("slack");
+    // The reactor wrote this row, so it names them as its author.
+    expect(envelope.provenanceContactId).toBe(REACTOR_CONTACT_ID);
     const slackMetaRaw = envelope.slackMeta;
     expect(typeof slackMetaRaw).toBe("string");
 

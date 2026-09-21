@@ -301,11 +301,7 @@ function RecommendedUpgrade({
             className="h-10 border-transparent bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] hover:opacity-90 active:bg-[var(--system-positive-strong)]"
             onClick={() => void handleUpgrade()}
             disabled={isPending}
-            leftIcon={
-              isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : undefined
-            }
+            loading={isPending}
             data-testid="recommended-upgrade-button"
           >
             {ctaLabel}

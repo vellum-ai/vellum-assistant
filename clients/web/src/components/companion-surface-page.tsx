@@ -76,6 +76,7 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
+  CompanionIntroCallControl,
   CompanionPopover as CompanionPopoverContent,
   CompanionPopoverView,
   CompanionSurfaceState,
@@ -254,6 +255,13 @@ export function CompanionSurfacePage() {
   // Main's, like the beat: the edges never reach this window, so the only way
   // the introduction can show the key answering is to be told the count.
   const [voiceKeyTaps, setVoiceKeyTaps] = useState(0);
+  // Presses of the call shortcuts the three call beats draw, and which control
+  // the last one was for. Main's for the reason the taps are: the chord is
+  // heard by the window that armed it, which is never this one.
+  const [introChordPresses, setIntroChordPresses] = useState(0);
+  const [introChordControl, setIntroChordControl] = useState<
+    CompanionIntroCallControl | undefined
+  >(undefined);
   // Mirrors what main was last told, so a pointer crossing the pill does not
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
@@ -369,6 +377,10 @@ export function CompanionSurfacePage() {
       // Zero on a shell that predates the field, which is a surface that has
       // been told about no taps rather than one that saw them and forgot.
       setVoiceKeyTaps(state.voiceKeyTaps ?? 0);
+      // Zero and nameless on a shell that predates the fields, for the reason
+      // the taps are: a surface told about no presses has seen none.
+      setIntroChordPresses(state.introChordPresses ?? 0);
+      setIntroChordControl(state.introChordControl);
     };
     const unsubscribe = subscribeCompanionState(apply);
     // The route chunk loads lazily after the window is created, so a state
@@ -576,16 +588,20 @@ export function CompanionSurfacePage() {
       observer.disconnect();
     };
   }, [promptId, popoverView]);
-  // The row goes when it is answered, reviewed or put off, under a pointer
-  // that has not moved. Give the desktop back the way the offer's card does,
-  // and only when the pointer was on the row.
+  // Whether the call's own list of work stands joined to the bar, which the
+  // surface opens and closes itself. See `onWorkShelfChange`.
+  const [workShelfShown, setWorkShelfShown] = useState(false);
+  // The row goes when it is answered, reviewed or put off, or the work it
+  // lists runs out, under a pointer that has not moved. Give the desktop back
+  // the way the offer's card does, and only when the pointer was on the row.
+  const rowShown = promptShown || workShelfShown;
   useEffect(() => {
-    if (!promptShown && overPromptRef.current) {
+    if (!rowShown && overPromptRef.current) {
       overPromptRef.current = false;
       interactiveRef.current = false;
       setCompanionInteractive(false);
     }
-  }, [promptShown]);
+  }, [rowShown]);
 
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
@@ -1127,6 +1143,11 @@ export function CompanionSurfacePage() {
               // the beats that show it ask for the key rather than for the
               // picture of it.
               voiceKeyTaps={voiceKeyTaps}
+              // Presses of the call's own shortcuts, which the chips on the
+              // three call beats answer: the card draws the chord beside the
+              // button, and only the window that armed it hears one.
+              chordPresses={introChordPresses}
+              chordControl={introChordControl}
               onAdvance={(action) => {
                 if (action === "try") {
                   takeIntroOffer();
@@ -1320,6 +1341,16 @@ export function CompanionSurfacePage() {
               // test can stand a desktop up without a shell.
               captureThumbnail={captureCompanionSourceThumbnail}
               cardGrowth={cardGrowth}
+              // Beside the column rather than over it while a call stands the
+              // bar up on a side dock, on the side facing the screen's middle.
+              side={
+                (call !== null || dialing) &&
+                (dock === "left" || dock === "right")
+                  ? dock === "left"
+                    ? "right"
+                    : "left"
+                  : undefined
+              }
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               cardRef={pickerRef}
@@ -1372,6 +1403,7 @@ export function CompanionSurfacePage() {
           )
         }
         promptRef={promptRef}
+        onWorkShelfChange={setWorkShelfShown}
         promptsDeferred={deferredCount}
         onReviewPrompts={() => {
           if (popover !== undefined) {
