@@ -31,6 +31,7 @@ import { resolveSendUserMessageActive } from "../config/send-user-message-gate.j
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import type { MessageKey } from "../i18n/index.js";
 import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import {
   formatSlackTimezoneLabel,
@@ -299,6 +300,7 @@ export interface EventHandlerState {
   readonly exchangeRawResponses: unknown[];
   model: string;
   providerErrorUserMessage: string | null;
+  providerErrorUserMessageKey: MessageKey | null;
   /**
    * Stable classified code of the most recent provider error
    * (`classifyConversationError(...).code`). Carried into the turn's
@@ -711,6 +713,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeRawResponses: [],
     model: "",
     providerErrorUserMessage: null,
+    providerErrorUserMessageKey: null,
     providerErrorCode: null,
     providerErrorCategory: null,
     providerErrorConnection: null,
@@ -3034,6 +3037,7 @@ function handleError(
     buildConversationErrorMessage(deps.ctx.conversationId, classified),
   );
   state.providerErrorUserMessage = classified.userMessage;
+  state.providerErrorUserMessageKey = classified.userMessageKey ?? null;
   state.providerErrorCode = classified.code;
   state.providerErrorCategory = classified.errorCategory;
   state.providerErrorConnection = classified.connectionName ?? null;

@@ -473,6 +473,12 @@ export const messageMetadataSchema = z
      */
     providerErrorCategory: z.string().optional(),
     /**
+     * Message-catalog key behind a `messageKind: "provider_error"` row whose
+     * text is a catalog constant. The row's stored content stays the English
+     * copy the model reads back; history routes resolve this key for display.
+     */
+    providerErrorMessageKey: z.string().optional(),
+    /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
      * bash/host_bash card from history after a daemon restart.

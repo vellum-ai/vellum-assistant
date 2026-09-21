@@ -14,3 +14,4 @@ export {
   t,
 } from "./messages.js";
 export { resolveConversationTitle } from "./title.js";
+export { resolveUserMessage } from "./user-message.js";

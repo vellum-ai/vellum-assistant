@@ -8,6 +8,7 @@ import type {
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
 import { getIsPlatform } from "../config/env-registry.js";
+import { MESSAGE_KEYS, type MessageKey, t } from "../i18n/index.js";
 import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
@@ -38,7 +39,13 @@ import { safeStringSlice } from "../util/unicode.js";
  */
 export interface ClassifiedConversationError {
   code: ConversationErrorCode;
+  /** English copy. Localized surfaces resolve `userMessageKey` instead. */
   userMessage: string;
+  /**
+   * Catalog key behind `userMessage`, carried to the edge that knows the
+   * reader's locale. Absent for copy that is not a catalog constant.
+   */
+  userMessageKey?: MessageKey;
   retryable: boolean;
   debugDetails?: string;
   /** Machine-readable error category for log report metadata and triage. */
@@ -673,6 +680,8 @@ function reasonToClassification(
       return visionNotSupportedClassification();
     case "request_shape_unsupported":
       return requestShapeUnsupportedClassification();
+    case "content_filtered":
+      return contentFilteredClassification();
     // Two producers share this reason: SDK transport failures that never got
     // a response (OpenAI APIConnectionError), and Gemini responses whose empty
     // body reveals a proxy/egress filter intercepting the request. The copy
@@ -965,8 +974,8 @@ function contentFilteredClassification(): Omit<
 > {
   return {
     code: "PROVIDER_API",
-    userMessage:
-      "The model provider's content filter blocked this request. Something in the conversation (your message, an attachment, or a tool result) tripped its safety rules. This isn't a bug and retrying won't help: rephrase or remove that content, start a new conversation, or switch to a different model.",
+    userMessage: t(MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED),
+    userMessageKey: MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED,
     retryable: false,
     errorCategory: "provider_content_filtered",
   };
@@ -1319,6 +1328,9 @@ export function buildConversationErrorMessage(
     conversationId,
     code: classified.code,
     userMessage: classified.userMessage,
+    ...(classified.userMessageKey
+      ? { userMessageKey: classified.userMessageKey }
+      : {}),
     retryable: classified.retryable,
     debugDetails: classified.debugDetails,
     errorCategory: classified.errorCategory,

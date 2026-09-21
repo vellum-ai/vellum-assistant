@@ -459,6 +459,18 @@ describe("deriveReason", () => {
     ).not.toBe("request_shape_unsupported");
   });
 
+  test("content-filter prose on a 400 → content_filtered", () => {
+    expect(deriveReason(n({ message: "Content Exists Risk" }), 400)).toBe(
+      "content_filtered",
+    );
+  });
+
+  test("content-filter prose on a 5xx stays server_error", () => {
+    expect(deriveReason(n({ message: "content_filter crashed" }), 500)).toBe(
+      "server_error",
+    );
+  });
+
   test("402 → insufficient_credits", () => {
     expect(deriveReason(n(), 402)).toBe("insufficient_credits");
   });

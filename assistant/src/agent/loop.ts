@@ -36,7 +36,10 @@ import type { ContextWindowResult } from "../plugins/defaults/compaction/window-
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { hasVisibleText } from "../providers/content-blocks.js";
-import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+import {
+  isContentFilterStopReason,
+  isMaxTokensStopReason,
+} from "../providers/stop-reasons.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -2568,6 +2571,33 @@ export class AgentLoop {
           },
           "LLM call complete",
         );
+
+        // A content filter that withholds the whole reply arrives as a
+        // successful response with nothing in it, so without this the turn ends
+        // silently. Surface it as the same classified failure a filter
+        // rejection thrown as a 4xx gets. Emitted directly instead of thrown:
+        // the catch below would resend the request, and the filter would
+        // withhold it again. A reply filtered partway through keeps its
+        // streamed text and ends as a normal turn.
+        if (
+          isContentFilterStopReason(response.stopReason) &&
+          modelToolUseBlocks.length === 0 &&
+          !hasVisibleText(response.content)
+        ) {
+          const filtered = new ProviderError(
+            `Provider content filter withheld the response (stop reason: ${response.stopReason})`,
+            response.actualProvider ?? this.provider.name,
+            undefined,
+            { reason: "content_filtered" },
+          );
+          rlog.warn(
+            { turn: toolUseTurns, stopReason: response.stopReason },
+            "Provider content filter withheld the response",
+          );
+          onEvent({ type: "error", error: filtered });
+          await stopTurn("error", filtered);
+          break;
+        }
 
         if (isMaxTokensStopReason(response.stopReason)) {
           const safeContent = response.content.filter(

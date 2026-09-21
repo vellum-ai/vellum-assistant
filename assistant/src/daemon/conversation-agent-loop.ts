@@ -1928,6 +1928,13 @@ export async function runAgentLoopImpl(
         state.assistantRowAwaitingFinalization = false;
         state.lastAssistantMessageId = undefined;
       } else {
+        // The persisted row re-enters LLM history and is displayed as
+        // assistant speech, so the managed-billing categories swap the
+        // banner-voice classification copy for assistant-voice wording.
+        const managedBillingReply = managedBillingAssistantReply(
+          state.providerErrorCode,
+          state.providerErrorCategory,
+        );
         const errChannelMeta = {
           ...provenanceFromTrustContext(turnOrRestingTrust(ctx)),
           userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -1943,16 +1950,16 @@ export async function runAgentLoopImpl(
           messageKind: PROVIDER_ERROR_MESSAGE_KIND,
           providerErrorCode: state.providerErrorCode ?? undefined,
           providerErrorCategory: state.providerErrorCategory ?? undefined,
+          // Only when the row holds the classified copy: the managed-billing
+          // reply is different text, which this key would not describe.
+          providerErrorMessageKey:
+            managedBillingReply === null
+              ? (state.providerErrorUserMessageKey ?? undefined)
+              : undefined,
           modeSession: ctx.modeSessions.getTurnOwner(reqId),
         };
-        // The persisted row re-enters LLM history and is displayed as
-        // assistant speech, so the managed-billing categories swap the
-        // banner-voice classification copy for assistant-voice wording.
         const persistedErrorText =
-          managedBillingAssistantReply(
-            state.providerErrorCode,
-            state.providerErrorCategory,
-          ) ?? state.providerErrorUserMessage;
+          managedBillingReply ?? state.providerErrorUserMessage;
         const errorAssistantMessage =
           createAssistantMessage(persistedErrorText);
         const errorRow = await addMessage(

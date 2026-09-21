@@ -18,6 +18,7 @@ import { setConfig } from "./helpers/set-config.js";
 setConfig("memory", { enabled: false });
 
 import { ConversationMessageSchema } from "../api/responses/conversation-message.js";
+import { MESSAGE_KEYS, t } from "../i18n/index.js";
 import {
   addMessage,
   createConversation,
@@ -89,6 +90,43 @@ describe("handleListMessages provider-error projection", () => {
       code: "PROVIDER_BILLING",
       category: "credits_exhausted",
     });
+  });
+
+  test("resolves a keyed row for the request's Accept-Language", async () => {
+    // GIVEN a provider-error row that stores English text plus its catalog key
+    const key = MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED;
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: t(key) }]),
+      {
+        metadata: {
+          messageKind: PROVIDER_ERROR_MESSAGE_KIND,
+          providerErrorCode: "PROVIDER_API",
+          providerErrorCategory: "provider_content_filtered",
+          providerErrorMessageKey: key,
+        },
+      },
+    );
+
+    // WHEN history is listed by a Spanish client and by one with no header
+    const list = async (headers?: Record<string, string>) =>
+      JSON.stringify(
+        (
+          (await handleListMessages({
+            queryParams: { conversationId: conv.id },
+            headers,
+          })) as { messages: ProjectedMessage[] }
+        ).messages,
+      );
+    const spanish = await list({ "accept-language": "es" });
+    const fallback = await list();
+
+    // THEN the final payload carries each reader's language
+    expect(spanish).toContain(JSON.stringify(t(key, "es")).slice(1, -1));
+    expect(spanish).not.toContain(JSON.stringify(t(key)).slice(1, -1));
+    expect(fallback).toContain(JSON.stringify(t(key)).slice(1, -1));
   });
 
   test("coerces non-string code/category to absent fields", async () => {

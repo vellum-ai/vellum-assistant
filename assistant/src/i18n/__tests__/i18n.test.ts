@@ -8,6 +8,7 @@ import {
   MESSAGE_KEYS,
   negotiateLocale,
   resolveConversationTitle,
+  resolveUserMessage,
   SUPPORTED_LOCALES,
   t,
 } from "../index.js";
@@ -100,6 +101,15 @@ describe("resolveConversationTitle", () => {
     expect(
       resolveConversationTitle(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING),
     ).toBe("Generating title...");
+  });
+});
+
+describe("resolveUserMessage", () => {
+  test("resolves a catalog key and keeps keyless or unknown-key text", () => {
+    const key = MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED;
+    expect(resolveUserMessage("english", key, "es")).toBe(t(key, "es"));
+    expect(resolveUserMessage("english", undefined, "es")).toBe("english");
+    expect(resolveUserMessage("english", "not.a.key", "es")).toBe("english");
   });
 });
 

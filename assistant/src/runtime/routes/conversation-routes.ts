@@ -101,6 +101,7 @@ import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
+import { isMessageKey, localeFromAcceptLanguage, t } from "../../i18n/index.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
@@ -914,7 +915,9 @@ function parseRequestedModeSessionIds(raw: unknown): string[] {
 
 export async function handleListMessages({
   queryParams,
+  headers,
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
   const conversationId = queryParams?.conversationId;
   const conversationKey = queryParams?.conversationKey;
 
@@ -1099,7 +1102,7 @@ export async function handleListMessages({
   // alignment, letting renderHistoryContent inline `attachment` blocks during
   // its single content walk.
   const parsed = consolidatedMessages.map((msg) => {
-    const content: unknown = msg.content;
+    let content: unknown = msg.content;
 
     // Extract sentAt from metadata for display timestamps. When a message
     // was queued or its persistence was delayed (long assistant generation),
@@ -1171,6 +1174,16 @@ export async function handleListMessages({
               ? { category: meta.providerErrorCategory }
               : {}),
           };
+          // Provider-error rows are standalone (never merged into a
+          // neighbour), so the whole content is the notice text.
+          if (
+            typeof meta.providerErrorMessageKey === "string" &&
+            isMessageKey(meta.providerErrorMessageKey)
+          ) {
+            content = [
+              { type: "text", text: t(meta.providerErrorMessageKey, locale) },
+            ];
+          }
         }
         notifications = extractNotificationDiscriminators(meta);
         // `persistWakeTriggerMessage` stamps the structured completion onto the
