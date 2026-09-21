@@ -105,6 +105,11 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
+COPY assistant/src/desktop/desktop-system-packages.json /app/assistant/src/desktop/
+COPY assistant/scripts/install-desktop-system-packages.ts /app/assistant/scripts/
+RUN bun run scripts/install-desktop-system-packages.ts && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+
 COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.

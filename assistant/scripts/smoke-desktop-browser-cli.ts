@@ -25,14 +25,18 @@ if (
   !process.env.ASSISTANT_IPC_SOCKET_DIR
 ) {
   throw new Error(
-    "Run in disposable Linux with desktop packages, a temporary ASSISTANT_IPC_SOCKET_DIR and a Chrome executable argument or --install for a cold install.",
+    "Run in disposable Linux with desktop packages, a temporary ASSISTANT_IPC_SOCKET_DIR and a Chrome executable argument, --install for first use, or --reuse after container replacement.",
   );
 }
 const coldInstall = process.argv[2] === "--install";
-const executable = coldInstall ? desktopChromePath() : process.argv[2];
+const reuseInstall = process.argv[2] === "--reuse";
+const executable =
+  coldInstall || reuseInstall ? desktopChromePath() : process.argv[2];
 if (coldInstall) {
   assert.equal(desktopDependencyInstaller.getStatus().state, "required");
-  assert.equal(Bun.which("Xtigervnc"), null);
+}
+if (reuseInstall) {
+  assert.equal(desktopDependencyInstaller.getStatus().state, "ready");
 }
 const directory = await mkdtemp(join(tmpdir(), "desktop-browser-cli-"));
 const manager = new DesktopSessionManager({
@@ -189,7 +193,13 @@ try {
       "Installation progress must reach the viewer",
     );
     console.error(
-      "PASS: one CLI navigate installed desktop and Chrome from scratch, then loaded the requested page once",
+      "PASS: one CLI navigate completed desktop setup, then loaded the requested page once",
+    );
+  }
+  if (reuseInstall) {
+    assert.equal(setupNotifications, 0);
+    console.error(
+      "PASS: replacement container reused desktop setup without installation",
     );
   }
   const snapshot = await cli("snapshot");

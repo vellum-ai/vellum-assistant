@@ -1,0 +1,45 @@
+{
+  "packages": [
+    "adwaita-icon-theme",
+    "at-spi2-core",
+    "dbus-x11",
+    "feh",
+    "gnome-mines",
+    "gvfs",
+    "thunar",
+    "tumbler",
+    "openbox",
+    "python3",
+    "python3-dbus",
+    "tigervnc-standalone-server",
+    "tigervnc-common",
+    "plank",
+    "bamfdaemon",
+    "dbus-daemon",
+    "xauth",
+    "xcompmgr",
+    "xfonts-base",
+    "xterm",
+    "xdotool",
+    "scrot",
+    "fonts-liberation",
+    "libgtk-3-0",
+    "libegl1",
+    "libgl1-mesa-dri",
+    "libvulkan1",
+    "libcurl4"
+  ],
+  "wezterm": {
+    "version": "20240203-110809-5046fc22",
+    "architectures": {
+      "x64": {
+        "suffix": "Debian12.deb",
+        "sha256": "d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8"
+      },
+      "arm64": {
+        "suffix": "Debian12.arm64.deb",
+        "sha256": "351f8791c6e9561d687afa63834a2132de84800dad6e7c3d035cc6518d6c3744"
+      }
+    }
+  }
+}

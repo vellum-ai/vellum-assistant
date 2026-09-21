@@ -10,19 +10,9 @@ import { writeCombinedCABundle } from "../util/ca-bundle.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getExternalDir } from "../util/platform.js";
+import systemPackages from "./desktop-system-packages.json" with { type: "json" };
 
 const log = getLogger("desktop-dependencies");
-const WEZTERM_VERSION = "20240203-110809-5046fc22";
-const WEZTERM_PACKAGES = {
-  x64: {
-    suffix: "Debian12.deb",
-    sha256: "d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8",
-  },
-  arm64: {
-    suffix: "Debian12.arm64.deb",
-    sha256: "351f8791c6e9561d687afa63834a2132de84800dad6e7c3d035cc6518d6c3744",
-  },
-} as const;
 const CHROME_VERSION = "153.0.8010.36-1";
 const CHROME_PACKAGES = {
   x64: {
@@ -49,38 +39,6 @@ const DESKTOP_BINARIES = {
   input: ["xdotool"],
   capture: ["scrot"],
 } as const;
-
-const DESKTOP_PACKAGES = [
-  "adwaita-icon-theme",
-  "at-spi2-core",
-  "dbus-x11",
-  "feh",
-  "gnome-mines",
-  "gvfs",
-  "thunar",
-  "tumbler",
-  "openbox",
-  "python3",
-  "python3-dbus",
-  "tigervnc-standalone-server",
-  "tigervnc-common",
-  "plank",
-  "bamfdaemon",
-  "dbus-daemon",
-  "xauth",
-  "xcompmgr",
-  "xfonts-base",
-  // Preserved Openbox menus and shortcuts can invoke xterm directly.
-  "xterm",
-  "xdotool",
-  "scrot",
-  "fonts-liberation",
-  "libgtk-3-0",
-  "libegl1",
-  "libgl1-mesa-dri",
-  "libvulkan1",
-  "libcurl4",
-];
 
 export type DesktopSetupStatus = {
   state: "required" | "installing" | "ready" | "failed" | "unsupported";
@@ -110,6 +68,25 @@ export function resolveDesktopBinaries(
   return resolved;
 }
 
+function desktopSystemDependenciesReady(): boolean {
+  try {
+    resolveDesktopBinaries();
+    return (
+      existsSync("/usr/games/gnome-mines") &&
+      existsSync("/usr/share/dbus-1/services/org.gtk.vfs.Daemon.service") &&
+      existsSync(
+        "/usr/share/dbus-1/services/org.xfce.Tumbler.Thumbnailer1.service",
+      ) &&
+      existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
+      existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service") &&
+      existsSync("/usr/share/dbus-1/services/org.a11y.Bus.service") &&
+      existsSync("/usr/lib/python3/dist-packages/dbus/__init__.py")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export class DesktopDependencyInstaller {
   private installing: Promise<void> | null = null;
   private status: DesktopSetupStatus | null = null;
@@ -127,28 +104,10 @@ export class DesktopDependencyInstaller {
         process.platform === "linux" &&
         process.arch in CHROME_PACKAGES &&
         process.getuid?.() === 0,
-      ready: () => {
-        try {
-          resolveDesktopBinaries();
-          return (
-            existsSync(desktopChromePath() + ".ready") &&
-            existsSync(desktopChromePath()) &&
-            existsSync("/usr/games/gnome-mines") &&
-            existsSync(
-              "/usr/share/dbus-1/services/org.gtk.vfs.Daemon.service",
-            ) &&
-            existsSync(
-              "/usr/share/dbus-1/services/org.xfce.Tumbler.Thumbnailer1.service",
-            ) &&
-            existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
-            existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service") &&
-            existsSync("/usr/share/dbus-1/services/org.a11y.Bus.service") &&
-            existsSync("/usr/lib/python3/dist-packages/dbus/__init__.py")
-          );
-        } catch {
-          return false;
-        }
-      },
+      ready: () =>
+        desktopSystemDependenciesReady() &&
+        existsSync(desktopChromePath() + ".ready") &&
+        existsSync(desktopChromePath()),
       install: installDesktopDependencies,
       notify: () => publishSyncInvalidation([SYNC_TAGS.assistantDesktop]),
     },
@@ -295,42 +254,46 @@ async function installDesktopComponents(
   caBundle?: string,
 ): Promise<void> {
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
-  const apt = [
-    "/usr/bin/apt-get",
-    ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
-  ];
   await rm(desktopChromePath() + ".ready", { force: true });
-  // Desktop binaries, X assets and the loader share the image root.
-  await run([...apt, "update"]);
-  const terminal =
-    WEZTERM_PACKAGES[process.arch as keyof typeof WEZTERM_PACKAGES];
-  const terminalDownloadDir = await mkdtemp(
-    join(tmpdir(), "desktop-terminal-"),
-  );
-  try {
-    const deb = join(terminalDownloadDir, "wezterm.deb");
-    await downloadDesktopPackage(
-      `https://github.com/wezterm/wezterm/releases/download/${WEZTERM_VERSION}/wezterm-${WEZTERM_VERSION}.${terminal.suffix}`,
-      deb,
-      terminal.sha256,
-      caBundle,
+  if (!desktopSystemDependenciesReady()) {
+    const apt = [
+      "/usr/bin/apt-get",
+      ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
+    ];
+    // Desktop binaries, X assets and the loader share the image root.
+    await run([...apt, "update"]);
+    const terminal =
+      systemPackages.wezterm.architectures[
+        process.arch as keyof typeof systemPackages.wezterm.architectures
+      ];
+    const terminalDownloadDir = await mkdtemp(
+      join(tmpdir(), "desktop-terminal-"),
     );
-    await chmod(terminalDownloadDir, 0o755);
-    await chmod(deb, 0o644);
-    await run([
-      ...apt,
-      "install",
-      "-y",
-      "--no-install-recommends",
-      "--no-upgrade",
-      "--no-remove",
-      "-o",
-      "DPkg::Lock::Timeout=120",
-      ...DESKTOP_PACKAGES,
-      deb,
-    ]);
-  } finally {
-    await rm(terminalDownloadDir, { recursive: true, force: true });
+    try {
+      const deb = join(terminalDownloadDir, "wezterm.deb");
+      await downloadDesktopPackage(
+        `https://github.com/wezterm/wezterm/releases/download/${systemPackages.wezterm.version}/wezterm-${systemPackages.wezterm.version}.${terminal.suffix}`,
+        deb,
+        terminal.sha256,
+        caBundle,
+      );
+      await chmod(terminalDownloadDir, 0o755);
+      await chmod(deb, 0o644);
+      await run([
+        ...apt,
+        "install",
+        "-y",
+        "--no-install-recommends",
+        "--no-upgrade",
+        "--no-remove",
+        "-o",
+        "DPkg::Lock::Timeout=120",
+        ...systemPackages.packages,
+        deb,
+      ]);
+    } finally {
+      await rm(terminalDownloadDir, { recursive: true, force: true });
+    }
   }
   onStage("chrome");
   if (!existsSync(desktopChromePath())) {
