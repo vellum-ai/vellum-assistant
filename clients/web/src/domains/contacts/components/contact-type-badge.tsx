@@ -1,6 +1,6 @@
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 
-export type ContactRole = "guardian" | "assistant" | string | null | undefined;
+export type ContactRole = "guardian" | string | null | undefined;
 
 interface ContactTypeBadgeProps {
   role: ContactRole;
@@ -22,8 +22,6 @@ function describeRole(
   switch (role) {
     case "guardian":
       return { label: "Guardian", tone: "positive" };
-    case "assistant":
-      return { label: "Assistant", tone: "negative" };
     default:
       if (contactType === "assistant") {
         return { label: "Assistant", tone: "negative" };

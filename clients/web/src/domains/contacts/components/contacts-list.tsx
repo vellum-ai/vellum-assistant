@@ -9,18 +9,14 @@ import { Tag } from "@vellumai/design-library/components/tag";
 
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { useTranslation } from "@/i18n";
-import type {
-  ContactSelection,
-  ContactSummary,
-} from "@/domains/contacts/types";
+import type { ContactSummary } from "@/domains/contacts/types";
 
 interface ContactsListProps {
   loading: boolean;
   guardian: ContactSummary | null;
-  assistantName?: string;
   regularContacts: ContactSummary[];
-  selection: ContactSelection | null;
-  onSelect: (selection: ContactSelection) => void;
+  selectedContactId: string | null;
+  onSelect: (contactId: string) => void;
   onAddContact: () => void;
   addingContact?: boolean;
   /**
@@ -35,9 +31,8 @@ interface ContactsListProps {
 export function ContactsList({
   loading,
   guardian,
-  assistantName,
   regularContacts,
-  selection,
+  selectedContactId,
   onSelect,
   onAddContact,
   addingContact = false,
@@ -73,8 +68,8 @@ export function ContactsList({
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          {guardian ? (
+        {guardian ? (
+          <>
             <ContactRow
               name={
                 guardian.displayName
@@ -83,29 +78,17 @@ export function ContactsList({
               }
               role={guardian.role}
               channelTypes={guardian.channelTypes}
-              selected={
-                selection?.kind === "contact" &&
-                selection.contactId === guardian.id
-              }
-              onClick={() =>
-                onSelect({ kind: "contact", contactId: guardian.id })
-              }
+              selected={selectedContactId === guardian.id}
+              onClick={() => onSelect(guardian.id)}
               trailingIcon="pencil"
             />
-          ) : null}
-          <ContactRow
-            name={assistantName?.trim() || t("contactsList.assistantFallback")}
-            role="assistant"
-            selected={selection?.kind === "assistant"}
-            onClick={() => onSelect({ kind: "assistant" })}
-            trailingIcon="more"
-          />
-        </div>
 
-        <div
-          className="border-t"
-          style={{ borderColor: "var(--border-base)" }}
-        />
+            <div
+              className="border-t"
+              style={{ borderColor: "var(--border-base)" }}
+            />
+          </>
+        ) : null}
 
         {regularContacts.length > 0 ? (
           <Input
@@ -128,13 +111,8 @@ export function ContactsList({
                 contactType={contact.contactType}
                 channelTypes={contact.channelTypes}
                 verified={contact.verified}
-                selected={
-                  selection?.kind === "contact" &&
-                  selection.contactId === contact.id
-                }
-                onClick={() =>
-                  onSelect({ kind: "contact", contactId: contact.id })
-                }
+                selected={selectedContactId === contact.id}
+                onClick={() => onSelect(contact.id)}
                 trailingIcon="more"
               />
             ))}

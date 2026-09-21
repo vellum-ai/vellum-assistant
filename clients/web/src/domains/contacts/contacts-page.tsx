@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -9,7 +9,6 @@ import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
-import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
 import { isPluginChannel } from "@/domains/contacts/components/contact-channels-section";
 import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-dialog";
@@ -28,7 +27,6 @@ import type {
   ChannelInfo,
   ContactChannelPayload,
   ContactPayload,
-  ContactSelection,
 } from "@/domains/contacts/types";
 import { isSetupChannelId } from "@/types/channel-types";
 import {
@@ -42,12 +40,10 @@ import {
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
-import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { useAssistantChannels } from "@/hooks/use-assistant-channels";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 
@@ -116,20 +112,16 @@ export function ContactsPage({
 }: ContactsPageProps) {
   const { t } = useTranslation("contacts");
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
-  const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  // Legacy `?setup=<channel>` deep link. Setup used to continue on this
-  // page's assistant detail card; the credential forms now live only on the
-  // Channels tab, so the param is forwarded there (see the redirect below)
-  // instead of being consumed via `useSetupChannelParam`.
+  // Legacy `?setup=<channel>` deep link. The credential forms live only on
+  // the Channels tab, so the param is forwarded there (see the redirect
+  // below) instead of being consumed via `useSetupChannelParam`.
   const [searchParams] = useSearchParams();
   const rawSetupParam = searchParams.get("setup");
   const setupChannel =
     rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
-  const [selection, setSelection] = useState<ContactSelection>({
-    kind: "assistant",
-  });
+  const [pickedContactId, setPickedContactId] = useState<string | null>(null);
 
   const inviteDialog = useInviteLinkDialog(assistantId);
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
@@ -140,8 +132,6 @@ export function ContactsPage({
   // sidebar is enough to cross it.
   const [contactSearch, setContactSearch] = useState("");
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
-
-  const assistantName = assistantDisplayName(identityName);
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -210,12 +200,12 @@ export function ContactsPage({
     () => contactsData?.filter((c) => c.role !== "guardian") ?? [],
     [contactsData],
   );
-  const selectedContact = useMemo<ContactPayload | null>(() => {
-    if (selection.kind !== "contact") {
-      return null;
-    }
-    return contactsData?.find((c) => c.id === selection.contactId) ?? null;
-  }, [contactsData, selection]);
+  // With nothing picked the pane rests on the guardian.
+  const selectedContactId = pickedContactId ?? guardian?.id ?? null;
+  const selectedContact = useMemo<ContactPayload | null>(
+    () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
+    [contactsData, selectedContactId],
+  );
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
@@ -226,18 +216,6 @@ export function ContactsPage({
     );
   }, [contactsData, selectedContact]);
   const canMerge = mergeCandidates.length > 0;
-
-  const guardianAutoSelectedRef = useRef(!!setupChannel);
-  useEffect(() => {
-    if (guardianAutoSelectedRef.current) {
-      return;
-    }
-    if (!guardian) {
-      return;
-    }
-    guardianAutoSelectedRef.current = true;
-    setSelection({ kind: "contact", contactId: guardian.id });
-  }, [guardian]);
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -258,7 +236,7 @@ export function ContactsPage({
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
-      setSelection({ kind: "contact", contactId: contact.id });
+      setPickedContactId(contact.id);
     },
     onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
@@ -276,7 +254,7 @@ export function ContactsPage({
             }
           : undefined,
       );
-      setSelection({ kind: "assistant" });
+      setPickedContactId(null);
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
@@ -360,7 +338,7 @@ export function ContactsPage({
               }
             : undefined,
         );
-        setSelection({ kind: "contact", contactId: mergedContact.id });
+        setPickedContactId(mergedContact.id);
       }
       setMergeDialogOpen(false);
       toast.success(t("contactsPage.mergeSucceeded"));
@@ -369,8 +347,8 @@ export function ContactsPage({
   });
 
   const handleSelect = useCallback(
-    (sel: ContactSelection) => {
-      setSelection(sel);
+    (contactId: string) => {
+      setPickedContactId(contactId);
       closeDrawer();
       setMergeDialogOpen(false);
       mergeMutation.reset();
@@ -573,17 +551,15 @@ export function ContactsPage({
   // Render
   // ---------------------------------------------------------------------------
 
-  // Old builds' mobile chat handoff (and saved links) deep-linked channel
-  // setup to this page. The forms it targeted moved to the Channels tab,
-  // so forward the link there rather than stranding it on the assistant
-  // card's plain connect/disconnect list.
+  // Old builds' mobile chat handoff (and saved links) deep-link channel setup
+  // to this page. The forms they target live on the Channels tab, so the link
+  // is forwarded there.
   if (setupChannel) {
     return <Navigate to={`${routes.channels}?setup=${setupChannel}`} replace />;
   }
 
   const contactsListProps = {
     loading: contactsQuery.isLoading,
-    assistantName: assistantName,
     guardian: guardian
       ? {
           id: guardian.id,
@@ -604,7 +580,7 @@ export function ContactsPage({
         channelTypes: channelTypeLabels(c.channels, a2aChannel),
         verified: isVerifiedContact(c.channels),
       })),
-    selection,
+    selectedContactId,
     onAddContact: handleAddContact,
     addingContact: createMutation.isPending,
     search: contactSearch,
@@ -639,17 +615,8 @@ export function ContactsPage({
       )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {selection.kind === "assistant" ||
-        (selection.kind === "contact" &&
-          selection.contactId === deletingContactId) ? (
-          <AssistantChannelsDetail
-            assistantName={assistantName}
-            channels={channelsController.channels}
-            pendingChannelKey={channelsController.pendingChannelKey}
-            onConnect={channelsController.onSetup}
-            onDisconnect={channelsController.onDisconnect}
-          />
-        ) : optimisticContact ? (
+        {contactsQuery.isLoading ? null : optimisticContact &&
+          optimisticContact.id !== deletingContactId ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
               contact={optimisticContact}
