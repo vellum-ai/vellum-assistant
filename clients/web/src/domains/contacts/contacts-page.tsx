@@ -1,15 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Navigate,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
 } from "react-router";
+import { Plus } from "lucide-react";
 
+import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
+import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { isVerifiedContactChannel } from "@/domains/contacts/channel-linking";
 import { channelTypeLabel } from "@/domains/contacts/channel-type-labels";
@@ -49,6 +55,10 @@ import { useAssistantChannels } from "@/hooks/use-assistant-channels";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import {
+  PUSHED_FROM_LIST_STATE,
+  returnToList,
+} from "@/utils/list-detail-navigation";
 import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 
@@ -128,10 +138,20 @@ export function ContactsPage({
 
   const { contactId: routeContactId } = useParams<{ contactId: string }>();
   const navigate = useNavigate();
+  const { pathname, state: locationState } = useLocation();
 
   const inviteDialog = useInviteLinkDialog(assistantId);
+  const isMobile = useIsMobile();
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
     useSideListRoom();
+  // On a phone the list is the page and a contact is a pushed screen. A narrow
+  // pane in a desktop window keeps the drawer, since it has no top bar to
+  // carry a list-level Back.
+  const listIsScreen = isMobile && !hasRoomForList;
+  // The list is the whole page, with no detail open over it.
+  const listFillsPage = listIsScreen && !routeContactId;
+  // The contact is the whole page, with the list a screen behind it.
+  const detailFillsPage = listIsScreen && Boolean(routeContactId);
   // Above the inline/drawer branch below, which remounts whichever list
   // surface it swaps to: held inside `ContactsList` the filter would be
   // dropped whenever the pane crosses the threshold, and dragging the chat
@@ -206,21 +226,56 @@ export function ContactsPage({
     () => contactsData?.filter((c) => c.role !== "guardian") ?? [],
     [contactsData],
   );
-  // With nothing picked the pane rests on the guardian.
-  const selectedContactId = routeContactId ?? guardian?.id ?? null;
+  // With nothing picked the pane rests on the guardian, but only where a
+  // detail sits beside or behind the list. As a screen the list is the whole
+  // page and nothing is open.
+  const selectedContactId =
+    routeContactId ?? (listIsScreen ? null : (guardian?.id ?? null));
   const selectedContact = useMemo<ContactPayload | null>(
     () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
     [contactsData, selectedContactId],
   );
 
-  // Moving between rows of one page is not a step to walk back through, so
-  // the selection replaces the entry rather than pushing a new one.
+  // A push is marked so Back pops to the list, and only a pick made while the
+  // list is the page has a list behind it. Every other pick lands on a detail
+  // already open (a row beside the rail, a merge survivor), which is a move
+  // within one page rather than a step to walk back through, so it replaces
+  // that entry and carries its state: one pushed from the list keeps its
+  // marker, a deep-linked one stays unmarked.
   const selectContact = useCallback(
     (contactId: string) => {
-      void navigate(routes.contacts.detail(contactId), { replace: true });
+      if (contactId === routeContactId) {
+        return;
+      }
+      void navigate(
+        routes.contacts.detail(contactId),
+        listFillsPage
+          ? { state: PUSHED_FROM_LIST_STATE }
+          : { replace: true, state: locationState },
+      );
     },
-    [navigate],
+    [navigate, listFillsPage, routeContactId, locationState],
   );
+
+  // The page's own ways out of an open contact, over the same `returnToList`
+  // the layout's top-bar Back uses, so a pushed entry always pops and a
+  // deep-linked one always replaces.
+  const backToList = useCallback(() => {
+    returnToList(navigate, locationState, routes.contacts.root);
+  }, [navigate, locationState]);
+
+  // A contact that fills the page is the back-swipe owner, so `ChatLayout`
+  // yields the left edge to it rather than opening the nav drawer. The list
+  // screen and both pane modes keep that drawer gesture. The section is what
+  // the swipe drags: on a phone it is the whole visible page. No prefetch:
+  // list and detail resolve to one lazy chunk, already loaded here.
+  const swipeContainerRef = useRef<HTMLElement>(null);
+  useEdgeSwipeBack({
+    containerRef: swipeContainerRef,
+    onBack: backToList,
+    enabled: detailFillsPage,
+    navKey: pathname,
+  });
 
   // Positive evidence that this list is the whole list: a fetch has succeeded
   // and none is in flight. A pending, revalidating, or failed query all fall
@@ -286,7 +341,7 @@ export function ContactsPage({
             }
           : undefined,
       );
-      void navigate(routes.contacts.root, { replace: true });
+      backToList();
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
@@ -421,6 +476,37 @@ export function ContactsPage({
     }
     createMutation.mutate();
   }, [createMutation]);
+
+  // As a screen the list has no heading row of its own, so the add action
+  // rides the layout's mobile top bar. Everywhere else the card's own plus
+  // carries it. The mutation object is new on every render, so the effect
+  // tracks the two fields it reads rather than the object.
+  const setHeaderTrailing =
+    useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
+  const addPending = createMutation.isPending;
+  const addContact = createMutation.mutate;
+  useEffect(() => {
+    if (!listFillsPage) {
+      setHeaderTrailing(null);
+      return;
+    }
+    setHeaderTrailing(
+      <Button
+        shape="pill"
+        variant="ghost"
+        iconOnly={<Plus aria-hidden />}
+        aria-label={t("contactsList.addAriaLabel")}
+        tooltip={t("contactsList.addAriaLabel")}
+        className="max-md:bg-[var(--surface-active)]"
+        loading={addPending}
+        disabled={addPending}
+        onClick={() => addContact()}
+      />,
+    );
+    return () => {
+      setHeaderTrailing(null);
+    };
+  }, [addContact, addPending, listFillsPage, setHeaderTrailing, t]);
 
   const handleContactSetupChannel = useCallback(
     (type: string) => {
@@ -630,7 +716,7 @@ export function ContactsPage({
         <aside className="min-h-0 w-[320px] shrink-0 overflow-y-auto self-stretch">
           <ContactsList {...contactsListProps} onSelect={handleSelect} />
         </aside>
-      ) : (
+      ) : listIsScreen ? null : (
         <>
           <div className="flex items-center">
             <SideListTrigger onClick={openDrawer} />
@@ -646,9 +732,20 @@ export function ContactsPage({
         </>
       )}
 
-      <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {contactsQuery.isLoading ||
-        resolvingRouteContact ? null : optimisticContact &&
+      {/* One slot in every mode, so an open detail keeps its form state when
+          the pane crosses the threshold. */}
+      <section
+        ref={swipeContainerRef}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+      >
+        {listFillsPage ? (
+          <ContactsList
+            {...contactsListProps}
+            surface="screen"
+            onSelect={handleSelect}
+          />
+        ) : contactsQuery.isLoading ||
+          resolvingRouteContact ? null : optimisticContact &&
           optimisticContact.id !== deletingContactId ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView

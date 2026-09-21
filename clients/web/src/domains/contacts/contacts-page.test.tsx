@@ -15,11 +15,33 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { createElement, Fragment, type ReactNode } from "react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
+import {
+  createElement,
+  Fragment,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useState,
+} from "react";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+  useLocation,
+} from "react-router";
 
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { ApiError } from "@/utils/api-errors";
+import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import {
   currentLocation,
@@ -27,6 +49,8 @@ import {
 } from "@/hooks/router-probe.test-helper";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
+import type { UseEdgeSwipeBackArgs } from "@/hooks/use-edge-swipe-back";
+import * as useIsMobileModule from "@/hooks/use-is-mobile";
 
 // ---------------------------------------------------------------------------
 // Module-level holders
@@ -38,7 +62,11 @@ let lastUpsertBody: unknown = null;
 let contactsFixture: ContactPayload[] = [];
 let contactsShouldReject = false;
 let availableChannelsOverride: ChannelInfo[] | null = null;
+let isMobile = false;
+let hasRoomForList = true;
+let lastSwipeArgs: UseEdgeSwipeBackArgs | null = null;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
+const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
 
 const GUARDIAN = {
@@ -72,6 +100,12 @@ const PEER = {
   contactType: "assistant",
   autoApproveThreshold: null,
 } as unknown as ContactPayload;
+
+const DRAFT: ContactPayload = {
+  ...ALICE,
+  id: "c-draft",
+  displayName: DRAFT_CONTACT_NAME,
+};
 
 const CONTACTS_KEY = ["contactsGet", "test"] as const;
 
@@ -129,6 +163,39 @@ mock.module("@vellumai/design-library/components/select", () => ({
     ),
 }));
 
+// The two axes the page reads to choose between a rail, a drawer, and the
+// list as the page. Both default to what a desktop window reports, so a suite
+// that sets neither keeps the desktop path. The real module is copied before
+// the mock is registered, since reading it afterwards yields the mock.
+const realUseIsMobileModule = { ...useIsMobileModule };
+
+mock.module("@/hooks/use-is-mobile", () => ({
+  ...realUseIsMobileModule,
+  useIsMobile: () => isMobile,
+}));
+
+// Captures the registration instead of installing the real document-level
+// gesture, so the suite can read what the page asks for without synthesising
+// touches.
+mock.module("@/hooks/use-edge-swipe-back", () => ({
+  useEdgeSwipeBack: (args: UseEdgeSwipeBackArgs) => {
+    lastSwipeArgs = args;
+  },
+}));
+
+mock.module("@/hooks/use-side-list-room", () => ({
+  useSideListRoom: () => {
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    return {
+      paneRef: () => {},
+      hasRoomForList,
+      drawerOpen,
+      openDrawer: () => setDrawerOpen(true),
+      closeDrawer: () => setDrawerOpen(false),
+    };
+  },
+}));
+
 mock.module("@/hooks/use-assistant-channels", () => ({
   useAssistantChannels: () => ({
     channels: [],
@@ -150,6 +217,9 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
     lastUpsertBody = body;
     if (upsertShouldReject) {
       throw new ApiError(404, "Not found");
+    }
+    if (!body.id) {
+      return { ...DRAFT, displayName: body.displayName };
     }
     if (body.id === ALICE.id) {
       return { ...ALICE, ...body };
@@ -174,7 +244,8 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
 
 // Resolve every query the page renders to a fixture so the detail pane rests
 // on the guardian and no real network is attempted. Real mutation hooks (merge
-// and channel-patch) are kept; they aren't fired here.
+// and channel-patch) are kept, so the merge is driven through its generated
+// hook and stubbed one level down, at its SDK call.
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
@@ -205,6 +276,20 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
+  // The daemon answers a merge with the surviving contact, which is the one
+  // named by `keepId`.
+  contactsMergePost: async (options: {
+    body: { keepId: string; mergeId: string };
+  }) => {
+    mergeRequests.push(options.body);
+    return {
+      data: {
+        contact: contactsFixture.find((c) => c.id === options.body.keepId),
+      },
+      error: undefined,
+      response: { ok: true, status: 200 },
+    };
+  },
   channelsAvailableGet: async () => {
     if (availableChannelsOverride) {
       return {
@@ -286,14 +371,87 @@ function Wrapper({
   );
 }
 
+/**
+ * Renders the page under the production route shape: `routes.tsx` mounts two
+ * sibling entries sharing one component, which {@link Wrapper} collapses into
+ * a single optional-segment route. Returns the router so a suite can read the
+ * entry it is on and walk the history.
+ */
+function renderUnderRouteShape(initialPath: string) {
+  function ContactsRoute() {
+    return (
+      <>
+        <ContactsPage assistantId="asst-1" />
+        <LocationProbe />
+      </>
+    );
+  }
+
+  const router = createMemoryRouter(
+    [
+      { path: "/assistant/contacts", Component: ContactsRoute },
+      { path: "/assistant/contacts/:contactId", Component: ContactsRoute },
+    ],
+    { initialEntries: [initialPath] },
+  );
+
+  render(
+    <QueryClientProvider client={makeQueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+
+  return router;
+}
+
+/**
+ * Merges the peer contact into whichever contact the detail view has open, and
+ * returns once the success path has fully landed. Three signals, in order: the
+ * request reaches the SDK, the handler that runs on its response closes the
+ * dialog, and a data router resolves the navigation that handler may have
+ * asked for a tick later. Only past the last one does the location read true.
+ */
+async function mergePeerIntoOpenContact(): Promise<void> {
+  fireEvent.click(getButton("Merge…"));
+  fireEvent.click(await waitFor(() => getModalButton(PEER.displayName)));
+  fireEvent.click(await waitFor(() => getModalButton("Merge")));
+  await waitFor(() => {
+    expect(mergeRequests).toEqual([{ keepId: ALICE.id, mergeId: PEER.id }]);
+  });
+  await waitFor(() => {
+    expect(document.querySelector('[data-slot="modal-content"]')).toBe(null);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function queryInputByPlaceholder(placeholder: string): HTMLInputElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLInputElement>("input")).find(
+      (el) => el.placeholder === placeholder,
+    ) ?? null
+  );
+}
+
 function getInputByPlaceholder(placeholder: string): HTMLInputElement {
-  const input = Array.from(
-    document.querySelectorAll<HTMLInputElement>("input"),
-  ).find((el) => el.placeholder === placeholder);
+  const input = queryInputByPlaceholder(placeholder);
   if (!input) {
     throw new Error(`expected an input with placeholder "${placeholder}"`);
   }
   return input;
+}
+
+/** The add action the page hangs off the layout's mobile top bar. */
+function headerTrailing(): ReactElement<{ onClick: () => void }> | null {
+  const node = useIntelligenceLayoutSlotsStore.getState().headerTrailing;
+  return isValidElement(node)
+    ? (node as ReactElement<{ onClick: () => void }>)
+    : null;
+}
+
+function queryDrawerTrigger(): Element | null {
+  return document.querySelector('[aria-label="Open sidebar"]');
 }
 
 function getButton(label: string): HTMLButtonElement {
@@ -339,8 +497,13 @@ beforeEach(() => {
   contactsFixture = [GUARDIAN, ALICE, PEER];
   contactsShouldReject = false;
   availableChannelsOverride = null;
+  isMobile = false;
+  hasRoomForList = true;
+  lastSwipeArgs = null;
   linkAndVerifyCalls.length = 0;
+  mergeRequests.length = 0;
   unhandledRejections.length = 0;
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
   process.on("unhandledRejection", onUnhandled);
 });
 
@@ -720,6 +883,249 @@ describe("ContactsPage contact permissions", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandledRejections).toEqual([]);
+  });
+});
+
+describe("ContactsPage as a phone screen", () => {
+  beforeEach(() => {
+    isMobile = true;
+    hasRoomForList = false;
+  });
+
+  test("the bare route is the list, with no detail and no drawer", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(getButtonByText("Alice")).toBeDefined();
+    expect(queryInputByPlaceholder("Your name")).toBe(null);
+    expect(queryDrawerTrigger()).toBe(null);
+  });
+
+  test("tapping a row pushes the contact and takes the list off screen", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText("Alice"));
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(currentLocation().state).toEqual({ pushedFromList: true });
+    expect(queryInputByPlaceholder("Search Contacts")).toBe(null);
+  });
+
+  test("the top bar carries the add action only while the list is the page", async () => {
+    const { unmount } = render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(headerTrailing()).not.toBe(null);
+
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => {
+      expect(headerTrailing()).toBe(null);
+    });
+
+    unmount();
+    expect(headerTrailing()).toBe(null);
+  });
+
+  test("the top bar add creates a contact and opens it", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    const addAction = headerTrailing();
+    expect(addAction).not.toBe(null);
+
+    await act(async () => {
+      addAction!.props.onClick();
+    });
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${DRAFT.id}`,
+      );
+    });
+    expect(lastUpsertBody).toEqual({ displayName: DRAFT_CONTACT_NAME });
+  });
+
+  test("deleting a contact pushed from the list returns to the list", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("a merge on a deep-linked contact leaves the entry alone", async () => {
+    const router = renderUnderRouteShape(`/assistant/contacts/${ALICE.id}`);
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    const entryBefore = router.state.location.key;
+
+    await mergePeerIntoOpenContact();
+
+    // The survivor is the contact already open, so the merge navigates
+    // nowhere: the entry keeps its key and never gains a marker claiming a
+    // list sits behind it.
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(currentLocation().state).toBe(null);
+    expect(router.state.location.key).toBe(entryBefore);
+  });
+
+  test("a merge on a contact pushed from the list keeps one Back to the list", async () => {
+    const router = renderUnderRouteShape("/assistant/contacts");
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().state).toEqual({ pushedFromList: true });
+
+    await mergePeerIntoOpenContact();
+
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(currentLocation().state).toEqual({ pushedFromList: true });
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+});
+
+describe("ContactsPage back swipe ownership", () => {
+  test("a contact filling the phone owns the swipe and it returns to the list", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+
+    renderUnderRouteShape("/assistant/contacts");
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(true);
+    expect(lastSwipeArgs!.navKey).toBe(`/assistant/contacts/${ALICE.id}`);
+
+    await act(async () => {
+      lastSwipeArgs!.onBack();
+    });
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("the phone list screen leaves the edge to the nav drawer", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
+  });
+
+  test("a desktop contact beside the list leaves the edge alone", async () => {
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
+  });
+
+  test("a contact in the narrow desktop pane leaves the edge alone", async () => {
+    hasRoomForList = false;
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(lastSwipeArgs).not.toBe(null);
+    expect(lastSwipeArgs!.enabled).toBe(false);
+  });
+});
+
+describe("ContactsPage in a narrow desktop pane", () => {
+  test("keeps the drawer, the guardian detail, and an empty top bar", async () => {
+    hasRoomForList = false;
+
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(queryDrawerTrigger()).not.toBe(null);
+    expect(headerTrailing()).toBe(null);
+  });
+});
+
+describe("ContactsPage under the production route shape", () => {
+  // A remount between the two sibling entries would drop every piece of page
+  // state, starting with the search text.
+  test("the search text survives opening a contact and coming back", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+
+    const router = renderUnderRouteShape("/assistant/contacts");
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    fireEvent.change(getInputByPlaceholder("Search Contacts"), {
+      target: { value: "Ali" },
+    });
+    expect(getInputByPlaceholder("Search Contacts").value).toBe("Ali");
+
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+
+    await act(async () => {
+      await router.navigate(-1);
+    });
+
+    await waitFor(() => {
+      expect(getInputByPlaceholder("Search Contacts").value).toBe("Ali");
+    });
   });
 });
 
