@@ -101,6 +101,69 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Desktop system packages persist through container replacement as image layers.
+RUN set -eu; \
+    wezterm_version=20240203-110809-5046fc22; \
+    case "$(dpkg --print-architecture)" in \
+        amd64) wezterm_suffix=Debian12.deb; wezterm_sha256=d3a5c97093fbc0a87e8f9616e44efc4c9503cfc495fd1cfe4ffeff88578d15f8 ;; \
+        arm64) wezterm_suffix=Debian12.arm64.deb; wezterm_sha256=351f8791c6e9561d687afa63834a2132de84800dad6e7c3d035cc6518d6c3744 ;; \
+        *) echo "Unsupported desktop architecture" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --proto '=https' --proto-redir '=https' \
+        --retry 2 --max-time 300 --output /tmp/wezterm.deb \
+        "https://github.com/wezterm/wezterm/releases/download/${wezterm_version}/wezterm-${wezterm_version}.${wezterm_suffix}"; \
+    printf '%s  /tmp/wezterm.deb\n' "$wezterm_sha256" | sha256sum --check -; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        adwaita-icon-theme \
+        at-spi2-core \
+        bamfdaemon \
+        dbus-daemon \
+        dbus-x11 \
+        feh \
+        fonts-liberation \
+        gnome-mines \
+        gvfs \
+        libcurl4 \
+        libegl1 \
+        libgl1-mesa-dri \
+        libgtk-3-0 \
+        libvulkan1 \
+        openbox \
+        plank \
+        python3 \
+        python3-dbus \
+        scrot \
+        thunar \
+        tigervnc-common \
+        tigervnc-standalone-server \
+        tumbler \
+        xauth \
+        xcompmgr \
+        xdotool \
+        xfonts-base \
+        xterm \
+        /tmp/wezterm.deb; \
+    wezterm --version; \
+    rm -rf /tmp/wezterm.deb /var/lib/apt/lists/* /var/cache/apt/archives/*.deb
+
+# Extract Chrome without running package scripts or registering its repository.
+RUN set -eu; \
+    chrome_version=153.0.8010.36-1; \
+    chrome_arch="$(dpkg --print-architecture)"; \
+    case "$chrome_arch" in \
+        amd64) chrome_sha256=9bb44e33031c2f2857cf36b4343051a12f93058e4b781e3c76313df87f6c8d32 ;; \
+        arm64) chrome_sha256=1fcf6ec51a9d52e26ff1ad807225f725be55069ad2b68c5d69361a2746665188 ;; \
+        *) echo "Unsupported Chrome architecture" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --proto '=https' --proto-redir '=https' \
+        --retry 2 --max-time 300 --output /tmp/chrome.deb \
+        "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${chrome_version}_${chrome_arch}.deb"; \
+    printf '%s  /tmp/chrome.deb\n' "$chrome_sha256" | sha256sum --check -; \
+    dpkg-deb --extract /tmp/chrome.deb /; \
+    /opt/google/chrome/chrome --version; \
+    rm /tmp/chrome.deb
+
 # Copy bun binary from builder instead of re-installing
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx

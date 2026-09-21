@@ -217,7 +217,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(x).toContain("-localhost");
     expect(x[x.indexOf("-SecurityTypes") + 1]).toBe("None");
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
-    expect(x[x.indexOf("-geometry") + 1]).toBe("1600x900");
+    expect(x[x.indexOf("-geometry") + 1]).toBe("1440x810");
     for (const role of [
       "session-bus",
       "window-manager",

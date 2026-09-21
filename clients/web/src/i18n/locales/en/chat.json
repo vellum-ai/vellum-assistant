@@ -164,14 +164,8 @@
     "reconnectButton": "Reconnect",
     "title": "Desktop",
     "unavailable": "The virtual desktop isn't available on this assistant.",
-    "installButton": "Install virtual desktop",
     "checkingSetup": "Checking virtual desktop setup…",
-    "installingPackages": "Installing virtual desktop components…",
-    "installingChrome": "Installing Google Chrome…",
-    "checkingInstall": "Checking the installation…",
-    "installFailed": "Installation failed. Try again to finish setup.",
-    "setupRequestFailed": "Could not check virtual desktop setup. Reconnect to try again.",
-    "setupUnsupported": "Virtual desktop installation requires a Linux x64 or ARM64 container with administrator access."
+    "setupRequestFailed": "Could not check virtual desktop setup. Reconnect to try again."
   },
   "assistantNavItem": {
     "newChat": "New Chat"

@@ -27,7 +27,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 
 // ---------------------------------------------------------------------------
 // Mock the daemon collaborators the handler module imports at load time so the

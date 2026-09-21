@@ -18,7 +18,7 @@
 
 import { create } from "zustand";
 
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------

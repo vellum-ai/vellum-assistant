@@ -7,7 +7,7 @@
  * what makes a gradient a complete substitute, and is how the design reference
  * fakes it too. One module rather than a copy per story file, so a frame that
  * stops being the honest test case stops being it everywhere at once, and so
- * the row's offsets are stated once outside the app.
+ * the row is composed once outside the app.
  *
  * Story-local sample content standing in for camera video. Nothing here is app
  * styling, and nothing outside a `.stories.tsx` file imports it.
@@ -28,6 +28,10 @@ import {
   type CameraShutterHintProps,
 } from "./voice-room/camera-shutter-hint";
 import { CAMERA_WARM } from "./voice-room/camera-mode-paint";
+import {
+  CAMERA_ROW_FLANK_INSET,
+  VOICE_ROOM_CONTROL_SIZE_CLASS,
+} from "./voice-room/voice-room-layout";
 
 /**
  * Two stops of brightness in one frame. A control that only has to survive
@@ -97,14 +101,17 @@ export function ToneCell({
  * Flip, at its place in the shutter row, drawn rather than rendered: the
  * stories that show the row are about the two controls that change how the
  * next photo comes out, and a live control off to the side would be a third
- * thing to press. The fill comes off the same constant the real one reads, so
- * the stand-in cannot drift.
+ * thing to press. The fill, the circle and the inset all come off the same
+ * constants the real one reads, so the stand-in cannot drift.
  */
 function CameraRowFlipStandIn() {
   return (
     <span
       aria-hidden
-      className="absolute right-[30px] size-13 rounded-full"
+      className={cn(
+        "absolute right-[var(--camera-flank-inset)] rounded-full",
+        VOICE_ROOM_CONTROL_SIZE_CLASS,
+      )}
       style={{ background: CAMERA_WARM }}
     />
   );
@@ -135,10 +142,10 @@ export interface CameraRowSceneProps {
    */
   hint?: CameraShutterHintProps;
   /**
-   * The width the row is read at. On its own it takes a phone's, which is what
-   * the flanking offsets were drawn against; a composed screen passes `w-full`
-   * instead, since in the app the row is as wide as the room it sits in and
-   * the flanks ride that edge rather than a fixed one.
+   * The width the row is read at. On its own it takes a phone's, which is the
+   * width the row is designed at; a composed screen passes `w-full` instead,
+   * since in the app the row is as wide as the room it sits in and the flanks
+   * ride that edge rather than a fixed one.
    */
   className?: string;
 }
@@ -150,8 +157,9 @@ export interface CameraRowSceneProps {
  *
  * The shutter and the flash are the real components, since both are
  * presentational and read nothing from a store, so a story about either one in
- * place is a story about the pair. The offsets are the design's, stated here
- * rather than in each story file.
+ * place is a story about the pair. The flanks' inset and the circle they share
+ * are the room's own, imported from `voice-room-layout.ts`, the module the room
+ * reads them from, so the row cannot drift from the surface it stands in for.
  */
 export function CameraRowScene({
   shutter = ROW_SHUTTER,
@@ -167,12 +175,17 @@ export function CameraRowScene({
       className={cn("flex w-[390px] flex-col items-center gap-3", className)}
     >
       {hint ? <CameraShutterHint {...hint} /> : null}
-      <div className="relative flex w-full items-center justify-center">
+      <div
+        className="relative flex w-full items-center justify-center"
+        style={
+          { "--camera-flank-inset": CAMERA_ROW_FLANK_INSET } as CSSProperties
+        }
+      >
         <CameraFlashControl
           {...ROW_FLASH}
           {...flash}
           onClick={() => {}}
-          className="absolute left-11"
+          className="absolute left-[var(--camera-flank-inset)]"
         />
         <CameraShutter {...shutter} />
         <CameraRowFlipStandIn />

@@ -168,7 +168,6 @@ function attachOperationAction(
       }
     }
 
-    // First use can include virtual desktop installation and Chrome startup.
     const ipcResult = await cliIpcCall<BrowserExecuteResult>(
       "browser_execute",
       {

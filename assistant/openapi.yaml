@@ -12012,7 +12012,7 @@ paths:
                 additionalProperties: false
     post:
       operationId: desktop_setup_post
-      summary: Install virtual desktop components
+      summary: Check virtual desktop readiness (legacy POST)
       tags:
         - desktop
       responses:
@@ -21363,6 +21363,100 @@ paths:
                                       - redirectCount
                                       - durationMs
                                     additionalProperties: false
+                                  recall:
+                                    type: object
+                                    properties:
+                                      query:
+                                        type: string
+                                      depth:
+                                        type: string
+                                        enum:
+                                          - fast
+                                          - standard
+                                          - deep
+                                      sources:
+                                        type: array
+                                        items:
+                                          type: string
+                                          enum:
+                                            - memory
+                                            - conversations
+                                            - workspace
+                                      answer:
+                                        type: string
+                                      evidence:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            source:
+                                              type: string
+                                              enum:
+                                                - memory
+                                                - conversations
+                                                - workspace
+                                            title:
+                                              type: string
+                                            locator:
+                                              type: string
+                                            excerpt:
+                                              type: string
+                                            timestampMs:
+                                              type: number
+                                            path:
+                                              type: string
+                                            conversationId:
+                                              type: string
+                                            messageId:
+                                              type: string
+                                          required:
+                                            - source
+                                            - title
+                                            - locator
+                                            - excerpt
+                                          additionalProperties: false
+                                      searchedSources:
+                                        type: array
+                                        items:
+                                          type: object
+                                          properties:
+                                            source:
+                                              type: string
+                                              enum:
+                                                - memory
+                                                - conversations
+                                                - workspace
+                                            status:
+                                              type: string
+                                              enum:
+                                                - searched
+                                                - degraded
+                                            evidenceCount:
+                                              type: number
+                                            error:
+                                              type: string
+                                          required:
+                                            - source
+                                            - status
+                                            - evidenceCount
+                                          additionalProperties: false
+                                    required:
+                                      - query
+                                      - depth
+                                      - sources
+                                      - evidence
+                                      - searchedSources
+                                    additionalProperties: false
+                                  remember:
+                                    type: object
+                                    properties:
+                                      facts:
+                                        type: array
+                                        items:
+                                          type: string
+                                    required:
+                                      - facts
+                                    additionalProperties: false
                                 additionalProperties: false
                               scopeOptions:
                                 type: array
@@ -21882,6 +21976,100 @@ paths:
                                               - domain
                                               - redirectCount
                                               - durationMs
+                                            additionalProperties: false
+                                          recall:
+                                            type: object
+                                            properties:
+                                              query:
+                                                type: string
+                                              depth:
+                                                type: string
+                                                enum:
+                                                  - fast
+                                                  - standard
+                                                  - deep
+                                              sources:
+                                                type: array
+                                                items:
+                                                  type: string
+                                                  enum:
+                                                    - memory
+                                                    - conversations
+                                                    - workspace
+                                              answer:
+                                                type: string
+                                              evidence:
+                                                type: array
+                                                items:
+                                                  type: object
+                                                  properties:
+                                                    source:
+                                                      type: string
+                                                      enum:
+                                                        - memory
+                                                        - conversations
+                                                        - workspace
+                                                    title:
+                                                      type: string
+                                                    locator:
+                                                      type: string
+                                                    excerpt:
+                                                      type: string
+                                                    timestampMs:
+                                                      type: number
+                                                    path:
+                                                      type: string
+                                                    conversationId:
+                                                      type: string
+                                                    messageId:
+                                                      type: string
+                                                  required:
+                                                    - source
+                                                    - title
+                                                    - locator
+                                                    - excerpt
+                                                  additionalProperties: false
+                                              searchedSources:
+                                                type: array
+                                                items:
+                                                  type: object
+                                                  properties:
+                                                    source:
+                                                      type: string
+                                                      enum:
+                                                        - memory
+                                                        - conversations
+                                                        - workspace
+                                                    status:
+                                                      type: string
+                                                      enum:
+                                                        - searched
+                                                        - degraded
+                                                    evidenceCount:
+                                                      type: number
+                                                    error:
+                                                      type: string
+                                                  required:
+                                                    - source
+                                                    - status
+                                                    - evidenceCount
+                                                  additionalProperties: false
+                                            required:
+                                              - query
+                                              - depth
+                                              - sources
+                                              - evidence
+                                              - searchedSources
+                                            additionalProperties: false
+                                          remember:
+                                            type: object
+                                            properties:
+                                              facts:
+                                                type: array
+                                                items:
+                                                  type: string
+                                            required:
+                                              - facts
                                             additionalProperties: false
                                         additionalProperties: false
                                       scopeOptions:

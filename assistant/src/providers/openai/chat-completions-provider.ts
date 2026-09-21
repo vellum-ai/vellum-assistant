@@ -355,6 +355,41 @@ function protectJsonSchemaToolResult(payload: string): string {
     : payload;
 }
 
+function carriesReasoningOptOut(params: unknown): boolean {
+  const p = params as {
+    reasoning_effort?: unknown;
+    reasoning?: { effort?: unknown } | null;
+  };
+  return (
+    p.reasoning_effort === "none" ||
+    (typeof p.reasoning === "object" &&
+      p.reasoning !== null &&
+      p.reasoning.effort === "none")
+  );
+}
+
+function stripReasoningParams(params: unknown): void {
+  const p = params as Record<string, unknown>;
+  delete p.reasoning_effort;
+  delete p.reasoning;
+}
+
+/**
+ * `baseURL|model|routing` keys whose request succeeded on the attempt directly
+ * after the opt-out was stripped. Later requests skip the opt-out up front
+ * instead of paying a rejected round-trip on every call. A success that needed
+ * a further compat retry proves nothing about the opt-out, so it is not
+ * recorded. Routing (OpenRouter's `provider` body field) is part of the key
+ * because opt-out support belongs to the upstream backend, not the model slug.
+ * Process-lifetime only: a restart re-learns with one rejected request per key.
+ */
+const reasoningOptOutRejecters = new Set<string>();
+
+/** Test-only: forget learned reasoning opt-out rejections. */
+export function resetReasoningOptOutRejectersForTests(): void {
+  reasoningOptOutRejecters.clear();
+}
+
 /**
  * True when the request carried an explicit reasoning opt-out (`"none"` sent
  * as flat `reasoning_effort` or nested `reasoning.effort`) and the provider
@@ -364,16 +399,7 @@ function protectJsonSchemaToolResult(payload: string): string {
  * model-default reasoning beats a hard failure.
  */
 function isReasoningOptOutRejection(error: unknown, params: unknown): boolean {
-  const p = params as {
-    reasoning_effort?: unknown;
-    reasoning?: { effort?: unknown } | null;
-  };
-  const optedOut =
-    p.reasoning_effort === "none" ||
-    (typeof p.reasoning === "object" &&
-      p.reasoning !== null &&
-      p.reasoning.effort === "none");
-  if (!optedOut) {
+  if (!carriesReasoningOptOut(params)) {
     return false;
   }
   if (!isClientErrorStatus(error)) {
@@ -685,10 +711,7 @@ function classifyOpenAICompatRetry(
       kind: "reasoning-opt-out",
       message:
         "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
-      apply: () => {
-        delete params.reasoning_effort;
-        delete (params as unknown as Record<string, unknown>).reasoning;
-      },
+      apply: () => stripReasoningParams(params),
     };
   }
   if (isThinkingModeToolChoiceRejection(error, params)) {
@@ -1144,6 +1167,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (extraBody) {
           Object.assign(params, extraBody);
         }
+        const optOutKey = `${this.client.baseURL}|${params.model}|${JSON.stringify(
+          (params as { provider?: unknown }).provider ?? null,
+        )}`;
+        if (
+          reasoningOptOutRejecters.has(optOutKey) &&
+          carriesReasoningOptOut(params)
+        ) {
+          stripReasoningParams(params);
+        }
         const createStream = () => {
           // Snapshot after extra-body merge and any in-place compat retries
           // so inspector rows match the params that actually went on the wire.
@@ -1156,10 +1188,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
           });
         };
         const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
+        let lastCompatRetry: OpenAICompatRetryKind | undefined;
         let stream: Awaited<ReturnType<typeof createStream>>;
         for (;;) {
           try {
             stream = await createStream();
+            if (lastCompatRetry === "reasoning-opt-out") {
+              reasoningOptOutRejecters.add(optOutKey);
+            }
             break;
           } catch (error) {
             const retry = classifyOpenAICompatRetry(
@@ -1171,6 +1207,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
               throw error;
             }
             attemptedCompatRetries.add(retry.kind);
+            lastCompatRetry = retry.kind;
             log.warn(
               {
                 provider: this.name,

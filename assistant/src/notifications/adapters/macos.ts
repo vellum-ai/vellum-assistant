@@ -2,14 +2,14 @@
  * Vellum channel adapter — delivers notifications to connected desktop
  * and mobile clients via the daemon's event broadcast mechanism.
  *
- * The adapter broadcasts a `notification_intent` message that the Vellum
- * client uses for two distinct purposes: paired-conversation bookkeeping
- * (mark-unseen + history catch-up, fallback dedup) and posting an OS
- * banner via `UNUserNotificationCenter`. The banner posting is gated by
- * the `silent` flag — set to true for non-urgent (`low`/`medium`) signals
- * so the notification center inbox still receives the entry but the OS
- * does not surface a push banner. Urgent signals (`high`/`critical`)
- * broadcast with `silent: false` and fire the banner.
+ * The adapter broadcasts a `notification_intent` message that the client
+ * turns into an OS notification (`use-notification-intent-sync.ts` in the
+ * web client, which every first-party app runs). The `silent` flag is true
+ * for non-urgent (`low`/`medium`) signals, and the client posts nothing for
+ * those: they reach their conversation (and the home feed, for background
+ * work) without a banner.
+ * Urgent signals (`high`/`critical`) broadcast with `silent: false` and
+ * banner.
  *
  * Guardian-sensitive notifications (approval requests, access requests)
  * are delivered only to connections authenticated as the guardian: the hub

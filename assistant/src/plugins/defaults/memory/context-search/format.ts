@@ -1,9 +1,11 @@
 import { safeStringSlice } from "@vellumai/plugin-api";
 
 import type {
-  DeterministicRecallSearchResult,
-  DeterministicRecallSourceNote,
-} from "./search.js";
+  RecallMetadata,
+  RecallSearchedSource,
+} from "../../../../api/events/tool-result.js";
+import type { NormalizedRecallInput } from "./limits.js";
+import type { DeterministicRecallSearchResult } from "./search.js";
 import type { RecallAnswer, RecallEvidence } from "./types.js";
 
 const CITATION_EXCERPT_MAX_CHARS = 280;
@@ -14,7 +16,7 @@ export interface RecallFooterInspectCall {
 }
 
 export interface RecallFooterOptions {
-  searchedSources: readonly DeterministicRecallSourceNote[];
+  searchedSources: readonly RecallSearchedSource[];
   inspectCalls?: readonly RecallFooterInspectCall[];
 }
 
@@ -56,6 +58,48 @@ export function formatDeterministicRecallAnswer(
   };
 }
 
+/**
+ * The recall result as structured data, from the same pieces its text is
+ * built from. `answer` is only the answer written from the evidence, never the
+ * evidence list or footer the text appends to it.
+ */
+export function buildRecallActivity(options: {
+  input: NormalizedRecallInput;
+  searchedSources: readonly RecallSearchedSource[];
+  evidence: readonly RecallEvidence[];
+  answer?: string;
+}): RecallMetadata {
+  const answer = options.answer?.trim();
+  return {
+    query: options.input.query,
+    depth: options.input.depth,
+    sources: [...options.input.sources],
+    ...(answer ? { answer } : {}),
+    evidence: options.evidence.map((item) => {
+      // A path recall could not read is not one a client can open.
+      const path =
+        item.metadata?.inspectError === true ? undefined : item.metadata?.path;
+      const conversationId = item.metadata?.conversationId;
+      const messageId = item.metadata?.messageId;
+      return {
+        source: item.source,
+        title: item.title,
+        locator: item.locator,
+        excerpt: compactText(item.excerpt, CITATION_EXCERPT_MAX_CHARS),
+        ...(item.timestampMs !== undefined
+          ? { timestampMs: item.timestampMs }
+          : {}),
+        ...(typeof path === "string" ? { path } : {}),
+        ...(typeof conversationId === "string" ? { conversationId } : {}),
+        ...(typeof conversationId === "string" && typeof messageId === "string"
+          ? { messageId }
+          : {}),
+      };
+    }),
+    searchedSources: [...options.searchedSources],
+  };
+}
+
 export function formatRecallFooter(options: RecallFooterOptions): string {
   return [
     formatSearchedSources(options.searchedSources),
@@ -73,7 +117,7 @@ function formatCitation(evidence: RecallEvidence, index: number): string {
 }
 
 function formatSearchedSources(
-  searchedSources: readonly DeterministicRecallSourceNote[],
+  searchedSources: readonly RecallSearchedSource[],
 ): string {
   if (searchedSources.length === 0) {
     return "";
@@ -84,7 +128,7 @@ function formatSearchedSources(
 }
 
 function formatDegradedSources(
-  searchedSources: readonly DeterministicRecallSourceNote[],
+  searchedSources: readonly RecallSearchedSource[],
 ): string {
   const degraded = searchedSources.filter((note) => note.status === "degraded");
   if (degraded.length === 0) {
@@ -135,7 +179,7 @@ function formatWorkspaceInspectionIssues(
   return `Workspace inspection issues: ${errors.join(", ")}.`;
 }
 
-function compactText(text: string, maxChars: number): string {
+export function compactText(text: string, maxChars: number): string {
   const compacted = text.trim().replace(/\s+/g, " ");
   if (compacted.length <= maxChars) {
     return compacted;

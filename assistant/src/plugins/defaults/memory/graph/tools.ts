@@ -2,14 +2,11 @@
 // Memory Tool definitions for agentic recall and remember.
 // ---------------------------------------------------------------------------
 
-import {
-  ALL_RECALL_SOURCES,
-  MAX_RECALL_MAX_RESULTS,
-  MIN_RECALL_MAX_RESULTS,
-} from "../context-search/limits.js";
-import type { ToolDefinition } from "../llm-helpers.js";
+import { toToolInputSchema } from "@vellumai/plugin-api";
 
-const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
+import { RememberInputSchema } from "../../../../api/remember-tool.js";
+import { RecallInputSchema } from "../context-search/recall-input.js";
+import type { ToolDefinition } from "../llm-helpers.js";
 
 /**
  * Explicit local information search across memory, conversations, and
@@ -19,38 +16,7 @@ export const graphRecallDefinition = {
   name: "recall",
   description:
     'Search local information the moment you feel uncertain. Use recall for memory, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If a turn references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results. Results reflect what was true when the memory was written — do not use recall alone to answer questions about current system state (account connections, watchers, service health); verify those with live checks.',
-  input_schema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description:
-          "What you're looking for. Be specific and descriptive: include the topic, person, project, decision, time period, or file clues when known.",
-      },
-      sources: {
-        type: "array",
-        items: {
-          type: "string",
-          enum: [...ALL_RECALL_SOURCES],
-        },
-        description:
-          "Optional local sources to search. Omit to search memory, conversations, and workspace files.",
-      },
-      max_results: {
-        type: "integer",
-        minimum: MIN_RECALL_MAX_RESULTS,
-        maximum: MAX_RECALL_MAX_RESULTS,
-        description: "Maximum number of evidence items to return.",
-      },
-      depth: {
-        type: "string",
-        enum: [...RECALL_DEPTHS],
-        description:
-          "Search effort. Use fast for quick lookups, standard by default, and deep when the answer may require multiple local searches.",
-      },
-    },
-    required: ["query"],
-  },
+  input_schema: toToolInputSchema(RecallInputSchema),
 } satisfies ToolDefinition;
 
 /**
@@ -77,8 +43,9 @@ export const REMEMBER_PAGE_HINT_GUIDANCE =
   "When a fact relates to memory pages already in your context, reference the most specific ones inline as [[slug]] wikilinks — consolidation reads hinted pages first when filing the fact, which matters most for corrections (the hint names the page carrying the outdated fact). Hint only pages you have actually seen, and prefer specific pages over broad hubs.";
 
 /**
- * Build the `remember` input schema. `pageHints` reflects whether
- * concept-page memory is active and appends
+ * Build the `remember` input schema from {@link RememberInputSchema}, the one
+ * `execute` parses with, adding the descriptions the model reads.
+ * `pageHints` reflects whether concept-page memory is active and appends
  * {@link REMEMBER_PAGE_HINT_GUIDANCE} to the `content` description. It is a
  * thunk re-resolved on every read of that description: the registry's
  * finalized tool shares the returned schema object by reference, so a
@@ -87,29 +54,33 @@ export const REMEMBER_PAGE_HINT_GUIDANCE =
  */
 export function buildRememberInputSchema(options: {
   pageHints: () => boolean;
-}) {
-  return {
-    type: "object",
-    properties: {
-      content: {
-        anyOf: [
-          { type: "string" },
-          { type: "array", items: { type: "string" }, minItems: 1 },
-        ],
-        get description(): string {
-          return options.pageHints()
-            ? `${REMEMBER_CONTENT_DESCRIPTION} ${REMEMBER_PAGE_HINT_GUIDANCE}`
-            : REMEMBER_CONTENT_DESCRIPTION;
-        },
-      },
-      finish_turn: {
-        type: "boolean",
-        description:
-          "When you have nothing else to say and want to yield the turn you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
-      },
-    },
-    required: ["content"],
-  };
+}): Record<string, unknown> {
+  const schema = toToolInputSchema(
+    RememberInputSchema.extend({
+      content: RememberInputSchema.shape.content.describe(
+        REMEMBER_CONTENT_DESCRIPTION,
+      ),
+      finish_turn: RememberInputSchema.shape.finish_turn.describe(
+        "When you have nothing else to say and want to yield the turn you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
+      ),
+    }),
+  );
+  const properties = schema.properties;
+  const content =
+    typeof properties === "object" && properties !== null
+      ? Reflect.get(properties, "content")
+      : undefined;
+  if (typeof content === "object" && content !== null) {
+    Object.defineProperty(content, "description", {
+      enumerable: true,
+      configurable: true,
+      get: (): string =>
+        options.pageHints()
+          ? `${REMEMBER_CONTENT_DESCRIPTION} ${REMEMBER_PAGE_HINT_GUIDANCE}`
+          : REMEMBER_CONTENT_DESCRIPTION,
+    });
+  }
+  return schema;
 }
 
 /**

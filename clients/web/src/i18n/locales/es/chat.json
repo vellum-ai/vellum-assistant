@@ -164,14 +164,8 @@
     "reconnectButton": "Reconectar",
     "title": "Escritorio",
     "unavailable": "El escritorio virtual no está disponible en este asistente.",
-    "installButton": "Instalar escritorio virtual",
     "checkingSetup": "Comprobando el escritorio virtual…",
-    "installingPackages": "Instalando componentes del escritorio virtual…",
-    "installingChrome": "Instalando Google Chrome…",
-    "checkingInstall": "Comprobando la instalación…",
-    "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
-    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
-    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
+    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo."
   },
   "assistantNavItem": {
     "newChat": "Chat nuevo"

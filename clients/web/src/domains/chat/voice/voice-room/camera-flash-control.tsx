@@ -34,6 +34,7 @@ import { cn } from "@vellumai/design-library";
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
 import { CAMERA_FLASH_GLASS_CLASS, cameraModeStyle } from "./camera-mode-paint";
+import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room-layout";
 
 /** The order a press moves through. Off is the resting state, so it closes the loop. */
 const FLASH_CYCLE: Record<FlashMode, FlashMode> = {
@@ -104,15 +105,13 @@ export function CameraFlashControl({
       // the vars its armed ink reads.
       style={cameraModeStyle()}
       className={cn(
+        VOICE_ROOM_CONTROL_SIZE_CLASS,
         // Border-box with a border in every state, transparent when the state
         // has no visible one, so the three states measure identically and the
         // glyph does not shift by a pixel as they cycle.
-        "relative box-border flex size-[46px] items-center justify-center rounded-full border",
+        "relative box-border flex items-center justify-center rounded-full border",
         "transition-colors duration-[250ms]",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-        // The visual circle is under the 48pt minimum a thumb needs, and
-        // growing it would crowd the shutter. The target grows instead.
-        "after:absolute after:-inset-1 after:content-['']",
         // Fixed colors, not theme tokens, for the same reason the chrome
         // around it uses them: what sits behind this is arbitrary camera
         // video, so there is no surface for a token to describe.
@@ -139,9 +138,11 @@ export function CameraFlashControl({
       {/* Hidden from assistive tech: the accessible name already says "auto"
           in words, and a lone letter read out after it says nothing more. */}
       {mode === "auto" ? (
+        // Anchored to the circle's centre, where the glyph is, so it holds its
+        // place on the bolt at any circle size.
         <span
           aria-hidden
-          className="absolute right-[12px] bottom-[10px] text-[8px] leading-none font-bold"
+          className="absolute right-[calc(50%-10px)] bottom-[calc(50%-12px)] text-[8px] leading-none font-bold"
         >
           {autoBadge}
         </span>

@@ -47,7 +47,7 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 import { createSelectors } from "@/utils/create-selectors";
 import { isAppMainView } from "@/stores/pane-state";
 

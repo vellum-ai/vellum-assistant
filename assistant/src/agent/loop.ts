@@ -1,4 +1,5 @@
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -13,7 +14,6 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type {
