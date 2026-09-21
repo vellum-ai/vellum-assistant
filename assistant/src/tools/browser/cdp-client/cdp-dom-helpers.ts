@@ -160,10 +160,9 @@ interface TextInsertionOptions {
 }
 
 /**
- * Select editable content through the Selection API, insert text through CDP,
- * and confirm that the live target contains the requested text. Selection keeps
- * framework-owned editors in control of their state, unlike assigning to
- * `value` or `textContent` and synthesizing an untrusted input event.
+ * Select editable content, insert text through CDP, and confirm that the live
+ * target contains the requested text. Controls without text-selection support
+ * are cleared through their native value setter and an input event.
  */
 export async function insertTextIntoElement(
   cdp: CdpClient,
@@ -190,13 +189,37 @@ export async function insertTextIntoElement(
         if (typeof this.value === "string") {
           const value = this.value;
           if (clearFirst && typeof this.select === "function") {
-            this.select();
-            return value;
+            try {
+              this.select();
+              if (this.selectionStart === 0 && this.selectionEnd === value.length) {
+                return;
+              }
+            } catch {}
+
+            const view = this.ownerDocument?.defaultView;
+            const constructor = this.tagName === "INPUT"
+              ? view?.HTMLInputElement
+              : this.tagName === "TEXTAREA"
+                ? view?.HTMLTextAreaElement
+                : undefined;
+            const valueSetter = constructor
+              ? Object.getOwnPropertyDescriptor(constructor.prototype, "value")?.set
+              : undefined;
+            if (!valueSetter || !view?.InputEvent) {
+              throw new Error("Element does not support replacing its text");
+            }
+            valueSetter.call(this, "");
+            this.dispatchEvent(new view.InputEvent("input", {
+              bubbles: true,
+              inputType: "deleteContentBackward",
+              data: null,
+            }));
+            return;
           }
           if (typeof this.setSelectionRange === "function") {
             const end = this.value.length;
             this.setSelectionRange(clearFirst ? 0 : end, end);
-            return value;
+            return clearFirst ? undefined : value;
           }
         }
         if (this.isContentEditable) {
@@ -209,12 +232,12 @@ export async function insertTextIntoElement(
           }
           selection.removeAllRanges();
           selection.addRange(range);
-          return value;
+          return clearFirst ? undefined : value;
         }
         throw new Error("Element is not an editable text target");
       }`,
       arguments: [{ value: options.clearFirst }],
-      returnByValue: options.verify !== false,
+      returnByValue: options.verify !== false && !options.clearFirst,
     },
     signal,
   );
@@ -544,46 +567,77 @@ export async function dispatchKeyPress(
       : unmodifiedDescriptor;
 
   let activeModifiers = 0;
-  for (const modifier of modifiers) {
-    activeModifiers |= modifier.bit;
-    await cdp.send(
-      "Input.dispatchKeyEvent",
-      describeKeyEvent(modifier.descriptor, "rawKeyDown", activeModifiers),
-      signal,
-    );
-  }
+  const pressedModifiers: ModifierDescriptor[] = [];
+  let primaryPressed = false;
+  try {
+    for (const modifier of modifiers) {
+      const nextModifiers = activeModifiers | modifier.bit;
+      await cdp.send(
+        "Input.dispatchKeyEvent",
+        describeKeyEvent(modifier.descriptor, "rawKeyDown", nextModifiers),
+        signal,
+      );
+      activeModifiers = nextModifiers;
+      pressedModifiers.push(modifier);
+    }
 
-  const suppressText = (modifierBits & (1 | 2 | 4)) !== 0;
-  await cdp.send(
-    "Input.dispatchKeyEvent",
-    describeKeyEvent(descriptor, "rawKeyDown", modifierBits),
-    signal,
-  );
-  if (descriptor.text !== undefined && !suppressText) {
+    const suppressText = (modifierBits & (1 | 2 | 4)) !== 0;
     await cdp.send(
       "Input.dispatchKeyEvent",
-      describeKeyEvent(
-        descriptor,
-        "char",
-        modifierBits,
-        unmodifiedDescriptor.text,
-      ),
+      describeKeyEvent(descriptor, "rawKeyDown", modifierBits),
       signal,
     );
-  }
-  await cdp.send(
-    "Input.dispatchKeyEvent",
-    describeKeyEvent(descriptor, "keyUp", modifierBits),
-    signal,
-  );
+    primaryPressed = true;
+    if (descriptor.text !== undefined && !suppressText) {
+      await cdp.send(
+        "Input.dispatchKeyEvent",
+        describeKeyEvent(
+          descriptor,
+          "char",
+          modifierBits,
+          unmodifiedDescriptor.text,
+        ),
+        signal,
+      );
+    }
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      describeKeyEvent(descriptor, "keyUp", modifierBits),
+      signal,
+    );
+    primaryPressed = false;
 
-  for (const modifier of [...modifiers].reverse()) {
-    activeModifiers &= ~modifier.bit;
-    await cdp.send(
-      "Input.dispatchKeyEvent",
-      describeKeyEvent(modifier.descriptor, "keyUp", activeModifiers),
-      signal,
-    );
+    while (pressedModifiers.length > 0) {
+      const modifier = pressedModifiers.at(-1)!;
+      const nextModifiers = activeModifiers & ~modifier.bit;
+      await cdp.send(
+        "Input.dispatchKeyEvent",
+        describeKeyEvent(modifier.descriptor, "keyUp", nextModifiers),
+        signal,
+      );
+      activeModifiers = nextModifiers;
+      pressedModifiers.pop();
+    }
+  } finally {
+    if (primaryPressed) {
+      try {
+        await cdp.send(
+          "Input.dispatchKeyEvent",
+          describeKeyEvent(descriptor, "keyUp", activeModifiers),
+        );
+      } catch {}
+    }
+
+    while (pressedModifiers.length > 0) {
+      const modifier = pressedModifiers.pop()!;
+      activeModifiers &= ~modifier.bit;
+      try {
+        await cdp.send(
+          "Input.dispatchKeyEvent",
+          describeKeyEvent(modifier.descriptor, "keyUp", activeModifiers),
+        );
+      } catch {}
+    }
   }
 }
 

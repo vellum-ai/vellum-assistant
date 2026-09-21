@@ -310,12 +310,105 @@ describe("insertTextIntoElement", () => {
     ]);
     expect(cdp.calls[2]!.params).toMatchObject({
       arguments: [{ value: true }],
-      returnByValue: true,
+      returnByValue: false,
     });
     expect(cdp.calls[2]!.params?.functionDeclaration).not.toContain(
       "this.textContent =",
     );
     expect(cdp.calls[3]!.params).toEqual({ text: "hello world" });
+  });
+
+  test("does not return existing contents when replacing text", async () => {
+    const cdp = fakeCdp((method, params) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "editable-1" } };
+      }
+      if (
+        method === "Runtime.callFunctionOn" &&
+        String(params?.functionDeclaration).includes("isConnected")
+      ) {
+        return {
+          result: { value: { connected: true, text: "replacement" } },
+        };
+      }
+      return {};
+    });
+
+    await insertTextIntoElement(cdp, 42, "replacement", {
+      clearFirst: true,
+    });
+
+    expect(cdp.calls[2]!.params?.returnByValue).toBe(false);
+  });
+
+  test("clears controls that do not support text selection", async () => {
+    const inputEvents: Array<{ type: string; bubbles?: boolean }> = [];
+    class TestInputEvent {
+      constructor(
+        readonly type: string,
+        readonly init: { bubbles?: boolean },
+      ) {}
+    }
+    class TestInput {
+      private storedValue = "12";
+      tagName = "INPUT";
+      selectionStart: number | null = null;
+      selectionEnd: number | null = null;
+      isConnected = true;
+      ownerDocument = {
+        defaultView: {
+          HTMLInputElement: TestInput,
+          HTMLTextAreaElement: class {},
+          InputEvent: TestInputEvent,
+        },
+      };
+
+      get value(): string {
+        return this.storedValue;
+      }
+
+      set value(value: string) {
+        this.storedValue = value;
+      }
+
+      select(): void {}
+
+      dispatchEvent(event: TestInputEvent): boolean {
+        inputEvents.push({ type: event.type, bubbles: event.init.bubbles });
+        return true;
+      }
+    }
+    const input = new TestInput();
+    const cdp = fakeCdp((method, params) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "number-input" } };
+      }
+      if (method === "Input.insertText") {
+        input.value += String(params?.text);
+        return {};
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = String(params?.functionDeclaration);
+        if (declaration.includes("isConnected")) {
+          return {
+            result: {
+              value: { connected: input.isConnected, text: input.value },
+            },
+          };
+        }
+        const selectText = Function(`return (${declaration});`)() as (
+          this: TestInput,
+          clearFirst: boolean,
+        ) => unknown;
+        return { result: { value: selectText.call(input, true) } };
+      }
+      return {};
+    });
+
+    await insertTextIntoElement(cdp, 42, "34", { clearFirst: true });
+
+    expect(input.value).toBe("34");
+    expect(inputEvents).toEqual([{ type: "input", bubbles: true }]);
   });
 
   test("fails when the edited node is detached instead of claiming success", async () => {
@@ -642,6 +735,59 @@ describe("dispatchKeyPress", () => {
       unmodifiedText: "a",
       modifiers: 8,
     });
+  });
+
+  test("releases pressed keys when a chord fails partway through", async () => {
+    const cdp = fakeCdp((_method, params) => {
+      if (params?.type === "char") {
+        throw new CdpError("transport_error", "send failed");
+      }
+      return {};
+    });
+
+    await expect(dispatchKeyPress(cdp, "Shift+a")).rejects.toMatchObject({
+      name: "CdpError",
+      code: "transport_error",
+      message: "send failed",
+    });
+    expect(cdp.calls.map((call) => call.params)).toEqual([
+      {
+        type: "rawKeyDown",
+        key: "Shift",
+        code: "ShiftLeft",
+        windowsVirtualKeyCode: 16,
+        modifiers: 8,
+      },
+      {
+        type: "rawKeyDown",
+        key: "A",
+        code: "KeyA",
+        windowsVirtualKeyCode: 65,
+        modifiers: 8,
+      },
+      {
+        type: "char",
+        key: "A",
+        code: "KeyA",
+        windowsVirtualKeyCode: 65,
+        modifiers: 8,
+        text: "A",
+        unmodifiedText: "a",
+      },
+      {
+        type: "keyUp",
+        key: "A",
+        code: "KeyA",
+        windowsVirtualKeyCode: 65,
+        modifiers: 8,
+      },
+      {
+        type: "keyUp",
+        key: "Shift",
+        code: "ShiftLeft",
+        windowsVirtualKeyCode: 16,
+      },
+    ]);
   });
 
   test("unknown multi-character keys fail instead of reporting success", async () => {
