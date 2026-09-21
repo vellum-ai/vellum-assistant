@@ -80,6 +80,7 @@ export function buildRecallActivity(options: {
       const path =
         item.metadata?.inspectError === true ? undefined : item.metadata?.path;
       const conversationId = item.metadata?.conversationId;
+      const messageId = item.metadata?.messageId;
       return {
         source: item.source,
         title: item.title,
@@ -90,6 +91,9 @@ export function buildRecallActivity(options: {
           : {}),
         ...(typeof path === "string" ? { path } : {}),
         ...(typeof conversationId === "string" ? { conversationId } : {}),
+        ...(typeof conversationId === "string" && typeof messageId === "string"
+          ? { messageId }
+          : {}),
       };
     }),
     searchedSources: [...options.searchedSources],

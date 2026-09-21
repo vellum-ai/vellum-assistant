@@ -1061,7 +1061,11 @@ describe("runAgenticRecall activity", () => {
                 "launch notes": [
                   makeEvidence("conversations:c1:m1", {
                     source: "conversations",
-                    metadata: { conversationId: "c1", role: "user" },
+                    metadata: {
+                      conversationId: "c1",
+                      messageId: "m1",
+                      role: "user",
+                    },
                   }),
                 ],
               },
@@ -1079,6 +1083,7 @@ describe("runAgenticRecall activity", () => {
     expect(byTitle["workspace:launch title"]?.path).toBe("notes/launch.md");
     expect(byTitle["workspace:unreadable title"]?.path).toBeUndefined();
     expect(byTitle["conversations:c1:m1 title"]?.conversationId).toBe("c1");
+    expect(byTitle["conversations:c1:m1 title"]?.messageId).toBe("m1");
     expect(byTitle["conversations:c1:m1 title"]?.path).toBeUndefined();
   });
 
