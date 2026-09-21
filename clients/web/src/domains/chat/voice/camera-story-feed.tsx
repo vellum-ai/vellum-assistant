@@ -28,8 +28,10 @@ import {
   type CameraShutterHintProps,
 } from "./voice-room/camera-shutter-hint";
 import { CAMERA_WARM } from "./voice-room/camera-mode-paint";
-import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "./voice-room/voice-room-control";
-import { CAMERA_ROW_FLANK_INSET } from "./voice-room/voice-room-layout";
+import {
+  CAMERA_ROW_FLANK_INSET,
+  VOICE_ROOM_CONTROL_SIZE_CLASS,
+} from "./voice-room/voice-room-layout";
 
 /**
  * Two stops of brightness in one frame. A control that only has to survive
@@ -140,10 +142,10 @@ export interface CameraRowSceneProps {
    */
   hint?: CameraShutterHintProps;
   /**
-   * The width the row is read at. On its own it takes a phone's, which is what
-   * the flanking offsets were drawn against; a composed screen passes `w-full`
-   * instead, since in the app the row is as wide as the room it sits in and
-   * the flanks ride that edge rather than a fixed one.
+   * The width the row is read at. On its own it takes a phone's, which is the
+   * width the row is designed at; a composed screen passes `w-full` instead,
+   * since in the app the row is as wide as the room it sits in and the flanks
+   * ride that edge rather than a fixed one.
    */
   className?: string;
 }

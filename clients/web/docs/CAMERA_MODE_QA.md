@@ -50,14 +50,15 @@ scrim.
       the camera. It is still `on`.
 - [ ] Flash does not leak. Set `on` in the room, close the camera, then open the
       deep-link capture overlay from a chat. Its capture does not fire.
-- [ ] Flash is flip's twin. With the rear camera up, the flash circle is the
-      same size as flip, the mutes, the camera toggle and end session, and as
+- [ ] Flash is one circle with the rest. With the rear camera up, the flash is
+      the same size as flip, the two mutes, the camera toggle, end session and
       the two corner controls, in Photo and in Live and in all three states.
-      Flash and flip sit the same distance in from their edges, on one line
-      with the shutter's centre, and the auto badge sits at the bolt's lower
-      right. That distance is 30pt in portrait; rotate to landscape on a
-      notched phone and both move in together to the deeper of the two side
-      safe-area insets, so the pair stays mirrored and clear of the cutout.
+- [ ] Flash and flip are mirrored. They sit the same distance in from their own
+      edges, on one line with the shutter's centre. That distance is 30pt in
+      portrait; rotate to landscape on a notched phone and both move in
+      together to the deeper of the two side safe-area insets.
+- [ ] The auto badge sits on the bolt. In `auto`, the "A" is tucked at the
+      bolt's lower right rather than floating off the glyph.
 - [ ] Backgrounding releases the preview. With the viewfinder up, background the
       app: the status bar's camera indicator goes out. Foreground it: the
       viewfinder returns, or the room reports the failure. Never a frozen frame.

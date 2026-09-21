@@ -18,10 +18,7 @@ import {
   nextFlashMode,
   nextLiveFlashMode,
 } from "./camera-flash-control";
-import {
-  VOICE_ROOM_CONTROL_SIZE_CLASS,
-  VoiceRoomControl,
-} from "./voice-room-control";
+import { VoiceRoomControl } from "./voice-room-control";
 
 afterEach(() => {
   cleanup();
@@ -171,14 +168,14 @@ describe("CameraFlashControl", () => {
     );
 
     // happy-dom computes no layout, so the size class is the seam: each
-    // control carries the shared one and no second `size-*` beside it.
+    // control carries the 52px circle and no second `size-*` beside it.
     const sizeClasses = (testId: string) =>
       screen
         .getByTestId(testId)
         .className.split(/\s+/)
         .filter((name) => name.startsWith("size-"));
-    expect(sizeClasses("flash")).toEqual([VOICE_ROOM_CONTROL_SIZE_CLASS]);
-    expect(sizeClasses("flip")).toEqual([VOICE_ROOM_CONTROL_SIZE_CLASS]);
+    expect(sizeClasses("flash")).toEqual(["size-13"]);
+    expect(sizeClasses("flip")).toEqual(["size-13"]);
   });
 
   test("hangs the auto badge off the circle's centre, where the glyph is", () => {

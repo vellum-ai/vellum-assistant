@@ -52,10 +52,21 @@ type Story = StoryObj<typeof CameraFlashControl>;
  * between two outlines.
  */
 export const States: Story = {
-  render: () => (
+  render: () => <FlashStateCells />,
+};
+
+/**
+ * The three states as captioned cells. `captionPrefix` names them apart where
+ * other controls stand beside them.
+ */
+function FlashStateCells({ captionPrefix }: { captionPrefix?: string }) {
+  return (
     <>
       {ORDER.map((mode) => (
-        <ToneCell key={mode} caption={mode}>
+        <ToneCell
+          key={mode}
+          caption={captionPrefix ? `${captionPrefix} ${mode}` : mode}
+        >
           <CameraFlashControl
             mode={mode}
             ariaLabel={LABELS[mode]}
@@ -65,8 +76,8 @@ export const States: Story = {
         </ToneCell>
       ))}
     </>
-  ),
-};
+  );
+}
 
 /**
  * The order, pressable. Off, auto, on, off. Auto sits in the middle because it
@@ -99,16 +110,7 @@ function CycleScene() {
 export const WithTheRoomControls: Story = {
   render: () => (
     <>
-      {ORDER.map((mode) => (
-        <ToneCell key={mode} caption={`flash ${mode}`}>
-          <CameraFlashControl
-            mode={mode}
-            ariaLabel={LABELS[mode]}
-            autoBadge="A"
-            onClick={() => {}}
-          />
-        </ToneCell>
-      ))}
+      <FlashStateCells captionPrefix="flash" />
       <ToneCell caption="flip">
         <VoiceRoomControl label="Flip camera" surface="camera">
           <SwitchCamera className="size-5" />

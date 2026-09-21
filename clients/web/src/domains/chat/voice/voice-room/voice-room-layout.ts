@@ -1,7 +1,7 @@
 /**
  * The voice room's shared layout vocabulary: the device insets every surface
- * in it clears, the vertical zones its text sits in, and the corner offsets
- * and camera band its chrome hangs off.
+ * in it clears, the vertical zones its text sits in, the corner offsets and
+ * camera band its chrome hangs off, and the circle its round controls take.
  *
  * One home for these because two implementations draw the room: `voice-room.tsx`
  * over a live session, and the Storybook scenes that stand the same chrome up
@@ -126,14 +126,25 @@ export const VOICE_ROOM_CORNER_RIGHT = `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_ARE
 export const CAMERA_PILL_INSET = `calc(max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
 
 /**
- * How far in from its own edge each of the shutter's flanks sits: flash on
- * the left, flip on the right. One value read by both, so the pair is a
- * mirror image around the shutter. The row publishes it as
- * `--camera-flank-inset` and each flank takes it off its own side.
+ * How far in from its own edge each flank of the voice room's shutter row
+ * sits: flash on the left, flip on the right. One value read by both, so the
+ * pair is a mirror image around the shutter. The row publishes it as
+ * `--camera-flank-inset` and each flank takes it off its own side. The
+ * deep-link capture overlay places its own flip and reads none of this.
  *
  * 30px, or the deeper of the two side safe-area insets where a landscape
- * cutout reaches further in than that. The same value on both sides for the
- * reason {@link CAMERA_PILL_INSET} spells out: a cutout is not symmetric, and
- * the flanks are read against each other.
+ * cutout reaches further in than that. px because that is the unit the design
+ * measures this pair in. The same value on both sides for the reason
+ * {@link CAMERA_PILL_INSET} spells out: a cutout is not symmetric, and the
+ * flanks are read against each other.
  */
 export const CAMERA_ROW_FLANK_INSET = `max(30px, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT})`;
+
+/**
+ * The circle every round control in the room is drawn at: 52px, in every
+ * state. The row is the same one whether or not the viewfinder is up, and a
+ * control that resized as the camera opened would move out from under a thumb
+ * already on its way to it. Read by the room's controls, the flash, and the
+ * Storybook stand-in for the flip beside it.
+ */
+export const VOICE_ROOM_CONTROL_SIZE_CLASS = "size-13";
