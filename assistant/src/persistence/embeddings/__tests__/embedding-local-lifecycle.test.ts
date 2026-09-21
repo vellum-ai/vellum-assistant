@@ -257,6 +257,31 @@ describe("broken worker pipe", () => {
     );
   });
 
+  /**
+   * A real pipe, because the failure lives in Bun's behaviour rather than in
+   * ours: a batch larger than the pipe buffer, sent to a worker too busy to
+   * drain stdin, leaves the write pending, and the pending write rejects when
+   * the worker dies. A synchronous guard never sees that rejection.
+   */
+  test("a write still pending when the worker dies resolves the request as an error", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const proc = Bun.spawn({
+      cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
+      stdin: "pipe",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(proc);
+    backend.workerProc = proc;
+
+    const request = backend.sendRequest(["x".repeat(4 * 1024 * 1024)]);
+    proc.kill("SIGKILL");
+    const response = await request;
+
+    expect(response.error).toContain("worker pipe write failed");
+    expect(backend.pendingRequests.size).toBe(0);
+  });
+
   test("a failed write does not leak the pending request", async () => {
     const backend = new LocalEmbeddingBackend("test-model") as Internals;
     backend.workerProc = brokenPipeProc();

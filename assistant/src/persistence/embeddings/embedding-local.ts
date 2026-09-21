@@ -7,6 +7,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { Subprocess } from "bun";
+
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -22,6 +24,7 @@ import {
   listWorkerProcesses,
   pid1OwnsWorkers,
 } from "../../util/worker-ownership.js";
+import { writeWorkerLine } from "../../util/worker-pipe.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 import {
   type EmbeddingBackend,
@@ -106,9 +109,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "local" as const;
   readonly model: string;
 
-  // Subprocess — typed loosely to avoid coupling to Bun's Subprocess generics
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private workerProc: any = null;
+  private workerProc: Subprocess<"pipe", "pipe", "pipe"> | null = null;
   private stdoutBuffer = "";
   private requestCounter = 0;
   private pendingRequests = new Map<
@@ -193,19 +194,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       this.pendingRequests.set(id, { resolve });
 
-      // Writing to a worker that has already exited raises EPIPE. That must
-      // surface as an ordinary embed failure the caller can fall back from:
-      // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
-      // which tears down the whole process (JARVIS-1125).
-      //
-      // The guard covers `write` as well as `flush`: both are synchronous on
-      // Bun's FileSink, and `write` is the call that raises the broken pipe.
-      try {
-        proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
-        proc.stdin.flush();
-      } catch (err) {
-        this.failPendingRequest(id, err);
-      }
+      // A broken worker pipe must surface as an ordinary embed failure the
+      // caller can fall back from, whether it is raised synchronously or as
+      // the rejection of a write still pending when the worker died. See
+      // `writeWorkerLine` for why both halves exist.
+      writeWorkerLine(proc.stdin, JSON.stringify({ id, texts }), (err) =>
+        this.failPendingRequest(id, err),
+      );
     });
   }
 
