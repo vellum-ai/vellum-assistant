@@ -3,8 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import { toToolInputSchema } from "@vellumai/plugin-api";
-import { z } from "zod";
 
+import { RememberInputSchema } from "../../../../api/remember-tool.js";
 import { RecallInputSchema } from "../context-search/recall-input.js";
 import type { ToolDefinition } from "../llm-helpers.js";
 
@@ -43,27 +43,8 @@ export const REMEMBER_PAGE_HINT_GUIDANCE =
   "When a fact relates to memory pages already in your context, reference the most specific ones inline as [[slug]] wikilinks — consolidation reads hinted pages first when filing the fact, which matters most for corrections (the hint names the page carrying the outdated fact). Hint only pages you have actually seen, and prefer specific pages over broad hubs.";
 
 /**
- * The `remember` tool's input: parsed at the top of its `execute`, and the
- * source of the `input_schema` the model is shown. `finish_turn` was only ever
- * read as `=== true`, so any other value means false.
- */
-export const RememberInputSchema = z.looseObject({
-  content: z
-    .union([z.string(), z.array(z.string()).min(1)])
-    .describe(REMEMBER_CONTENT_DESCRIPTION),
-  finish_turn: z
-    .boolean()
-    .optional()
-    .catch(undefined)
-    .describe(
-      "When you have nothing else to say and want to yield the turn you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
-    ),
-});
-
-export type RememberInput = z.infer<typeof RememberInputSchema>;
-
-/**
- * Build the `remember` input schema from {@link RememberInputSchema}.
+ * Build the `remember` input schema from {@link RememberInputSchema}, the one
+ * `execute` parses with, adding the descriptions the model reads.
  * `pageHints` reflects whether concept-page memory is active and appends
  * {@link REMEMBER_PAGE_HINT_GUIDANCE} to the `content` description. It is a
  * thunk re-resolved on every read of that description: the registry's
@@ -74,7 +55,16 @@ export type RememberInput = z.infer<typeof RememberInputSchema>;
 export function buildRememberInputSchema(options: {
   pageHints: () => boolean;
 }): Record<string, unknown> {
-  const schema = toToolInputSchema(RememberInputSchema);
+  const schema = toToolInputSchema(
+    RememberInputSchema.extend({
+      content: RememberInputSchema.shape.content.describe(
+        REMEMBER_CONTENT_DESCRIPTION,
+      ),
+      finish_turn: RememberInputSchema.shape.finish_turn.describe(
+        "When you have nothing else to say and want to yield the turn you MUST set this to true. When true, your turn ends after this tool call. It's critical that you do this in order to avoid unnecessary LLM calls.",
+      ),
+    }),
+  );
   const properties = schema.properties;
   const content =
     typeof properties === "object" && properties !== null

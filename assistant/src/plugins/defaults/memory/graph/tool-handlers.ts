@@ -8,6 +8,7 @@
 
 import { join } from "node:path";
 
+import type { RememberInput } from "../../../../api/remember-tool.js";
 import {
   isMemoryEnabled,
   usesConceptPageMemory,
@@ -25,7 +26,6 @@ import {
   recordNodeEdit,
   updateNode,
 } from "./store.js";
-import type { RememberInput } from "./tools.js";
 import { type CapabilityKind, capabilityKind } from "./types.js";
 
 // ---------------------------------------------------------------------------
