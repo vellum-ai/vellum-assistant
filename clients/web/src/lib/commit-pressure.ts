@@ -69,8 +69,12 @@ export interface CommitPressureSnapshot {
    * Traffic, never attribution: a write may render only a component below
    * the one that counts commits, or (a slice read through `getState()` alone)
    * nothing at all, so it neither counts toward `updates` nor marks a commit
-   * attributed. React's nested-update limit is per root, so a slice written
-   * hundreds of times a second is commit pressure wherever it renders.
+   * attributed. Read it against `commits`: writes made in one task batch
+   * into one commit (stream envelopes drain once per task, see
+   * `docs/EVENT_BUS.md`), so a slice written far more often than the tree
+   * commits is healthy, and a slice written about as often as it commits is
+   * a writer paced one write per task or microtask. React's nested-update
+   * limit is per root, so that holds wherever the slice renders.
    */
   storeWrites: Record<string, number>;
   /** Commits observed in the window (chat-route subtree only). */
@@ -316,8 +320,8 @@ export function installQueryPressureProbe(
  * changed, as `<name>.<slice>` in `storeWrites`. Store notifications re-render
  * through `useSyncExternalStore` exactly as query notifications do, and the
  * chat route renders from a dozen stores; with none of them tallied, a commit
- * run driven by a store (the transcript snapshot, written once per stream
- * event) is indistinguishable from one driven by an unknown updater.
+ * run driven by a store is indistinguishable from one driven by an unknown
+ * updater.
  *
  * Slices are compared the way an atomic selector compares them (`Object.is`),
  * so a `set` that replaces nothing records nothing.

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useCompanionPopoverStore } from "@/domains/chat/companion-popover";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -19,12 +20,14 @@ import { useViewerStore } from "@/stores/viewer-store";
  * long as the route is mounted, the same span `recordCommit` counts commits
  * over.
  *
- * Two groups of stores. The ones the stream path writes (every store touched
- * from `utils/stream-handlers/`, `streaming/sse-event-consumer.ts`,
- * `use-event-stream.ts` and `use-stream-event-handler.ts`), because a stream
- * writes them at the rate events arrive. And the two a user drives at input
- * rate: the composer draft and the mirrored microphone level. A store left
- * out is not misreported; its commits read as they did before this hook.
+ * Two groups of stores. The ones the stream path writes (from
+ * `utils/stream-handlers/`, `streaming/sse-event-consumer.ts`,
+ * `use-event-stream.ts` and `use-stream-event-handler.ts`; stores it only
+ * reads, such as identity and the resolved assistants, are left out), because
+ * a stream writes them at the rate events arrive. And the two a user drives
+ * at input rate: the composer draft and the mirrored microphone level. A
+ * store left out is not misreported; its commits read as they did before
+ * this hook.
  */
 export function useStorePressureProbe(): void {
   useEffect(() => {
@@ -39,6 +42,7 @@ export function useStorePressureProbe(): void {
       installStorePressureProbe("acp-run", useAcpRunStore),
       installStorePressureProbe("turn", useTurnStore),
       installStorePressureProbe("background-task", useBackgroundTaskStore),
+      installStorePressureProbe("companion-popover", useCompanionPopoverStore),
       installStorePressureProbe("composer", useComposerStore),
       installStorePressureProbe("voice-recording", useVoiceRecordingStore),
     ];
