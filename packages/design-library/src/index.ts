@@ -16,6 +16,14 @@ export {
   type CardRootProps,
 } from "./components/card";
 export {
+  OptionCard,
+  OptionCardGroup,
+  optionCardVariants,
+  type OptionCardProps,
+  type OptionCardGroupProps,
+  type OptionCardSelectionMode,
+} from "./components/option-card";
+export {
   Table,
   TableBody,
   TableCaption,
