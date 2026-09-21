@@ -37,18 +37,18 @@ RUN --mount=type=cache,id=bun-install-cache,target=/root/.bun/install/cache \
 # Mousepad runs as root inside the isolated desktop container.
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS mousepad-builder
 
-ARG MOUSEPAD_VERSION=0.6.3-1
 WORKDIR /build
 RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends dpkg-dev \
-    && apt-get build-dep -y --no-install-recommends mousepad=${MOUSEPAD_VERSION} \
-    && apt-get source mousepad=${MOUSEPAD_VERSION}
+    && apt-get build-dep -y --no-install-recommends mousepad \
+    && apt-get source mousepad
 COPY assistant/docker/mousepad/hide-root-warning.patch /build/hide-root-warning.patch
 RUN set -eu; \
     cd mousepad-*/; \
     patch --batch --fuzz=0 -p1 < /build/hide-root-warning.patch; \
-    sed -i "1s/(${MOUSEPAD_VERSION})/(${MOUSEPAD_VERSION}+vellum1)/" debian/changelog; \
+    mousepad_version="$(dpkg-parsechangelog --show-field Version)"; \
+    sed -i "1s/(${mousepad_version})/(${mousepad_version}+vellum1)/" debian/changelog; \
     dpkg-buildpackage --build=binary --no-sign -jauto; \
     mkdir /out; \
     cp ../mousepad_*.deb ../libmousepad0_*.deb /out/
@@ -166,7 +166,7 @@ RUN --mount=type=bind,from=mousepad-builder,source=/out,target=/tmp/mousepad \
         xterm \
         /tmp/wezterm.deb \
         /tmp/mousepad/*.deb; \
-    glib-compile-schemas --strict /usr/share/glib-2.0/schemas; \
+    /usr/lib/*/glib-2.0/glib-compile-schemas --strict /usr/share/glib-2.0/schemas; \
     mkdir -p /etc/xdg; \
     awk -v desktop_id=org.xfce.mousepad.desktop \
         'BEGIN { print "[Default Applications]" } /^MimeType=/ { sub(/^MimeType=/, ""); count = split($0, types, ";"); for (i = 1; i <= count; i++) { if (types[i] != "") { print types[i] "=" desktop_id ";" } } }' \
