@@ -1531,6 +1531,62 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
     },
   );
 
+  test.each([
+    { providerId: "vellum" as const, audio: LOUD_CHUNK, interrupts: false },
+    {
+      providerId: "vellum" as const,
+      audio: SUSTAINED_LOUD_CHUNK,
+      interrupts: true,
+    },
+    {
+      providerId: "deepgram-flux" as const,
+      audio: LOUD_CHUNK,
+      interrupts: true,
+    },
+  ])(
+    "speech released before the dial interrupts only after provider or guard confirmation: $providerId",
+    async ({ providerId, audio, interrupts }) => {
+      const gate = createDialGate();
+      const abort = mock();
+      const { frames, session, transcribers } = createHarness({
+        providerId,
+        fluxConfig: FLUX_OFF,
+        resolveGate: gate.promise,
+        startVoiceTurn: async () => ({ turnId: "greeting-turn", abort }),
+      });
+      try {
+        await session.start();
+        await session.handleClientFrame({
+          type: "text",
+          text: "Say hello.",
+          hidden: true,
+        });
+        await waitFor(() => countFrames(frames, "thinking") === 1);
+        await session.handleBinaryAudio(audio);
+        await waitFor(() => countFrames(frames, "utterance_end") === 1);
+        expect(countFrames(frames, "speech_started")).toBe(0);
+        expect(countFrames(frames, "turn_cancelled")).toBe(0);
+
+        gate.open();
+        await gate.promise;
+        const transcriber = transcribers[0]!;
+        if (providerId === "deepgram-flux") {
+          transcriber.onAudio = () => {
+            transcriber.startOfTurn(0);
+          };
+        }
+        await waitFor(() => transcriber.stopped);
+        await flushAsyncCallbacks();
+        expect(countFrames(frames, "speech_started")).toBe(interrupts ? 1 : 0);
+        expect(countFrames(frames, "turn_cancelled")).toBe(interrupts ? 1 : 0);
+        expect(abort).toHaveBeenCalledTimes(interrupts ? 1 : 0);
+      } finally {
+        gate.open();
+        await session.close("client_end");
+      }
+    },
+  );
+
   test("seeds the latch from the live-voice role, not the global provider", async () => {
     // The configuration roles exist for: live voice on flux while the global
     // stays on a family that owns no turn boundary. Seeding from the global

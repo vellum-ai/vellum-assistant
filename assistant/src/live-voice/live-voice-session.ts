@@ -520,6 +520,7 @@ type LiveVoiceUtterancePhase =
 // manual mode and a session-shared instance in persistent server-VAD mode.
 interface UtteranceCycle {
   phase: LiveVoiceUtterancePhase;
+  preDialBargeInGuard: BargeInGuard | null;
   released: boolean;
   assistantTurnStarted: boolean;
   // The whole cycle (turn included) finalized; the record can no longer
@@ -1001,6 +1002,7 @@ function buildContinuationResult(request: string, answer: string): string {
 function createUtteranceCycle(): UtteranceCycle {
   return {
     phase: "pending",
+    preDialBargeInGuard: null,
     released: false,
     assistantTurnStarted: false,
     completed: false,
@@ -2298,16 +2300,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         supportsProviderTurnDetection(transcriber.providerId) &&
           this.turnDetector !== null,
       );
-      // A non-Flux fallback cannot confirm the local onset suppressed during
-      // the dial. Replay it while the input cycle is still open.
+      // A non-Flux fallback cannot confirm the onset suppressed during the
+      // dial. Preserve its guard result even if local silence already released.
+      const preDialBargeInGuard = utterance.preDialBargeInGuard;
+      utterance.preDialBargeInGuard = null;
       if (
         expectedProviderSpeechStart &&
         !this.providerTurnStartActive &&
         utterance.speechRouted &&
-        !utterance.released &&
         !utterance.completed
       ) {
-        this.handleSpeechStart("local");
+        this.handleSpeechStart("local", preDialBargeInGuard);
       }
       if (
         this.turnDetector &&
@@ -2675,6 +2678,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): Promise<void> {
     const { classification: energyClassification } = classified;
     let { chunk } = classified;
+    const inputCycle = this.currentUtterance;
+    this.trackPreDialBargeInGuard(inputCycle, classified);
     const hasSpeech = energyClassification === "speech";
     detector.onMediaChunk(hasSpeech);
     this.trackBargeInGuard(energyClassification, chunk);
@@ -2772,6 +2777,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!utterance || utterance.released || utterance.completed) {
         return;
       }
+    }
+
+    if (utterance !== inputCycle) {
+      this.trackPreDialBargeInGuard(utterance, classified);
     }
 
     // Speech is now reaching the cycle, either in this chunk or parked in
@@ -3156,7 +3165,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
-  private handleSpeechStart(source: "local" | "provider"): void {
+  private handleSpeechStart(
+    source: "local" | "provider",
+    preDialGuard: BargeInGuard | null = null,
+  ): void {
     // Speech resumed while a speculative leg was awaiting its verdict: the
     // pause was mid-thought after all. Discard silently (no frames were ever
     // sent for it) and let the utterance keep accumulating. This is the
@@ -3181,16 +3193,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       (bargeableTurn || drainingPlayback) &&
       this.bargeInMinSpeechMs > 0
     ) {
-      // Onset audio keeps flowing into the cycle/pre-roll while the guard
-      // accumulates (trackBargeInGuard), so no speech is lost either way.
-      this.pendingBargeIn = {
-        turn: bargeableTurn,
-        guard: createBargeInGuard(this.bargeInMinSpeechMs),
-        armedAtMs: Date.now(),
-        resets: 0,
-      };
-      this.logInputDiagnostic("voice_input_barge_in_armed");
-      return;
+      const guard = preDialGuard ?? createBargeInGuard(this.bargeInMinSpeechMs);
+      if (!guard.fired) {
+        // A released pre-dial run below the threshold has already expired.
+        if (preDialGuard && this.currentUtterance?.released) {
+          return;
+        }
+        this.pendingBargeIn = {
+          turn: bargeableTurn,
+          guard,
+          armedAtMs: Date.now(),
+          resets: 0,
+        };
+        this.logInputDiagnostic("voice_input_barge_in_armed");
+        return;
+      }
     }
 
     this.logInputDiagnostic("voice_input_speech_started", {
@@ -3204,6 +3221,30 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (bargeableTurn) {
       this.bargeIn(bargeableTurn);
     }
+  }
+
+  private trackPreDialBargeInGuard(
+    utterance: UtteranceCycle | null,
+    { chunk, classification }: VadClassifiedChunk,
+  ): void {
+    if (
+      !this.providerTurnStartActive ||
+      utterance?.phase !== "pending" ||
+      utterance.released ||
+      utterance.transcriber !== null
+    ) {
+      return;
+    }
+    const guard = (utterance.preDialBargeInGuard ??= createBargeInGuard(
+      this.bargeInMinSpeechMs,
+    ));
+    guard.track(
+      classification,
+      pcm16DurationMs(
+        chunk.byteLength,
+        this.context.startFrame.audio.sampleRate,
+      ),
+    );
   }
 
   /**
@@ -4809,7 +4850,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
     if (
       this.currentUtterance !== utterance ||
-      utterance.released ||
+      (utterance.released && utterance.assistantTurnStarted) ||
       utterance.completed ||
       (turnIndex !== undefined &&
         this.latestProviderTurnStartIndex !== null &&
