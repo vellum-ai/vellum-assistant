@@ -20,6 +20,7 @@ describe("createStoryQueryClient", () => {
     expect(queries?.retry).toBe(false);
     expect(queries?.staleTime).toBe(Infinity);
     expect(queries?.gcTime).toBe(Infinity);
+    expect(queries?.refetchOnMount).toBe(false);
     expect(queries?.refetchOnWindowFocus).toBe(false);
     expect(queries?.refetchOnReconnect).toBe(false);
   });

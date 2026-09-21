@@ -90,13 +90,13 @@ const CONFIG: ConfigGetResponse = {
  * state.
  */
 function withConfig(config: ConfigGetResponse) {
-  const client = createStoryQueryClient((client) => {
+  const client = createStoryQueryClient((cache) => {
     const path = { assistant_id: ASSISTANT_ID };
-    client.setQueryData(
+    cache.setQueryData(
       configLlmCallsitesGetOptions({ path }).queryKey,
       CATALOG,
     );
-    client.setQueryData(configGetOptions({ path }).queryKey, config);
+    cache.setQueryData(configGetOptions({ path }).queryKey, config);
   });
   return function ConfigDecorator(Story: () => ReactNode) {
     return (
