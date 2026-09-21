@@ -36,7 +36,10 @@ const { ToolDetailPanel } =
   await import("@/domains/chat/components/tool-detail-panel");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
+const { buildSubagentStepDetails } =
+  await import("@/domains/chat/hooks/use-subagent-card-data");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
@@ -551,18 +554,6 @@ describe("ToolDetailPanel", () => {
         rawOutput: true,
       },
       {
-        name: "a web search, shown as its sources",
-        detail: {
-          toolName: "web_search",
-          kind: "web_search",
-          input: { query: "examples" },
-          searchQuery: "examples",
-          searchResults: [],
-          result: "1. Example page (https://example.com/page)",
-        },
-        rawOutput: true,
-      },
-      {
         name: "a refused call, which has no result of its own",
         detail: { status: "denied" },
         rawOutput: false,
@@ -579,6 +570,42 @@ describe("ToolDetailPanel", () => {
         expect(queryByText("Raw output") !== null).toBe(rawOutput);
       });
     }
+
+    test("offers the raw input and raw output of a web search a subagent ran", () => {
+      // Built through the projection the subagent timeline opens it from,
+      // the only path that opens a web search's details.
+      const events: SubagentTimelineEvent[] = [
+        {
+          id: "e-1",
+          type: "tool_call",
+          toolName: "web_search",
+          toolUseId: "ws-1",
+          input: { query: "examples" },
+          content: "",
+          timestamp: 1,
+        },
+        {
+          id: "e-2",
+          type: "tool_result",
+          toolName: "web_search",
+          toolUseId: "ws-1",
+          result:
+            "Example page\nhttps://example.com/page\nA page about examples.",
+          content: "",
+          timestamp: 2,
+        },
+      ];
+      const detail = buildSubagentStepDetails(events).get("ws-1");
+      if (!detail) {
+        throw new Error("the projection built no detail for the search");
+      }
+      const { getByText } = render(
+        <ToolDetailPanel detail={detail} onClose={noop} />,
+      );
+
+      expect(getByText("Raw input")).toBeDefined();
+      expect(getByText("Raw output")).toBeDefined();
+    });
 
     test("keeps raw data below what the call shows readably", () => {
       const { getByText } = render(

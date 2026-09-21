@@ -329,6 +329,9 @@ describe("createIncrementalDetailProjection — per-diff-class", () => {
     const search = map.get("ws-2");
     expect(search?.status).toBe("completed");
     expect(search?.searchResults?.length).toBeGreaterThan(0);
+    // The chips keep only titles and links; the text the model read is kept
+    // whole for the drawer's Raw output.
+    expect(search?.result).toBe("Vellum\nhttps://vellum.ai");
   });
 
   test("cross-subagent id collision (detail-1 reused) is NOT misclassified as mutate-last", () => {
