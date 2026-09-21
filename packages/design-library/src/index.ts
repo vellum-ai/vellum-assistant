@@ -61,6 +61,7 @@ export {
   type TagProps,
   type TagTone,
 } from "./components/tag";
+export { Chip, chipVariants, type ChipProps } from "./components/chip";
 export {
   Typography,
   type TypographyProps,
