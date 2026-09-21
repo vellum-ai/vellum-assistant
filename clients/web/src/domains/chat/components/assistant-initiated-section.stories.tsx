@@ -27,8 +27,9 @@
  * distinguishable from a plain card without reading as a highlight.
  */
 
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
@@ -135,11 +136,7 @@ function seededClient(
   threads: Conversation[],
   withCharacterAvatar: boolean,
 ): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
-    },
-  });
+  const client = createStoryQueryClient();
   client.setQueryData(
     conversationListQueryKey(ASSISTANT_ID, {
       groupId: SYSTEM_ASSISTANT_GROUP_ID,

@@ -5,7 +5,11 @@ import {
   configGetQueryKey,
   inferenceProviderconnectionsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { ConfigGetResponse, ProviderConnection } from "@/generated/daemon/types.gen";
+import type {
+  ConfigGetResponse,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 
 import { ProfileDetailPanel } from "./profile-detail-panel";
 
@@ -45,15 +49,13 @@ const CONFIG: ConfigGetResponse = {
 };
 
 function seededClient() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return createStoryQueryClient((client) => {
+    const path = { assistant_id: ASSISTANT_ID };
+    client.setQueryData(configGetQueryKey({ path }), CONFIG);
+    client.setQueryData(inferenceProviderconnectionsGetQueryKey({ path }), {
+      connections: CONNECTIONS,
+    });
   });
-  const path = { assistant_id: ASSISTANT_ID };
-  client.setQueryData(configGetQueryKey({ path }), CONFIG);
-  client.setQueryData(inferenceProviderconnectionsGetQueryKey({ path }), {
-    connections: CONNECTIONS,
-  });
-  return client;
 }
 
 function withClient(client: QueryClient) {

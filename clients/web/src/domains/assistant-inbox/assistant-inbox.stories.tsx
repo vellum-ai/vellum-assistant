@@ -15,7 +15,6 @@
  * and the handlers log to the Actions panel.
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fn } from "storybook/test";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -24,6 +23,7 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { saveViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { withQueryCache } from "@/lib/story-query-cache";
 import { useAuthStore } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -65,15 +65,12 @@ const CONVERSATIONS: Conversation[] = [
 ];
 
 /**
- * One client for every story: the avatar the masthead and the identity row
+ * One cache for every story: the avatar the masthead and the identity row
  * both draw (seeded under both spellings of the key, since the hook appends a
  * manifest-support flag the story cannot predict) and the empty pinned-app
  * list the sidebar reads.
  */
-function makeClient(): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
+const withInboxQueryCache = withQueryCache((client) => {
   for (const supportsManifest of [true, false]) {
     client.setQueryData([...avatarQueryKey(ASSISTANT_ID), supportsManifest], {
       components: BUNDLED_COMPONENTS,
@@ -86,10 +83,7 @@ function makeClient(): QueryClient {
     { apps: [] },
   );
   client.setQueryData(["assistant-capability", "appPins", ASSISTANT_ID], true);
-  return client;
-}
-
-const queryClient = makeClient();
+});
 
 /**
  * The stores the sidebar and the avatar hook read from. The sidebar's view
@@ -119,43 +113,41 @@ const shellDecorator: Decorator<InboxStoryArgs> = function ChatShell(
 ) {
   const { collapsed } = context.args;
   return (
-    <QueryClientProvider client={queryClient}>
-      <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
-        <aside className="w-fit shrink-0 overflow-hidden">
-          <AssistantSideMenu
-            assistantId={ASSISTANT_ID}
-            assistantName={MOCK_ASSISTANT_NAME}
-            collapsed={collapsed}
-            variant="rail"
-            width={280}
-            onWidthChange={() => {}}
-            conversations={CONVERSATIONS}
-            conversationGroups={[]}
-            onSelectConversation={() => {}}
-            onOpenIntelligence={() => {}}
-            onStartNewConversation={() => {}}
-            footerAction={
-              <div className="flex flex-col gap-2">
-                <AssistantInboxNavItem
-                  assistantId={ASSISTANT_ID}
-                  collapsed={collapsed}
-                  onSelect={() => {}}
-                  onDismiss={
-                    context.parameters.inboxDismissible
-                      ? fn().mockName("onDismiss")
-                      : undefined
-                  }
-                />
-                <PreferencesMenu assistantId={ASSISTANT_ID} />
-              </div>
-            }
-          />
-        </aside>
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <Story />
-        </main>
-      </div>
-    </QueryClientProvider>
+    <div className="flex h-screen gap-4 bg-[var(--surface-base)] p-4">
+      <aside className="w-fit shrink-0 overflow-hidden">
+        <AssistantSideMenu
+          assistantId={ASSISTANT_ID}
+          assistantName={MOCK_ASSISTANT_NAME}
+          collapsed={collapsed}
+          variant="rail"
+          width={280}
+          onWidthChange={() => {}}
+          conversations={CONVERSATIONS}
+          conversationGroups={[]}
+          onSelectConversation={() => {}}
+          onOpenIntelligence={() => {}}
+          onStartNewConversation={() => {}}
+          footerAction={
+            <div className="flex flex-col gap-2">
+              <AssistantInboxNavItem
+                assistantId={ASSISTANT_ID}
+                collapsed={collapsed}
+                onSelect={() => {}}
+                onDismiss={
+                  context.parameters.inboxDismissible
+                    ? fn().mockName("onDismiss")
+                    : undefined
+                }
+              />
+              <PreferencesMenu assistantId={ASSISTANT_ID} />
+            </div>
+          }
+        />
+      </aside>
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <Story />
+      </main>
+    </div>
   );
 };
 
@@ -173,7 +165,7 @@ const meta: Meta<InboxStoryArgs> = {
   },
   args: { collapsed: false },
   beforeEach: seedStores,
-  decorators: [shellDecorator],
+  decorators: [shellDecorator, withInboxQueryCache],
 };
 
 export default meta;

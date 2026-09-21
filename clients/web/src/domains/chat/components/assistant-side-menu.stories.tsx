@@ -14,7 +14,7 @@
  * client carrying that list for the assistant it renders.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
@@ -22,6 +22,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import type { AvatarData } from "@/hooks/use-assistant-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -141,7 +142,7 @@ const PINNED_APPS: AppSummary[] = [
  * back to the browser-local pin list, so these stories would document a path
  * they do not mean to show.
  */
-function seedApps(client: QueryClient, assistantId: string): QueryClient {
+function seedApps(client: QueryClient, assistantId: string): void {
   client.setQueryData(
     appsGetQueryKey({ path: { assistant_id: assistantId } }),
     {
@@ -149,7 +150,6 @@ function seedApps(client: QueryClient, assistantId: string): QueryClient {
     },
   );
   client.setQueryData(["assistant-capability", "appPins", assistantId], true);
-  return client;
 }
 
 /**
@@ -163,12 +163,9 @@ function storyClient(assistantId: string): QueryClient {
   if (existing) {
     return existing;
   }
-  const client = seedApps(
-    new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    }),
-    assistantId,
-  );
+  const client = createStoryQueryClient((seeded) => {
+    seedApps(seeded, assistantId);
+  });
   storyClients.set(assistantId, client);
   return client;
 }
@@ -243,16 +240,15 @@ function seededAvatarClient(
   assistantId: string,
   data: AvatarData,
 ): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return createStoryQueryClient((client) => {
+    for (const supportsManifest of [true, false]) {
+      client.setQueryData(
+        [...avatarQueryKey(assistantId), supportsManifest],
+        data,
+      );
+    }
+    seedApps(client, assistantId);
   });
-  for (const supportsManifest of [true, false]) {
-    client.setQueryData(
-      [...avatarQueryKey(assistantId), supportsManifest],
-      data,
-    );
-  }
-  return seedApps(client, assistantId);
 }
 
 /* A stand-in for an uploaded photo, inline so the story needs no network and

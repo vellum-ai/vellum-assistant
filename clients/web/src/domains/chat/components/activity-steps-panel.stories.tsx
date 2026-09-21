@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -8,6 +7,7 @@ import type { ActivityStepsPayload } from "@/stores/viewer-store";
 
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
 import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 import { ActivityStepsPanel } from "./activity-steps-panel";
 
@@ -173,35 +173,33 @@ const LOADED_SCREENSHOT = referencedScreenshot("story-loaded");
 const LOADING_SCREENSHOT = referencedScreenshot("story-loading");
 const UNAVAILABLE_SCREENSHOT = referencedScreenshot("story-unavailable");
 
-function referencedStoryClient(
+function referencedStoryCache(
   attachmentId: string,
   state: "loaded" | "loading",
-): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+) {
+  return withQueryCache((client) => {
+    const key = attachmentContentQueryKey("story-assistant", attachmentId);
+    if (state === "loaded") {
+      client.setQueryData(
+        key,
+        new Blob(
+          [
+            '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="royalblue"/></svg>',
+          ],
+          { type: "image/svg+xml" },
+        ),
+      );
+    } else {
+      void client.prefetchQuery({
+        queryKey: key,
+        queryFn: () => new Promise<Blob>(() => {}),
+      });
+    }
   });
-  const key = attachmentContentQueryKey("story-assistant", attachmentId);
-  if (state === "loaded") {
-    client.setQueryData(
-      key,
-      new Blob(
-        [
-          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="royalblue"/></svg>',
-        ],
-        { type: "image/svg+xml" },
-      ),
-    );
-  } else {
-    void client.prefetchQuery({
-      queryKey: key,
-      queryFn: () => new Promise<Blob>(() => {}),
-    });
-  }
-  return client;
 }
 
-const LOADED_STORY_CLIENT = referencedStoryClient("story-loaded", "loaded");
-const LOADING_STORY_CLIENT = referencedStoryClient("story-loading", "loading");
+const LOADED_STORY_CACHE = referencedStoryCache("story-loaded", "loaded");
+const LOADING_STORY_CACHE = referencedStoryCache("story-loading", "loading");
 
 const meta: Meta<typeof ActivityStepsPanel> = {
   title: "Chat/ActivityStepsPanel",
@@ -314,13 +312,7 @@ export const ReferencedScreenshot: Story = {
     onClose: () => {},
     assistantId: "story-assistant",
   },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={LOADED_STORY_CLIENT}>
-        <Story />
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [LOADED_STORY_CACHE],
 };
 
 /** The 64px tile holds its place while referenced bytes are still loading. */
@@ -330,13 +322,7 @@ export const ReferencedScreenshotLoading: Story = {
     onClose: () => {},
     assistantId: "story-assistant",
   },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={LOADING_STORY_CLIENT}>
-        <Story />
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [LOADING_STORY_CACHE],
 };
 
 /** A reference with no owning assistant stays operable with the image fallback. */
