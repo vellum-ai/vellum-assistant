@@ -4,6 +4,7 @@ export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";
+export { type RememberInput, RememberInputSchema } from "./remember-tool.js";
 
 import { AcpAuthRequiredEventSchema } from "./events/acp-auth-required.js";
 import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";

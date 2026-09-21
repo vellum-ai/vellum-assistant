@@ -8,6 +8,7 @@ import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import type {
   RecallMetadata,
+  RecallSearchedSource,
   RecallSource,
 } from "../../../../api/events/tool-result.js";
 import { redactSecrets } from "../../../../security/secret-scanner.js";
@@ -272,6 +273,12 @@ export async function runAgenticRecall(
     options.searchOptions,
   );
   let evidence = [...seedResult.evidence];
+  // How each source fared across every search this recall runs, the latest
+  // search of a source standing: the seed alone would hide a follow-up that
+  // degraded, or keep a degradation a later search recovered from.
+  let searchedSources = seedResult.searchedSources;
+  const currentResult = (): DeterministicRecallSearchResult =>
+    withFallbackEvidence({ ...seedResult, searchedSources }, evidence);
   const autoInspect = await runAutomaticWorkspaceInspection(
     normalizedInput,
     context,
@@ -329,7 +336,7 @@ export async function runAgenticRecall(
         evidence,
         debug,
         normalizedInput,
-        withFallbackEvidence(seedResult, evidence),
+        currentResult(),
       );
       if (finishResult.ok) {
         return finishResult.answer;
@@ -386,6 +393,10 @@ export async function runAgenticRecall(
         );
         debug.searchCalls.push(searchResult.debug);
         evidence = mergeEvidence(evidence, searchResult.evidence);
+        searchedSources = mergeSearchedSources(
+          searchedSources,
+          searchResult.searchedSources,
+        );
       }
     }
 
@@ -402,7 +413,7 @@ export async function runAgenticRecall(
       evidence,
       debug,
       context,
-      searchResult: withFallbackEvidence(seedResult, evidence),
+      searchResult: currentResult(),
     });
     if (finalFinish.ok) {
       return finalFinish.answer;
@@ -412,7 +423,7 @@ export async function runAgenticRecall(
   }
 
   return deterministicFallback(
-    withFallbackEvidence(seedResult, evidence),
+    currentResult(),
     debug,
     fallbackReason,
     fallbackDetail,
@@ -486,6 +497,7 @@ async function runSeedRecallSearch(
   }
 
   let evidence = [...baseResult.evidence];
+  let searchedSources = baseResult.searchedSources;
   for (const query of expansionQueries) {
     const expansionResult = await runDeterministicRecallSearch(
       {
@@ -498,9 +510,33 @@ async function runSeedRecallSearch(
       searchOptions,
     );
     evidence = mergeEvidence(evidence, expansionResult.evidence);
+    searchedSources = mergeSearchedSources(
+      searchedSources,
+      expansionResult.searchedSources,
+    );
   }
 
-  return withFallbackEvidence(baseResult, evidence);
+  return withFallbackEvidence({ ...baseResult, searchedSources }, evidence);
+}
+
+/**
+ * Fold a later search's per-source notes into the running record: a source
+ * the later search covered takes its newer note, in its existing place; a
+ * source it adds goes at the end. Evidence counts are recomputed from the
+ * merged evidence by {@link withFallbackEvidence}.
+ */
+function mergeSearchedSources(
+  current: readonly RecallSearchedSource[],
+  later: readonly RecallSearchedSource[],
+): RecallSearchedSource[] {
+  const laterBySource = new Map(later.map((note) => [note.source, note]));
+  const merged = current.map((note) => laterBySource.get(note.source) ?? note);
+  for (const note of later) {
+    if (!current.some((existing) => existing.source === note.source)) {
+      merged.push(note);
+    }
+  }
+  return merged;
 }
 
 function buildReferentExpansionQueries(query: string): string[] {
@@ -897,6 +933,7 @@ async function executeSearchSources(
   searchOptions: DeterministicRecallSearchOptions | undefined,
 ): Promise<{
   evidence: RecallEvidence[];
+  searchedSources: RecallSearchedSource[];
   debug: AgenticRecallSearchDebug;
 }> {
   const query = readSearchQuery(payload.query);
@@ -920,6 +957,7 @@ async function executeSearchSources(
   if (!query || sources.length === 0) {
     return {
       evidence: [],
+      searchedSources: [],
       debug: {
         ...debug,
         error: !query
@@ -942,12 +980,20 @@ async function executeSearchSources(
     );
     return {
       evidence: result.evidence,
+      searchedSources: result.searchedSources,
       debug: { ...debug, evidenceCount: result.evidence.length },
     };
   } catch (err) {
+    const error = errorToMessage(err);
     return {
       evidence: [],
-      debug: { ...debug, error: errorToMessage(err) },
+      searchedSources: sources.map((source) => ({
+        source,
+        status: "degraded",
+        evidenceCount: 0,
+        error,
+      })),
+      debug: { ...debug, error },
     };
   }
 }
