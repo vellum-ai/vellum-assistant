@@ -447,14 +447,6 @@ export class VelayTunnelClient {
 
     const frame = parseVelayFrame(data);
     if (!frame) {
-      if (typeof data !== "string") {
-        this.disconnectActiveWebSocket(
-          originWs,
-          VELAY_POLICY_CLOSE_CODE,
-          "invalid binary frame",
-        );
-        return;
-      }
       log.warn("Ignoring malformed Velay frame");
       return;
     }

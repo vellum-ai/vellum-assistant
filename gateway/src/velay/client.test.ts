@@ -1129,7 +1129,7 @@ describe("VelayTunnelClient", () => {
     expect(invalidations.count).toBe(1);
   });
 
-  test("dispatches HTTP and WebSocket frames to the loopback bridges", async () => {
+  test("keeps HTTP and WebSocket bridges usable after malformed tunnel messages", async () => {
     const sockets: FakeWebSocket[] = [];
     const websocketFrames: VelayWebSocketInboundFrame[] = [];
     const httpBridge = mock(
@@ -1148,6 +1148,18 @@ describe("VelayTunnelClient", () => {
     client.start();
     await flushPromises();
     sockets[0].readyState = WS_OPEN;
+
+    for (const data of [
+      "not JSON",
+      new Uint8Array().buffer,
+      new Uint8Array([1, 2]).buffer,
+      new Uint8Array([255]),
+      new TextEncoder().encode('{"type":"unknown"}'),
+    ]) {
+      sockets[0].emit("message", { data });
+    }
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
 
     sendFrame(sockets[0], {
       type: VELAY_FRAME_TYPES.httpRequest,
@@ -1222,7 +1234,7 @@ describe("VelayTunnelClient", () => {
     await client.stop();
   });
 
-  test("dispatches binary tunnel messages and rejects malformed envelopes", async () => {
+  test("dispatches binary tunnel messages and ignores malformed envelopes", async () => {
     const sockets: FakeWebSocket[] = [];
     const websocketFrames: VelayWebSocketInboundFrame[] = [];
     const client = makeClient({ sockets, websocketFrames });
@@ -1241,7 +1253,7 @@ describe("VelayTunnelClient", () => {
       },
     ]);
     sockets[0].emit("message", { data: new Uint8Array([1, 2]).buffer });
-    expect(sockets[0].closes.length).toBe(1);
+    expect(sockets[0].closes).toEqual([]);
     expect(websocketFrames).toHaveLength(1);
     await client.stop();
   });

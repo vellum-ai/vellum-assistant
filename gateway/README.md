@@ -386,3 +386,7 @@ ASCII hex connection-ID bytes, then the unchanged payload (including empty
 payloads). Control and text messages remain JSON. Other routes and older relays
 retain JSON/base64 framing. Deploy Velay support before updating gateways;
 older gateways can continue using the upgraded relay.
+
+Malformed tunnel messages retain the existing log-and-ignore behavior. Raw binary
+frames addressed to streams without desktop negotiation are ignored, preserving
+other active streams on the shared tunnel.

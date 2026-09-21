@@ -156,11 +156,12 @@ export class VelayWebSocketBridge {
     const connection = this.connections.get(frame.connection_id);
     if (!connection) return;
 
+    if (frame.type === "websocket_binary" && !connection.binaryMessages) {
+      return;
+    }
     const message =
       frame.type === "websocket_binary"
-        ? connection.binaryMessages
-          ? frame.payload
-          : undefined
+        ? frame.payload
         : decodeVelayMessage(frame);
     if (message === undefined) {
       this.closeConnection(
