@@ -375,10 +375,13 @@ function stripReasoningParams(params: unknown): void {
 }
 
 /**
- * `baseURL|model` pairs whose stripped retry succeeded after an opt-out
- * rejection. Later requests skip the opt-out up front instead of paying a
- * rejected round-trip on every call. Process-lifetime only: a restart
- * re-learns with one rejected request per model.
+ * `baseURL|model|routing` keys whose request succeeded on the attempt directly
+ * after the opt-out was stripped. Later requests skip the opt-out up front
+ * instead of paying a rejected round-trip on every call. A success that needed
+ * a further compat retry proves nothing about the opt-out, so it is not
+ * recorded. Routing (OpenRouter's `provider` body field) is part of the key
+ * because opt-out support belongs to the upstream backend, not the model slug.
+ * Process-lifetime only: a restart re-learns with one rejected request per key.
  */
 const reasoningOptOutRejecters = new Set<string>();
 
@@ -1164,7 +1167,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         if (extraBody) {
           Object.assign(params, extraBody);
         }
-        const optOutKey = `${this.client.baseURL}|${params.model}`;
+        const optOutKey = `${this.client.baseURL}|${params.model}|${JSON.stringify(
+          (params as { provider?: unknown }).provider ?? null,
+        )}`;
         if (
           reasoningOptOutRejecters.has(optOutKey) &&
           carriesReasoningOptOut(params)
@@ -1183,11 +1188,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
           });
         };
         const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
+        let lastCompatRetry: OpenAICompatRetryKind | undefined;
         let stream: Awaited<ReturnType<typeof createStream>>;
         for (;;) {
           try {
             stream = await createStream();
-            if (attemptedCompatRetries.has("reasoning-opt-out")) {
+            if (lastCompatRetry === "reasoning-opt-out") {
               reasoningOptOutRejecters.add(optOutKey);
             }
             break;
@@ -1201,6 +1207,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
               throw error;
             }
             attemptedCompatRetries.add(retry.kind);
+            lastCompatRetry = retry.kind;
             log.warn(
               {
                 provider: this.name,

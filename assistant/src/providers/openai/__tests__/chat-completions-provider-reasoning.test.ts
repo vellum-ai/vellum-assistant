@@ -803,6 +803,41 @@ describe("reasoning opt-out rejection fallback", () => {
     ).toBeUndefined();
   });
 
+  test("does not remember when success needed a further compat retry", async () => {
+    // The broad /reasoning/ match misreads the reasoning_content round-trip
+    // error as an opt-out rejection; the request only succeeds after the
+    // backfill retry, so the opt-out itself was never proven unsupported.
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection("reasoning_content must be passed back to the API"),
+        rejection("reasoning_content must be passed back to the API"),
+      ],
+      OK_CHUNKS,
+    );
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "again" }],
+      },
+    ];
+
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+
+    expect(requests).toHaveLength(4);
+    expect(
+      (requests[3] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBe("none");
+  });
+
   test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort 'none' is not supported for this model")],
