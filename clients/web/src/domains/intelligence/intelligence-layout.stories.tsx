@@ -134,13 +134,25 @@ function MobileSectionChrome({ path, label }: { path: string; label: string }) {
 }
 
 /**
+ * Publishes into the layout's slots store the way a section page does, and
+ * clears the slot when the story unmounts. A `useState` initializer runs
+ * during the decorator's own render, i.e. before the layout below it first
+ * samples the store.
+ */
+function withSlot(publish: () => void, clear: () => void): Decorator {
+  return function WithSlot(Story) {
+    useState(publish);
+    useEffect(() => clear, []);
+    return <Story />;
+  };
+}
+
+/**
  * Registers a circular plus in the layout's action slot, the way the Contacts
  * list registers its add affordance.
  */
-const withRegisteredPlus: Decorator = function WithRegisteredPlus(Story) {
-  // A `useState` initializer runs during this decorator's own render, i.e.
-  // before the layout below it first samples the store.
-  useState(() => {
+const withRegisteredPlus = withSlot(
+  () =>
     useIntelligenceLayoutSlotsStore
       .getState()
       .setHeaderTrailing(
@@ -152,15 +164,18 @@ const withRegisteredPlus: Decorator = function WithRegisteredPlus(Story) {
           tooltip="Add contact"
           className="max-md:bg-[var(--surface-active)]"
         />,
-      );
-  });
-  useEffect(() => {
-    return () => {
-      useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
-    };
-  }, []);
-  return <Story />;
-};
+      ),
+  () => useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null),
+);
+
+/**
+ * Reports a pushed detail screen the way a section page does, which is what
+ * aims the layout's Back at that section's list.
+ */
+const withDetailIsScreen = withSlot(
+  () => useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(true),
+  () => useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false),
+);
 
 /** The phone viewport the mobile stories are drawn for, 390px wide. */
 const phoneGlobals = {
@@ -190,7 +205,7 @@ export const MobileContactDetailTopBar: Story = {
     router: { initialEntries: ["/assistant/contacts/c_1"] },
   },
   globals: phoneGlobals,
-  decorators: [forceMobile],
+  decorators: [withDetailIsScreen, forceMobile],
   render: () => (
     <MobileSectionChrome
       path="/assistant/contacts/:contactId"

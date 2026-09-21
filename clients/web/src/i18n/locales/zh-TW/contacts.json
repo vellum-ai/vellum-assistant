@@ -40,7 +40,8 @@
     "saveFailed": "儲存聯絡人失敗",
     "verifyFailed": "驗證頻道失敗",
     "rosterLoadFailed": "無法載入工作區名單。請檢查 Slack 連線並重試。",
-    "emptyBody": "選取一個聯絡人"
+    "emptyBody": "選取一個聯絡人",
+    "notFoundBody": "此聯絡人不可用。"
   },
   "contactsList": {
     "heading": "項目",

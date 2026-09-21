@@ -24,14 +24,11 @@ import {
 } from "@testing-library/react";
 import {
   createElement,
-  Fragment,
   isValidElement,
   type ReactElement,
-  type ReactNode,
   useState,
 } from "react";
 import {
-  createMemoryRouter,
   MemoryRouter,
   Route,
   RouterProvider,
@@ -44,13 +41,14 @@ import { ApiError } from "@/utils/api-errors";
 import { DRAFT_CONTACT_NAME } from "@/domains/contacts/draft-contact";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
 import {
+  createProbedRouter,
   currentLocation,
-  LocationProbe,
 } from "@/hooks/router-probe.test-helper";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { UseEdgeSwipeBackArgs } from "@/hooks/use-edge-swipe-back";
 import * as useIsMobileModule from "@/hooks/use-is-mobile";
+import { routes } from "@/utils/routes";
 
 // ---------------------------------------------------------------------------
 // Module-level holders
@@ -65,6 +63,9 @@ let availableChannelsOverride: ChannelInfo[] | null = null;
 let isMobile = false;
 let hasRoomForList = true;
 let lastSwipeArgs: UseEdgeSwipeBackArgs | null = null;
+/** Holds a delete request open so the detail's pending state is observable. */
+let holdDelete = false;
+let releaseDelete: (() => void) | null = null;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -196,15 +197,6 @@ mock.module("@/hooks/use-side-list-room", () => ({
   },
 }));
 
-mock.module("@/hooks/use-assistant-channels", () => ({
-  useAssistantChannels: () => ({
-    channels: [],
-    pendingChannelKey: null,
-    onSetup: () => {},
-    onDisconnect: () => {},
-  }),
-}));
-
 mock.module("@/domains/contacts/contacts-gateway", () => ({
   upsertContact: async (
     _assistantId: string,
@@ -229,7 +221,14 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
     }
     return { ...GUARDIAN, ...body };
   },
-  deleteContact: async () => {},
+  deleteContact: async () => {
+    if (!holdDelete) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+  },
   verifyContactChannel: async () => {},
   linkContactChannelAccount: async (
     _assistantId: string,
@@ -334,74 +333,40 @@ function makeQueryClient(
   return client;
 }
 
+/** The production route shape: two sibling entries sharing one component. */
+const CONTACTS_ROUTE_PATHS = [
+  routes.contacts.root,
+  `${routes.contacts.root}/:contactId`,
+];
+
 /**
- * `useParams` only yields `contactId` under a matching route pattern, so the
- * page is mounted under the real `contacts/:contactId?` pattern.
+ * Renders the page under that shape, so `useParams` yields `contactId` and a
+ * step between list and detail keeps the page mounted. Returns the router the
+ * suite reads its entry from and walks back with, plus the render's `unmount`.
  */
-function Wrapper({
-  children,
-  initialPath = "/assistant/contacts",
-  queryClient,
-}: {
-  children: ReactNode;
+function renderContactsPage(options?: {
   initialPath?: string;
   queryClient?: QueryClient;
+  onStartSetupConversation?: (prompt: string) => void;
 }) {
-  const client = queryClient ?? makeQueryClient();
-  return createElement(
-    MemoryRouter,
-    { initialEntries: [initialPath] },
-    createElement(
-      QueryClientProvider,
-      { client },
-      createElement(
-        Routes,
-        null,
-        createElement(Route, {
-          path: "/assistant/contacts/:contactId?",
-          element: createElement(
-            Fragment,
-            null,
-            children,
-            createElement(LocationProbe),
-          ),
-        }),
-      ),
+  const router = createProbedRouter({
+    paths: CONTACTS_ROUTE_PATHS,
+    element: (
+      <ContactsPage
+        assistantId="asst-1"
+        onStartSetupConversation={options?.onStartSetupConversation}
+      />
     ),
-  );
-}
+    initialEntries: [options?.initialPath ?? "/assistant/contacts"],
+  });
 
-/**
- * Renders the page under the production route shape: `routes.tsx` mounts two
- * sibling entries sharing one component, which {@link Wrapper} collapses into
- * a single optional-segment route. Returns the router so a suite can read the
- * entry it is on and walk the history.
- */
-function renderUnderRouteShape(initialPath: string) {
-  function ContactsRoute() {
-    return (
-      <>
-        <ContactsPage assistantId="asst-1" />
-        <LocationProbe />
-      </>
-    );
-  }
-
-  const router = createMemoryRouter(
-    [
-      { path: "/assistant/contacts", Component: ContactsRoute },
-      { path: "/assistant/contacts/:contactId", Component: ContactsRoute },
-    ],
-    { initialEntries: [initialPath] },
-  );
-
-  render(
-    <QueryClientProvider client={makeQueryClient()}>
+  const { unmount } = render(
+    <QueryClientProvider client={options?.queryClient ?? makeQueryClient()}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
 
-  return router;
+  return { router, unmount };
 }
 
 /**
@@ -450,8 +415,18 @@ function headerTrailing(): ReactElement<{ onClick: () => void }> | null {
     : null;
 }
 
+/** What the page reports to the layout about the open contact's depth. */
+function detailIsScreen(): boolean {
+  return useIntelligenceLayoutSlotsStore.getState().detailIsScreen;
+}
+
 function queryDrawerTrigger(): Element | null {
   return document.querySelector('[aria-label="Open sidebar"]');
+}
+
+/** The detail pane's spinner, shown while the pane has nothing to say yet. */
+function queryPaneSpinner(): Element | null {
+  return document.querySelector("section svg.animate-spin");
 }
 
 function getButton(label: string): HTMLButtonElement {
@@ -503,7 +478,10 @@ beforeEach(() => {
   linkAndVerifyCalls.length = 0;
   mergeRequests.length = 0;
   unhandledRejections.length = 0;
+  holdDelete = false;
+  releaseDelete = null;
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
+  useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
   process.on("unhandledRejection", onUnhandled);
 });
 
@@ -539,11 +517,7 @@ describe("ContactsPage legacy setup deep link", () => {
         { initialEntries: ["/assistant/contacts?setup=slack"] },
         createElement(
           QueryClientProvider,
-          {
-            client: new QueryClient({
-              defaultOptions: { queries: { retry: false } },
-            }),
-          },
+          { client: makeQueryClient() },
           createElement(
             Routes,
             null,
@@ -572,11 +546,7 @@ describe("ContactsPage mutation error handling", () => {
   test("a failed contact save surfaces a toast and does not reject", async () => {
     upsertShouldReject = true;
 
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     // The pane rests on the guardian, rendering its editable Name field.
     const nameInput = await waitFor(() => getInputByPlaceholder("Your name"));
@@ -600,11 +570,7 @@ describe("ContactsPage mutation error handling", () => {
 
 describe("ContactsPage list and detail", () => {
   test("lists the guardian and the contacts, and no assistant row", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
 
@@ -624,14 +590,11 @@ describe("ContactsPage list and detail", () => {
   });
 
   test("deleting the selected contact lands on the guardian", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
-    // The detail pane stays blank while contacts load: "Select a contact" is
-    // the wrong copy before the guardian is known.
+    // The detail pane spins while contacts load: "Select a contact" is the
+    // wrong copy before the guardian is known.
+    expect(queryPaneSpinner()).not.toBe(null);
     expect(document.body.textContent).not.toContain("Select a contact");
 
     await waitFor(() => getInputByPlaceholder("Your name"));
@@ -644,37 +607,53 @@ describe("ContactsPage list and detail", () => {
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
   });
+
+  test("a delete in flight keeps the contact on screen, showing its pending state", async () => {
+    holdDelete = true;
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+
+    // The detail owns the waiting state; swapping it for the resting copy
+    // would tell the user to select a contact they are in the middle of
+    // deleting.
+    const deleting = await waitFor(() => getButton("Deleting…"));
+    expect(deleting.disabled).toBe(true);
+    expect(getInputByPlaceholder("Give this human a name")).toBeDefined();
+    expect(document.body.textContent).not.toContain("Select a contact");
+
+    await act(async () => {
+      releaseDelete!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
 });
 
 describe("ContactsPage URL-owned selection", () => {
   test("the bare route rests on the guardian and leaves the URL alone", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
   });
 
   test("a contact detail path opens that contact on first load", async () => {
-    render(
-      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 
   test("clicking a row moves the location to that contact's detail path", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
@@ -687,16 +666,15 @@ describe("ContactsPage URL-owned selection", () => {
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
   });
 
-  test("an id no contact carries keeps its URL and shows the empty state", async () => {
-    render(
-      <Wrapper initialPath="/assistant/contacts/c-missing">
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+  test("an id no contact carries keeps its URL and says so", async () => {
+    renderContactsPage({ initialPath: "/assistant/contacts/c-missing" });
 
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Select a contact");
+      expect(document.body.textContent).toContain(
+        "This contact isn’t available.",
+      );
     });
+    expect(document.body.textContent).not.toContain("Select a contact");
     expect(currentLocation().pathname).toBe("/assistant/contacts/c-missing");
     expect(document.querySelector('[aria-current="page"]')).toBe(null);
   });
@@ -707,17 +685,15 @@ describe("ContactsPage URL-owned selection", () => {
     // one contact.
     const queryClient = makeQueryClient([GUARDIAN], { staleTime: 10_000 });
 
-    render(
-      <Wrapper
-        initialPath={`/assistant/contacts/${ALICE.id}`}
-        queryClient={queryClient}
-      >
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage({
+      initialPath: `/assistant/contacts/${ALICE.id}`,
+      queryClient,
+    });
 
     await waitFor(() => {
-      expect(document.body.textContent).toContain("Select a contact");
+      expect(document.body.textContent).toContain(
+        "This contact isn’t available.",
+      );
     });
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
 
@@ -729,88 +705,106 @@ describe("ContactsPage URL-owned selection", () => {
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 
-  test("a deep link the cached list lacks survives the revalidating fetch", async () => {
+  /**
+   * A list that has not settled cannot prove a contact is absent, so the pane
+   * spins on the deep link rather than claiming either state. TanStack's
+   * default `networkMode` pauses a request made offline instead of running or
+   * failing it, which is why the offline shapes are neither fetching nor
+   * errored while they hold nothing the link resolves against.
+   */
+  test.each([
+    {
+      shape: "a revalidating cache",
+      prepare: () => {},
+      queryClient: () => makeQueryClient([GUARDIAN]),
+      // Cached rows render synchronously while the refetch runs, so the held
+      // state is the first frame and awaiting anything would pass it.
+      reachHeldState: async () => {},
+    },
+    {
+      shape: "a failed fetch",
+      prepare: () => {
+        contactsShouldReject = true;
+      },
+      queryClient: () => undefined,
+      reachHeldState: async () => {
+        // The list's own empty state means the query has finished.
+        await waitFor(() => getButtonByText("Add Contact"));
+      },
+    },
+    {
+      shape: "an offline mount with no cache",
+      prepare: () => {
+        onlineManager.setOnline(false);
+      },
+      queryClient: () => undefined,
+      reachHeldState: async () => {
+        await waitFor(() => getButtonByText("Add Contact"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+    },
+    {
+      shape: "an offline mount with a cache that lacks the contact",
+      prepare: () => {
+        onlineManager.setOnline(false);
+      },
+      queryClient: () => makeQueryClient([GUARDIAN]),
+      reachHeldState: async () => {
+        await waitFor(() => getButtonByText("Example User"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+    },
+  ])(
+    "$shape holds the deep link and spins on it",
+    async ({ prepare, queryClient, reachHeldState }) => {
+      prepare();
+
+      renderContactsPage({
+        initialPath: `/assistant/contacts/${ALICE.id}`,
+        queryClient: queryClient(),
+      });
+
+      await reachHeldState();
+
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${ALICE.id}`,
+      );
+      expect(queryPaneSpinner()).not.toBe(null);
+      expect(document.body.textContent).not.toContain("Select a contact");
+      expect(document.body.textContent).not.toContain(
+        "This contact isn’t available.",
+      );
+    },
+  );
+
+  test("a deep link the cached list lacks resolves once the fetch lands", async () => {
     // Cached contacts predate Alice (added elsewhere), so the mount serves
     // them while refetching. The fresh list carries her, so the link holds.
-    render(
-      <Wrapper
-        initialPath={`/assistant/contacts/${ALICE.id}`}
-        queryClient={makeQueryClient([GUARDIAN])}
-      >
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
-
-    // The fetch is still in flight, so the pane withholds the empty state
-    // rather than claiming the id is unknown.
-    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
-    expect(document.body.textContent).not.toContain("Select a contact");
+    renderContactsPage({
+      initialPath: `/assistant/contacts/${ALICE.id}`,
+      queryClient: makeQueryClient([GUARDIAN]),
+    });
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
   });
 
-  test("a failed contacts fetch keeps the deep link intact", async () => {
-    contactsShouldReject = true;
+  test("an encoded id in the URL opens the contact it names", async () => {
+    const slashed = { ...ALICE, id: "org/team c-1" } as ContactPayload;
+    contactsFixture = [GUARDIAN, slashed];
 
-    render(
-      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
+    renderContactsPage({ initialPath: routes.contacts.detail(slashed.id) });
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(document.body.textContent).not.toContain(
+      "This contact isn’t available.",
     );
-
-    // The list's own empty state means the query has finished. A failure is
-    // not a settled list, so the pane withholds the empty state.
-    await waitFor(() => getButtonByText("Add Contact"));
-    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
-    expect(document.body.textContent).not.toContain("Select a contact");
-  });
-
-  // TanStack's default `networkMode` pauses a request made offline instead of
-  // running or failing it, so the list is neither fetching nor errored while
-  // it holds nothing the link can resolve against.
-  test("an offline mount with no cache holds the deep link", async () => {
-    onlineManager.setOnline(false);
-
-    render(
-      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
-
-    await waitFor(() => getButtonByText("Add Contact"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
-    expect(document.body.textContent).not.toContain("Select a contact");
-  });
-
-  test("an offline mount holds a deep link the cached list lacks", async () => {
-    onlineManager.setOnline(false);
-
-    render(
-      <Wrapper
-        initialPath={`/assistant/contacts/${ALICE.id}`}
-        queryClient={makeQueryClient([GUARDIAN])}
-      >
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
-
-    // The cache renders straight away while its revalidation stays paused.
-    await waitFor(() => getButtonByText("Example User"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
-    expect(document.body.textContent).not.toContain("Select a contact");
   });
 });
 
 describe("ContactsPage contact permissions", () => {
   test("hides Permissions on the guardian and a peer assistant", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
@@ -825,11 +819,7 @@ describe("ContactsPage contact permissions", () => {
   });
 
   test("lets a regular human contact set a risk ceiling", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
@@ -859,11 +849,7 @@ describe("ContactsPage contact permissions", () => {
   test("a failed permissions save surfaces a toast and does not reject", async () => {
     upsertShouldReject = true;
 
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
@@ -893,11 +879,7 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("the bare route is the list, with no detail and no drawer", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(getButtonByText("Alice")).toBeDefined();
@@ -906,11 +888,7 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("tapping a row pushes the contact and takes the list off screen", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.click(getButtonByText("Alice"));
@@ -922,11 +900,7 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("the top bar carries the add action only while the list is the page", async () => {
-    const { unmount } = render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    const { unmount } = renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(headerTrailing()).not.toBe(null);
@@ -940,12 +914,23 @@ describe("ContactsPage as a phone screen", () => {
     expect(headerTrailing()).toBe(null);
   });
 
+  test("the pushed-screen flag follows the open contact and clears on unmount", async () => {
+    const { unmount } = renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Search Contacts"));
+    expect(detailIsScreen()).toBe(false);
+
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => {
+      expect(detailIsScreen()).toBe(true);
+    });
+
+    unmount();
+    expect(detailIsScreen()).toBe(false);
+  });
+
   test("the top bar add creates a contact and opens it", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     const addAction = headerTrailing();
@@ -964,11 +949,7 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("deleting a contact pushed from the list returns to the list", async () => {
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.click(getButtonByText("Alice"));
@@ -982,7 +963,9 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("a merge on a deep-linked contact leaves the entry alone", async () => {
-    const router = renderUnderRouteShape(`/assistant/contacts/${ALICE.id}`);
+    const { router } = renderContactsPage({
+      initialPath: `/assistant/contacts/${ALICE.id}`,
+    });
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     const entryBefore = router.state.location.key;
@@ -998,7 +981,7 @@ describe("ContactsPage as a phone screen", () => {
   });
 
   test("a merge on a contact pushed from the list keeps one Back to the list", async () => {
-    const router = renderUnderRouteShape("/assistant/contacts");
+    const { router } = renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.click(getButtonByText(ALICE.displayName));
@@ -1024,7 +1007,7 @@ describe("ContactsPage back swipe ownership", () => {
     isMobile = true;
     hasRoomForList = false;
 
-    renderUnderRouteShape("/assistant/contacts");
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.click(getButtonByText(ALICE.displayName));
@@ -1046,11 +1029,7 @@ describe("ContactsPage back swipe ownership", () => {
     isMobile = true;
     hasRoomForList = false;
 
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     expect(lastSwipeArgs).not.toBe(null);
@@ -1058,11 +1037,7 @@ describe("ContactsPage back swipe ownership", () => {
   });
 
   test("a desktop contact beside the list leaves the edge alone", async () => {
-    render(
-      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     expect(lastSwipeArgs).not.toBe(null);
@@ -1072,11 +1047,7 @@ describe("ContactsPage back swipe ownership", () => {
   test("a contact in the narrow desktop pane leaves the edge alone", async () => {
     hasRoomForList = false;
 
-    render(
-      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
 
     await waitFor(() => getInputByPlaceholder("Give this human a name"));
     expect(lastSwipeArgs).not.toBe(null);
@@ -1088,15 +1059,36 @@ describe("ContactsPage in a narrow desktop pane", () => {
   test("keeps the drawer, the guardian detail, and an empty top bar", async () => {
     hasRoomForList = false;
 
-    render(
-      <Wrapper>
-        <ContactsPage assistantId="asst-1" />
-      </Wrapper>,
-    );
+    renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(queryDrawerTrigger()).not.toBe(null);
     expect(headerTrailing()).toBe(null);
+  });
+});
+
+/**
+ * The layout's Back follows the pane, not the window: a mobile-width window
+ * whose pane still seats the list beside the detail shows both, so a Back to
+ * the list would point at a list already on screen.
+ */
+describe.each([
+  { mode: "a desktop window", mobile: false, roomForList: true },
+  { mode: "a narrow desktop pane", mobile: false, roomForList: false },
+  {
+    mode: "a mobile window with room for the list",
+    mobile: true,
+    roomForList: true,
+  },
+])("ContactsPage on $mode", ({ mobile, roomForList }) => {
+  test("reports no pushed detail screen with a contact open", async () => {
+    isMobile = mobile;
+    hasRoomForList = roomForList;
+
+    renderContactsPage({ initialPath: `/assistant/contacts/${ALICE.id}` });
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(detailIsScreen()).toBe(false);
   });
 });
 
@@ -1107,7 +1099,7 @@ describe("ContactsPage under the production route shape", () => {
     isMobile = true;
     hasRoomForList = false;
 
-    const router = renderUnderRouteShape("/assistant/contacts");
+    const { router } = renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Search Contacts"));
     fireEvent.change(getInputByPlaceholder("Search Contacts"), {
@@ -1148,14 +1140,7 @@ describe("ContactsPage plugin verify", () => {
     ];
     const onStartSetupConversation = mock(() => {});
 
-    render(
-      <Wrapper>
-        <ContactsPage
-          assistantId="asst-1"
-          onStartSetupConversation={onStartSetupConversation}
-        />
-      </Wrapper>,
-    );
+    renderContactsPage({ onStartSetupConversation });
 
     const verify = await waitFor(() => getButton("Verify"));
     fireEvent.click(verify);
