@@ -85,7 +85,10 @@ export function useCompanionIntroPermission(
     let revision = 0;
     let pollGeneration = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const record = (state: SystemPermissionsState | null) => {
+    const record = (
+      state: SystemPermissionsState | null,
+      keepRequestPending = false,
+    ) => {
       if (!active) {
         return;
       }
@@ -95,7 +98,9 @@ export function useCompanionIntroPermission(
         }
         return state;
       });
-      setAction(null);
+      if (!keepRequestPending) {
+        setAction(null);
+      }
     };
     const failed = (error: unknown) => {
       if (active) {
@@ -134,9 +139,7 @@ export function useCompanionIntroPermission(
     };
     const unsubscribe = subscribeToSystemPermissions((state) => {
       revision += 1;
-      if (!pending) {
-        record(state);
-      }
+      record(state, pending);
     });
     void poll();
     enableRef.current = () => {
@@ -166,10 +169,17 @@ export function useCompanionIntroPermission(
             record(permissions);
             return;
           }
+          const requesting = revision;
           const result = companionIntroOpensSettings(kind, item)
             ? await openSystemPermissionSettings(kind)
             : await requestSystemPermission(kind);
-          record(result ? { ...permissions, [kind]: result } : null);
+          if (active) {
+            if (requesting === revision) {
+              record(result ? { ...permissions, [kind]: result } : null);
+            } else {
+              setAction(null);
+            }
+          }
         } catch (error) {
           failed(error);
         } finally {

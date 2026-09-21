@@ -278,6 +278,28 @@ describe("companion tour permission setup", () => {
     await act(async () => resolve(current));
     expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
   });
+  test("preserves pushed grants when an older request result returns", async () => {
+    const view = setup("talk");
+    await known(view);
+    let resolve!: (value: SystemPermissionStateItem) => void;
+    request.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    act(() => view.result.current?.enable());
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    current = permissions("granted");
+    act(() => listener?.(current));
+    expect(view.result.current?.state.phase).toBe("requesting");
+    await act(async () => resolve(item("microphone", "denied")));
+    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+    read.mockImplementation(() => new Promise(() => {}));
+    view.rerender({ beat: "share" });
+    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+    expect(view.result.current?.state.phase).toBe("known");
+  });
   test("reports a failed request and keeps setup available", async () => {
     const view = setup("talk");
     await known(view);
