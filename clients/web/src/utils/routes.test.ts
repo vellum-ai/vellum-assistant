@@ -7,6 +7,7 @@ import {
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
+  isPathExactly,
   routes,
 } from "@/utils/routes";
 import {
@@ -110,6 +111,29 @@ describe("isAboutAssistantPath", () => {
   test("rejects settings and conversations", () => {
     expect(isAboutAssistantPath(routes.settings.root)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
+  });
+});
+
+describe("isPathExactly (the route itself, trailing slash tolerated)", () => {
+  test("matches the path and its single-trailing-slash spelling", () => {
+    expect(isPathExactly(routes.contacts.root, routes.contacts.root)).toBe(
+      true,
+    );
+    expect(
+      isPathExactly(`${routes.contacts.root}/`, routes.contacts.root),
+    ).toBe(true);
+  });
+
+  test("rejects sub-paths, doubled slashes, and other routes", () => {
+    expect(
+      isPathExactly(`${routes.contacts.root}/c_1`, routes.contacts.root),
+    ).toBe(false);
+    expect(
+      isPathExactly(`${routes.contacts.root}//`, routes.contacts.root),
+    ).toBe(false);
+    expect(isPathExactly(routes.library.root, routes.contacts.root)).toBe(
+      false,
+    );
   });
 });
 

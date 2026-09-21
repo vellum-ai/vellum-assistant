@@ -9,7 +9,9 @@
  *
  * On mobile the title moves into the shared top-bar center slot (via
  * `setTopBarCenter`): the section label on section pages; the bare pages
- * set no title (the stage greeting already names the assistant).
+ * set no title (the stage greeting already names the assistant). Library and
+ * Contacts instead publish the complete mobile bar through `setMobileTopBar`,
+ * and a detail route under one of them backs to that section's list.
  *
  * `useIsMobile` and the slots-store setter are mocked; the assistant name
  * is driven through the real identity store. `MemoryRouter` satisfies the
@@ -21,6 +23,7 @@ import { cleanup, render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
+import type { MobileTopBarSlot } from "@/components/layout/chat-layout-slots-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const isMobileRef = { value: false };
@@ -52,6 +55,16 @@ const renderLayoutAt = (path: string) =>
       <IntelligenceLayout />
     </MemoryRouter>,
   );
+
+/** The slot the layout last published, or undefined when it published none. */
+const lastMobileTopBar = (): MobileTopBarSlot | undefined => {
+  const slot = setMobileTopBarMock.mock.calls.at(-1)?.[0];
+  return slot == null ? undefined : (slot as MobileTopBarSlot);
+};
+
+/** The props of an element in a slot, for assertions the markup cannot make. */
+const slotProps = (node: React.ReactNode): Record<string, unknown> =>
+  (node as { props?: Record<string, unknown> } | null)?.props ?? {};
 
 beforeEach(() => {
   isMobileRef.value = false;
@@ -144,28 +157,80 @@ describe("IntelligenceLayout — section pages", () => {
       .setHeaderTrailing(<button type="button">Import</button>);
     const { container } = renderLayoutAt("/assistant/library");
 
-    const slot = setMobileTopBarMock.mock.calls.at(-1)?.[0] as
-      | {
-          leading: React.ReactNode;
-          center: React.ReactNode;
-          trailing: React.ReactNode;
-        }
-      | undefined;
+    const slot = lastMobileTopBar();
     expect(slot).toBeDefined();
-    expect(
-      renderToStaticMarkup(slot?.center as React.ReactElement),
-    ).toContain("Library");
+    expect(renderToStaticMarkup(slot?.center as React.ReactElement)).toContain(
+      "Library",
+    );
     expect(
       renderToStaticMarkup(slot?.trailing as React.ReactElement),
     ).toContain("Import");
     expect(isValidElement(slot?.leading)).toBe(true);
-    expect(
-      (slot?.leading as { props?: { shape?: string } } | null | undefined)
-        ?.props?.shape,
-    ).toBe("pill");
+    expect(slotProps(slot?.leading).shape).toBe("pill");
     expect(container.querySelector("h1")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+  });
+
+  test("on mobile, Contacts registers one back, title, and action top bar", () => {
+    isMobileRef.value = true;
+    useIntelligenceLayoutSlotsStore
+      .getState()
+      .setHeaderTrailing(<button type="button">Add</button>);
+    const { container } = renderLayoutAt("/assistant/contacts");
+
+    const slot = lastMobileTopBar();
+    expect(slot).toBeDefined();
+    expect(renderToStaticMarkup(slot?.center as React.ReactElement)).toContain(
+      "Contacts",
+    );
+    expect(
+      renderToStaticMarkup(slot?.trailing as React.ReactElement),
+    ).toContain("Add");
+    expect(slotProps(slot?.leading).shape).toBe("pill");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+  });
+
+  test("on mobile, a contact detail path backs to the Contacts list", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/contacts/c_1");
+
+    const leading = slotProps(lastMobileTopBar()?.leading);
+    expect(leading["aria-label"]).toBe("Back to Contacts");
+    expect(typeof leading.onClick).toBe("function");
+    // A plain button, not `asChild` around a <Link>, so nothing navigates
+    // before the pop-or-replace decision is made.
+    expect(leading.children).toBeUndefined();
+    expect(leading.asChild).toBeUndefined();
+  });
+
+  test("on mobile, a trailing slash on the list path is still the list", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/contacts/");
+
+    // The overview pill (`asChild` around a <Link>), not the detail route's
+    // "Back to Contacts" button, which would cost the user a second Back.
+    const leading = slotProps(lastMobileTopBar()?.leading);
+    expect(leading["aria-label"]).toBe("Back to Ada");
+    expect(leading.asChild).toBe(true);
+    expect(leading.onClick).toBeUndefined();
+    expect(slotProps(leading.children as React.ReactNode).to).toBe(
+      "/assistant/identity",
+    );
+  });
+
+  test("on mobile, Channels still registers only its title", () => {
+    isMobileRef.value = true;
+    renderLayoutAt("/assistant/channels");
+
+    expect(setMobileTopBarMock).toHaveBeenLastCalledWith(null);
+    const node = setTopBarCenterMock.mock.calls.at(-1)?.[0];
+    expect(isValidElement(node)).toBe(true);
+    expect(renderToStaticMarkup(node as React.ReactElement)).toContain(
+      "Channels",
+    );
   });
 
   test("on desktop, clears the top-bar center", () => {
