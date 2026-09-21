@@ -50,7 +50,7 @@ Non-platform assistants keep their connected-computer behavior.
 
 Explicit `target: "connected-computer"` or `target_client_id` selects a connected
 computer on every client. The selected target never falls back to another
-computer when unavailable. The virtual desktop uses a fixed 1440x810 display.
+computer when unavailable. The virtual desktop uses a fixed 1280x720 display.
 Observations return full-screen screenshots and mouse actions use the same
 screen coordinates.
 Viewer resizing scales the canvas locally without changing the desktop layout.
