@@ -125,6 +125,7 @@ describe("the call's work on its bar", () => {
     fireEvent.click(chipOf(container)!);
     expect(shelfOf(container)).toBeNull();
     expect(container.querySelector('[data-testid="approval"]')).not.toBeNull();
+    expect(chipOf(container)?.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("the list closes when the work runs out, and stays closed after", () => {

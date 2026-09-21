@@ -1654,7 +1654,7 @@ export function CompanionSurface({
                   lineExtra={lineExtra}
                   onReviewPrompts={onReviewPrompts}
                   accentHex={accentHex}
-                  workShelfOpen={workShelfOpen && hasWork}
+                  workShelfOpen={workShelfShown}
                   onToggleWorkShelf={
                     // The column has no edge to stand a list on.
                     vertical
