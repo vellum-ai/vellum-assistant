@@ -58,6 +58,8 @@ import {
   restoreMediaDevices,
   stubMediaDevices,
 } from "@/domains/chat/voice/voice-room/voice-camera.test-helper";
+import { VOICE_ROOM_CONTROL_SIZE_CLASS } from "@/domains/chat/voice/voice-room/voice-room-control";
+import { CAMERA_ROW_FLANK_INSET } from "@/domains/chat/voice/voice-room/voice-room-layout";
 import { MIN_VERSION as NONINTERACTIVE_VOICE_MIN_VERSION } from "@/lib/backwards-compat/use-supports-noninteractive-voice-turns";
 import { publish } from "@/lib/event-bus";
 import { MIN_VERSION as SIGHT_MIN_VERSION } from "@/lib/backwards-compat/use-supports-sight-stream";
@@ -3180,6 +3182,26 @@ describe("VoiceRoom: camera", () => {
         });
         await waitFor(() => expect(flashControl()).not.toBeNull());
       }
+
+      test("hangs flash and flip off one inset, as one circle", async () => {
+        await openNativeCamera(FLASH_CAPABLE);
+
+        const flash = flashControl()!;
+        const flip = screen.getByRole("button", { name: "Flip camera" });
+
+        expect(flash.className).toContain("left-[var(--camera-flank-inset)]");
+        expect(flip.className).toContain("right-[var(--camera-flank-inset)]");
+        expect(flash.className).toContain(VOICE_ROOM_CONTROL_SIZE_CLASS);
+        expect(flip.className).toContain(VOICE_ROOM_CONTROL_SIZE_CLASS);
+
+        // The row is what publishes the value, so both flanks have to sit
+        // inside it or their own side resolves to `auto`.
+        const row = flash.closest("[style*='--camera-flank-inset']");
+        expect(row?.getAttribute("style")).toContain(
+          `--camera-flank-inset: ${CAMERA_ROW_FLANK_INSET}`,
+        );
+        expect(row?.contains(flip)).toBe(true);
+      });
 
       test("takes the control away in Live on a camera with no lamp", async () => {
         await openNativeCamera(FLASH_CAPABLE);
