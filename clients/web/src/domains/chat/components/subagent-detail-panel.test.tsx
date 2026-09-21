@@ -657,7 +657,7 @@ describe("SubagentDetailPanel: nested detail reads the live call", () => {
     render(<SubagentDetailPanel entry={entry} onClose={noop} />);
     fireEvent.click(screen.getByTestId("timeline-pill"));
 
-    expect(screen.getByText('"vellum assistant"')).toBeDefined();
+    expect(screen.getByText("vellum assistant")).toBeDefined();
     expect(screen.getByText("Sources (1)")).toBeDefined();
     expect(screen.queryByText("unparsed provider text")).toBeNull();
   });

@@ -23,6 +23,22 @@ describe("Card", () => {
     expect(html).not.toContain("data-selected");
   });
 
+  test("surface overlay swaps the resting fill for the overlay token", () => {
+    const html = renderToStaticMarkup(<Card surface="overlay">Body</Card>);
+    expect(html).toContain("bg-[var(--surface-overlay)]");
+    expect(html).not.toContain("bg-[var(--surface-lift)]");
+  });
+
+  test("a selected card keeps its tint whatever its surface", () => {
+    const html = renderToStaticMarkup(
+      <Card surface="overlay" selected>
+        Body
+      </Card>,
+    );
+    expect(html).not.toContain("bg-[var(--surface-overlay)]");
+    expect(html).toContain("var(--primary-base)_10%");
+  });
+
   test("interactive adds cursor, hover, pressed and the keyboard-focus ring", () => {
     const html = renderToStaticMarkup(<Card interactive>Body</Card>);
     expect(html).toContain("cursor-pointer");

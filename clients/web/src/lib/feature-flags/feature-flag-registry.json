@@ -171,14 +171,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "teleport",
-      "scope": "client",
-      "key": "teleport",
-      "label": "Teleport",
-      "description": "Enable the local-to-platform teleport UI in General settings. Platform-to-local teleport is GA and not gated by this flag",
-      "defaultEnabled": false
-    },
-    {
       "id": "apple-container",
       "scope": "client",
       "key": "apple-container",

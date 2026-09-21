@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-16T20:26:12.000Z"
+      "updatedAt": "2026-09-21T20:29:10.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -1056,7 +1056,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-21T19:20:57.000Z"
+      "updatedAt": "2026-09-21T19:48:23.000Z"
     },
     {
       "id": "vellum-client-capabilities",
