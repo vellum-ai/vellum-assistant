@@ -1314,6 +1314,17 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
 export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
+ * The width of the card Teach and Share open to pick what to read or show, at
+ * the base size.
+ *
+ * Held here because main sizes the canvas from it. On a row the card sits
+ * over the bar and the pill's reach already holds it. On a side dock it
+ * stands beside the column, facing the middle of the screen, and the canvas
+ * has to reach that far past the column to hold it.
+ */
+export const COMPANION_BASE_CAPTURE_PICKER_WIDTH = 460;
+
+/**
  * The room between the avatar's edge and the options pill beside it, at the
  * base size.
  *

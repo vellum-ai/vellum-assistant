@@ -1320,6 +1320,16 @@ export function CompanionSurfacePage() {
               // test can stand a desktop up without a shell.
               captureThumbnail={captureCompanionSourceThumbnail}
               cardGrowth={cardGrowth}
+              // Beside the column rather than over it while a call stands the
+              // bar up on a side dock, on the side facing the screen's middle.
+              side={
+                (call !== null || dialing) &&
+                (dock === "left" || dock === "right")
+                  ? dock === "left"
+                    ? "right"
+                    : "left"
+                  : undefined
+              }
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               cardRef={pickerRef}

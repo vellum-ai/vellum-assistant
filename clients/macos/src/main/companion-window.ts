@@ -28,6 +28,7 @@ import {
   companionAnnotationStrokeSchema,
   companionAnnotationToolSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
+  COMPANION_BASE_CAPTURE_PICKER_WIDTH,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
@@ -317,10 +318,20 @@ export const geometryFor = (
     // holds for the row, read up from the avatar's centre. Whole for the
     // reason the width is twice a whole half.
     const sideHalf = Math.round(maxPillWidth / 2 + gap + avatarBox + pad);
+    // Across, the capture picker stands beside the column rather than over
+    // it, so the side facing the middle of the screen holds the column's
+    // cross reach, the gap and the whole card. The other side hangs off the
+    // display's edge, where a wider canvas costs nothing.
+    const pickerReach = Math.round(
+      companionLowerReachFor(avatarBox, optionsBox) +
+        gap +
+        COMPANION_BASE_CAPTURE_PICKER_WIDTH * companionScaleFor(optionsBox) +
+        pad,
+    );
     return {
       avatarBox,
       optionsBox,
-      canvasWidth,
+      canvasWidth: Math.max(canvasWidth, pickerReach * 2),
       canvasHeight: sideHalf * 2,
       riseAbove: sideHalf,
       dropBelow: sideHalf,

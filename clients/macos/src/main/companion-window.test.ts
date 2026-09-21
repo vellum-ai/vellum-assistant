@@ -10,6 +10,7 @@ import {
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_VERSION,
   COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_CAPTURE_PICKER_WIDTH,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_BASE_RESTING_PILL_HEIGHT,
   COMPANION_POPOVER_INSET,
@@ -18,6 +19,7 @@ import {
   companionLowerReachFor,
   companionBoxFor,
   companionCardSideFor,
+  companionGapFor,
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionDock,
@@ -1530,10 +1532,32 @@ describe("the edge a call's bar docks to", () => {
         const side = geometryFor("small", "small", dock);
         expect(side.riseAbove).toBe(side.dropBelow);
         expect(side.canvasHeight).toBe(side.riseAbove * 2);
-        expect(side.canvasWidth).toBe(GEOMETRY.canvasWidth);
         const scale = companionScaleFor(side.optionsBox);
         expect(side.riseAbove).toBeGreaterThanOrEqual(
           (COMPANION_BASE_MAX_PILL_WIDTH * scale) / 2 + side.avatarBox,
+        );
+      }
+    });
+
+    /**
+     * The capture picker stands beside the column, facing the middle of the
+     * screen, so half the canvas has to hold the column's cross reach, the
+     * gap and the whole card. Never narrower than the row's canvas.
+     */
+    test("reaches past the column far enough to hold the capture picker", () => {
+      for (const [avatar, options] of [
+        ["small", "small"],
+        ["huge", "small"],
+        ["small", "huge"],
+      ] as const) {
+        const side = geometryFor(avatar, options, "left");
+        const row = geometryFor(avatar, options);
+        expect(side.canvasWidth).toBeGreaterThanOrEqual(row.canvasWidth);
+        expect(side.canvasWidth / 2).toBeGreaterThanOrEqual(
+          companionLowerReachFor(side.avatarBox, side.optionsBox) +
+            companionGapFor(side.avatarBox, side.optionsBox) +
+            COMPANION_BASE_CAPTURE_PICKER_WIDTH *
+              companionScaleFor(side.optionsBox),
         );
       }
     });
