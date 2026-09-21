@@ -37,6 +37,7 @@ import {
   useOrganizationStore,
 } from "@/stores/organization-store";
 import { captureError } from "@/lib/sentry/capture-error";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 
 import { ensureSourceBackup } from "./teleport-backup";
@@ -386,11 +387,13 @@ async function teleportToPlatform(
   setStep(t("settings:teleportCard.stepImportingToCloud"));
   const result = await importFromGcs(upload.bundleKey);
   if (result.status < 200 || result.status >= 300) {
-    const body = result.body as { error?: string } | null;
     throw new TeleportError(
       "import_failed",
-      body?.error ??
+      extractErrorMessage(
+        result.body,
+        undefined,
         t("settings:teleportCard.importFailedHttp", { status: result.status }),
+      ),
     );
   }
   if (result.status === 202) {
