@@ -99,6 +99,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../../persistence/schema/index.js",
     "../../../../../security/untrusted-content.js",
     "../../../../api/events/memory-recalled.js",
+    "../../../../api/events/tool-result.js",
     "../../../../api/responses/memory-v3-selection-log.js",
     "../../../../config/assistant-feature-flags.js",
     "../../../../config/default-profile-catalog.js",
