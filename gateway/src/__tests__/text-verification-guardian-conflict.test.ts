@@ -1,6 +1,7 @@
 /**
- * A guardian code never takes a channel from its guardian, and a guardian
- * who removed their connection can connect the same account again.
+ * The guardian is one person, and a channel holds at most one linked identity
+ * for them. A guardian code never swaps that identity for another, and a
+ * guardian who removed their identity can link the same one again.
  *
  * The gateway DB and session store are real; the assistant mirror IPC is
  * acknowledged and otherwise inert.
@@ -175,7 +176,7 @@ afterAll(() => {
   resetGatewayDb();
 });
 
-describe("a guardian code on a channel another account guards", () => {
+describe("a guardian code from an identity other than the one linked on the channel", () => {
   beforeEach(() => {
     seedGuardianAccount(OLD_ACCOUNT);
   });
@@ -216,7 +217,7 @@ describe("a guardian code on a channel another account guards", () => {
     expect(activeGuardianAccounts()).toEqual([OLD_ACCOUNT, OTHER_ACCOUNT]);
   });
 
-  test("leaves the sender's own revoked row revoked", async () => {
+  test("leaves the sender's own revoked row revoked while another identity is linked", async () => {
     seedContact("former", "contact");
     seedChannel({
       id: "former-channel",
@@ -244,7 +245,7 @@ describe("a guardian code on a channel another account guards", () => {
   });
 });
 
-describe("a guardian code on a channel no account guards", () => {
+describe("a guardian code on a channel with no linked identity", () => {
   test("binds a new account", async () => {
     mintCodeFor(NEW_ACCOUNT);
 

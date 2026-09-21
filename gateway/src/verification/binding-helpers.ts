@@ -48,9 +48,10 @@ export function getExistingGuardianBinding(
 }
 
 /**
- * Every active guardian address on a channel. A channel holds one guardian
- * identity, so this is normally zero or one address; a caller refusing to
- * displace a guardian reads them all.
+ * Every address actively linked as the guardian's identity on a channel. The
+ * guardian is one person with at most one identity per channel, so this is
+ * normally zero or one address; a caller refusing to swap that identity reads
+ * them all.
  */
 export function activeGuardianAddresses(channel: string): string[] {
   return getGatewayDb()

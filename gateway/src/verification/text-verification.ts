@@ -252,8 +252,9 @@ export async function tryTextVerificationIntercept(
       : "guardian";
 
   // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
-  //    the verification, and so does a guardian code on a channel another
-  //    account guards: the actor must not gain trusted status nor see a
+  //    the verification, and so does a guardian code from an identity other
+  //    than the one linked on the channel: the actor must not gain trusted
+  //    status nor see a
   //    success reply, even though the code matched and the session consumed.
   const sideEffectsVerified =
     trustClass === "guardian"
@@ -342,21 +343,23 @@ async function applyGuardianSideEffects(params: {
     actorUsername,
   } = params;
 
-  // A guardian code never takes a channel from its guardian, and grants
-  // nothing in its place. Changing the guardian's account is two explicit
-  // acts: remove the connection, then connect again. Every active guardian
-  // row is read, so a second one is weighed and not hidden behind a LIMIT 1.
-  const otherGuardians = activeGuardianAddresses(sourceChannel).filter(
+  // The guardian is one person, and a channel holds at most one linked
+  // identity for them. A guardian code links an identity where none is linked,
+  // or links the same one again. It never swaps one identity for another, and
+  // grants nothing in its place: swapping is two explicit acts, remove the
+  // link and then connect again. Every active row is read, so a second one is
+  // weighed and not hidden behind a LIMIT 1.
+  const otherLinkedIdentities = activeGuardianAddresses(sourceChannel).filter(
     (address) => address !== canonicalUserId,
   );
-  if (otherGuardians.length > 0) {
+  if (otherLinkedIdentities.length > 0) {
     log.warn(
       {
         sourceChannel,
-        existingGuardians: otherGuardians,
+        linkedIdentities: otherLinkedIdentities,
         newActor: canonicalUserId,
       },
-      "Guardian code refused: another account is this channel's guardian",
+      "Guardian code refused: a different identity is linked as the guardian on this channel",
     );
     return false;
   }
@@ -367,16 +370,16 @@ async function applyGuardianSideEffects(params: {
   // own about-to-be-revoked row. createGuardianBinding writes "active"
   // unconditionally, so this guard is the only thing stopping a blocked actor.
   //
-  // One revoked row gets past it: the sender's own, on a channel no other
-  // account guards. That is a guardian who removed their connection and is
-  // connecting the same account again. A blocked row never does.
+  // One revoked row gets past it: the sender's own, on a channel with no
+  // other linked identity. That is the guardian linking again the identity
+  // they removed. A blocked row never does.
   const gwRow = gatewayChannelRow(sourceChannel, canonicalUserId);
   const gwStatus = gwRow?.status ?? null;
   if (gwStatus === "blocked" || gwStatus === "revoked") {
     const reconnectsOwnRevokedRow =
       gwStatus === "revoked" &&
       gwRow?.address === canonicalUserId &&
-      otherGuardians.length === 0;
+      otherLinkedIdentities.length === 0;
     if (!reconnectsOwnRevokedRow) {
       log.warn(
         { sourceChannel, address: canonicalUserId, status: gwStatus },
