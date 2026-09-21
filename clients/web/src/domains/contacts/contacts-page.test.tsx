@@ -10,13 +10,21 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { createElement, Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { ApiError } from "@/utils/api-errors";
 import type { ChannelInfo, ContactPayload } from "@/domains/contacts/types";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import * as rqGen from "@/generated/daemon/@tanstack/react-query.gen";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 
@@ -28,6 +36,7 @@ let toastErrorCalls: string[] = [];
 let upsertShouldReject = false;
 let lastUpsertBody: unknown = null;
 let contactsFixture: ContactPayload[] = [];
+let contactsShouldReject = false;
 let availableChannelsOverride: ChannelInfo[] | null = null;
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -170,7 +179,12 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
     queryKey: CONTACTS_KEY,
-    queryFn: async () => ({ contacts: contactsFixture }),
+    queryFn: async () => {
+      if (contactsShouldReject) {
+        throw new ApiError(500, "Contacts unavailable");
+      }
+      return { contacts: contactsFixture };
+    },
   }),
   contactsGetQueryKey: () => CONTACTS_KEY,
   contactsGetSetQueryData: () => {},
@@ -213,17 +227,62 @@ const { ContactsPage } = await import("@/domains/contacts/contacts-page");
 // Helpers
 // ---------------------------------------------------------------------------
 
-function Wrapper({ children }: { children: ReactNode }) {
+/**
+ * Pass `seededContacts` to stand in for cached data a mount would revalidate:
+ * the query reads it immediately and refetches in the background. A
+ * `staleTime` makes that seeded cache fresh instead, so the mount serves it
+ * and never refetches, which is what production's global `staleTime` does.
+ */
+function makeQueryClient(
+  seededContacts?: ContactPayload[],
+  options?: { staleTime?: number },
+): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
+      queries: { retry: false, staleTime: options?.staleTime },
       mutations: { retry: false },
     },
   });
+  if (seededContacts) {
+    client.setQueryData(CONTACTS_KEY, { contacts: seededContacts });
+  }
+  return client;
+}
+
+/**
+ * `useParams` only yields `contactId` under a matching route pattern, so the
+ * page is mounted under the real `contacts/:contactId?` pattern.
+ */
+function Wrapper({
+  children,
+  initialPath = "/assistant/contacts",
+  queryClient,
+}: {
+  children: ReactNode;
+  initialPath?: string;
+  queryClient?: QueryClient;
+}) {
+  const client = queryClient ?? makeQueryClient();
   return createElement(
     MemoryRouter,
-    null,
-    createElement(QueryClientProvider, { client }, children),
+    { initialEntries: [initialPath] },
+    createElement(
+      QueryClientProvider,
+      { client },
+      createElement(
+        Routes,
+        null,
+        createElement(Route, {
+          path: "/assistant/contacts/:contactId?",
+          element: createElement(
+            Fragment,
+            null,
+            children,
+            createElement(LocationProbe),
+          ),
+        }),
+      ),
+    ),
   );
 }
 
@@ -278,6 +337,7 @@ beforeEach(() => {
   upsertShouldReject = false;
   lastUpsertBody = null;
   contactsFixture = [GUARDIAN, ALICE, PEER];
+  contactsShouldReject = false;
   availableChannelsOverride = null;
   linkAndVerifyCalls.length = 0;
   unhandledRejections.length = 0;
@@ -287,6 +347,9 @@ beforeEach(() => {
 afterEach(() => {
   process.off("unhandledRejection", onUnhandled);
   cleanup();
+  // The online manager is a module singleton, so an offline test would
+  // otherwise leave every later query paused.
+  onlineManager.setOnline(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -416,6 +479,165 @@ describe("ContactsPage list and detail", () => {
     fireEvent.click(await waitFor(() => getModalButton("Delete")));
 
     await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+});
+
+describe("ContactsPage URL-owned selection", () => {
+  test("the bare route rests on the guardian and leaves the URL alone", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("a contact detail path opens that contact on first load", async () => {
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+  });
+
+  test("clicking a row moves the location to that contact's detail path", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${ALICE.id}`,
+      );
+    });
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+  });
+
+  test("an id no contact carries keeps its URL and shows the empty state", async () => {
+    render(
+      <Wrapper initialPath="/assistant/contacts/c-missing">
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Select a contact");
+    });
+    expect(currentLocation().pathname).toBe("/assistant/contacts/c-missing");
+    expect(document.querySelector('[aria-current="page"]')).toBe(null);
+  });
+
+  test("a fresh cache that lacks the contact holds the link until it arrives", async () => {
+    // The seeded list predates Alice and is inside its stale window, so the
+    // mount serves it whole without a refetch: settled, successful, and short
+    // one contact.
+    const queryClient = makeQueryClient([GUARDIAN], { staleTime: 10_000 });
+
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={queryClient}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(document.body.textContent).toContain("Select a contact");
+    });
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+
+    // Alice reaches the cache the way an invalidation or an SSE-driven refetch
+    // delivers her, and the held link resolves with no navigation.
+    queryClient.setQueryData(CONTACTS_KEY, { contacts: [GUARDIAN, ALICE] });
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+  });
+
+  test("a deep link the cached list lacks survives the revalidating fetch", async () => {
+    // Cached contacts predate Alice (added elsewhere), so the mount serves
+    // them while refetching. The fresh list carries her, so the link holds.
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={makeQueryClient([GUARDIAN])}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The fetch is still in flight, so the pane withholds the empty state
+    // rather than claiming the id is unknown.
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+  });
+
+  test("a failed contacts fetch keeps the deep link intact", async () => {
+    contactsShouldReject = true;
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The list's own empty state means the query has finished. A failure is
+    // not a settled list, so the pane withholds the empty state.
+    await waitFor(() => getButtonByText("Add Contact"));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+  });
+
+  // TanStack's default `networkMode` pauses a request made offline instead of
+  // running or failing it, so the list is neither fetching nor errored while
+  // it holds nothing the link can resolve against.
+  test("an offline mount with no cache holds the deep link", async () => {
+    onlineManager.setOnline(false);
+
+    render(
+      <Wrapper initialPath={`/assistant/contacts/${ALICE.id}`}>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getButtonByText("Add Contact"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
+  });
+
+  test("an offline mount holds a deep link the cached list lacks", async () => {
+    onlineManager.setOnline(false);
+
+    render(
+      <Wrapper
+        initialPath={`/assistant/contacts/${ALICE.id}`}
+        queryClient={makeQueryClient([GUARDIAN])}
+      >
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    // The cache renders straight away while its revalidation stays paused.
+    await waitFor(() => getButtonByText("Example User"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(currentLocation().pathname).toBe(`/assistant/contacts/${ALICE.id}`);
+    expect(document.body.textContent).not.toContain("Select a contact");
   });
 });
 

@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import {
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -121,7 +126,8 @@ export function ContactsPage({
   const setupChannel =
     rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
-  const [pickedContactId, setPickedContactId] = useState<string | null>(null);
+  const { contactId: routeContactId } = useParams<{ contactId: string }>();
+  const navigate = useNavigate();
 
   const inviteDialog = useInviteLinkDialog(assistantId);
   const { paneRef, hasRoomForList, drawerOpen, openDrawer, closeDrawer } =
@@ -201,11 +207,37 @@ export function ContactsPage({
     [contactsData],
   );
   // With nothing picked the pane rests on the guardian.
-  const selectedContactId = pickedContactId ?? guardian?.id ?? null;
+  const selectedContactId = routeContactId ?? guardian?.id ?? null;
   const selectedContact = useMemo<ContactPayload | null>(
     () => contactsData?.find((c) => c.id === selectedContactId) ?? null,
     [contactsData, selectedContactId],
   );
+
+  // Moving between rows of one page is not a step to walk back through, so
+  // the selection replaces the entry rather than pushing a new one.
+  const selectContact = useCallback(
+    (contactId: string) => {
+      void navigate(routes.contacts.detail(contactId), { replace: true });
+    },
+    [navigate],
+  );
+
+  // Positive evidence that this list is the whole list: a fetch has succeeded
+  // and none is in flight. A pending, revalidating, or failed query all fall
+  // short, and so does the offline case, which is why the test is on
+  // `fetchStatus` rather than `isFetching`: TanStack's default `networkMode`
+  // pauses the request without ever reporting a load or an error, so a paused
+  // fetch reads as neither fetching nor failed while nothing has been fetched.
+  const contactsListSettled =
+    contactsQuery.isSuccess && contactsQuery.fetchStatus === "idle";
+
+  // An id no contact in the list carries keeps its URL: a cache cannot prove a
+  // contact is absent, and one that arrives later (an invalidation, a refetch,
+  // a reconnect) resolves the link on its own. Until the list settles the pane
+  // stays blank, since the empty state reads as "no such contact", which an
+  // unresolved link has not earned.
+  const resolvingRouteContact =
+    Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
@@ -236,7 +268,7 @@ export function ContactsPage({
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
-      setPickedContactId(contact.id);
+      selectContact(contact.id);
     },
     onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
@@ -254,7 +286,7 @@ export function ContactsPage({
             }
           : undefined,
       );
-      setPickedContactId(null);
+      void navigate(routes.contacts.root, { replace: true });
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: () => invalidateContacts(),
@@ -338,7 +370,7 @@ export function ContactsPage({
               }
             : undefined,
         );
-        setPickedContactId(mergedContact.id);
+        selectContact(mergedContact.id);
       }
       setMergeDialogOpen(false);
       toast.success(t("contactsPage.mergeSucceeded"));
@@ -348,12 +380,12 @@ export function ContactsPage({
 
   const handleSelect = useCallback(
     (contactId: string) => {
-      setPickedContactId(contactId);
+      selectContact(contactId);
       closeDrawer();
       setMergeDialogOpen(false);
       mergeMutation.reset();
     },
-    [closeDrawer, mergeMutation],
+    [selectContact, closeDrawer, mergeMutation],
   );
 
   const handleOpenMerge = useCallback(() => {
@@ -615,7 +647,8 @@ export function ContactsPage({
       )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        {contactsQuery.isLoading ? null : optimisticContact &&
+        {contactsQuery.isLoading ||
+        resolvingRouteContact ? null : optimisticContact &&
           optimisticContact.id !== deletingContactId ? (
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
