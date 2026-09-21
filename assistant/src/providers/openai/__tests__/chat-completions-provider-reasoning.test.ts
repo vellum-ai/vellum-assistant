@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import OpenAI from "openai";
 
@@ -8,6 +8,7 @@ import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
   type OpenAIChatCompletionsProviderOptions,
+  resetReasoningOptOutRejectersForTests,
 } from "../chat-completions-provider.js";
 
 type ReasoningDetail = {
@@ -778,6 +779,30 @@ function rejection(message: string, status = 400): Error {
 }
 
 describe("reasoning opt-out rejection fallback", () => {
+  beforeEach(() => {
+    resetReasoningOptOutRejectersForTests();
+  });
+
+  test("remembers a rejecting model and skips the opt-out on later requests", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'none' is not supported for this model")],
+      OK_CHUNKS,
+    );
+    const send = () =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "none" } },
+      );
+
+    await send();
+    await send();
+
+    expect(requests).toHaveLength(3);
+    expect(
+      (requests[2] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBeUndefined();
+  });
+
   test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort 'none' is not supported for this model")],
