@@ -10,6 +10,7 @@
 
 import { invalidToolInputResult, throwIfCancelled } from "@vellumai/plugin-api";
 
+import { RememberInputSchema } from "../../../api/remember-tool.js";
 import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { RiskLevel } from "../../../permissions/types.js";
@@ -26,7 +27,6 @@ import {
   buildRememberInputSchema,
   graphRecallDefinition,
   graphRememberDefinition,
-  RememberInputSchema,
 } from "./graph/tools.js";
 import { getWorkspaceDir } from "./paths.js";
 import { deletePage } from "./substrate/page-store.js";

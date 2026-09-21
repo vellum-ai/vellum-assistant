@@ -11,10 +11,9 @@ import { MAX_RECALL_MAX_RESULTS, MIN_RECALL_MAX_RESULTS } from "./limits.js";
  * The `recall` tool's input: parsed at the top of its `execute`, and the
  * source of the `input_schema` the model is shown, so the two cannot drift.
  *
- * Tolerance matches what `normalizeRecallInput` already does with each field:
- * `max_results` is clamped there, so any number passes and anything else
- * falls back to the default; an explicit `null` on an optional field means
- * omitted. An unknown source or depth is rejected, as it always was.
+ * `max_results` accepts any number, which `normalizeRecallInput` clamps, and
+ * reads anything else as absent; an explicit `null` on an optional field means
+ * omitted. An unknown source or depth is rejected.
  */
 export const RecallInputSchema = z.looseObject({
   query: z
