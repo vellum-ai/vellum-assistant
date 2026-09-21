@@ -1,8 +1,3 @@
-/**
- * Story decorator that pins `useIsMobile()` to true, for the compositions whose
- * mobile branch is the thing being reviewed.
- */
-
 import { useEffect, useState } from "react";
 import type { Decorator } from "@storybook/react-vite";
 
@@ -23,6 +18,10 @@ function setMatchMedia(impl: typeof window.matchMedia) {
  * Overriding the media query beats resizing the preview iframe: the story then
  * shows the mobile composition regardless of the viewport the docs page happens
  * to render at.
+ *
+ * Every other query reaches the real `matchMedia`, which Storybook's own theme
+ * queries need, so this cannot use `hooks/viewport-axes.test-helper.ts`: that
+ * stub answers every query from the device shape it is given.
  */
 export const forceMobile: Decorator = function ForceMobile(Story) {
   // Installed from a `useState` initializer, which runs exactly once and during

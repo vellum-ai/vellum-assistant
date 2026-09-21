@@ -15,7 +15,7 @@ import type { NavigateFunction } from "react-router";
 export const PUSHED_FROM_LIST_STATE = { pushedFromList: true } as const;
 
 /** Whether `state` carries {@link PUSHED_FROM_LIST_STATE}. */
-export function wasPushedFromList(state: unknown): boolean {
+function wasPushedFromList(state: unknown): boolean {
   return (
     typeof state === "object" &&
     state !== null &&

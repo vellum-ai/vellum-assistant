@@ -1,44 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
 
+import {
+  ContactsListWithSearch,
+  FIXTURE_CONTACTS,
+  FIXTURE_GUARDIAN,
+} from "@/domains/contacts/components/contacts-list-fixtures";
 import type { ContactSummary } from "@/domains/contacts/types";
-
-import { ContactsList } from "./contacts-list";
-
-const GUARDIAN: ContactSummary = {
-  id: "guardian-1",
-  displayName: "Alice",
-  role: "guardian",
-  channelTypes: ["Telegram"],
-};
-
-const CONTACTS: ContactSummary[] = [
-  {
-    id: "contact-bob",
-    displayName: "Bob",
-    role: "contact",
-    contactType: "human",
-    channelTypes: ["Telegram", "WhatsApp"],
-    verified: true,
-  },
-  {
-    id: "contact-carol",
-    displayName: "Carol",
-    role: "contact",
-    contactType: "human",
-    channelTypes: ["Email"],
-    verified: false,
-  },
-  {
-    id: "contact-peer",
-    displayName: "Peer Assistant",
-    role: "contact",
-    contactType: "assistant",
-    channelTypes: ["A2A"],
-    verified: true,
-  },
-];
 
 interface HarnessProps {
   surface?: "card" | "screen";
@@ -48,17 +16,15 @@ interface HarnessProps {
   onSelect?: (contactId: string) => void;
 }
 
-/** Owns the search text the way the page does, so typing filters the rows. */
 function Harness({
   surface = "card",
-  guardian = GUARDIAN,
-  regularContacts = CONTACTS,
+  guardian = FIXTURE_GUARDIAN,
+  regularContacts = FIXTURE_CONTACTS,
   loading = false,
   onSelect = () => {},
 }: HarnessProps) {
-  const [search, setSearch] = useState("");
   return (
-    <ContactsList
+    <ContactsListWithSearch
       loading={loading}
       guardian={guardian}
       regularContacts={regularContacts}
@@ -66,8 +32,7 @@ function Harness({
       onSelect={onSelect}
       onAddContact={() => {}}
       surface={surface}
-      search={search}
-      onSearchChange={setSearch}
+      search=""
     />
   );
 }
@@ -119,8 +84,8 @@ describe("ContactsList card surface", () => {
 
     expect(screen.getByText("Entries")).toBeTruthy();
     expect(screen.getByLabelText("Add contact")).toBeTruthy();
-    expect(screen.getAllByText("Verified").length).toBe(2);
-    expect(screen.getByText("Unverified")).toBeTruthy();
+    expect(screen.getAllByText("Verified").length).toBe(3);
+    expect(screen.getAllByText("Unverified").length).toBe(2);
   });
 
   test("puts the search field after the guardian row", () => {
@@ -173,8 +138,8 @@ describe("ContactsList screen surface", () => {
     render(<Harness surface="screen" />);
 
     expect(screen.getByText("Guardian")).toBeTruthy();
-    expect(screen.getAllByText("Human").length).toBe(2);
-    expect(screen.getByText("Assistant")).toBeTruthy();
+    expect(screen.getAllByText("Human").length).toBe(3);
+    expect(screen.getAllByText("Assistant").length).toBe(2);
   });
 
   test("joins a contact's channels into the subtitle", () => {
@@ -200,7 +165,7 @@ describe("ContactsList screen surface", () => {
     const rows = Array.from(
       document.querySelectorAll('[data-slot="panel-item"]'),
     );
-    expect(rows.length).toBe(4);
+    expect(rows.length).toBe(FIXTURE_CONTACTS.length + 1);
     expect(rows.every((row) => row.tagName === "BUTTON")).toBe(true);
 
     fireEvent.click(rowByName("Carol"));
@@ -232,6 +197,12 @@ describe("ContactsList screen surface", () => {
     expect(screen.getByText("Add Contact")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Search Contacts")).toBeNull();
   });
+
+  test("withholds the offer while the empty list is still loading", () => {
+    render(<Harness surface="screen" regularContacts={[]} loading />);
+
+    expect(screen.queryByText("Add Contact")).toBeNull();
+  });
 });
 
 describe.each(["card", "screen"] as const)(
@@ -241,7 +212,7 @@ describe.each(["card", "screen"] as const)(
       render(<Harness surface={surface} guardian={null} />);
 
       expect(dividers().length).toBe(0);
-      expect(rowButtons().length).toBe(CONTACTS.length);
+      expect(rowButtons().length).toBe(FIXTURE_CONTACTS.length);
     });
 
     test("renders the group divider once with a guardian", () => {
