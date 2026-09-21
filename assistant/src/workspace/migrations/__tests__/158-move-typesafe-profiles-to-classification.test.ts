@@ -280,6 +280,48 @@ describe("158-move-typesafe-profiles-to-classification", () => {
     });
   });
 
+  test("moves a call site's own TypeSafe route without a named profile", () => {
+    const dir = workspaceWith({
+      llm: {
+        profiles: { balanced: BALANCED },
+        callSites: {
+          voiceEscalationJudge: {
+            provider: "typesafe",
+            model: "jev-custom",
+            provider_connection: "jev-work",
+            effort: "low",
+          },
+          mainAgent: { profile: "balanced" },
+        },
+      },
+    });
+    seedConnections(dir, [
+      {
+        name: "jev-work",
+        provider: "typesafe",
+        auth: JSON.stringify({
+          type: "api_key",
+          credential: "jev-work:api_key",
+        }),
+      },
+    ]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    const config = readConfig(dir);
+    expect(config.services.classification).toEqual({
+      mode: "your-own",
+      provider: "typesafe",
+      model: "jev-custom",
+      credential: "credential/jev-work/api_key",
+    });
+    expect(config.llm.callSites).toEqual({
+      voiceEscalationJudge: { effort: "low" },
+      mainAgent: { profile: "balanced" },
+    });
+    expect(connectionProviders(dir)).toEqual([]);
+  });
+
   test("keeps an existing services.classification block", () => {
     const dir = workspaceWith({
       services: {

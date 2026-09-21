@@ -10,14 +10,17 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * A profile is a TypeSafe profile when its `provider` is the literal
  * `"typesafe"` or names a `provider_connections` row of that kind (an
- * entry-name binding). For a config holding at least one:
+ * entry-name binding). A call site can route to TypeSafe the same way
+ * without a named profile, through its own `provider` field. For a config
+ * holding at least one of either:
  *
  *   - `services.classification` is written as the BYOK route on the first
- *     such profile's model unless the block already exists. When that
- *     profile's connection row kept its key under a custom credential
- *     account, the account is carried over as `credential`, so the key
- *     stays reachable after the row is gone.
- *   - Every TypeSafe profile is deleted.
+ *     such route's model unless the block already exists. When that route's
+ *     connection row kept its key under a custom credential account, the
+ *     account is carried over as `credential`, so the key stays reachable
+ *     after the row is gone.
+ *   - Every TypeSafe profile is deleted, and a call site's own TypeSafe
+ *     route (`provider`, `model`, `provider_connection`) is removed.
  *   - A mix that loses arms is repaired: with two or more left it keeps
  *     them; with one left it collapses, and every reference to the mix is
  *     rewritten to that survivor; with none left it is deleted like a
@@ -80,9 +83,7 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
       }
 
       const llm = asRecord(config.llm);
-      const profiles = asRecord(llm?.profiles);
-      if (llm && profiles) {
-        moveProfiles(config, llm, profiles, connectionRows);
+      if (llm && moveTypesafeRoutes(config, llm, connectionRows)) {
         writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
       }
 
@@ -99,49 +100,92 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
     },
   };
 
-function moveProfiles(
+/** The classification settings a TypeSafe route contributes. */
+interface TypesafeRoute {
+  model?: string;
+  credential?: string;
+}
+
+/**
+ * The TypeSafe route an entry (profile or call site) dispatches through,
+ * or null when it routes elsewhere.
+ */
+function typesafeRouteOf(
+  entry: Record<string, unknown>,
+  connectionRows: ReadonlyMap<string, ConnectionRow>,
+): TypesafeRoute | null {
+  const provider = entry.provider;
+  const routesToTypesafe =
+    provider === TYPESAFE_PROVIDER ||
+    (typeof provider === "string" &&
+      connectionRows.get(provider)?.provider === TYPESAFE_PROVIDER);
+  if (!routesToTypesafe) {
+    return null;
+  }
+  // The row a literal-provider entry dispatched through is named by its
+  // binding; an entry-name entry names the row directly.
+  const rowName =
+    provider === TYPESAFE_PROVIDER ? entry.provider_connection : provider;
+  const rowCredential =
+    typeof rowName === "string"
+      ? connectionRows.get(rowName)?.credential
+      : undefined;
+  return {
+    ...(typeof entry.model === "string" && entry.model
+      ? { model: entry.model }
+      : {}),
+    ...(rowCredential && rowCredential !== CANONICAL_TYPESAFE_CREDENTIAL
+      ? { credential: rowCredential }
+      : {}),
+  };
+}
+
+/** Returns true when the config changed. */
+function moveTypesafeRoutes(
   config: Record<string, unknown>,
   llm: Record<string, unknown>,
-  profiles: Record<string, unknown>,
   connectionRows: ReadonlyMap<string, ConnectionRow>,
-): void {
+): boolean {
+  const profiles = asRecord(llm.profiles) ?? {};
+  const callSites = asRecord(llm.callSites);
   const removed = new Set<string>();
-  let model: string = DEFAULT_CLASSIFICATION_MODEL;
-  let credential: string | undefined;
+  let first: TypesafeRoute | undefined;
+
   for (const [name, value] of Object.entries(profiles)) {
     const profile = asRecord(value);
-    const provider = profile?.provider;
-    const routesToTypesafe =
-      provider === TYPESAFE_PROVIDER ||
-      (typeof provider === "string" &&
-        connectionRows.get(provider)?.provider === TYPESAFE_PROVIDER);
-    if (!routesToTypesafe) {
+    const route = profile ? typesafeRouteOf(profile, connectionRows) : null;
+    if (!route) {
       continue;
     }
-    if (removed.size === 0) {
-      if (typeof profile?.model === "string" && profile.model) {
-        model = profile.model;
-      }
-      // The row a literal-provider profile dispatched through is named by
-      // its binding; an entry-name profile names the row directly.
-      const rowName =
-        provider === TYPESAFE_PROVIDER
-          ? profile?.provider_connection
-          : provider;
-      const rowCredential =
-        typeof rowName === "string"
-          ? connectionRows.get(rowName)?.credential
-          : undefined;
-      if (rowCredential && rowCredential !== CANONICAL_TYPESAFE_CREDENTIAL) {
-        credential = rowCredential;
-      }
-    }
+    first ??= route;
     removed.add(name);
     delete profiles[name];
   }
-  if (removed.size === 0) {
-    return;
+
+  // A call site can carry its own TypeSafe route without naming a profile.
+  // The route fields go; the rest of the entry (effort, thinking, a
+  // profile pin) stays.
+  const routedCallSites: string[] = [];
+  if (callSites) {
+    for (const [site, value] of Object.entries(callSites)) {
+      const entry = asRecord(value);
+      const route = entry ? typesafeRouteOf(entry, connectionRows) : null;
+      if (!entry || !route) {
+        continue;
+      }
+      first ??= route;
+      routedCallSites.push(site);
+      delete entry.provider;
+      delete entry.model;
+      delete entry.provider_connection;
+    }
   }
+
+  if (first === undefined) {
+    return false;
+  }
+  const model = first.model ?? DEFAULT_CLASSIFICATION_MODEL;
+  const credential = first.credential;
 
   const services = asRecord(config.services) ?? {};
   if (asRecord(services.classification) === null) {
@@ -170,7 +214,6 @@ function moveProfiles(
     }
   }
 
-  const callSites = asRecord(llm.callSites);
   if (callSites) {
     for (const [site, value] of Object.entries(callSites)) {
       const entry = asRecord(value);
@@ -198,6 +241,7 @@ function moveProfiles(
       }
     }
   }
+  return true;
 }
 
 /**

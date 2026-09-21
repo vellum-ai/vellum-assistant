@@ -17,7 +17,9 @@ import {
 } from "../../security/secure-keys.js";
 import { JevProvider } from "../jev/client.js";
 import { resolveManagedProxyContext } from "../platform-proxy/context.js";
+import { RetryProvider } from "../retry.js";
 import type { Provider } from "../types.js";
+import { UsageTrackingProvider } from "../usage-tracking.js";
 import {
   type ClassificationProviderEntry,
   getClassificationModelEntry,
@@ -174,7 +176,27 @@ export async function resolveClassificationProvider(
   };
 }
 
+/**
+ * The same wrapper chain the LLM registry applies: retries plus, on the
+ * managed route, the `X-Vellum-*` attribution headers derived from the
+ * caller's `callSite`; and usage tracking so classification calls reach the
+ * local usage ledger like every other provider call.
+ */
 function buildClassificationProvider(
+  entry: ClassificationProviderEntry,
+  model: string,
+  route: Extract<ClassificationRoute, { ok: true }>,
+): Provider {
+  const managed = route.source === "managed-proxy";
+  return new UsageTrackingProvider(
+    new RetryProvider(buildClient(entry, model, route), {
+      forwardUsageAttributionHeaders: managed,
+      credentialSource: managed ? "vellum-managed" : "byok",
+    }),
+  );
+}
+
+function buildClient(
   entry: ClassificationProviderEntry,
   model: string,
   route: Extract<ClassificationRoute, { ok: true }>,
