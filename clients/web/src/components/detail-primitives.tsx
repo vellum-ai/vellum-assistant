@@ -324,7 +324,8 @@ export function CodeBlock({
 }
 
 /**
- * Uppercase section label in `--content-tertiary`.
+ * The one section heading every detail panel uses: uppercase, in
+ * `--content-tertiary`.
  *
  * `leading-4` is deliberate: the `label-small-default` token ships
  * `line-height: 1`, which leaves no room below the baseline and clips glyph
@@ -332,16 +333,22 @@ export function CodeBlock({
  */
 export function SectionLabel({
   children,
+  as = "div",
   className = "mb-2",
 }: {
   children: string;
+  /**
+   * `h3` where the label heads a section of a panel's outline; `span` inside
+   * a control such as a disclosure trigger, which takes only phrasing content.
+   */
+  as?: "div" | "span" | "h3";
   /** Margin override for rows that manage their own spacing. */
   className?: string;
 }) {
   return (
     <Typography
       variant="label-small-default"
-      as="div"
+      as={as}
       className={`uppercase leading-4 tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}

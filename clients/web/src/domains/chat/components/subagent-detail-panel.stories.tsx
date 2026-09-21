@@ -82,6 +82,27 @@ export const Running: Story = {
   },
 };
 
+/**
+ * An objective long enough to fold. It folds the way every long value in a
+ * detail panel does, behind the shared Show more.
+ */
+export const LongObjective: Story = {
+  args: {
+    entry: {
+      ...runningEntry,
+      objective: [
+        "Determine which province and country Toronto is located in, and summarise its geographic context.",
+        "Cover the Greater Toronto Area and how it relates to the city proper, the shoreline of Lake Ontario, and the major river valleys that cross the city.",
+        "Note the neighbouring municipalities to the east, west and north, and the regional governments they belong to.",
+        "Finish with a short paragraph on how the city's position on the lake shaped its early growth as a port and rail hub, with one or two dates where they help.",
+        "Keep it under three hundred words, cite the sources you used, and flag anything you could not confirm from more than one source.",
+      ].join("\n\n"),
+    },
+    onClose: () => {},
+    onStop: () => {},
+  },
+};
+
 export const Completed: Story = {
   args: {
     entry: completedEntry,
