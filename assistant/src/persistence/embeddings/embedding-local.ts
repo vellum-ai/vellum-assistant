@@ -194,10 +194,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       this.pendingRequests.set(id, { resolve });
 
-      // A broken worker pipe must surface as an ordinary embed failure the
-      // caller can fall back from, whether it is raised synchronously or as
-      // the rejection of a write still pending when the worker died. See
-      // `writeWorkerLine` for why both halves exist.
       writeWorkerLine(proc.stdin, JSON.stringify({ id, texts }), (err) =>
         this.failPendingRequest(id, err),
       );

@@ -26,10 +26,7 @@ import { LocalEmbeddingBackend } from "../embedding-local.js";
 /** Reach past `private`, which is compile-time only, so tests drive real state. */
 type Internals = any;
 
-/**
- * A stand-in for a Bun subprocess whose stdin pipe is broken. `write` throws
- * EPIPE the way a real worker's pipe does once the child is gone.
- */
+/** A stand-in for a Bun subprocess whose stdin `write` fails synchronously. */
 function brokenPipeProc(pid = 4242) {
   return {
     pid,
@@ -232,9 +229,9 @@ describe("PID file ownership", () => {
 
 describe("broken worker pipe", () => {
   /**
-   * A write to a dead worker raises EPIPE. Escaping, it reached the daemon's
-   * `unhandledRejection` handler and terminated the process; it must instead
-   * come back as an ordinary failed embed the backend chain can fall back from.
+   * A broken pipe comes back as an ordinary failed embed the backend chain can
+   * fall back from. An escaping rejection reaches the daemon's
+   * `unhandledRejection` handler, which shuts the process down.
    */
   test("EPIPE on write resolves the request as an error", async () => {
     const backend = new LocalEmbeddingBackend("test-model") as Internals;
@@ -267,6 +264,7 @@ describe("broken worker pipe", () => {
     const backend = new LocalEmbeddingBackend("test-model") as Internals;
     const proc = Bun.spawn({
       cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
+      windowsHide: true,
       stdin: "pipe",
       stdout: "ignore",
       stderr: "ignore",

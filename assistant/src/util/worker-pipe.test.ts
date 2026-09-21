@@ -21,6 +21,7 @@ afterEach(() => {
 function spawnBusyWorker() {
   const proc = Bun.spawn({
     cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
+    windowsHide: true,
     stdin: "pipe",
     stdout: "ignore",
     stderr: "ignore",
@@ -84,6 +85,7 @@ describe("writeWorkerLine", () => {
     const failures: unknown[] = [];
     const proc = Bun.spawn({
       cmd: [process.execPath, "-e", "process.stdin.on('data', () => {})"],
+      windowsHide: true,
       stdin: "pipe",
       stdout: "ignore",
       stderr: "ignore",
