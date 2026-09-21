@@ -116,6 +116,20 @@ export const WebFetchMetadataSchema = z.object({
 
 export type WebFetchMetadata = z.infer<typeof WebFetchMetadataSchema>;
 
+/** A place `recall` searches. */
+export const RecallSourceSchema = z.enum([
+  "memory",
+  "conversations",
+  "workspace",
+]);
+
+export type RecallSource = z.infer<typeof RecallSourceSchema>;
+
+/** How hard `recall` searches: more depth, more rounds across the sources. */
+export const RecallDepthSchema = z.enum(["fast", "standard", "deep"]);
+
+export type RecallDepth = z.infer<typeof RecallDepthSchema>;
+
 export const ToolActivityMetadataSchema = z.object({
   webSearch: WebSearchMetadataSchema.optional(),
   webFetch: WebFetchMetadataSchema.optional(),

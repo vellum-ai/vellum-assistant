@@ -25,22 +25,12 @@ import {
   recordNodeEdit,
   updateNode,
 } from "./store.js";
+import type { RememberInput } from "./tools.js";
 import { type CapabilityKind, capabilityKind } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // remember handler — appends to the memory/ buffer + daily archive
 // ---------------------------------------------------------------------------
-
-export interface RememberInput {
-  /**
-   * The fact(s) to remember. A single string records one fact; an array
-   * records several independent facts in one call (each becomes its own
-   * timestamped entry), so a single turn can batch unrelated facts instead of
-   * calling `remember` once per fact.
-   */
-  content: string | string[];
-  finish_turn?: boolean;
-}
 
 export interface RememberResult {
   success: boolean;
@@ -52,12 +42,9 @@ export interface RememberResult {
  * Accepts the single-string form or the batch array form, trims each fact, and
  * drops blanks so an empty or whitespace-only input yields no facts.
  */
-function normalizeFacts(content: string | string[]): string[] {
+function normalizeFacts(content: RememberInput["content"]): string[] {
   const raw = Array.isArray(content) ? content : [content];
-  return raw
-    .filter((fact): fact is string => typeof fact === "string")
-    .map((fact) => fact.trim())
-    .filter((fact) => fact.length > 0);
+  return raw.map((fact) => fact.trim()).filter((fact) => fact.length > 0);
 }
 
 function rememberSuccessMessage(count: number): string {

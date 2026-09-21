@@ -22,11 +22,11 @@ mock.module("../providers/provider-send-message.js", () => ({
   },
 }));
 
+import type { RecallSource } from "../api/events/tool-result.js";
 import { runAgenticRecall } from "../plugins/defaults/memory/context-search/agent-runner.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
-  RecallSource,
   RecallSourceAdapter,
 } from "../plugins/defaults/memory/context-search/types.js";
 

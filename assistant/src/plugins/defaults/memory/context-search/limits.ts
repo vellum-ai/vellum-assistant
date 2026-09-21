@@ -1,12 +1,10 @@
-import type { RecallDepth, RecallInput, RecallSource } from "./types.js";
-
-export const ALL_RECALL_SOURCES: readonly RecallSource[] = [
-  "memory",
-  "conversations",
-  "workspace",
-] as const;
-
-const RECALL_SOURCE_SET: ReadonlySet<unknown> = new Set(ALL_RECALL_SOURCES);
+import {
+  type RecallDepth,
+  RecallDepthSchema,
+  type RecallSource,
+  RecallSourceSchema,
+} from "../../../../api/events/tool-result.js";
+import type { RecallInput } from "./recall-input.js";
 
 export const DEFAULT_RECALL_MAX_RESULTS = 8;
 export const MIN_RECALL_MAX_RESULTS = 1;
@@ -49,7 +47,7 @@ export function normalizeRecallSources(
   sources: readonly RecallSource[] | undefined,
 ): RecallSource[] {
   if (!sources || sources.length === 0) {
-    return [...ALL_RECALL_SOURCES];
+    return [...RecallSourceSchema.options];
   }
 
   const normalized: RecallSource[] = [];
@@ -85,7 +83,7 @@ function normalizeRecallDepth(depth: RecallDepth | undefined): RecallDepth {
     return DEFAULT_RECALL_DEPTH;
   }
 
-  if (depth !== "fast" && depth !== "standard" && depth !== "deep") {
+  if (!RecallDepthSchema.safeParse(depth).success) {
     throw new Error(`Unknown recall depth: ${String(depth)}`);
   }
 
@@ -93,7 +91,7 @@ function normalizeRecallDepth(depth: RecallDepth | undefined): RecallDepth {
 }
 
 export function isRecallSource(source: unknown): source is RecallSource {
-  return RECALL_SOURCE_SET.has(source);
+  return RecallSourceSchema.safeParse(source).success;
 }
 
 function clamp(value: number, min: number, max: number): number {
