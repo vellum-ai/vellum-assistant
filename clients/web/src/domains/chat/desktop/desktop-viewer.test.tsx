@@ -414,10 +414,12 @@ test("expanding the view-only preview enables input without reconnecting", async
   });
   const rfb = FakeRFB.instances.at(-1)!;
   expect(rfb.viewOnly).toBe(true);
+  expect(screen.queryByRole("button", { name: "Add apps" })).toBeNull();
   expect(rfb.resizeSession).toBe(false);
   const count = FakeRFB.instances.length;
   rerender(<DesktopViewer assistantId="assistant-123" viewOnly={false} />);
   expect(rfb.viewOnly).toBe(false);
+  expect(screen.getByRole("button", { name: "Add apps" })).toBeTruthy();
   expect(rfb.resizeSession).toBe(false);
   expect(FakeRFB.instances).toHaveLength(count);
 });
@@ -462,7 +464,10 @@ test("preview suppresses clipboard traffic and expands without reconnecting", as
   act(() => rfb().emit("connect"));
   const node = document.createTextNode("selected text");
   document.body.appendChild(node);
-  document.getSelection()?.selectAllChildren(document.body);
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  document.getSelection()?.removeAllRanges();
+  document.getSelection()?.addRange(range);
   const selected = document.getSelection()?.toString() ?? "";
   act(() => {
     rfb().emit("clipboard", { text: "remote text" });

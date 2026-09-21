@@ -12,7 +12,10 @@
     "src/config/bundled-skills/**/tools/**/*.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
-  "ignore": ["src/config/preloaded-apps/**"],
+  "ignore": [
+    "src/config/preloaded-apps/**",
+    "src/workspace/migrations/154-migrate-desktop-dock.ts"
+  ],
   "ignoreDependencies": [
     "@microsoft/api-extractor",
     "@vellumai/app-icons",

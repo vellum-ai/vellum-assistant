@@ -1,10 +1,12 @@
 import { Button, Typography } from "@vellumai/design-library";
+import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
 import { usePointerCoarse } from "@/utils/pointer";
 
 import { DesktopStatus } from "./desktop-status";
+import { DesktopAppsPanel } from "./desktop-apps-panel";
 import type { DesktopEndReason } from "./desktop-connection";
 import {
   openDesktopSession,
@@ -62,6 +64,7 @@ export function DesktopViewer({
     sessionRef.current?.setViewOnly(viewOnly);
     sessionRef.current?.setViewportMode(viewportMode);
   }, [viewOnly, viewportMode]);
+  const [appsOpen, setAppsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<DesktopSessionState>({
     kind: "connecting",
@@ -95,6 +98,18 @@ export function DesktopViewer({
 
   return (
     <div className="flex h-full w-full flex-col" data-testid="desktop-panel">
+      {!viewOnly && (
+        <div className="flex shrink-0 justify-end border-b border-[var(--border-subtle)] p-2">
+          <Button
+            variant="outlined"
+            aria-expanded={appsOpen}
+            onClick={() => setAppsOpen((open) => !open)}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t(appsOpen ? "desktopApps.back" : "desktopApps.title")}
+          </Button>
+        </div>
+      )}
       {touch && !viewOnly && state.kind === "connected" && (
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 bg-[var(--surface-base)] p-2">
           {VIEWPORT_MODES.map(({ mode, label }) => (
@@ -148,6 +163,16 @@ export function DesktopViewer({
             </DesktopStatus>
           </div>
         )}
+        {appsOpen && !viewOnly ? (
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm border-l border-[var(--border-subtle)] bg-[var(--surface-base)] text-[var(--content-default)] shadow-xl">
+            <DesktopAppsPanel
+              key={assistantId}
+              assistantId={assistantId}
+              connected={state.kind === "connected"}
+              onOpened={() => setAppsOpen(false)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

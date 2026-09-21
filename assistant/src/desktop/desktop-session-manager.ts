@@ -17,6 +17,7 @@ import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspaceDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { type DesktopApp, desktopAppCommand } from "./desktop-apps.js";
 import { DesktopBrowserClient } from "./desktop-browser-client.js";
 import {
   allocateDesktopDebugPort,
@@ -103,7 +104,8 @@ export type DesktopChildRole =
   | "panel"
   | "wallpaper"
   | "clipboard"
-  | "browser";
+  | "browser"
+  | `app:${number}`;
 
 /** Optional desktop decoration processes. */
 const COSMETIC_ROLES: ReadonlySet<DesktopChildRole> = new Set([
@@ -205,6 +207,7 @@ export class DesktopSessionManager {
   /** The kill of the last tree, which a new start waits out. */
   private tearingDown: Promise<void> | null = null;
   private running = false;
+  private nextAppId = 0;
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
   private viewer: DesktopViewer | null = null;
@@ -438,6 +441,33 @@ export class DesktopSessionManager {
       this.starting = null;
     });
     return this.starting;
+  }
+
+  async openApplication(app: DesktopApp): Promise<void> {
+    if (!this.running || !this.viewer || this.ingressClosed) {
+      throw new Error("Connect to the desktop before opening an app");
+    }
+    if (
+      [...this.children.keys()].filter((role) => role.startsWith("app:"))
+        .length >= 16
+    ) {
+      throw new Error("Close an app window before opening another");
+    }
+    const generation = this.generation;
+    const role = `app:${this.nextAppId++}` as const;
+    this.launch(role, desktopAppCommand(app), {
+      ...this.childEnv(),
+      XDG_DATA_HOME: this.panelConfigDir,
+      XDG_CONFIG_HOME: this.panelConfigDir,
+    });
+    const child = this.children.get(role)!;
+    const outcome = await Promise.race([
+      child.exited,
+      sleep(300).then(() => null),
+    ]);
+    if (outcome !== null || generation !== this.generation) {
+      throw new Error("Desktop app could not open. Reconnect and try again");
+    }
   }
 
   /**
@@ -728,6 +758,9 @@ export class DesktopSessionManager {
     }
     if (role === "session-bus") {
       this.retiredLaunchers.set(child, role);
+    }
+    if (role.startsWith("app:")) {
+      return;
     }
     if (role === "wallpaper" && outcome === 0) {
       return;

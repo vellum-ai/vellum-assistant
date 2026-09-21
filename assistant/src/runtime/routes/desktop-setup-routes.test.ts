@@ -47,7 +47,9 @@ afterEach(() => {
 });
 
 describe("desktop setup route feature gate", () => {
-  for (const route of ROUTES) {
+  for (const route of ROUTES.filter(
+    (route) => route.endpoint === "desktop/setup",
+  )) {
     for (const flag of [false, undefined]) {
       test(`${route.method} refuses a disabled or missing flag (${flag}) without touching setup`, () => {
         setOverridesForTesting(

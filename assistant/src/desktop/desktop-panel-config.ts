@@ -211,9 +211,9 @@ function desktopCommand(args: string[]): string {
     .join(" ");
 }
 
-function seedFile(
+export function seedFile(
   path: string,
-  contents: string,
+  contents: string | Buffer,
   previousContents: readonly string[] = [],
 ): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
@@ -236,7 +236,7 @@ function seedFile(
   }
 }
 
-function desktopEntry(entry: {
+export function desktopEntry(entry: {
   name: string;
   windowClass: string;
   icon: string;
