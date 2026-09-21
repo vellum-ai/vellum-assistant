@@ -64,10 +64,7 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
 import { VoiceSections } from "@/domains/settings/pages/voice-page";
 import { activatorDisplayName } from "@/utils/ptt-activator";
 import { keyboardDefaultActivator } from "@/utils/voice-mode-activation";
-import {
-  DEFAULT_PAUSE_BEFORE_REPLY_MS,
-  useVoicePrefsStore,
-} from "@/stores/voice-prefs-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 
 function renderPage() {
   // The page reads daemon config now (the turn-taking row), so it needs a
@@ -100,51 +97,11 @@ beforeEach(() => {
     showUserTranscript: false,
     showAssistantTranscript: false,
     firstRunSeen: false,
-    pauseBeforeReplyMs: null,
-    interruptSensitivity: null,
   });
 });
 
 afterEach(() => {
   cleanup();
-});
-
-describe("VoiceSections turn-taking defaults", () => {
-  test("both dials read as Default until the user sets one", () => {
-    renderPage();
-
-    expect(screen.getAllByText("Default")).toHaveLength(2);
-    // Nothing to reset while both are unset.
-    expect(screen.queryByRole("button", { name: "Reset to defaults" })).toBe(
-      null,
-    );
-  });
-
-  test("setting a sensitivity clears only that row's Default badge", () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole("radio", { name: "Low" }));
-
-    expect(useVoicePrefsStore.getState().interruptSensitivity).toBe("low");
-    // The pause slider is still unset, so exactly one badge remains.
-    expect(screen.getAllByText("Default")).toHaveLength(1);
-  });
-
-  test("Reset returns both dials to daemon-governed defaults", () => {
-    useVoicePrefsStore.setState({
-      pauseBeforeReplyMs: DEFAULT_PAUSE_BEFORE_REPLY_MS,
-      interruptSensitivity: "high",
-    });
-    renderPage();
-
-    expect(screen.queryByText("Default")).toBe(null);
-
-    fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
-
-    const state = useVoicePrefsStore.getState();
-    expect(state.pauseBeforeReplyMs).toBe(null);
-    expect(state.interruptSensitivity).toBe(null);
-  });
 });
 
 describe("VoiceSections Models & Services pointer", () => {

@@ -14,8 +14,6 @@ import { Button } from "@vellumai/design-library/components/button";
 import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 import { cn } from "@vellumai/design-library/utils/cn";
 import { Select } from "@vellumai/design-library/components/select";
-import { SegmentControl } from "@vellumai/design-library/components/segment-control";
-import { Slider } from "@vellumai/design-library/components/slider";
 import { ShortcutKeys } from "@vellumai/design-library/components/shortcut-keys";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -34,14 +32,6 @@ import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-
 
 import { DetailCard } from "@/components/detail-card";
 import { useTranslation } from "@/i18n";
-import {
-  DEFAULT_INTERRUPT_SENSITIVITY,
-  DEFAULT_PAUSE_BEFORE_REPLY_MS,
-  MAX_PAUSE_BEFORE_REPLY_MS,
-  MIN_PAUSE_BEFORE_REPLY_MS,
-  useVoicePrefsStore,
-  type InterruptSensitivity,
-} from "@/stores/voice-prefs-store";
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
 import {
   activatorDisplayName,
@@ -121,7 +111,7 @@ export function VoiceSections() {
         <MicrophoneCard />
         <ListeningLanguageCard />
         {supportsModifierHold() ? <VoiceKeyCard /> : <VoiceModeShortcutCard />}
-        <ConversationTuningCard />
+        <TurnTakingCard />
       </VoiceSection>
 
       <VoiceSection heading={t("voicePage.sectionCaptionsHeading")}>
@@ -206,7 +196,10 @@ function CaptionsCard() {
       <div className="flex flex-col gap-2">
         <VoiceTranscriptToggles showDescription />
         <p className={`${labelClasses} pt-1`}>
-          {t("voicePage.captionsRecommendation", VOICE_TRANSCRIPT_RECOMMENDATION)}
+          {t(
+            "voicePage.captionsRecommendation",
+            VOICE_TRANSCRIPT_RECOMMENDATION,
+          )}
         </p>
       </div>
     </DetailCard>
@@ -701,135 +694,15 @@ function VoiceModeShortcutCard() {
   );
 }
 
-/**
- * The two turn-taking dials, in one card because they're one idea — where the
- * boundary between your turn and the assistant's sits.
- *
- * Both are sent only when the user has set them explicitly; unset hands
- * endpointing back to the daemon's `liveVoice.vad` config. That distinction was
- * invisible before (the sliders rendered a client default while sending
- * nothing, so a self-hosted workspace saw values it wasn't running) — hence the
- * per-row "Default" state and the Reset affordance.
- */
-function ConversationTuningCard() {
+function TurnTakingCard() {
   const { t } = useTranslation("settings");
-  const pauseMs = useVoicePrefsStore.use.pauseBeforeReplyMs();
-  const setPauseMs = useVoicePrefsStore.use.setPauseBeforeReplyMs();
-  const sensitivity = useVoicePrefsStore.use.interruptSensitivity();
-  const setSensitivity = useVoicePrefsStore.use.setInterruptSensitivity();
-
-  const interruptSensitivityItems = useMemo(
-    () => [
-      { value: "low" as const, label: t("voicePage.interruptSensitivityLow") },
-      {
-        value: "medium" as const,
-        label: t("voicePage.interruptSensitivityMedium"),
-      },
-      {
-        value: "high" as const,
-        label: t("voicePage.interruptSensitivityHigh"),
-      },
-    ],
-    [t],
-  );
-
-  const anySet = pauseMs !== null || sensitivity !== null;
 
   return (
     <DetailCard
       title={t("voicePage.turnTakingTitle")}
       subtitle={t("voicePage.turnTakingSubtitle")}
     >
-      <div className="flex flex-col gap-5">
-        {/* First because it decides who ends the turn at all; the rows below
-            tune the local detector it can take over from. */}
-        <TurnDetectionRow />
-
-        <TuningRow
-          label={t("voicePage.pauseBeforeReplyLabel")}
-          description={t("voicePage.pauseBeforeReplyDescription")}
-          isDefault={pauseMs === null}
-        >
-          <div className="max-w-xs">
-            <Slider
-              value={(pauseMs ?? DEFAULT_PAUSE_BEFORE_REPLY_MS) / 1000}
-              onValueChange={(next) => {
-                if (typeof next === "number") {
-                  setPauseMs(Math.round(next * 1000));
-                }
-              }}
-              min={MIN_PAUSE_BEFORE_REPLY_MS / 1000}
-              max={MAX_PAUSE_BEFORE_REPLY_MS / 1000}
-              step={0.1}
-              showValue
-              formatValue={(value) =>
-                `${(typeof value === "number" ? value : value[0]).toFixed(1)}s`
-              }
-              aria-label={t("voicePage.pauseBeforeReplyAriaLabel")}
-            />
-          </div>
-        </TuningRow>
-
-        <TuningRow
-          label={t("voicePage.interruptSensitivityLabel")}
-          description={t("voicePage.interruptSensitivityDescription")}
-          isDefault={sensitivity === null}
-        >
-          <div className="max-w-xs">
-            <SegmentControl<InterruptSensitivity>
-              items={interruptSensitivityItems}
-              value={sensitivity ?? DEFAULT_INTERRUPT_SENSITIVITY}
-              onChange={setSensitivity}
-              ariaLabel={t("voicePage.interruptSensitivityAriaLabel")}
-            />
-          </div>
-        </TuningRow>
-
-        {anySet && (
-          <div>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                setPauseMs(null);
-                setSensitivity(null);
-              }}
-            >
-              {t("voicePage.resetToDefaults")}
-            </Button>
-          </div>
-        )}
-      </div>
+      <TurnDetectionRow />
     </DetailCard>
-  );
-}
-
-function TuningRow({
-  label,
-  description,
-  isDefault,
-  children,
-}: {
-  label: string;
-  description: string;
-  isDefault: boolean;
-  children: ReactNode;
-}) {
-  const { t } = useTranslation("settings");
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-body-medium-lighter text-[var(--content-default)]">
-          {label}
-        </span>
-        {isDefault && (
-          <span className="shrink-0 rounded-full bg-[var(--surface-active)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            {t("voicePage.defaultBadge")}
-          </span>
-        )}
-      </div>
-      <p className={labelClasses}>{description}</p>
-      {children}
-    </div>
   );
 }
