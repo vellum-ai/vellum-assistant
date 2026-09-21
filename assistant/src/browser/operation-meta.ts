@@ -216,7 +216,7 @@ Examples:
         name: "key",
         type: "string",
         description:
-          'The key to press (e.g. "Enter", "Escape", "Tab", "ArrowDown").',
+          'The key or modifier chord to press (e.g. "Enter", "Meta+v", "Control+a").',
         required: true,
       },
       {
@@ -238,6 +238,7 @@ the key is dispatched to that element; otherwise to the focused element.
 Examples:
   $ assistant browser press-key --key Enter
   $ assistant browser press-key --key Tab --element-id e5
+  $ assistant browser press-key --key "Meta+v"
   $ assistant browser press-key --key Escape`,
   },
   {

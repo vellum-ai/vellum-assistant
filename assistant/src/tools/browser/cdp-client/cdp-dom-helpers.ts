@@ -154,6 +154,126 @@ export async function dispatchInsertText(
   await cdp.send("Input.insertText", { text }, signal);
 }
 
+interface TextInsertionOptions {
+  clearFirst: boolean;
+  verify?: boolean;
+}
+
+/**
+ * Select editable content through the Selection API, insert text through CDP,
+ * and confirm that the live target contains the requested text. Selection keeps
+ * framework-owned editors in control of their state, unlike assigning to
+ * `value` or `textContent` and synthesizing an untrusted input event.
+ */
+export async function insertTextIntoElement(
+  cdp: CdpClient,
+  backendNodeId: number,
+  text: string,
+  options: TextInsertionOptions,
+  signal?: AbortSignal,
+): Promise<void> {
+  await focusElement(cdp, backendNodeId, signal);
+
+  const { object } = await cdp.send<{ object: { objectId: string } }>(
+    "DOM.resolveNode",
+    { backendNodeId },
+    signal,
+  );
+  const selection = await cdp.send<{
+    result?: { value?: string };
+    exceptionDetails?: { text?: string; exception?: { description?: string } };
+  }>(
+    "Runtime.callFunctionOn",
+    {
+      objectId: object.objectId,
+      functionDeclaration: `function(clearFirst) {
+        if (typeof this.value === "string") {
+          const value = this.value;
+          if (clearFirst && typeof this.select === "function") {
+            this.select();
+            return value;
+          }
+          if (typeof this.setSelectionRange === "function") {
+            const end = this.value.length;
+            this.setSelectionRange(clearFirst ? 0 : end, end);
+            return value;
+          }
+        }
+        if (this.isContentEditable) {
+          const value = this.textContent ?? "";
+          const selection = this.ownerDocument.getSelection();
+          const range = this.ownerDocument.createRange();
+          range.selectNodeContents(this);
+          if (!clearFirst) {
+            range.collapse(false);
+          }
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return value;
+        }
+        throw new Error("Element is not an editable text target");
+      }`,
+      arguments: [{ value: options.clearFirst }],
+      returnByValue: options.verify !== false,
+    },
+    signal,
+  );
+  if (selection.exceptionDetails) {
+    const message =
+      selection.exceptionDetails.exception?.description ??
+      selection.exceptionDetails.text ??
+      "Unable to select editable text";
+    throw new CdpError("cdp_error", message, {
+      cdpMethod: "Runtime.callFunctionOn",
+      cdpParams: { backendNodeId },
+    });
+  }
+
+  await dispatchInsertText(cdp, text, signal);
+  if (options.verify === false) {
+    return;
+  }
+
+  const expectedText = options.clearFirst
+    ? text
+    : `${selection.result?.value ?? ""}${text}`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const verification = await cdp.send<{
+      result?: { value?: { connected?: boolean; text?: string } };
+    }>(
+      "Runtime.callFunctionOn",
+      {
+        objectId: object.objectId,
+        functionDeclaration: `function() {
+          const text = typeof this.value === "string"
+            ? this.value
+            : (this.textContent ?? "");
+          return { connected: this.isConnected, text };
+        }`,
+        arguments: [],
+        returnByValue: true,
+      },
+      signal,
+    );
+    const result = verification.result?.value;
+    if (result?.connected === true && result.text === expectedText) {
+      return;
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw new CdpError(
+    "cdp_error",
+    "Text insertion did not persist in the editable element.",
+    {
+      cdpMethod: "Input.insertText",
+      cdpParams: { backendNodeId },
+    },
+  );
+}
+
 /**
  * Per-key descriptor used by {@link dispatchKeyPress}. Mirrors the
  * fields CDP's `Input.dispatchKeyEvent` accepts. `text` is set only
@@ -165,6 +285,47 @@ interface KeyDescriptor {
   windowsVirtualKeyCode: number;
   text?: string;
 }
+
+interface ModifierDescriptor {
+  bit: number;
+  descriptor: KeyDescriptor;
+}
+
+const ALT_MODIFIER: ModifierDescriptor = {
+  bit: 1,
+  descriptor: { key: "Alt", code: "AltLeft", windowsVirtualKeyCode: 18 },
+};
+const CONTROL_MODIFIER: ModifierDescriptor = {
+  bit: 2,
+  descriptor: {
+    key: "Control",
+    code: "ControlLeft",
+    windowsVirtualKeyCode: 17,
+  },
+};
+const META_MODIFIER: ModifierDescriptor = {
+  bit: 4,
+  descriptor: { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91 },
+};
+const SHIFT_MODIFIER: ModifierDescriptor = {
+  bit: 8,
+  descriptor: {
+    key: "Shift",
+    code: "ShiftLeft",
+    windowsVirtualKeyCode: 16,
+  },
+};
+
+const MODIFIER_DESCRIPTORS: Record<string, ModifierDescriptor> = {
+  alt: ALT_MODIFIER,
+  option: ALT_MODIFIER,
+  control: CONTROL_MODIFIER,
+  ctrl: CONTROL_MODIFIER,
+  meta: META_MODIFIER,
+  command: META_MODIFIER,
+  cmd: META_MODIFIER,
+  shift: SHIFT_MODIFIER,
+};
 
 /**
  * Subset of the US keyboard layout used to populate
@@ -182,7 +343,7 @@ const KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
     windowsVirtualKeyCode: 13,
     text: "\r",
   },
-  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, text: "\t" },
+  Tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 },
   Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
   Backspace: {
     key: "Backspace",
@@ -291,60 +452,139 @@ function resolveKeyDescriptor(key: string): KeyDescriptor | null {
   return null;
 }
 
+function describeKeyEvent(
+  descriptor: KeyDescriptor,
+  type: "rawKeyDown" | "char" | "keyUp",
+  modifiers: number,
+  unmodifiedText = descriptor.text,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    type,
+    key: descriptor.key,
+    code: descriptor.code,
+    windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+  };
+  if (modifiers !== 0) {
+    params.modifiers = modifiers;
+  }
+  if (type === "char" && descriptor.text !== undefined) {
+    params.text = descriptor.text;
+    params.unmodifiedText = unmodifiedText;
+  }
+  return params;
+}
+
+const SHIFTED_CHARACTERS: Record<string, string> = {
+  "`": "~",
+  "1": "!",
+  "2": "@",
+  "3": "#",
+  "4": "$",
+  "5": "%",
+  "6": "^",
+  "7": "&",
+  "8": "*",
+  "9": "(",
+  "0": ")",
+  "-": "_",
+  "=": "+",
+  "[": "{",
+  "]": "}",
+  "\\": "|",
+  ";": ":",
+  "'": '"',
+  ",": "<",
+  ".": ">",
+  "/": "?",
+};
+
+function applyShift(descriptor: KeyDescriptor): KeyDescriptor {
+  if (descriptor.text === undefined) {
+    return descriptor;
+  }
+  const shifted =
+    descriptor.text >= "a" && descriptor.text <= "z"
+      ? descriptor.text.toUpperCase()
+      : (SHIFTED_CHARACTERS[descriptor.text] ?? descriptor.text);
+  return { ...descriptor, key: shifted, text: shifted };
+}
+
 /**
- * Press a single key (keyDown + optional `char` + keyUp). Resolves
- * the key name to a {@link KeyDescriptor} so CDP receives the right
- * `code` / `windowsVirtualKeyCode` / `text` fields — required by
- * sites that check `event.keyCode` (e.g. Enter-to-submit) or
- * `event.code`. For printable keys we also dispatch a `char` event
- * between keyDown and keyUp so the character is actually inserted
- * into focused inputs.
+ * Press a key or modifier chord using the same `Modifier+Key` spelling as
+ * Playwright. Printable keys use rawKeyDown + char + keyUp, with text only on
+ * the char event, so the browser inserts exactly one character.
  */
 export async function dispatchKeyPress(
   cdp: CdpClient,
   key: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const desc = resolveKeyDescriptor(key);
-  if (!desc) {
-    // Unknown multi-character key (e.g. F-keys we have not mapped).
-    // Fall back to the minimal payload so callers still see a
-    // keyDown/keyUp pair, and warn so we can extend the map.
+  const parts = key === "+" ? [key] : key.split("+");
+  const primaryKey = parts.at(-1) ?? "";
+  const modifierTokens = parts.slice(0, -1);
+  const modifiers: ModifierDescriptor[] = [];
+  let modifierBits = 0;
 
-    console.warn(
-      `dispatchKeyPress: no descriptor for key "${key}", sending minimal event`,
-    );
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key }, signal);
-    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key }, signal);
-    return;
+  for (const token of modifierTokens) {
+    const modifier = MODIFIER_DESCRIPTORS[token.toLowerCase()];
+    if (!modifier || (modifierBits & modifier.bit) !== 0) {
+      throw new CdpError("cdp_error", `Unsupported key chord: ${key}`);
+    }
+    modifierBits |= modifier.bit;
+    modifiers.push(modifier);
   }
 
-  const baseParams: Record<string, unknown> = {
-    key: desc.key,
-    code: desc.code,
-    windowsVirtualKeyCode: desc.windowsVirtualKeyCode,
-  };
-  if (desc.text !== undefined) {
-    baseParams.text = desc.text;
+  const unmodifiedDescriptor = resolveKeyDescriptor(primaryKey);
+  if (!unmodifiedDescriptor) {
+    throw new CdpError("cdp_error", `Unsupported key: ${primaryKey || key}`);
   }
+  const descriptor =
+    (modifierBits & SHIFT_MODIFIER.bit) !== 0
+      ? applyShift(unmodifiedDescriptor)
+      : unmodifiedDescriptor;
 
-  await cdp.send(
-    "Input.dispatchKeyEvent",
-    { ...baseParams, type: "keyDown" },
-    signal,
-  );
-  if (desc.text !== undefined) {
+  let activeModifiers = 0;
+  for (const modifier of modifiers) {
+    activeModifiers |= modifier.bit;
     await cdp.send(
       "Input.dispatchKeyEvent",
-      { ...baseParams, type: "char" },
+      describeKeyEvent(modifier.descriptor, "rawKeyDown", activeModifiers),
+      signal,
+    );
+  }
+
+  const suppressText = (modifierBits & (1 | 2 | 4)) !== 0;
+  await cdp.send(
+    "Input.dispatchKeyEvent",
+    describeKeyEvent(descriptor, "rawKeyDown", modifierBits),
+    signal,
+  );
+  if (descriptor.text !== undefined && !suppressText) {
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      describeKeyEvent(
+        descriptor,
+        "char",
+        modifierBits,
+        unmodifiedDescriptor.text,
+      ),
       signal,
     );
   }
   await cdp.send(
     "Input.dispatchKeyEvent",
-    { ...baseParams, type: "keyUp" },
+    describeKeyEvent(descriptor, "keyUp", modifierBits),
     signal,
   );
+
+  for (const modifier of [...modifiers].reverse()) {
+    activeModifiers &= ~modifier.bit;
+    await cdp.send(
+      "Input.dispatchKeyEvent",
+      describeKeyEvent(modifier.descriptor, "keyUp", activeModifiers),
+      signal,
+    );
+  }
 }
 
 /** Dispatch a wheel scroll delta at the given viewport point. */

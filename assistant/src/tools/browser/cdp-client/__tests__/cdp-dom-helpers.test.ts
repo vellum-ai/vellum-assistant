@@ -12,6 +12,7 @@ import {
   getCenterPoint,
   getCurrentUrl,
   getPageTitle,
+  insertTextIntoElement,
   navigateAndWait,
   querySelectorBackendNodeId,
   scrollIntoViewIfNeeded,
@@ -276,15 +277,126 @@ describe("dispatchInsertText", () => {
   });
 });
 
+describe("insertTextIntoElement", () => {
+  test("selects, inserts, and verifies text without mutating editor state", async () => {
+    const cdp = fakeCdp((method, params) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "editable-1" } };
+      }
+      if (
+        method === "Runtime.callFunctionOn" &&
+        params?.returnByValue === true
+      ) {
+        if (String(params.functionDeclaration).includes("isConnected")) {
+          return {
+            result: { value: { connected: true, text: "hello world" } },
+          };
+        }
+        return { result: { value: "" } };
+      }
+      return {};
+    });
+
+    await insertTextIntoElement(cdp, 42, "hello world", {
+      clearFirst: true,
+    });
+
+    expect(cdp.calls.map((call) => call.method)).toEqual([
+      "DOM.focus",
+      "DOM.resolveNode",
+      "Runtime.callFunctionOn",
+      "Input.insertText",
+      "Runtime.callFunctionOn",
+    ]);
+    expect(cdp.calls[2]!.params).toMatchObject({
+      arguments: [{ value: true }],
+      returnByValue: true,
+    });
+    expect(cdp.calls[2]!.params?.functionDeclaration).not.toContain(
+      "this.textContent =",
+    );
+    expect(cdp.calls[3]!.params).toEqual({ text: "hello world" });
+  });
+
+  test("fails when the edited node is detached instead of claiming success", async () => {
+    const cdp = fakeCdp((method, params) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "editable-1" } };
+      }
+      if (
+        method === "Runtime.callFunctionOn" &&
+        params?.returnByValue === true
+      ) {
+        if (String(params.functionDeclaration).includes("isConnected")) {
+          return { result: { value: { connected: false, text: "draft" } } };
+        }
+        return { result: { value: "" } };
+      }
+      return {};
+    });
+
+    await expect(
+      insertTextIntoElement(cdp, 42, "draft", { clearFirst: true }),
+    ).rejects.toMatchObject({
+      name: "CdpError",
+      code: "cdp_error",
+      message: "Text insertion did not persist in the editable element.",
+    });
+  });
+
+  test("fails before insertion when the target cannot be selected", async () => {
+    const cdp = fakeCdp((method) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "editable-1" } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return { exceptionDetails: { text: "Element is not editable" } };
+      }
+      return {};
+    });
+
+    await expect(
+      insertTextIntoElement(cdp, 42, "draft", { clearFirst: true }),
+    ).rejects.toMatchObject({
+      name: "CdpError",
+      code: "cdp_error",
+      message: "Element is not editable",
+    });
+    expect(cdp.calls.some((call) => call.method === "Input.insertText")).toBe(
+      false,
+    );
+  });
+
+  test("can skip verification for secret credential values", async () => {
+    const cdp = fakeCdp((method) => {
+      if (method === "DOM.resolveNode") {
+        return { object: { objectId: "editable-1" } };
+      }
+      return {};
+    });
+
+    await insertTextIntoElement(cdp, 42, "secret", {
+      clearFirst: true,
+      verify: false,
+    });
+
+    expect(cdp.calls.map((call) => call.method)).toEqual([
+      "DOM.focus",
+      "DOM.resolveNode",
+      "Runtime.callFunctionOn",
+      "Input.insertText",
+    ]);
+  });
+});
+
 // ── dispatchKeyPress ──────────────────────────────────────────────────
 
 describe("dispatchKeyPress", () => {
-  test("Enter sends keyDown + char + keyUp with windowsVirtualKeyCode 13", async () => {
+  test("Enter sends rawKeyDown + char + keyUp with text only on char", async () => {
     const cdp = fakeCdp(() => ({}));
 
     await dispatchKeyPress(cdp, "Enter");
 
-    // Enter is text-producing (\r) so we get keyDown + char + keyUp.
     expect(cdp.calls).toHaveLength(3);
     for (const call of cdp.calls) {
       expect(call.method).toBe("Input.dispatchKeyEvent");
@@ -292,15 +404,16 @@ describe("dispatchKeyPress", () => {
       expect(params.key).toBe("Enter");
       expect(params.code).toBe("Enter");
       expect(params.windowsVirtualKeyCode).toBe(13);
-      expect(params.text).toBe("\r");
     }
     expect((cdp.calls[0]!.params as Record<string, unknown>).type).toBe(
-      "keyDown",
+      "rawKeyDown",
     );
-    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+    expect(cdp.calls[0]!.params?.text).toBeUndefined();
+    expect(cdp.calls[1]!.params).toMatchObject({ type: "char", text: "\r" });
     expect((cdp.calls[2]!.params as Record<string, unknown>).type).toBe(
       "keyUp",
     );
+    expect(cdp.calls[2]!.params?.text).toBeUndefined();
   });
 
   test("'a' sends keyCode 65, code KeyA, and a char event", async () => {
@@ -309,14 +422,26 @@ describe("dispatchKeyPress", () => {
     await dispatchKeyPress(cdp, "a");
 
     expect(cdp.calls).toHaveLength(3);
-    for (const call of cdp.calls) {
-      const params = call.params as Record<string, unknown>;
-      expect(params.key).toBe("a");
-      expect(params.code).toBe("KeyA");
-      expect(params.windowsVirtualKeyCode).toBe(65);
-      expect(params.text).toBe("a");
-    }
-    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+    expect(cdp.calls[0]!.params).toEqual({
+      type: "rawKeyDown",
+      key: "a",
+      code: "KeyA",
+      windowsVirtualKeyCode: 65,
+    });
+    expect(cdp.calls[1]!.params).toEqual({
+      type: "char",
+      key: "a",
+      code: "KeyA",
+      windowsVirtualKeyCode: 65,
+      text: "a",
+      unmodifiedText: "a",
+    });
+    expect(cdp.calls[2]!.params).toEqual({
+      type: "keyUp",
+      key: "a",
+      code: "KeyA",
+      windowsVirtualKeyCode: 65,
+    });
   });
 
   test("ArrowDown sends keyCode 40 and NO char event", async () => {
@@ -334,7 +459,7 @@ describe("dispatchKeyPress", () => {
       expect(params.text).toBeUndefined();
     }
     expect((cdp.calls[0]!.params as Record<string, unknown>).type).toBe(
-      "keyDown",
+      "rawKeyDown",
     );
     expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe(
       "keyUp",
@@ -347,22 +472,22 @@ describe("dispatchKeyPress", () => {
     await dispatchKeyPress(cdp, "7");
 
     expect(cdp.calls).toHaveLength(3);
-    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    const params = cdp.calls[1]!.params as Record<string, unknown>;
     expect(params.key).toBe("7");
     expect(params.code).toBe("Digit7");
     expect(params.windowsVirtualKeyCode).toBe(55);
     expect(params.text).toBe("7");
   });
 
-  test("Tab sends keyCode 9 and text '\\t'", async () => {
+  test("Tab sends keyCode 9 without a char event", async () => {
     const cdp = fakeCdp(() => ({}));
 
     await dispatchKeyPress(cdp, "Tab");
 
-    expect(cdp.calls).toHaveLength(3);
+    expect(cdp.calls).toHaveLength(2);
     const params = cdp.calls[0]!.params as Record<string, unknown>;
     expect(params.windowsVirtualKeyCode).toBe(9);
-    expect(params.text).toBe("\t");
+    expect(params.text).toBeUndefined();
   });
 
   test("Escape sends keyCode 27 and NO char event", async () => {
@@ -384,14 +509,15 @@ describe("dispatchKeyPress", () => {
     await dispatchKeyPress(cdp, "Space");
 
     expect(cdp.calls).toHaveLength(3);
-    for (const call of cdp.calls) {
-      const params = call.params as Record<string, unknown>;
-      expect(params.key).toBe(" ");
-      expect(params.code).toBe("Space");
-      expect(params.windowsVirtualKeyCode).toBe(32);
-      expect(params.text).toBe(" ");
-    }
-    expect((cdp.calls[1]!.params as Record<string, unknown>).type).toBe("char");
+    expect(cdp.calls[0]!.params?.text).toBeUndefined();
+    expect(cdp.calls[1]!.params).toMatchObject({
+      type: "char",
+      key: " ",
+      code: "Space",
+      windowsVirtualKeyCode: 32,
+      text: " ",
+    });
+    expect(cdp.calls[2]!.params?.text).toBeUndefined();
   });
 
   test("literal ' ' also maps to code 'Space'", async () => {
@@ -402,7 +528,7 @@ describe("dispatchKeyPress", () => {
 
     await dispatchKeyPress(cdp, " ");
 
-    const params = cdp.calls[0]!.params as Record<string, unknown>;
+    const params = cdp.calls[1]!.params as Record<string, unknown>;
     expect(params.code).toBe("Space");
     expect(params.windowsVirtualKeyCode).toBe(32);
     expect(params.text).toBe(" ");
@@ -464,20 +590,68 @@ describe("dispatchKeyPress", () => {
     }
   });
 
-  test("unknown multi-character key falls back to minimal payload", async () => {
+  test("Meta+v dispatches a real modifier chord without inserting v", async () => {
     const cdp = fakeCdp(() => ({}));
-    // Suppress the console.warn for the duration of the call. F19
-    // is not in the static map and cannot be derived dynamically.
-    const originalWarn = console.warn;
-    console.warn = () => {};
-    try {
-      await dispatchKeyPress(cdp, "F19");
-    } finally {
-      console.warn = originalWarn;
-    }
-    expect(cdp.calls).toHaveLength(2);
-    expect(cdp.calls[0]!.params).toEqual({ type: "keyDown", key: "F19" });
-    expect(cdp.calls[1]!.params).toEqual({ type: "keyUp", key: "F19" });
+    await dispatchKeyPress(cdp, "Meta+v");
+
+    expect(cdp.calls.map((call) => call.params)).toEqual([
+      {
+        type: "rawKeyDown",
+        key: "Meta",
+        code: "MetaLeft",
+        windowsVirtualKeyCode: 91,
+        modifiers: 4,
+      },
+      {
+        type: "rawKeyDown",
+        key: "v",
+        code: "KeyV",
+        windowsVirtualKeyCode: 86,
+        modifiers: 4,
+      },
+      {
+        type: "keyUp",
+        key: "v",
+        code: "KeyV",
+        windowsVirtualKeyCode: 86,
+        modifiers: 4,
+      },
+      {
+        type: "keyUp",
+        key: "Meta",
+        code: "MetaLeft",
+        windowsVirtualKeyCode: 91,
+      },
+    ]);
+  });
+
+  test("Shift+a emits uppercase text with the unmodified character", async () => {
+    const cdp = fakeCdp(() => ({}));
+    await dispatchKeyPress(cdp, "Shift+a");
+
+    expect(cdp.calls[1]!.params).toMatchObject({
+      type: "rawKeyDown",
+      key: "A",
+      code: "KeyA",
+      modifiers: 8,
+    });
+    expect(cdp.calls[2]!.params).toMatchObject({
+      type: "char",
+      key: "A",
+      text: "A",
+      unmodifiedText: "a",
+      modifiers: 8,
+    });
+  });
+
+  test("unknown multi-character keys fail instead of reporting success", async () => {
+    const cdp = fakeCdp(() => ({}));
+    await expect(dispatchKeyPress(cdp, "F19")).rejects.toMatchObject({
+      name: "CdpError",
+      code: "cdp_error",
+      message: "Unsupported key: F19",
+    });
+    expect(cdp.calls).toHaveLength(0);
   });
 
   test("propagates errors from the client", async () => {

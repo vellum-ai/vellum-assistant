@@ -244,42 +244,32 @@ describe("executeBrowserFillCredential", () => {
     expect(detachCalls).toBe(1);
   });
 
-  test("clears pre-populated field BEFORE inserting credential text", async () => {
-    // Regression: previously, fillCredential called focus + insertText
-    // directly, which APPENDED the credential to any existing value
-    // (autofill, prior typing, etc.) — corrupting the password and
-    // leaking partial state. The fix routes through the shared
-    // clearAndInsertText helper.
+  test("selects pre-populated content before inserting credential text", async () => {
     snapshotBackendNodeMaps.set("test-conversation", new Map([["e1", 555]]));
     await executeBrowserFillCredential(
       { service: "gmail", field: "password", element_id: "e1" },
       ctx,
     );
 
-    // The clear must happen BEFORE the insertText. Specifically, the
-    // Runtime.callFunctionOn that runs the clearing function declaration
-    // must precede Input.insertText.
+    // Selection must happen before Input.insertText so the credential replaces
+    // existing content without mutating framework-owned editor state directly.
     const methodSeq = sendCalls.map((c) => c.method);
     const clearIdx = methodSeq.indexOf("Runtime.callFunctionOn");
     const insertIdx = methodSeq.indexOf("Input.insertText");
     expect(clearIdx).toBeGreaterThanOrEqual(0);
     expect(insertIdx).toBeGreaterThan(clearIdx);
 
-    // The clearing function must reset both `value` and
-    // `textContent` so input/textarea AND contenteditable targets
-    // are handled.
+    // Form fields and contenteditable targets use their native selection APIs.
     const clearCall = sendCalls[clearIdx]!;
     const fnDecl = (clearCall.params as { functionDeclaration: string })
       .functionDeclaration;
-    expect(fnDecl).toContain('this.value = ""');
-    expect(fnDecl).toContain("this.textContent");
-    expect(fnDecl).toContain('new Event("input"');
+    expect(fnDecl).toContain("this.select()");
+    expect(fnDecl).toContain("range.selectNodeContents(this)");
+    expect(fnDecl).not.toContain('this.value = ""');
+    expect(fnDecl).not.toContain("this.textContent =");
 
-    // After the clear, the helper re-focuses the element (some sites
-    // blur on programmatic value reset) before inserting text — so we
-    // expect at least 2 DOM.focus calls in total.
     const focusCount = methodSeq.filter((m) => m === "DOM.focus").length;
-    expect(focusCount).toBeGreaterThanOrEqual(2);
+    expect(focusCount).toBe(1);
   });
 
   test("fills credential by CSS selector", async () => {
@@ -364,14 +354,13 @@ describe("executeBrowserFillCredential", () => {
     expect(result.isError).toBe(false);
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toContain("Input.insertText");
-    // dispatchKeyPress for "Enter" dispatches keyDown + char + keyUp
-    // (Enter has text "\r" so it now produces a char event too).
+    // Enter dispatches rawKeyDown + char + keyUp.
     const keyEvents = sendCalls.filter(
       (c) => c.method === "Input.dispatchKeyEvent",
     );
     expect(keyEvents).toHaveLength(3);
     expect((keyEvents[0]!.params as { type: string; key: string }).type).toBe(
-      "keyDown",
+      "rawKeyDown",
     );
     expect((keyEvents[0]!.params as { type: string; key: string }).key).toBe(
       "Enter",
