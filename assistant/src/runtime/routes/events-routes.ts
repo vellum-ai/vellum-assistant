@@ -26,6 +26,12 @@ import { z } from "zod";
 import type { HostProxyCapability, InterfaceId } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
 import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
+import {
+  DEFAULT_LOCALE,
+  localeFromAcceptLanguage,
+  resolveUserMessage,
+  type SupportedLocale,
+} from "../../i18n/index.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { getOrCreateConversation } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
@@ -311,6 +317,7 @@ export function handleSubscribeAssistantEvents(
     headers?.["x-vellum-client-version"],
   );
   const sseWatchdog = headers?.["x-vellum-sse-watchdog"]?.trim() === "1";
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
 
   if (clientId && !interfaceId) {
     log.error(
@@ -410,7 +417,9 @@ export function handleSubscribeAssistantEvents(
         cleanup();
         return;
       }
-      controller.enqueue(encoder.encode(formatSseFrame(event)));
+      controller.enqueue(
+        encoder.encode(formatSseFrame(localizeEvent(event, locale))),
+      );
       instrumentation.eventsDelivered += 1;
     } catch {
       sub.dispose();
@@ -526,7 +535,9 @@ export function handleSubscribeAssistantEvents(
           );
           if (window !== null) {
             for (const replayed of window) {
-              controller.enqueue(encoder.encode(formatSseFrame(replayed)));
+              controller.enqueue(
+                encoder.encode(formatSseFrame(localizeEvent(replayed, locale))),
+              );
               instrumentation.eventsDelivered += 1;
               if (replayed.seq != null && replayed.seq > highWaterReplaySeq) {
                 highWaterReplaySeq = replayed.seq;
@@ -597,6 +608,39 @@ function readClientIdentity(headers: Record<string, string> | undefined): {
     headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
   );
   return { clientId, interfaceId, actorPrincipalId };
+}
+
+/**
+ * Resolve an event's catalog-keyed `userMessage` for one subscriber. The hub
+ * hands every subscriber the same envelope and the replay ring stores it
+ * once, so the language is chosen here, per connection, and the shared
+ * envelope is never mutated.
+ */
+function localizeEvent<T extends { message: unknown }>(
+  event: T,
+  locale: SupportedLocale,
+): T {
+  if (locale === DEFAULT_LOCALE) {
+    return event;
+  }
+  const message = event.message;
+  if (typeof message !== "object" || message === null) {
+    return event;
+  }
+  const { userMessage, userMessageKey } = message as {
+    userMessage?: unknown;
+    userMessageKey?: unknown;
+  };
+  if (typeof userMessage !== "string" || typeof userMessageKey !== "string") {
+    return event;
+  }
+  return {
+    ...event,
+    message: {
+      ...message,
+      userMessage: resolveUserMessage(userMessage, userMessageKey, locale),
+    },
+  };
 }
 
 /**
@@ -691,8 +735,9 @@ function handleEventsTail({
       : window.filter((e) => typeof e.seq === "number" && e.seq <= toSeq);
   const lastSeq =
     bounded.length > 0 ? bounded[bounded.length - 1]?.seq : undefined;
+  const locale = localeFromAcceptLanguage(headers?.["accept-language"]);
   return {
-    events: bounded,
+    events: bounded.map((event) => localizeEvent(event, locale)),
     complete: true,
     frontier: typeof lastSeq === "number" ? lastSeq : fromSeq,
   };

@@ -5,6 +5,7 @@ import {
   DAILY_LIMIT_PATTERNS,
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  isContentFilterError,
   MODEL_NOT_FOUND_PATTERNS,
   UNSUPPORTED_MODEL_ID_PATTERNS,
   VISION_NOT_SUPPORTED_PATTERNS,
@@ -107,6 +108,17 @@ export function deriveReason(
     isChatTemplateFailureError(haystack)
   ) {
     return "request_shape_unsupported";
+  }
+
+  // The provider's content-safety filter refused the request. Same 4xx gate:
+  // a 5xx that mentions the filter is still a server error worth retrying.
+  if (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    isContentFilterError(haystack)
+  ) {
+    return "content_filtered";
   }
 
   // The managed proxy's daily-limit 402 shares the status with generic credit

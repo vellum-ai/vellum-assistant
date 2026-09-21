@@ -14,6 +14,7 @@ import {
   classifyConversationError,
   isUserCancellation,
 } from "../daemon/conversation-error.js";
+import { MESSAGE_KEYS } from "../i18n/index.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { normalizeOpenAIAPIError } from "../providers/openai/api-error-normalization.js";
 import {
@@ -1216,6 +1217,51 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain(
         "couldn't process the request format",
       );
+    });
+
+    it("classifies a provider content-filter 400 as a non-retryable provider-side block", () => {
+      // GIVEN DeepSeek's content-safety rejection
+      const err = new ProviderError(
+        "DeepSeek API error (400): Content Exists Risk",
+        "deepseek",
+        400,
+      );
+
+      // WHEN it is classified
+      const result = classifyConversationError(err, baseCtx);
+
+      // THEN the user is told the provider blocked the content
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_content_filtered");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain(
+        "content filter blocked this request",
+      );
+      expect(result.userMessage).not.toContain("Content Exists Risk");
+    });
+
+    it("carries the catalog key for a content-filtered stop reason onto the wire event", () => {
+      // GIVEN the statusless error the loop raises when a provider's filter
+      // withholds a successful response
+      const err = new ProviderError(
+        "Provider content filter withheld the response (stop reason: content_filter)",
+        "openai",
+        undefined,
+        { reason: "content_filtered" },
+      );
+
+      // WHEN it is classified and built into the wire event
+      const result = classifyConversationError(err, baseCtx);
+      const event = buildConversationErrorMessage("conv-1", result);
+
+      // THEN it is the same failure as the thrown 4xx, and the key rides
+      // along so the edge can resolve it for the reader's locale
+      expect(result.errorCategory).toBe("provider_content_filtered");
+      expect(result.retryable).toBe(false);
+      expect(event.userMessageKey).toBe(
+        MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED,
+      );
+      expect(event.userMessage).toBe(result.userMessage);
     });
 
     it("classifies reason=model_restricted on the skew-safe PROVIDER_API code with a specific errorCategory", () => {

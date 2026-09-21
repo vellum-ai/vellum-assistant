@@ -8,6 +8,7 @@ import type {
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
 import { getIsPlatform } from "../config/env-registry.js";
+import { MESSAGE_KEYS, type MessageKey, t } from "../i18n/index.js";
 import {
   isImageDimensionsTooLargeError,
   isImageMediaTypeMismatchError,
@@ -27,6 +28,7 @@ import {
 import {
   INSUFFICIENT_CREDITS_PATTERNS,
   isChatTemplateFailureError,
+  isContentFilterError,
   isModelNotFoundError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
@@ -37,7 +39,13 @@ import { safeStringSlice } from "../util/unicode.js";
  */
 export interface ClassifiedConversationError {
   code: ConversationErrorCode;
+  /** English copy. Localized surfaces resolve `userMessageKey` instead. */
   userMessage: string;
+  /**
+   * Catalog key behind `userMessage`, carried to the edge that knows the
+   * reader's locale. Absent for copy that is not a catalog constant.
+   */
+  userMessageKey?: MessageKey;
   retryable: boolean;
   debugDetails?: string;
   /** Machine-readable error category for log report metadata and triage. */
@@ -577,6 +585,9 @@ function classifyCore(
       if (isChatTemplateFailureError(message)) {
         return requestShapeUnsupportedClassification();
       }
+      if (isContentFilterError(message)) {
+        return contentFilteredClassification();
+      }
       // Extract the provider detail after "API error (NNN): " prefix
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
       const detail = detailMatch?.[1];
@@ -669,6 +680,8 @@ function reasonToClassification(
       return visionNotSupportedClassification();
     case "request_shape_unsupported":
       return requestShapeUnsupportedClassification();
+    case "content_filtered":
+      return contentFilteredClassification();
     // Two producers share this reason: SDK transport failures that never got
     // a response (OpenAI APIConnectionError), and Gemini responses whose empty
     // body reveals a proxy/egress filter intercepting the request. The copy
@@ -946,6 +959,25 @@ function requestShapeUnsupportedClassification(): Omit<
       "This model's provider couldn't process the request format (tool calls or images may not be supported). Switch to a different model in Settings → Models & Services and try again.",
     retryable: false,
     errorCategory: "request_shape_unsupported",
+  };
+}
+
+/**
+ * Classification for a request refused by the provider's own content-safety
+ * filter. The copy blames the filter, not the model or us, and stays
+ * provider-agnostic: the filtering model is often behind an aggregator or a
+ * custom endpoint, so the routed provider's name would point at the wrong party.
+ */
+function contentFilteredClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_API",
+    userMessage: t(MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED),
+    userMessageKey: MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED,
+    retryable: false,
+    errorCategory: "provider_content_filtered",
   };
 }
 
@@ -1296,6 +1328,9 @@ export function buildConversationErrorMessage(
     conversationId,
     code: classified.code,
     userMessage: classified.userMessage,
+    ...(classified.userMessageKey
+      ? { userMessageKey: classified.userMessageKey }
+      : {}),
     retryable: classified.retryable,
     debugDetails: classified.debugDetails,
     errorCategory: classified.errorCategory,

@@ -14,6 +14,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "../api/index.js";
+import { MESSAGE_KEYS, t } from "../i18n/index.js";
 import {
   _resetStreamStateForTesting,
   stampAndBuffer,
@@ -208,6 +209,34 @@ describe("GET events/tail", () => {
     expect(body.complete).toBe(true);
     expect(body.events.map((e) => e.seq)).toEqual([2, 3]);
     expect(body.frontier).toBe(3);
+  });
+
+  test("resolves a keyed userMessage for the caller's Accept-Language", () => {
+    // GIVEN a buffered error that carries its catalog key
+    const key = MESSAGE_KEYS.CONVERSATION_ERROR_PROVIDER_CONTENT_FILTERED;
+    stampAndBuffer(
+      mkEvent({
+        message: {
+          type: "conversation_error",
+          conversationId: CONV,
+          code: "PROVIDER_API",
+          userMessage: t(key),
+          userMessageKey: key,
+          retryable: false,
+        },
+      }),
+    );
+
+    // WHEN a Spanish client heals a gap through the tail
+    const body = callTail(
+      { conversationId: CONV, fromSeq: "0" },
+      { "accept-language": "es" },
+    );
+
+    // THEN it reads the same language live delivery would have sent
+    expect(
+      (body.events[0]?.message as { userMessage: string }).userMessage,
+    ).toBe(t(key, "es"));
   });
 
   test("rejects missing or invalid params", () => {

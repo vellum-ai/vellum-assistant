@@ -35,7 +35,10 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import { isMaxTokensStopReason } from "../providers/stop-reasons.js";
+import {
+  isContentFilterStopReason,
+  isMaxTokensStopReason,
+} from "../providers/stop-reasons.js";
 import type {
   Message,
   Provider,
@@ -43,6 +46,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { ProviderError } from "../util/errors.js";
 
 // The agent loop runs the default post-compaction re-injection through the
 // `post-compact` hook chain when it compacts in place. Register a test hook on
@@ -182,6 +186,20 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
   afterEach(() => {
     disposeContextWindowManager("test-conversation");
+  });
+
+  test("recognizes provider content-filter stop reasons", () => {
+    expect(isContentFilterStopReason("content_filter")).toBe(true);
+    expect(isContentFilterStopReason("SAFETY")).toBe(true);
+    expect(isContentFilterStopReason("PROHIBITED_CONTENT")).toBe(true);
+    expect(isContentFilterStopReason("RECITATION")).toBe(true);
+    expect(isContentFilterStopReason("IMAGE_RECITATION")).toBe(true);
+    expect(isContentFilterStopReason("JAILBREAK")).toBe(true);
+    expect(isContentFilterStopReason("MALFORMED_FUNCTION_CALL")).toBe(false);
+    expect(isContentFilterStopReason("OTHER")).toBe(false);
+    expect(isContentFilterStopReason("refusal")).toBe(false);
+    expect(isContentFilterStopReason("stop")).toBe(false);
+    expect(isContentFilterStopReason(null)).toBe(false);
   });
 
   test("recognizes provider output-token stop reasons", () => {
@@ -521,6 +539,71 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
     expect(reinjected).toBe(true);
     expect(result.exitReason).toBeNull();
+  });
+
+  test("surfaces a content-filtered empty response as a content_filtered error", async () => {
+    // GIVEN a successful response whose content the provider's filter withheld
+    const { provider } = createMockProvider([
+      {
+        content: [],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 0 },
+        stopReason: "content_filter",
+      },
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the turn runs
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the turn fails with the stamped reason instead of ending silently,
+    // after a single provider call
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent?.type === "error" && errorEvent.error).toBeInstanceOf(
+      ProviderError,
+    );
+    expect(
+      errorEvent?.type === "error" &&
+        (errorEvent.error as ProviderError).reason,
+    ).toBe("content_filtered");
+    expect(events.filter((e) => e.type === "llm_call_started")).toHaveLength(1);
+    expect(lastExitEvent(events)?.reason).toBe("error");
+  });
+
+  test("keeps a reply the filter cut off partway as a normal turn", async () => {
+    const { provider } = createMockProvider([
+      maxTokensResponse("Partial answer", "content_filter"),
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
+      conversationId: "test-conversation",
+    });
+
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    expect(lastExitEvent(events)?.reason).toBe("no_tool_calls");
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {

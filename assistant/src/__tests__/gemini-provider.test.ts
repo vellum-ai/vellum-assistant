@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { isContentFilterStopReason } from "../providers/stop-reasons.js";
 import type {
   ContentBlock,
   Message,
@@ -40,6 +41,7 @@ interface FakeChunk {
     cachedContentTokenCount?: number;
   };
   modelVersion?: string;
+  promptFeedback?: { blockReason?: string };
 }
 
 let fakeChunks: FakeChunk[] = [];
@@ -207,6 +209,21 @@ describe("GeminiProvider", () => {
     expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.stopReason).toBe("STOP");
+  });
+
+  test("reports a blocked prompt's block reason as the stop reason", async () => {
+    // GIVEN a prompt Gemini blocks outright: no candidate, only prompt feedback
+    fakeChunks = [{ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } }];
+
+    // WHEN the message is sent
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    // THEN the empty response says why, in a form the loop recognizes
+    expect(result.content).toHaveLength(0);
+    expect(result.stopReason).toBe("PROHIBITED_CONTENT");
+    expect(isContentFilterStopReason(result.stopReason)).toBe(true);
   });
 
   // -----------------------------------------------------------------------

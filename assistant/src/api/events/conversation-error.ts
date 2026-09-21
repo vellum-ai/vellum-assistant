@@ -53,6 +53,12 @@ export const ConversationErrorEventSchema = z.object({
   conversationId: z.string(),
   code: ConversationErrorCodeSchema,
   userMessage: z.string(),
+  /**
+   * Daemon message-catalog key behind `userMessage`, when the copy is a
+   * catalog constant. `userMessage` is already resolved for the receiving
+   * client's locale; the key identifies the message independent of language.
+   */
+  userMessageKey: z.string().optional(),
   retryable: z.boolean(),
   debugDetails: z.string().optional(),
   errorCategory: z.string().optional(),

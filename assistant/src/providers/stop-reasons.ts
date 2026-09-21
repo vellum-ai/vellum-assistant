@@ -32,3 +32,41 @@ export function isMaxTokensStopReason(
   }
   return MAX_TOKENS_STOP_REASONS.has(stopReason.trim().toLowerCase());
 }
+
+/**
+ * Provider stop-reason strings that mean the provider's content-safety filter
+ * withheld the output: OpenAI `content_filter` (chat-completions
+ * `finish_reason` and Responses `incomplete_details.reason`) and every Gemini
+ * `FinishReason` / `BlockedReason` that is a policy filter (safety,
+ * recitation, blocklist, PII, jailbreak). Gemini's other empty-output reasons
+ * (`LANGUAGE`, `OTHER`, `MALFORMED_FUNCTION_CALL`, `NO_IMAGE`, ...) are not
+ * filters and stay out. Anthropic's `refusal` is the model declining, not a
+ * filter, and is not part of this set.
+ */
+const CONTENT_FILTER_STOP_REASONS = new Set([
+  "content_filter",
+  "safety",
+  "recitation",
+  "blocklist",
+  "prohibited_content",
+  "spii",
+  "image_safety",
+  "image_prohibited_content",
+  "image_recitation",
+  "model_armor",
+  "jailbreak",
+]);
+
+/**
+ * Whether a provider stop reason denotes output withheld by the provider's
+ * content filter. Case- and whitespace-insensitive, like
+ * {@link isMaxTokensStopReason}.
+ */
+export function isContentFilterStopReason(
+  stopReason: string | null | undefined,
+): boolean {
+  if (!stopReason) {
+    return false;
+  }
+  return CONTENT_FILTER_STOP_REASONS.has(stopReason.trim().toLowerCase());
+}

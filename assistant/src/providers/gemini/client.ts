@@ -557,6 +557,10 @@ export class GeminiProvider implements Provider {
           const candidate = chunk.candidates?.[0];
           if (candidate?.finishReason) {
             finishReason = candidate.finishReason;
+          } else if (chunk.promptFeedback?.blockReason) {
+            // A prompt Gemini blocks outright yields no candidate; the block
+            // reason is the only signal of why the response is empty.
+            finishReason = chunk.promptFeedback.blockReason;
           }
 
           if (chunk.usageMetadata) {
@@ -649,7 +653,7 @@ export class GeminiProvider implements Provider {
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent
           // and short-circuits classification/retry (mirrors the Anthropic client).
-        abortReason
+          abortReason
             ? { abortReason, rawRequest: inspectableRequest }
             : {
                 reason: deriveGeminiReason(error),
