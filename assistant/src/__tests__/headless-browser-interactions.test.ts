@@ -29,12 +29,10 @@ let sendHandler: (
   params: Record<string, unknown> | undefined,
 ) => unknown;
 let detachCalls: number;
-let insertedText: string;
 
 function resetCdpMock() {
   sendCalls = [];
   detachCalls = 0;
-  insertedText = "";
   sendHandler = () => ({});
 }
 
@@ -184,14 +182,14 @@ function defaultCdpHandler(
         String(params.functionDeclaration).includes("isConnected")
       ) {
         return {
-          result: { value: { connected: true, text: insertedText } },
+          result: { value: { connected: true, matches: true } },
         };
       }
       if (
         params?.returnByValue === true &&
         String(params.functionDeclaration).includes("clearFirst")
       ) {
-        return { result: { value: "" } };
+        return { result: { value: { needsRefocus: false } } };
       }
       // executeBrowserSelectOption invokes a function that returns
       // a `matched` boolean — default to true so wrapper-contract
@@ -200,7 +198,6 @@ function defaultCdpHandler(
       // handler explicitly.
       return { result: { value: true } };
     case "Input.insertText":
-      insertedText = String(params?.text ?? "");
       return {};
     default:
       return {};

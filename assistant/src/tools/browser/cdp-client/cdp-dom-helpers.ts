@@ -179,7 +179,9 @@ export async function insertTextIntoElement(
     signal,
   );
   const selection = await cdp.send<{
-    result?: { value?: string };
+    result?: {
+      value?: { initialLength?: number; needsRefocus?: boolean };
+    };
     exceptionDetails?: { text?: string; exception?: { description?: string } };
   }>(
     "Runtime.callFunctionOn",
@@ -192,7 +194,7 @@ export async function insertTextIntoElement(
             try {
               this.select();
               if (this.selectionStart === 0 && this.selectionEnd === value.length) {
-                return;
+                return { needsRefocus: false };
               }
             } catch {}
 
@@ -214,12 +216,14 @@ export async function insertTextIntoElement(
               inputType: "deleteContentBackward",
               data: null,
             }));
-            return;
+            return { needsRefocus: true };
           }
           if (typeof this.setSelectionRange === "function") {
             const end = this.value.length;
             this.setSelectionRange(clearFirst ? 0 : end, end);
-            return clearFirst ? undefined : value;
+            return clearFirst
+              ? { needsRefocus: false }
+              : { initialLength: value.length, needsRefocus: false };
           }
         }
         if (this.isContentEditable) {
@@ -232,12 +236,14 @@ export async function insertTextIntoElement(
           }
           selection.removeAllRanges();
           selection.addRange(range);
-          return clearFirst ? undefined : value;
+          return clearFirst
+            ? { needsRefocus: false }
+            : { initialLength: value.length, needsRefocus: false };
         }
         throw new Error("Element is not an editable text target");
       }`,
       arguments: [{ value: options.clearFirst }],
-      returnByValue: options.verify !== false && !options.clearFirst,
+      returnByValue: true,
     },
     signal,
   );
@@ -252,34 +258,43 @@ export async function insertTextIntoElement(
     });
   }
 
+  if (selection.result?.value?.needsRefocus === true) {
+    await focusElement(cdp, backendNodeId, signal);
+  }
   await dispatchInsertText(cdp, text, signal);
   if (options.verify === false) {
     return;
   }
 
-  const expectedText = options.clearFirst
-    ? text
-    : `${selection.result?.value ?? ""}${text}`;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const verification = await cdp.send<{
-      result?: { value?: { connected?: boolean; text?: string } };
+      result?: { value?: { connected?: boolean; matches?: boolean } };
     }>(
       "Runtime.callFunctionOn",
       {
         objectId: object.objectId,
-        functionDeclaration: `function() {
+        functionDeclaration: `function(insertedText, clearFirst, initialLength) {
           const text = typeof this.value === "string"
             ? this.value
             : (this.textContent ?? "");
-          return { connected: this.isConnected, text };
+          const matches = clearFirst
+            ? text === insertedText
+            : Number.isInteger(initialLength)
+              && text.length === initialLength + insertedText.length
+              && text.endsWith(insertedText);
+          return { connected: this.isConnected, matches };
         }`,
-        arguments: [],
+        arguments: [
+          { value: text },
+          { value: options.clearFirst },
+          { value: selection.result?.value?.initialLength ?? null },
+        ],
         returnByValue: true,
       },
       signal,
     );
     const result = verification.result?.value;
-    if (result?.connected === true && result.text === expectedText) {
+    if (result?.connected === true && result.matches === true) {
       return;
     }
     if (attempt < 2) {
@@ -572,22 +587,22 @@ export async function dispatchKeyPress(
   try {
     for (const modifier of modifiers) {
       const nextModifiers = activeModifiers | modifier.bit;
+      activeModifiers = nextModifiers;
+      pressedModifiers.push(modifier);
       await cdp.send(
         "Input.dispatchKeyEvent",
         describeKeyEvent(modifier.descriptor, "rawKeyDown", nextModifiers),
         signal,
       );
-      activeModifiers = nextModifiers;
-      pressedModifiers.push(modifier);
     }
 
     const suppressText = (modifierBits & (1 | 2 | 4)) !== 0;
+    primaryPressed = true;
     await cdp.send(
       "Input.dispatchKeyEvent",
       describeKeyEvent(descriptor, "rawKeyDown", modifierBits),
       signal,
     );
-    primaryPressed = true;
     if (descriptor.text !== undefined && !suppressText) {
       await cdp.send(
         "Input.dispatchKeyEvent",

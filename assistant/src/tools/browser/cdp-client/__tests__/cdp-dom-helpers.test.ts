@@ -289,10 +289,10 @@ describe("insertTextIntoElement", () => {
       ) {
         if (String(params.functionDeclaration).includes("isConnected")) {
           return {
-            result: { value: { connected: true, text: "hello world" } },
+            result: { value: { connected: true, matches: true } },
           };
         }
-        return { result: { value: "" } };
+        return { result: { value: { needsRefocus: false } } };
       }
       return {};
     });
@@ -310,7 +310,7 @@ describe("insertTextIntoElement", () => {
     ]);
     expect(cdp.calls[2]!.params).toMatchObject({
       arguments: [{ value: true }],
-      returnByValue: false,
+      returnByValue: true,
     });
     expect(cdp.calls[2]!.params?.functionDeclaration).not.toContain(
       "this.textContent =",
@@ -318,7 +318,7 @@ describe("insertTextIntoElement", () => {
     expect(cdp.calls[3]!.params).toEqual({ text: "hello world" });
   });
 
-  test("does not return existing contents when replacing text", async () => {
+  test("verifies appended text without returning existing contents", async () => {
     const cdp = fakeCdp((method, params) => {
       if (method === "DOM.resolveNode") {
         return { object: { objectId: "editable-1" } };
@@ -327,22 +327,54 @@ describe("insertTextIntoElement", () => {
         method === "Runtime.callFunctionOn" &&
         String(params?.functionDeclaration).includes("isConnected")
       ) {
+        const verifyText = Function(
+          `return (${String(params?.functionDeclaration)});`,
+        )() as (
+          this: { value: string; isConnected: boolean },
+          insertedText: string,
+          clearFirst: boolean,
+          initialLength: number,
+        ) => unknown;
         return {
-          result: { value: { connected: true, text: "replacement" } },
+          result: {
+            value: verifyText.call(
+              { value: "existingaddition", isConnected: true },
+              "addition",
+              false,
+              8,
+            ),
+          },
+        };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        return {
+          result: {
+            value: { initialLength: 8, needsRefocus: false },
+          },
         };
       }
       return {};
     });
 
-    await insertTextIntoElement(cdp, 42, "replacement", {
-      clearFirst: true,
+    await insertTextIntoElement(cdp, 42, "addition", {
+      clearFirst: false,
     });
 
-    expect(cdp.calls[2]!.params?.returnByValue).toBe(false);
+    expect(cdp.calls[2]!.params).toMatchObject({
+      returnByValue: true,
+      arguments: [{ value: false }],
+    });
+    expect(cdp.calls[4]!.params).toMatchObject({
+      arguments: [{ value: "addition" }, { value: false }, { value: 8 }],
+    });
+    expect(cdp.calls[4]!.params?.functionDeclaration).not.toContain(
+      "connected: this.isConnected, text",
+    );
   });
 
   test("clears controls that do not support text selection", async () => {
     const inputEvents: Array<{ type: string; bubbles?: boolean }> = [];
+    let focusedBackendNodeId: number | undefined;
     class TestInputEvent {
       constructor(
         readonly type: string,
@@ -375,6 +407,7 @@ describe("insertTextIntoElement", () => {
 
       dispatchEvent(event: TestInputEvent): boolean {
         inputEvents.push({ type: event.type, bubbles: event.init.bubbles });
+        focusedBackendNodeId = 99;
         return true;
       }
     }
@@ -383,7 +416,14 @@ describe("insertTextIntoElement", () => {
       if (method === "DOM.resolveNode") {
         return { object: { objectId: "number-input" } };
       }
+      if (method === "DOM.focus") {
+        focusedBackendNodeId = Number(params?.backendNodeId);
+        return {};
+      }
       if (method === "Input.insertText") {
+        if (focusedBackendNodeId !== 42) {
+          throw new Error("replacement text targeted the wrong field");
+        }
         input.value += String(params?.text);
         return {};
       }
@@ -392,7 +432,7 @@ describe("insertTextIntoElement", () => {
         if (declaration.includes("isConnected")) {
           return {
             result: {
-              value: { connected: input.isConnected, text: input.value },
+              value: { connected: input.isConnected, matches: true },
             },
           };
         }
@@ -409,6 +449,9 @@ describe("insertTextIntoElement", () => {
 
     expect(input.value).toBe("34");
     expect(inputEvents).toEqual([{ type: "input", bubbles: true }]);
+    expect(
+      cdp.calls.filter((call) => call.method === "DOM.focus"),
+    ).toHaveLength(2);
   });
 
   test("fails when the edited node is detached instead of claiming success", async () => {
@@ -421,9 +464,11 @@ describe("insertTextIntoElement", () => {
         params?.returnByValue === true
       ) {
         if (String(params.functionDeclaration).includes("isConnected")) {
-          return { result: { value: { connected: false, text: "draft" } } };
+          return {
+            result: { value: { connected: false, matches: true } },
+          };
         }
-        return { result: { value: "" } };
+        return { result: { value: { needsRefocus: false } } };
       }
       return {};
     });
@@ -788,6 +833,30 @@ describe("dispatchKeyPress", () => {
         windowsVirtualKeyCode: 16,
       },
     ]);
+  });
+
+  test("releases keys whose key-down acknowledgement fails", async () => {
+    for (const failedKey of ["Shift", "A"]) {
+      const cdp = fakeCdp((_method, params) => {
+        if (params?.type === "rawKeyDown" && params.key === failedKey) {
+          throw new CdpError("transport_error", "acknowledgement failed");
+        }
+        return {};
+      });
+
+      await expect(dispatchKeyPress(cdp, "Shift+a")).rejects.toMatchObject({
+        name: "CdpError",
+        code: "transport_error",
+        message: "acknowledgement failed",
+      });
+      expect(
+        cdp.calls.map((call) => `${call.params?.key}:${call.params?.type}`),
+      ).toEqual(
+        failedKey === "Shift"
+          ? ["Shift:rawKeyDown", "Shift:keyUp"]
+          : ["Shift:rawKeyDown", "A:rawKeyDown", "A:keyUp", "Shift:keyUp"],
+      );
+    }
   });
 
   test("unknown multi-character keys fail instead of reporting success", async () => {
