@@ -1967,8 +1967,8 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "擷取失敗。",
-    "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。"
+    "mayRequireJavaScript": "此頁面可能需要 JavaScript 才能完整顯示，因此部分內容可能缺失。",
+    "truncated": "只讀取了此頁面的一部分。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",

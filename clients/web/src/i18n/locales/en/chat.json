@@ -1978,8 +1978,8 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "Fetch failed.",
-    "fetching": "Fetching…",
-    "noContent": "No content extracted."
+    "mayRequireJavaScript": "This page may need JavaScript to show everything, so some of it may be missing.",
+    "truncated": "Only part of this page was read."
   },
   "webSearchDetailView": {
     "noSources": "No sources found.",
