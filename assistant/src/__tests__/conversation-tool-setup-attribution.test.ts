@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
+import { shouldUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -305,6 +306,28 @@ describe("createToolExecutor attribution threading", () => {
       getConfigSpy.mockRestore();
     }
   });
+});
+
+test("desktop routing honors the pinned interface when the live client changes", async () => {
+  for (const transportInterface of ["web", "macos"] as const) {
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        transportInterface: transportInterface === "web" ? "macos" : "web",
+        toolContextPin: { hasNoClient: false, transportInterface },
+        getTurnActorPrincipalId: () => "user-123",
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        },
+      }),
+    )("computer_use_observe", {});
+
+    expect(shouldUseVirtualDesktop(calls[0].context, true)).toBe(
+      transportInterface === "web",
+    );
+  }
 });
 
 describe("createToolExecutor isInteractive threading", () => {

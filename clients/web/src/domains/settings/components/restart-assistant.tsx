@@ -1,4 +1,4 @@
-import { Loader2, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 import { restartAssistant } from "@/assistant/api";
@@ -94,9 +94,8 @@ export function RestartAssistant({
     <>
       <Button
         variant="outlined"
-        leftIcon={
-          restarting ? <Loader2 className="animate-spin" /> : <RotateCcw />
-        }
+        loading={restarting}
+        leftIcon={<RotateCcw />}
         onClick={() => setConfirmOpen(true)}
         disabled={restarting}
         className="shrink-0"

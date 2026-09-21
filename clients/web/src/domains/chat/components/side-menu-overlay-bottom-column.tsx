@@ -77,13 +77,14 @@ export function SideMenuOverlayBottomColumn({
         ) : null}
         {onStartNewConversation ? (
           <Button
+            shape="pill"
             variant="primary"
             /* Sized as the drawer's rows are: the pills above it set their
                labels in the large body size and draw their glyphs at 16px on
                a phone, so this reads as one of them rather than a smaller
                control beneath them. The glyph is content rather than
                `leftIcon`, whose box the button sizes inline at 14px. */
-            className="pointer-events-auto min-h-[var(--side-menu-tile-size,36px)] w-full min-w-0 flex-1 gap-2 rounded-full px-3 shadow-[var(--shadow-lg)] max-md:text-body-large-default"
+            className="pointer-events-auto min-h-[var(--side-menu-tile-size,36px)] w-full min-w-0 flex-1 gap-2 px-3 shadow-[var(--shadow-lg)] max-md:text-body-large-default"
             onClick={() => {
               onStartNewConversation();
               onClose?.();

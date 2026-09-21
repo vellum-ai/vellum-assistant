@@ -49,9 +49,8 @@ export function StartScreen() {
           >
             <Button
               variant="primary"
-              size="regular"
+              size="large"
               fullWidth
-              className="h-11 text-base"
               onClick={() =>
                 void navigate(
                   `${routes.onboarding.privacy}?${NEW_ASSISTANT_PARAM}=1`,

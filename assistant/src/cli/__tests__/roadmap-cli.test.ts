@@ -219,15 +219,15 @@ describe("roadmap writes", () => {
     });
   });
 
-  test("update sends only the fields that were passed", async () => {
+  test("update forwards only the title and description it was given", async () => {
     nextResult = ITEM;
 
     await runAssistantCommandFull(
       "roadmap",
       "update",
       "dark-mode",
-      "--status",
-      "planned",
+      "--description",
+      "Follow the OS setting",
     );
 
     expect(calls[0]).toEqual({
@@ -236,47 +236,10 @@ describe("roadmap writes", () => {
         pathParams: { slug: "dark-mode" },
         body: {
           title: undefined,
-          description: undefined,
-          status: "planned",
-          tags: undefined,
+          description: "Follow the OS setting",
         },
       },
     });
-  });
-
-  test("--clear-tags sends the empty set that --tag cannot express", async () => {
-    nextResult = ITEM;
-
-    await runAssistantCommandFull(
-      "roadmap",
-      "update",
-      "dark-mode",
-      "--clear-tags",
-    );
-
-    expect((calls[0].params as { body: { tags: string[] } }).body.tags).toEqual(
-      [],
-    );
-  });
-
-  test("--clear-tags with --tag is refused rather than silently picking one", async () => {
-    nextResult = ITEM;
-    process.exitCode = 0;
-
-    // The complaint itself goes straight to stderr, which this harness does
-    // not capture; what matters is that no update was forwarded.
-    await runAssistantCommandFull(
-      "roadmap",
-      "update",
-      "dark-mode",
-      "--clear-tags",
-      "--tag",
-      "ui",
-    );
-
-    expect(calls).toHaveLength(0);
-    expect(process.exitCode).toBe(1);
-    process.exitCode = 0;
   });
 
   test("delete names the item it removed", async () => {

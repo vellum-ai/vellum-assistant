@@ -212,7 +212,7 @@ export function TrustRuleFormModal({
                       ? option.value === "low"
                         ? "border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)] text-[var(--system-positive-strong)]"
                         : option.value === "medium"
-                          ? "border-[var(--system-warning-strong)] bg-[var(--system-warning-weak)] text-[var(--system-warning-strong)]"
+                          ? "border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)] text-[var(--system-mid-strong)]"
                           : "border-[var(--system-negative-strong)] bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
                       : "border-[var(--border-element)] text-[var(--content-default)] hover:bg-[var(--surface-base)]"
                   }`}

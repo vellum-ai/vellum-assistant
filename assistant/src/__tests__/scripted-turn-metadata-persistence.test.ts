@@ -73,6 +73,7 @@ import type {
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
 import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
 import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 function createContext(): MessagingConversationContext {
   const channel: TurnChannelContext = {
@@ -222,4 +223,76 @@ describe("scripted-turn metadata persistence", () => {
 
     expect(lastUserMetadata().scripted).toBe(false);
   });
+});
+
+describe("author contact id on a persisted user message", () => {
+  const sender: TrustContext = {
+    sourceChannel: "slack",
+    trustClass: "trusted_contact",
+    requesterContactId: "contact-alice",
+  };
+
+  beforeEach(() => {
+    addMessageCalls.length = 0;
+  });
+
+  test("a message relayed from the sender names them as its author", async () => {
+    await persistQueuedMessageBody(createContext(), {
+      content: "the export endpoint needs a scoped token",
+      requestId: "req-author-typed",
+      trustContext: sender,
+      author: sender,
+    });
+
+    expect(lastUserMetadata().provenanceContactId).toBe("contact-alice");
+  });
+
+  test("a row persisted under the sender's trust but not relayed from them names no author", async () => {
+    // Machine-authored rows (ACP and subagent notifications, pointer turns)
+    // share this writer and the conversation's trust; only an explicit
+    // author names one.
+    await persistQueuedMessageBody(createContext(), {
+      content: "the delegated task finished",
+      requestId: "req-author-machine",
+      trustContext: sender,
+      metadata: { acpNotification: { acpSessionId: "acp-session-1" } },
+    });
+
+    expect(lastUserMetadata().provenanceContactId).toBeUndefined();
+  });
+
+  test.each([
+    ["scripted", { scripted: true }],
+    ["automated", { metadata: { automated: true } }],
+    ["hidden", { metadata: { hidden: true } }],
+    [
+      "ACP notification",
+      { metadata: { acpNotification: { acpSessionId: "acp-session-1" } } },
+    ],
+    [
+      "subagent notification",
+      {
+        metadata: {
+          subagentNotification: {
+            subagentId: "subagent-1",
+            label: "Research",
+            status: "completed",
+          },
+        },
+      },
+    ],
+  ] as const)(
+    "a %s row speaks in their voice without naming them",
+    async (kind, extra) => {
+      await persistQueuedMessageBody(createContext(), {
+        content: "sent on the sender's behalf",
+        requestId: `req-author-${kind}`,
+        trustContext: sender,
+        author: sender,
+        ...extra,
+      });
+
+      expect(lastUserMetadata().provenanceContactId).toBeUndefined();
+    },
+  );
 });

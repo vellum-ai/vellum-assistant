@@ -71,6 +71,12 @@ export interface RuntimeMessageConversationOptions {
   assistantId?: string;
   trustContext?: TrustContext;
   /**
+   * The person whose own inbound message this turn persists. Channel ingress
+   * and its retry replay pass the sender's trust; it names the persisted user
+   * row's author (`PersistMessageOptions.author`).
+   */
+  author?: TrustContext;
+  /**
    * Whether this turn should permit interactive approval prompts.
    * Channel ingress sets this true so confirmations can be resolved
    * through channel approval flows.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -127,14 +128,13 @@ export function ProviderCallbackPage() {
           subtitle={t("providerCallbackPage.signupClosedSubtitle")}
         />
         <div className="flex flex-col items-center gap-4">
-          <a
+          <ExternalAnchor
             href={VELLUM_COMMUNITY_URL}
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
+            glyph={false}
           >
             {t("providerCallbackPage.joinCommunity")}
-          </a>
+          </ExternalAnchor>
           <Link
             to={routes.account.login}
             className="text-sm font-medium text-[var(--content-emphasised)] hover:underline"

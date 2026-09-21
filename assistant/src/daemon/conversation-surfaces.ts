@@ -28,6 +28,8 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
 } from "../apps/app-store.js";
+import { executeDesktopComputerUse } from "../desktop/desktop-computer-use.js";
+import { canUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
@@ -57,6 +59,7 @@ import {
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import { formatDesktopAppRequired } from "../tools/capability-offer.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
+import { computerUseTarget } from "../tools/computer-use/target.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -70,7 +73,7 @@ import {
   type SurfaceShowPair,
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
-import type { HostCuProxy } from "./host-cu-proxy.js";
+import { HostCuProxy } from "./host-cu-proxy.js";
 import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
@@ -93,6 +96,7 @@ import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
 import { turnActorPrincipalId } from "./turn-actor.js";
+import { virtualDesktopContext } from "./virtual-desktop-context.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -3220,6 +3224,28 @@ export async function surfaceProxyResolver(
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
+    const desktopContext = virtualDesktopContext(ctx, signal);
+    if (
+      toolName !== POINT_AT_PROXY_TOOL &&
+      computerUseTarget(input, desktopContext) === "assistant-desktop"
+    ) {
+      if (!canUseVirtualDesktop(desktopContext)) {
+        return {
+          content:
+            "The assistant desktop requires an identified guardian and an enabled platform-hosted assistant.",
+          isError: true,
+        };
+      }
+      if (!ctx.hostCuProxy) {
+        ctx.setHostCuProxy(new HostCuProxy());
+      }
+      return executeDesktopComputerUse(
+        toolName,
+        input,
+        desktopContext,
+        ctx.hostCuProxy!,
+      );
+    }
     const hostCuProxy = ensureHostCuProxy(ctx);
     if (!hostCuProxy || !hostCuProxy.isAvailable()) {
       return {

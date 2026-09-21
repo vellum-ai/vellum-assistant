@@ -1,4 +1,4 @@
-import { Button, Tag, Typography } from "@vellumai/design-library";
+import { Button, Chip, Tag, Typography } from "@vellumai/design-library";
 import {
   CheckCircle,
   CircleDot,
@@ -83,18 +83,15 @@ function CommentBubble({
         </div>
 
         {isInline ? (
-          <button
-            type="button"
-            className="mt-1 cursor-pointer border-none bg-transparent p-0"
+          <Chip
+            tone="neutral"
+            leftIcon={<Quote />}
+            className="mt-1"
             onClick={() => onCommentSelect?.(comment)}
             title={t("documentCommentThread.jumpToHighlight")}
           >
-            <Tag tone="neutral" leftIcon={<Quote />}>
-              <span className="max-w-[200px] truncate">
-                {comment.anchorText}
-              </span>
-            </Tag>
-          </button>
+            <span className="max-w-[200px] truncate">{comment.anchorText}</span>
+          </Chip>
         ) : null}
 
         <Typography

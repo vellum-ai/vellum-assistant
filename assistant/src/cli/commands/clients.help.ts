@@ -58,6 +58,7 @@ Examples:
   $ assistant clients list                             List all connected clients
   $ assistant clients list --json                      Machine-readable JSON output
   $ assistant clients list --capability host_bash      Show only clients that can run host commands
+  $ assistant clients history                          Recent connection sessions and flaps
   $ assistant clients disconnect <clientId>            Force-disconnect a client`,
   subcommands: [
     {
@@ -87,6 +88,51 @@ Examples:
   $ assistant clients list
   $ assistant clients list --capability host_bash
   $ assistant clients list --json | jq '.clients[0].capabilities'`,
+    },
+    {
+      name: "history",
+      description: "Show persisted client connection sessions",
+      options: [
+        {
+          flags: "--json",
+          description: "Machine-readable compact JSON output",
+        },
+        {
+          flags: "--client-id <id>",
+          description: "Restrict history to one client UUID",
+        },
+        {
+          flags: "--interface-id <id>",
+          description:
+            "Restrict history to one interface (e.g. chrome-extension)",
+        },
+        {
+          flags: "--since <when>",
+          description:
+            "ISO-8601 or epoch-ms lower bound. Sessions already open at this time are included.",
+        },
+        {
+          flags: "--limit <n>",
+          description: "Max coalesced sessions to return (1-500, default 50)",
+        },
+      ],
+      helpText: `
+Options:
+  --json                 Output as compact JSON instead of a table.
+  --client-id <id>       Only show history for this client UUID.
+  --interface-id <id>    Only show history for this interface.
+  --since <when>         Lower bound as ISO-8601 or epoch milliseconds.
+                         Sessions already open at this time are included.
+  --limit <n>            Max sessions after flap coalescing. Default 50.
+
+Reconnects shorter than 60 seconds are flaps on the same session, not
+separate outages. History starts when this assistant version first
+records connections. It does not backfill earlier uptime.
+
+Examples:
+  $ assistant clients history
+  $ assistant clients history --interface-id chrome-extension
+  $ assistant clients history --client-id client-123 --since 2026-09-01 --json`,
     },
     {
       name: "disconnect",

@@ -348,13 +348,8 @@ export function YourOwnTab({
                 disabled={
                   creatingApp || !clientId.trim() || !clientSecret.trim()
                 }
-                leftIcon={
-                  creatingApp ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : (
-                    <Plus aria-hidden />
-                  )
-                }
+                loading={creatingApp}
+                leftIcon={<Plus aria-hidden />}
               >
                 {t("yourOwnOauthTab.addApp")}
               </Button>
@@ -390,13 +385,8 @@ export function YourOwnTab({
                   aria-label={t("yourOwnOauthTab.deleteAppAria", {
                     id: maskClientId(app.client_id),
                   })}
-                  iconOnly={
-                    isDeleting ? (
-                      <Loader2 className="animate-spin" aria-hidden />
-                    ) : (
-                      <Trash2 aria-hidden />
-                    )
-                  }
+                  loading={isDeleting}
+                  iconOnly={<Trash2 aria-hidden />}
                 />
               </div>
 
@@ -437,13 +427,8 @@ export function YourOwnTab({
                           aria-label={t("yourOwnOauthTab.disconnectAria", {
                             account: accountLabel,
                           })}
-                          iconOnly={
-                            isDisconnecting ? (
-                              <Loader2 className="animate-spin" aria-hidden />
-                            ) : (
-                              <Trash2 aria-hidden />
-                            )
-                          }
+                          loading={isDisconnecting}
+                          iconOnly={<Trash2 aria-hidden />}
                         />
                       </li>
                     );
@@ -457,13 +442,8 @@ export function YourOwnTab({
                 onClick={() => handleConnect(app)}
                 disabled={isConnecting}
                 className="w-full"
-                leftIcon={
-                  isConnecting ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : (
-                    <ExternalLink aria-hidden />
-                  )
-                }
+                loading={isConnecting}
+                leftIcon={<ExternalLink aria-hidden />}
               >
                 {isConnecting
                   ? t("yourOwnOauthTab.waitingAuthorization")

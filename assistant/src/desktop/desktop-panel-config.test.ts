@@ -33,7 +33,9 @@ test("initializes the dock and preserves user changes across restarts", () => {
     configDir,
     chromiumPath: "/opt/chrome-v1/chrome",
     chromiumProfileDir: profileDir,
-    terminalPath: "/usr/bin/xterm",
+    terminalPath: "/usr/bin/wezterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   };
   writeDesktopPanelConfig(request);
   const settingsPath = join(configDir, "glib-2.0", "settings", "keyfile");
@@ -59,6 +61,9 @@ test("initializes the dock and preserves user changes across restarts", () => {
   rmSync(join(pinsDir, "mines.dockitem"));
   const customSettings = settings.replace("icon-size=48", "icon-size=64");
   writeFileSync(settingsPath, customSettings);
+  const terminalConfig = join(configDir, "wezterm", "wezterm.lua");
+  const customTerminalConfig = `${readFileSync(terminalConfig, "utf8")}\n-- Custom settings\n`;
+  writeFileSync(terminalConfig, customTerminalConfig);
   writeDesktopPanelConfig({
     ...request,
     chromiumPath: "/opt/chrome-v2/chrome",
@@ -66,6 +71,7 @@ test("initializes the dock and preserves user changes across restarts", () => {
   expect(() => readFileSync(join(pinsDir, "chrome.dockitem"))).toThrow();
   expect(() => readFileSync(join(pinsDir, "mines.dockitem"))).toThrow();
   expect(readFileSync(settingsPath, "utf8")).toBe(customSettings);
+  expect(readFileSync(terminalConfig, "utf8")).toBe(customTerminalConfig);
   expect(
     readFileSync(
       join(configDir, "applications", "google-chrome.desktop"),
@@ -89,7 +95,9 @@ test("initialization recovers partial pin creation", () => {
     configDir,
     chromiumPath: "/opt/chrome/chrome",
     chromiumProfileDir: join(workspace, "data", "desktop-profile"),
-    terminalPath: "/usr/bin/xterm",
+    terminalPath: "/usr/bin/wezterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   });
   expect(readFileSync(join(pinsDir, "chrome.dockitem"), "utf8")).toBe(
     "existing pin",
@@ -111,7 +119,9 @@ test("a failed settings write leaves initialization retryable", () => {
     configDir,
     chromiumPath: "/opt/chrome/chrome",
     chromiumProfileDir: join(workspace, "data", "desktop-profile"),
-    terminalPath: "/usr/bin/xterm",
+    terminalPath: "/usr/bin/wezterm",
+    fileManagerPath: "/usr/bin/thunar",
+    workspaceDir: workspace,
   };
   const write = fs.writeFileSync;
   const interrupted = spyOn(fs, "writeFileSync").mockImplementation(

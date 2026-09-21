@@ -11,7 +11,15 @@
  *  - When `backfillDm` throws, the turn proceeds without a crash and
  *    nothing extra is persisted.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks (must precede module imports under test)
@@ -68,6 +76,7 @@ mock.module("../messaging/providers/slack/backfill.js", () => ({
   backfillThread: () => backfillThreadMock(),
 }));
 
+import * as inboundTrustReader from "../calls/inbound-trust-reader.js";
 import {
   loadRawConfig,
   saveRawConfig,
@@ -86,6 +95,15 @@ import {
 } from "./helpers/channel-test-adapter.js";
 
 await initializeDb();
+
+// Backfilled senders are classified by the gateway verdict; with no gateway
+// in the test process the read reports unreachable unless a test says so.
+// A spy rather than mock.module, so the stub does not leak into other files.
+const readInboundTrustMock = spyOn(inboundTrustReader, "readInboundTrust");
+
+afterAll(() => {
+  readInboundTrustMock.mockRestore();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -180,6 +198,8 @@ function readPersistedSlackRows(): Array<{
   provenanceSourceChannel: string | undefined;
   provenanceGuardianExternalUserId: string | undefined;
   provenanceRequesterIdentifier: string | undefined;
+  provenanceContactId: string | undefined;
+  provenanceLookupFailed: boolean | undefined;
   sentAt: number | undefined;
   createdAt: number;
 }> {
@@ -234,6 +254,14 @@ function readPersistedSlackRows(): Array<{
           typeof envelope.provenanceRequesterIdentifier === "string"
             ? envelope.provenanceRequesterIdentifier
             : undefined,
+        provenanceContactId:
+          typeof envelope.provenanceContactId === "string"
+            ? envelope.provenanceContactId
+            : undefined,
+        provenanceLookupFailed:
+          typeof envelope.provenanceLookupFailed === "boolean"
+            ? envelope.provenanceLookupFailed
+            : undefined,
         sentAt:
           typeof envelope.sentAt === "number" ? envelope.sentAt : undefined,
         createdAt: row.createdAt,
@@ -279,6 +307,8 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     backfillDmMock.mockReset();
     backfillDmMock.mockImplementation(async () => []);
     backfillThreadMock.mockReset();
+    readInboundTrustMock.mockReset();
+    readInboundTrustMock.mockImplementation(async () => ({ ok: false }));
   });
 
   test("first DM in cold conversation triggers backfill exactly once and persists history", async () => {
@@ -335,6 +365,8 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
       expect(meta!.channelId).toBe(SLACK_DM_CHANNEL_ID);
       expect(meta!.actorExternalUserId).toBe(SLACK_DM_USER_ID);
       expect(r.provenanceTrustClass).toBe("unknown");
+      // No gateway in the test process: the lookup failed, and the row says so.
+      expect(r.provenanceLookupFailed).toBe(true);
       expect(r.provenanceSourceChannel).toBe("slack");
       expect(r.provenanceRequesterIdentifier).toBe(SLACK_DM_USER_ID);
       return meta!.channelTs;
@@ -521,6 +553,64 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(botRow?.provenanceTrustClass).toBe("unknown");
     expect(botRow?.provenanceSourceChannel).toBe("slack");
     expect(botRow?.provenanceRequesterIdentifier).toBe("B_BOT");
+  });
+
+  test("backfilled rows record the sender's gateway trust class and contact id", async () => {
+    readInboundTrustMock.mockImplementation(async (input) =>
+      input.actorExternalId === SLACK_DM_USER_ID
+        ? {
+            ok: true,
+            verdict: {
+              trustClass: "trusted_contact",
+              canonicalSenderId: SLACK_DM_USER_ID,
+              contactId: "contact-dm-user",
+              channelId: "channel-dm-user",
+              status: "active",
+              policy: "allow",
+            },
+            admissionPolicy: null,
+          }
+        : { ok: false },
+    );
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "first from member",
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: "assistant's own post",
+        sender: { id: "U_BOT", name: "assistant-bot" },
+        metadata: { isBot: true },
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000003",
+        text: "second from member",
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    const memberRows = rows.filter((r) => r.role === "user");
+    expect(memberRows.map((r) => r.content).sort()).toEqual([
+      "first from member",
+      "second from member",
+    ]);
+    for (const row of memberRows) {
+      expect(row.provenanceTrustClass).toBe("trusted_contact");
+      expect(row.provenanceContactId).toBe("contact-dm-user");
+      expect(row.provenanceLookupFailed).toBeUndefined();
+    }
+    const ownPost = rows.find((r) => r.role === "assistant");
+    expect(ownPost?.provenanceTrustClass).toBe("unknown");
+    expect(ownPost?.provenanceContactId).toBeUndefined();
+    // One read per distinct sender, the member's rows sharing theirs.
+    expect(readInboundTrustMock).toHaveBeenCalledTimes(2);
   });
 
   test("skips Slack assistant new-thread placeholder during DM backfill", async () => {

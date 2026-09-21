@@ -19,14 +19,11 @@ import type {
   ConversationModeSessionCoordinator,
   ModeSessionSourceHandle,
 } from "../../daemon/conversation-mode-session.js";
+import { RiskLevel } from "../../permissions/types.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import {
-  computerUseKeyTool,
-  computerUseObserveTool,
-} from "../../tools/computer-use/definitions.js";
 import {
   __resetRegistryForTesting,
   registerSkillTools,
@@ -34,6 +31,7 @@ import {
 } from "../../tools/registry.js";
 import { finalizeTool } from "../../tools/tool-defaults.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import type { LiveVoiceContinuationJudge } from "../continuation-judge.js";
 import type { LiveVoiceContinuationLabeler } from "../continuation-label.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
@@ -220,6 +218,7 @@ function createHarness(options: {
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
   labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
@@ -304,6 +303,9 @@ function createHarness(options: {
       : {}),
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
+      : {}),
+    ...(options.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
       : {}),
     ...(options.labelBackgroundContinuation
       ? { labelBackgroundContinuation: options.labelBackgroundContinuation }
@@ -534,6 +536,7 @@ async function startForegroundTaskBargeInScenario(options?: {
   skillExecuteInput?: Record<string, unknown>;
   skillExecuteAllowedToolNames?: ReadonlySet<string>;
   startHostTool?: boolean;
+  judgeBackgroundContinuation?: LiveVoiceContinuationJudge;
 }): Promise<{
   calls: VoiceTurnOptions[];
   frames: LiveVoiceServerFrame[];
@@ -558,6 +561,9 @@ async function startForegroundTaskBargeInScenario(options?: {
       return makeTtsResult("assistant audio");
     }),
     spawnBackgroundContinuation,
+    ...(options?.judgeBackgroundContinuation
+      ? { judgeBackgroundContinuation: options.judgeBackgroundContinuation }
+      : {}),
     foregroundTaskResumeSilenceMs: options?.foregroundTaskResumeSilenceMs ?? 20,
     ...(options?.foregroundTaskMaxInterveningTurns !== undefined
       ? {
@@ -1126,11 +1132,20 @@ describe("LiveVoiceSession server VAD", () => {
   // register the core baseline so built-in names resolve like in the daemon.
   beforeAll(() => {
     __resetRegistryForTesting();
-    registerSkillTools("computer-use-test", [
-      finalizeTool(computerUseKeyTool),
-      finalizeTool(computerUseObserveTool),
-      finalizeTool({ ...computerUseObserveTool, name: "read_file" }),
-    ]);
+    registerSkillTools(
+      "computer-use-test",
+      ["computer_use_key", "computer_use_observe", "read_file"].map((name) =>
+        finalizeTool({
+          name,
+          description: name,
+          category: "computer-use",
+          defaultRiskLevel: RiskLevel.Low,
+          executionTarget: "host",
+          input_schema: { type: "object", properties: {} },
+          execute: async () => ({ content: "ok", isError: false }),
+        }),
+      ),
+    );
   });
   afterAll(() => unregisterSkillTools("computer-use-test"));
 
@@ -1281,6 +1296,85 @@ describe("LiveVoiceSession server VAD", () => {
     resume?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
     resume?.callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  function scriptedJudge(verdict: Promise<boolean> | boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judge: LiveVoiceContinuationJudge = async (args) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      const keep = await verdict;
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    return { judge, judged };
+  }
+
+  async function answerInterruption(calls: VoiceTurnOptions[]) {
+    const answer = calls[2];
+    answer?.callbacks?.assistant_text_delta?.(makeTextDelta("Okay."));
+    answer?.callbacks?.message_complete?.(makeMessageComplete());
+  }
+
+  test("a suspended task the caller called off is cleared, not resumed", async () => {
+    const { judge, judged } = scriptedJudge(false);
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => judged.length === 1);
+    expect(judged[0]).toEqual({
+      interruptedRequest: "change the title",
+      interruption: "what title is there now",
+    });
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    // Well past the resume silence: no hidden resume turn was launched.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+  });
+
+  test("a suspended task the caller still wants resumes as before", async () => {
+    const { judge } = scriptedJudge(true);
+    const { calls } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await waitFor(() => calls.length === 4);
+    expect(calls[3]).toMatchObject({ hiddenSyntheticPrompt: true });
+    expect(calls[3]?.content).toContain("change the title");
+  });
+
+  test("the resume waits for a verdict still in flight", async () => {
+    let decide!: (keep: boolean) => void;
+    const { judge } = scriptedJudge(
+      new Promise<boolean>((resolve) => {
+        decide = resolve;
+      }),
+    );
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      startHostTool: false,
+      judgeBackgroundContinuation: judge,
+    });
+
+    await answerInterruption(calls);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(calls).toHaveLength(3);
+
+    decide(false);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(calls).toHaveLength(3);
   });
 
   test("a new barged-in task becomes the resume anchor", async () => {
@@ -2031,6 +2125,133 @@ describe("LiveVoiceSession server VAD", () => {
     // The objective carries the interrupted request so the continuation knows
     // what to finish even before the user message is persisted into history.
     expect(spawnArgs?.objective).toContain("first question");
+  });
+
+  async function bargeInWithJudge(keep: boolean) {
+    const judged: Array<{
+      interruptedRequest: string;
+      interruption: string | null;
+    }> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      const interruption = await args.interruption;
+      judged.push({
+        interruptedRequest: args.interruptedRequest,
+        interruption,
+      });
+      return keep
+        ? { keep: true, outcome: "keep", noul: 0.9, latencyMs: 1 }
+        : { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => judged.length === 1);
+    await flushAsyncCallbacks();
+    return { judged, spawnBackgroundContinuation, calls };
+  }
+
+  test("the continuation judge sees the interrupting words and can drop the continuation", async () => {
+    const { judged, spawnBackgroundContinuation, calls } =
+      await bargeInWithJudge(false);
+
+    expect(judged).toEqual([
+      { interruptedRequest: "first question", interruption: "never mind that" },
+    ]);
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    // The foreground turn still carries the interrupted request.
+    const followUp = calls.find((c) => c.content === "never mind that");
+    expect(followUp?.voiceControlPrompt).toContain("first question");
+  });
+
+  test("a speculative interruption reaches the judge only once its turn commits", async () => {
+    const judged: Array<string | null> = [];
+    const judgeBackgroundContinuation: LiveVoiceContinuationJudge = async (
+      args,
+    ) => {
+      judged.push(await args.interruption);
+      return { keep: false, outcome: "drop", noul: 0.1, latencyMs: 1 };
+    };
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (options.content !== "first question") {
+        // The leg's first word is its verdict: nothing commits until then.
+        void gate.then(() => {
+          options.callbacks?.assistant_text_delta?.(
+            makeTextDelta("Sure thing."),
+          );
+          options.callbacks?.message_complete?.(makeMessageComplete());
+        });
+      }
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", "never mind that"],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: mock(async () => ""),
+      judgeBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => transcribers.length === 2);
+    transcribers[1]?.emit({ type: "partial", text: "never mind that" });
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.some((c) => c.content === "never mind that"));
+    expect(
+      calls.find((c) => c.content === "never mind that")?.unifiedVerdict,
+    ).toBe(true);
+
+    await flushAsyncCallbacks();
+    expect(judged).toEqual([]);
+
+    openGate();
+    await waitFor(() => judged.length === 1);
+    expect(judged).toEqual(["never mind that"]);
+  });
+
+  test("a keep verdict spawns the continuation as before", async () => {
+    const { spawnBackgroundContinuation } = await bargeInWithJudge(true);
+
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.objective).toContain(
+      "first question",
+    );
   });
 
   test("the continuation carries the label the model phrased", async () => {

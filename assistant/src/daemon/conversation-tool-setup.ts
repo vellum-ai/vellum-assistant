@@ -19,6 +19,7 @@ import {
   resolveSendUserMessageActive,
   SEND_USER_MESSAGE_TOOL_NAME,
 } from "../config/send-user-message-gate.js";
+import { canUseVirtualDesktop } from "../desktop/virtual-desktop-feature.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -87,6 +88,7 @@ import {
 } from "./doordash-steps.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
+import { virtualDesktopContext } from "./virtual-desktop-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
@@ -462,8 +464,7 @@ export function createToolExecutor(
       sendUserMessageActive: resolveSendUserMessageActive(ctx),
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      transportInterface: ctx.transportInterface,
-      clientOs: resolveTurnClientOs(ctx).clientOs,
+      ...resolveTurnClientOs(ctx),
       overrideProfile: ctx.currentTurnOverrideProfile,
       cronRunId: ctx.currentTurnCronRunId,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
@@ -743,6 +744,7 @@ function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
     clientOs,
     transportInterface,
     sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+    trustClass: virtualDesktopContext(ctx).trustClass,
   });
 }
 
@@ -1207,6 +1209,9 @@ export function createResolveToolsCallback(
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
       ...(ctx.preactivatedSkillIds ?? []),
+      ...(canUseVirtualDesktop(virtualDesktopContext(ctx))
+        ? ["computer-use"]
+        : []),
     ];
     const projection = projectSkillTools(history, {
       preactivatedSkillIds: effectivePreactivated,

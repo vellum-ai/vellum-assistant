@@ -10,6 +10,7 @@ import { ExternalLink, Info } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useTranslation } from "@/i18n";
 import type { ProviderCredentialsGuide } from "@/lib/provider-catalogs";
 
@@ -66,15 +67,14 @@ export function CredentialsGuide({ guide }: CredentialsGuideProps) {
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
       <div className="flex flex-col gap-1">
         <span>{guide.description}</span>
-        <a
+        <ExternalAnchor
           href={guide.url}
-          target="_blank"
-          rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          glyph={false}
         >
           {guide.linkLabel}
           <ExternalLink className="h-3 w-3" />
-        </a>
+        </ExternalAnchor>
       </div>
     </div>
   );

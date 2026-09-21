@@ -15,7 +15,7 @@ export function StartupFailure() {
   }, []);
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] p-6 text-[var(--content-primary)]">
+    <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] p-6 text-[var(--content-default)]">
       <div role="alert" className="max-w-md text-center">
         <h1 className="text-xl font-semibold">{STARTUP_FAILURE_TITLE}</h1>
         <p className="mt-2 text-sm text-[var(--content-secondary)]">
@@ -23,7 +23,7 @@ export function StartupFailure() {
         </p>
         <button
           type="button"
-          className="mt-5 rounded-md bg-[var(--background-brand)] px-4 py-2 text-sm font-medium text-white"
+          className="mt-5 rounded-md bg-[var(--primary-base)] px-4 py-2 text-sm font-medium text-[var(--content-inset)]"
           onClick={() => window.location.reload()}
         >
           {t("startupFailure.reloadApp")}

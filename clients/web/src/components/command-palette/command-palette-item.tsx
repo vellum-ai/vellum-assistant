@@ -103,7 +103,7 @@ export function CommandPaletteItem({
         }
         onClick={onClick}
         className={[
-          "flex w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium outline-none transition-colors",
+          "flex w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium outline-none transition-colors keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]",
           snippet ? "py-1.5" : "h-10",
           isSelected
             ? "bg-[var(--surface-active)] text-[var(--content-default)]"

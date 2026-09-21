@@ -10,12 +10,24 @@ import { useTranslation } from "@/i18n";
  * Rendered in the chat transcript after the canned greeting on iOS.
  */
 
-import { Check, MessageSquare } from "lucide-react";
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { MessageSquare } from "lucide-react";
+import {
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { TASK_ICONS } from "@/components/prechat-task-icons";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
-import { Button, Card } from "@vellumai/design-library";
+import {
+  Button,
+  Card,
+  OptionCard,
+  OptionCardGroup,
+  Textarea,
+} from "@vellumai/design-library";
 
 export interface OnboardingChoiceCardProps {
   onSelectSpecific: () => void;
@@ -34,6 +46,7 @@ export function OnboardingChoiceCard({
   const [otherSelected, setOtherSelected] = useState(false);
   const [otherText, setOtherText] = useState("");
   const otherInputRef = useRef<HTMLTextAreaElement>(null);
+  const headingId = useId();
 
   const toggle = (id: string) => {
     setSelectedTasks((prev) => {
@@ -91,7 +104,10 @@ export function OnboardingChoiceCard({
             style={{ animation: "fadeInUp 0.2s ease-out both" }}
           >
             <div>
-              <div className="text-body-medium-default text-[color:var(--content-default)]">
+              <div
+                id={headingId}
+                className="text-body-medium-default text-[color:var(--content-default)]"
+              >
                 {t("onboardingChoiceCard.helpWithHeading")}
               </div>
               <div className="mt-0.5 text-label-small-default text-[color:var(--content-tertiary)]">
@@ -99,103 +115,57 @@ export function OnboardingChoiceCard({
               </div>
             </div>
 
-            <div className="grid auto-rows-fr grid-cols-2 gap-2">
+            <OptionCardGroup
+              selectionMode="multiple"
+              columns={2}
+              aria-labelledby={headingId}
+            >
               {PRECHAT_TASKS.map((task) => {
                 const Icon = TASK_ICONS[task.iconKey];
-                const isSelected = selectedTasks.has(task.id);
                 return (
-                  <button
+                  <OptionCard
                     key={task.id}
-                    type="button"
-                    onClick={() => toggle(task.id)}
-                    aria-pressed={isSelected}
-                    className={`flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors ${
-                      isSelected
-                        ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
-                        : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]"
-                    }`}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <div className="flex h-5 w-5 items-center justify-center text-[var(--content-secondary)]">
-                        {Icon ? <Icon className="h-4 w-4" /> : null}
-                      </div>
-                      {isSelected && (
-                        <div
-                          aria-hidden="true"
-                          className="flex h-4 w-4 items-center justify-center rounded-sm bg-[var(--primary-base)]"
-                        >
-                          <Check className="h-3 w-3 text-[var(--content-inset)]" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <div className="text-body-small-default text-[var(--content-default)]">
-                        {task.label}
-                      </div>
-                      <div className="text-label-small-default text-[var(--content-tertiary)]">
-                        {task.sublabel}
-                      </div>
-                    </div>
-                  </button>
+                    orientation="vertical"
+                    size="compact"
+                    markPosition="end"
+                    leading={Icon ? <Icon className="h-4 w-4" /> : undefined}
+                    title={task.label}
+                    description={task.sublabel}
+                    selected={selectedTasks.has(task.id)}
+                    onSelect={() => toggle(task.id)}
+                  />
                 );
               })}
 
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={toggleOther}
-                onKeyDown={(e) => {
-                  if (
-                    (e.key === "Enter" || e.key === " ") &&
-                    e.target === e.currentTarget
-                  ) {
-                    e.preventDefault();
-                    toggleOther();
-                  }
-                }}
-                aria-pressed={otherSelected}
-                className={`col-span-2 flex cursor-pointer flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors ${
-                  otherSelected
-                    ? "border-[var(--primary-base)] bg-[var(--primary-base)]/10"
-                    : "border-[var(--border-element)] bg-[var(--surface-lift)] hover:bg-[var(--surface-base)]"
-                }`}
-              >
-                <div className="flex w-full items-center justify-between">
-                  <div className="flex h-5 w-5 items-center justify-center text-[var(--content-secondary)]">
-                    <MessageSquare className="h-4 w-4" />
-                  </div>
-                  {otherSelected && (
-                    <div
-                      aria-hidden="true"
-                      className="flex h-4 w-4 items-center justify-center rounded-sm bg-[var(--primary-base)]"
-                    >
-                      <Check className="h-3 w-3 text-[var(--content-inset)]" />
-                    </div>
-                  )}
-                </div>
-                {otherSelected ? (
-                  <textarea
-                    ref={otherInputRef}
-                    value={otherText}
-                    onChange={(e) => setOtherText(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    rows={1}
-                    placeholder={t("onboardingChoiceCard.otherPlaceholder")}
-                    className="mt-0.5 w-full resize-none overflow-hidden border-none bg-transparent p-0 text-body-small-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:outline-none"
-                    style={{ fieldSizing: "content" } as CSSProperties}
-                  />
-                ) : (
-                  <div>
-                    <div className="text-body-small-default text-[var(--content-default)]">
-                      {t("onboardingChoiceCard.other")}
-                    </div>
-                    <div className="text-label-small-default text-[var(--content-tertiary)]">
-                      {t("onboardingChoiceCard.somethingElse")}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+              <OptionCard
+                className="col-span-2"
+                orientation="vertical"
+                size="compact"
+                markPosition="end"
+                leading={<MessageSquare className="h-4 w-4" />}
+                title={t("onboardingChoiceCard.other")}
+                description={t("onboardingChoiceCard.somethingElse")}
+                selected={otherSelected}
+                onSelect={toggleOther}
+              />
+            </OptionCardGroup>
+
+            {/* The free-text field sits under the grid rather than inside the
+                "Other" tile: a tile is a real button, and a button cannot host
+                a textarea. */}
+            {otherSelected && (
+              <Textarea
+                ref={otherInputRef}
+                fullWidth
+                rows={1}
+                value={otherText}
+                onChange={(e) => setOtherText(e.target.value)}
+                aria-label={t("onboardingChoiceCard.other")}
+                placeholder={t("onboardingChoiceCard.otherPlaceholder")}
+                className="min-h-0 resize-none overflow-hidden"
+                style={{ fieldSizing: "content" } as CSSProperties}
+              />
+            )}
 
             <Button
               variant="primary"

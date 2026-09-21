@@ -7,7 +7,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  Loader2,
   Lock,
   Send,
   Shield,
@@ -408,15 +407,8 @@ export function FormSurface({
                 variant="primary"
                 type="submit"
                 disabled={isSubmitting}
-                leftIcon={
-                  isSubmitting ? (
-                    <Loader2 className="animate-spin" />
-                  ) : hasPasswordFields ? (
-                    <Shield />
-                  ) : (
-                    <Send />
-                  )
-                }
+                loading={isSubmitting}
+                leftIcon={hasPasswordFields ? <Shield /> : <Send />}
               >
                 {submitLabel}
               </Button>

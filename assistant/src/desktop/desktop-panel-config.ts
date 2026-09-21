@@ -3,13 +3,21 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { desktopChromeArguments } from "./desktop-browser-endpoint.js";
+import {
+  DESKTOP_CHROME_WINDOW_CLASS,
+  desktopChromeArguments,
+} from "./desktop-browser-endpoint.js";
+
+const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
+const TERMINAL_HEADER_CONFIG = "  window_decorations = 'TITLE|RESIZE',\n";
 
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
@@ -34,6 +42,8 @@ export interface DesktopPanelConfigRequest {
   /** Profile the launcher shares with that browser, so it reuses the window. */
   readonly chromiumProfileDir: string;
   readonly terminalPath: string;
+  readonly fileManagerPath: string;
+  readonly workspaceDir: string;
   readonly debugPort?: number;
 }
 
@@ -50,41 +60,69 @@ export function writeDesktopPanelConfig(
     "product_logo_64.png",
   );
   writeFileSync(terminalIcon, Buffer.from(TERMINAL_ICON_BASE64, "base64"));
+  const terminalConfig = join(configDir, "wezterm", "wezterm.lua");
+  mkdirSync(dirname(terminalConfig), { recursive: true });
+  const terminalConfigContents = `local wezterm = require 'wezterm'
+return {
+  front_end = 'Software',
+  enable_wayland = false,
+  check_for_updates = false,
+  hide_tab_bar_if_only_one_tab = false,
+${TERMINAL_HEADER_CONFIG}  font_size = 11,
+  color_scheme = 'Catppuccin Mocha',
+  initial_cols = 110,
+  initial_rows = 28,
+  keys = {
+    { key = 'd', mods = 'CTRL|SHIFT', action = wezterm.action.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+    { key = 'e', mods = 'CTRL|SHIFT', action = wezterm.action.SplitVertical { domain = 'CurrentPaneDomain' } },
+  },
+}
+`;
+  seedFile(terminalConfig, terminalConfigContents, [
+    terminalConfigContents.replace(TERMINAL_HEADER_CONFIG, ""),
+    ...["", "  integrated_title_buttons = { 'Maximize', 'Close' },\n"].map(
+      (buttons) =>
+        terminalConfigContents.replace(
+          TERMINAL_HEADER_CONFIG,
+          `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',\n  integrated_title_button_style = 'Gnome',\n${buttons}`,
+        ),
+    ),
+  ]);
 
   const applicationsDir = join(configDir, "applications");
   mkdirSync(applicationsDir, { recursive: true });
   const chromiumEntry = join(applicationsDir, "google-chrome.desktop");
+  // Saved dock pins reference this stable launcher path.
   const terminalEntry = join(applicationsDir, "xterm.desktop");
+  const filesEntry = join(applicationsDir, "thunar.desktop");
   const minesEntry = join(applicationsDir, "org.gnome.Mines.desktop");
   writeFileSync(
     chromiumEntry,
     desktopEntry({
       name: "Google Chrome",
-      // Chrome includes its profile path in WM_CLASS.
-      windowClass: `google-chrome (${request.chromiumProfileDir})`,
+      windowClass: DESKTOP_CHROME_WINDOW_CLASS,
       icon: browserIcon,
-      exec: [
+      exec: desktopCommand([
         request.chromiumPath,
         ...desktopChromeArguments(
           request.chromiumProfileDir,
           request.debugPort,
         ),
-      ]
-        .map(
-          (arg) => `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`,
-        )
-        .join(" "),
+      ]),
     }),
   );
   writeFileSync(
     terminalEntry,
     desktopEntry({
       name: "Terminal",
-      windowClass: "XTerm",
+      windowClass: TERMINAL_WINDOW_CLASS,
       icon: terminalIcon,
-      // `-fa` picks a scalable font through fontconfig; xterm otherwise falls
-      // back to the `fixed` bitmap, which is unreadable at this geometry.
-      exec: `"${request.terminalPath}" -fa Monospace -fs 11 -bg '#1c1c22' -fg '#e6e6ea' -title Terminal`,
+      exec: desktopCommand([
+        request.terminalPath,
+        "start",
+        "--new-tab",
+        `--class=${TERMINAL_WINDOW_CLASS}`,
+      ]),
     }),
   );
 
@@ -98,6 +136,37 @@ export function writeDesktopPanelConfig(
     }),
   );
 
+  writeFileSync(
+    filesEntry,
+    desktopEntry({
+      name: "Files",
+      windowClass: "Thunar",
+      icon: "/usr/share/icons/Adwaita/scalable/places/folder.svg",
+      exec: desktopCommand([request.fileManagerPath, request.workspaceDir]),
+    }),
+  );
+
+  const gtkDir = join(configDir, "gtk-3.0");
+  const xfconfDir = join(configDir, "xfce4", "xfconf", "xfce-perchannel-xml");
+  mkdirSync(gtkDir, { recursive: true });
+  mkdirSync(xfconfDir, { recursive: true });
+  seedFile(
+    join(gtkDir, "settings.ini"),
+    "[Settings]\ngtk-theme-name=Adwaita\ngtk-icon-theme-name=Adwaita\ngtk-application-prefer-dark-theme=true\ngtk-font-name=Sans 11\n",
+  );
+  seedFile(
+    join(gtkDir, "bookmarks"),
+    `${pathToFileURL(request.workspaceDir).href} Workspace\n`,
+  );
+  seedFile(
+    join(xfconfDir, "thunar.xml"),
+    `<channel name="thunar" version="1.0">
+  <property name="last-window-width" type="int" value="1000"/>
+  <property name="last-window-height" type="int" value="680"/>
+  <property name="last-view" type="string" value="ThunarDetailsView"/>
+</channel>\n`,
+  );
+
   const launchersDir = join(configDir, "plank", "dock1", "launchers");
   const settingsDir = join(configDir, "glib-2.0", "settings");
   mkdirSync(launchersDir, { recursive: true });
@@ -107,13 +176,14 @@ export function writeDesktopPanelConfig(
     return;
   }
   seedFile(join(launchersDir, "chrome.dockitem"), dockItem(chromiumEntry));
+  seedFile(join(launchersDir, "files.dockitem"), dockItem(filesEntry));
   seedFile(join(launchersDir, "terminal.dockitem"), dockItem(terminalEntry));
   seedFile(join(launchersDir, "mines.dockitem"), dockItem(minesEntry));
   seedFile(
     join(settingsDir, "keyfile"),
     [
       "[net/launchpad/plank/docks/dock1]",
-      "dock-items=['chrome.dockitem', 'terminal.dockitem', 'mines.dockitem']",
+      "dock-items=['chrome.dockitem', 'files.dockitem', 'terminal.dockitem', 'mines.dockitem']",
       "icon-size=48",
       "hide-mode='none'",
       "theme='Matte'",
@@ -127,7 +197,25 @@ function dockItem(launcher: string): string {
   return `[PlankDockItemPreferences]\nLauncher=${pathToFileURL(launcher).href}\n`;
 }
 
-function seedFile(path: string, contents: string): void {
+function desktopCommand(args: string[]): string {
+  return args
+    .map((arg) => {
+      const quoted = `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`;
+      // Desktop values are unescaped before Exec arguments are parsed.
+      return quoted
+        .replace(/\\/g, "\\\\")
+        .replace(/\n/g, "\\n")
+        .replace(/\r/g, "\\r")
+        .replace(/\t/g, "\\t");
+    })
+    .join(" ");
+}
+
+function seedFile(
+  path: string,
+  contents: string,
+  previousContents: readonly string[] = [],
+): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, contents, { flush: true });
@@ -136,6 +224,12 @@ function seedFile(path: string, contents: string): void {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
       throw err;
+    }
+    if (
+      previousContents.length > 0 &&
+      previousContents.includes(readFileSync(path, "utf8"))
+    ) {
+      renameSync(temporaryPath, path);
     }
   } finally {
     rmSync(temporaryPath, { force: true });

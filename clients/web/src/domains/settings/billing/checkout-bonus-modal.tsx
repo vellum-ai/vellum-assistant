@@ -1,4 +1,4 @@
-import { Gift, Loader2 } from "lucide-react";
+import { Gift } from "lucide-react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -115,9 +115,7 @@ export function CheckoutBonusModal({
           </Modal.Close>
           <Button
             variant="primary"
-            leftIcon={
-              pending ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={pending}
             onClick={handleClaim}
             disabled={pending}
             data-testid="claim-checkout-bonus-button"

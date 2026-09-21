@@ -99,7 +99,6 @@ import {
   FinishingUpStep,
   ResearchResultsStep,
   SuggestionsStep,
-  LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
 import { HatchErrorOverlay } from "@/domains/onboarding/components/hatch-error-overlay";
@@ -243,7 +242,8 @@ export function ResearchOnboardingRoute() {
   const [gatedFormValues, setGatedFormValues] =
     useState<ResearchOnboardingValues | null>(null);
   const guardOverriddenRef = useRef(false);
-  // Holds the terminal "Let's chat" handoff while a RESUMED completed journey
+  const handoffStartedRef = useRef(false);
+  // Holds the terminal chat handoff while a RESUMED completed journey
   // waits for the established-assistant guard. A done snapshot hydrates straight
   // onto the suggestions step, whose handoff would otherwise clear the snapshot
   // and navigate away before the async verdict lands — skipping the keep/redo
@@ -501,7 +501,6 @@ export function ResearchOnboardingRoute() {
           droppedClaims: [],
           suggestions: [],
           installedPlugins: [],
-          pluginCatalog: {},
         });
         return;
       }
@@ -513,8 +512,8 @@ export function ResearchOnboardingRoute() {
           ? { resumeConversationId: researchConversationId }
           : {}),
         onConversationCreated: setResearchConversationId,
-        // The "Let's chat" final step replaces suggestions when personality
-        // onboarding is on, so don't ask the model to generate any.
+        // The personality flow hands off straight to chat instead of showing
+        // suggestions, so don't ask the model to generate any.
         includeSuggestions: !personalityEnabled,
       });
     },
@@ -559,7 +558,6 @@ export function ResearchOnboardingRoute() {
         hydrateResearch(
           {
             ...snapshot.research,
-            pluginCatalog: snapshot.research.pluginCatalog ?? {},
             // Restore the hidden aggregator-only drops (absent on older
             // snapshots) so a resume that lands past the results correction can
             // still scrub them from memory — see the drops-scrub effect below.
@@ -572,8 +570,8 @@ export function ResearchOnboardingRoute() {
         // below re-fires once the resumed suggestions step renders.
         syncDroppedClaimsScrubbed(snapshot.droppedClaimsScrubbed ?? false);
         // A completed journey resumes straight onto the terminal handoff step
-        // (resolveResumeStep → "suggestions"); hold that CTA here, synchronously,
-        // until the resume-guard effect below settles the verdict.
+        // (resolveResumeStep → "suggestions"); hold the handoff here,
+        // synchronously, until the resume-guard effect below settles the verdict.
         setResumeGuardPending(true);
       }
       // A snapshot written before the calendar steps were dropped from the
@@ -630,7 +628,6 @@ export function ResearchOnboardingRoute() {
               droppedClaims: research.droppedClaims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
-              pluginCatalog: research.pluginCatalog,
             }
           : null,
       ...(researchConversationId ? { researchConversationId } : {}),
@@ -652,7 +649,6 @@ export function ResearchOnboardingRoute() {
     research.droppedClaims,
     research.suggestions,
     research.installedPlugins,
-    research.pluginCatalog,
     droppedClaimsScrubbed,
   ]);
 
@@ -895,7 +891,7 @@ export function ResearchOnboardingRoute() {
   // correction (so rejected claims can't leak in), and the personality rewrite
   // (so the greeting lands in the configured persona), then drop into a fresh
   // chat with the hidden kickoff. `personalityAppliedRef` usually resolves
-  // instantly here — the "finishing" step already held for it — but the await is
+  // instantly here (the handoff step already held for it), but the await is
   // kept as a backstop. Best-effort; none of these reject.
   async function finishAndEnterChat() {
     // Only ever called from the terminal steps, which render under a
@@ -915,6 +911,22 @@ export function ResearchOnboardingRoute() {
       buildLetsChatKickoffMessage(faceValues?.name),
       { hidden: true },
     );
+  }
+
+  // Fires once from the terminal handoff step. The step's own timer can re-arm
+  // on a re-render while the handoff awaits, so a ref keeps it single-shot.
+  function handleFinish() {
+    if (handoffStartedRef.current) {
+      return;
+    }
+    handoffStartedRef.current = true;
+    // Terminal step: the handoff leaves via enterAssistant, not goForwardTo, so
+    // emit the completion here (mirrors SuggestionsStep).
+    emitResearchOnboardingStepCompleted(
+      RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+      { userId, outcome: "completed" },
+    );
+    void finishAndEnterChat();
   }
 
   // Hand the collected sliders to the assistant's persona on a throwaway side
@@ -1248,46 +1260,6 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
-        {step === "suggestions" && personalityEnabled && (
-          <LetsChatReadyStep
-            installedPlugins={research.installedPlugins}
-            pluginCatalog={research.pluginCatalog}
-            // Hold the handoff until a resumed done journey's guard settles, so
-            // it can't fire against an established assistant before the verdict
-            // — and until the hatch has a live assistant to hand off to, since a
-            // resumed COMPLETED snapshot lands straight here (past the gated
-            // carousel) and the handoff would clear the snapshot and navigate to
-            // a null assistant. Readiness is its own condition: a retry clears
-            // the error while the fresh attempt is still provisioning.
-            disabled={
-              resumeGuardPending ||
-              hatchError !== null ||
-              !hatchReady ||
-              hatchedAssistantId === null
-            }
-            onStart={async () => {
-              // Terminal step: the handoff leaves via enterAssistant, not
-              // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
-              emitResearchOnboardingStepCompleted(
-                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                { userId, outcome: "completed" },
-              );
-              // If the personality rewrite is still running, show the dedicated
-              // "finishing" carousel that holds until it settles, then enters
-              // chat — so the persona is fully written first without the invisible
-              // "Starting…" button stalling on a long turn. If it's already done,
-              // drop straight into chat.
-              if (personalityPending) {
-                setForwardStack([]);
-                setStep("finishing");
-                return;
-              }
-              await finishAndEnterChat();
-            }}
-            onBack={() => goBackTo(stepBeforeSuggestions)}
-            onForward={onForward}
-          />
-        )}
         {step === "suggestions" && !personalityEnabled && (
           <SuggestionsStep
             suggestions={research.suggestions}
@@ -1330,16 +1302,22 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
-        {step === "finishing" && (
+        {((step === "suggestions" && personalityEnabled) ||
+          step === "finishing") && (
           <FinishingUpStep
-            // Hold the carousel until the personality rewrite settles, then hand
-            // off. `finishAndEnterChat` also awaits the (usually already-resolved)
-            // plugin installs + correction before dropping into chat. A hatch
-            // failure holds it too: the rewrite settles the moment the hatch
-            // rejects, and handing off would clear the snapshot and navigate away
-            // behind the failure overlay, out from under its retry.
-            ready={!personalityPending && hatchError === null}
-            onDone={() => void finishAndEnterChat()}
+            // Terminal handoff: hold the carousel until the personality rewrite
+            // settles, the hatch has a live assistant, and a resumed done
+            // journey's established-assistant guard has settled, then enter chat.
+            // A hatch failure holds it too, so the handoff can't clear the
+            // snapshot and navigate away behind the failure overlay.
+            ready={
+              !personalityPending &&
+              !resumeGuardPending &&
+              hatchError === null &&
+              hatchReady &&
+              hatchedAssistantId !== null
+            }
+            onDone={handleFinish}
           />
         )}
       </OnboardingStage>,

@@ -247,22 +247,20 @@ export function PrivacyScreen() {
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             disabled={!tosAccepted || !privacyConsent}
             onClick={() => onAdvance(false)}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("privacyScreen.start")}
           </Button>
           {showSkipToChat && (
             <Button
               variant="outlined"
-              size="regular"
+              size={electron ? "regular" : "large"}
               fullWidth
               disabled={!tosAccepted || !privacyConsent}
               onClick={() => onAdvance(true)}
-              className={electron ? undefined : "h-11 text-base"}
             >
               {t("privacyScreen.skipToChat")}
             </Button>
@@ -283,7 +281,7 @@ export function PrivacyScreen() {
            */}
           <Button
             variant="ghost"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={() =>
               navigate(
@@ -293,7 +291,6 @@ export function PrivacyScreen() {
                 SETUP_NAVIGATE,
               )
             }
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.back")}
           </Button>

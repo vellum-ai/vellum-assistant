@@ -16,8 +16,7 @@
     "downloadMacOSApp": "Descargar la app de macOS",
     "downloadWindowsApp": "Descargar la app de Windows",
     "claim": "Reclamar",
-    "skipForNow": "Omitir por ahora",
-    "starting": "Empezando…"
+    "skipForNow": "Omitir por ahora"
   },
   "welcome": {
     "title": "Te damos la bienvenida a Vellum",
@@ -283,10 +282,5 @@
         "prompt": "Redacta algo a partir de unas notas sueltas que te daré."
       }
     }
-  },
-  "letsChatReadyStep": {
-    "title": "Ya está todo listo",
-    "setupNote": "Me he configurado con plugins según quién eres.",
-    "letsChat": "Hablemos"
   }
 }

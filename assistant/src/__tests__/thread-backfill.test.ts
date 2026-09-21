@@ -90,6 +90,7 @@ mock.module("../messaging/providers/slack/adapter.js", () => ({
 
 import { v4 as uuid } from "uuid";
 
+import * as inboundTrustReader from "../calls/inbound-trust-reader.js";
 import {
   loadRawConfig,
   saveRawConfig,
@@ -142,10 +143,15 @@ installDefaultThreadPageMock();
 backfillThreadMock.mockResolvedValue([]);
 const backfillDmMock = spyOn(slackBackfill, "backfillDm");
 backfillDmMock.mockResolvedValue([]);
+// Backfilled senders are classified by the gateway verdict. With no gateway in
+// the test process the real read reports unreachable, so tests that need a
+// verdict stub it per call.
+const readInboundTrustSpy = spyOn(inboundTrustReader, "readInboundTrust");
 
 afterAll(() => {
   backfillThreadPageMock.mockRestore();
   backfillDmMock.mockRestore();
+  readInboundTrustSpy.mockRestore();
 });
 
 // ---------------------------------------------------------------------------
@@ -307,6 +313,7 @@ interface PersistedRow {
   provenanceSourceChannel: string | undefined;
   provenanceGuardianExternalUserId: string | undefined;
   provenanceRequesterIdentifier: string | undefined;
+  provenanceContactId: string | undefined;
 }
 
 const EXTERNAL_CONTENT_WRAPPER =
@@ -340,6 +347,7 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       provenanceSourceChannel: undefined,
       provenanceGuardianExternalUserId: undefined,
       provenanceRequesterIdentifier: undefined,
+      provenanceContactId: undefined,
     };
     if (!row.metadata) {
       out.push(blank);
@@ -401,6 +409,10 @@ function readPersistedSlackRows(conversationId: string): PersistedRow[] {
       provenanceRequesterIdentifier:
         typeof envelope.provenanceRequesterIdentifier === "string"
           ? envelope.provenanceRequesterIdentifier
+          : undefined,
+      provenanceContactId:
+        typeof envelope.provenanceContactId === "string"
+          ? envelope.provenanceContactId
           : undefined,
     });
   }
@@ -1147,6 +1159,47 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted.provenanceSourceChannel).toBe("slack");
     expect(persisted.provenanceGuardianExternalUserId).toBe("U_GUARDIAN");
     expect(persisted.provenanceRequesterIdentifier).toBe("U_ANITA");
+  });
+
+  test("backfilled thread rows record the sender's gateway trust class and contact id", async () => {
+    const conv = createTestConversation();
+    readInboundTrustSpy.mockImplementationOnce(async () => ({
+      ok: true,
+      verdict: {
+        trustClass: "trusted_contact",
+        canonicalSenderId: "U_ANITA",
+        contactId: "contact-anita",
+        channelId: "channel-anita",
+        status: "active",
+        policy: "allow",
+      },
+      admissionPolicy: null,
+    }));
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "the export endpoint needs a scoped token",
+        threadId: undefined,
+        sender: { id: "U_ANITA", name: "Anita" },
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      guardianExternalUserId: "U_GUARDIAN",
+    });
+
+    const [persisted] = readPersistedSlackRows(conv.id).filter(
+      (p) => p.channelTs === "1234.0",
+    );
+    expect(persisted?.provenanceTrustClass).toBe("trusted_contact");
+    expect(persisted?.provenanceContactId).toBe("contact-anita");
+    expect(readInboundTrustSpy).toHaveBeenLastCalledWith({
+      channelType: "slack",
+      actorExternalId: "U_ANITA",
+    });
   });
 
   test("backfilled Slack timezone metadata derives timestamp and speaker fields", async () => {

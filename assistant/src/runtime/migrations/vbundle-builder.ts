@@ -71,6 +71,12 @@ export interface VBundleExportOptions {
   include_logs: boolean;
   include_browser_state: boolean;
   include_memory_vectors: boolean;
+  /**
+   * Debug profile: the bundle carries `gateway/export.tar.gz`, the gateway's
+   * database and recent logs, for Vellum staff to inspect. Absent on
+   * ordinary migration bundles.
+   */
+  include_gateway?: boolean;
 }
 
 export interface BuildVBundleOptions {
@@ -697,6 +703,11 @@ export interface BuildExportVBundleOptions {
   checkpoint?: () => void | Promise<void>;
   /** Optional credential entries to include in the archive under credentials/ prefix. */
   credentials?: Array<{ account: string; value: string }>;
+  /**
+   * Extra in-memory entries at exact archive paths, outside `workspace/`.
+   * The debug profile uses this for `gateway/export.tar.gz`.
+   */
+  extraFiles?: Array<{ archivePath: string; data: Uint8Array }>;
 }
 
 /**
@@ -722,6 +733,7 @@ export function buildExportVBundle(
     checkpoint,
     workspaceDir,
     credentials,
+    extraFiles,
   } = options;
 
   // Flush WAL to the main database file before reading so the export
@@ -732,6 +744,9 @@ export function buildExportVBundle(
   }
 
   const files: VBundleFileEntry[] = [];
+  for (const extra of extraFiles ?? []) {
+    files.push({ path: extra.archivePath, data: extra.data });
+  }
 
   // Walk the entire workspace directory, including binary files (DB,
   // attachments) but skipping large/regenerable subdirectories.
@@ -1176,6 +1191,7 @@ export async function streamExportVBundle(
     checkpoint,
     workspaceDir,
     credentials,
+    extraFiles,
   } = options;
 
   // Flush WAL to the main database file before reading. Awaiting allows
@@ -1236,8 +1252,15 @@ export async function streamExportVBundle(
     });
   }
 
-  // Build in-memory entries for credentials (not disk-backed)
+  // Build in-memory entries for credentials and any extra files (not disk-backed)
   const inMemoryEntries: InMemoryEntry[] = [];
+  for (const extra of extraFiles ?? []) {
+    inMemoryEntries.push({
+      archivePath: extra.archivePath,
+      data: extra.data,
+      size: extra.data.length,
+    });
+  }
   if (credentials?.length) {
     for (const { account, value } of credentials) {
       const data = new TextEncoder().encode(value);

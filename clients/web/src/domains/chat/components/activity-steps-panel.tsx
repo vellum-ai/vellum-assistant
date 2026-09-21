@@ -45,6 +45,7 @@ import {
 import { useActionDisplayLabel } from "@/domains/chat/components/tool-progress-card/action-display-label";
 import { ActivityScreenshotTile } from "@/domains/chat/components/activity-screenshot-tile";
 import {
+  createToolResultImageProjector,
   projectToolResultImages,
   type ToolResultImage,
 } from "@/domains/chat/components/chat-attachments/tool-result-images";
@@ -102,19 +103,24 @@ export function buildActivityScreenshotGallery(
 function buildActivityScreenshotGalleryForIds(
   toolCalls: ChatMessageToolCall[],
   orderedToolCallIds: string[],
+  projectImages = projectToolResultImages,
 ): ActivityScreenshotOccurrence[] {
+  const renderedIds = new Set(orderedToolCallIds);
   const eligibleIds = new Set(
     toolCalls
-      .filter((toolCall) =>
-        isComputerUseToolCall(toolCall.name, toolCall.input),
+      .filter(
+        (toolCall) =>
+          renderedIds.has(toolCall.id) &&
+          isComputerUseToolCall(toolCall.name, toolCall.input),
       )
       .map((toolCall) => toolCall.id),
   );
   const imageByToolCallId = new Map<string, ToolResultImage>();
-  for (const image of projectToolResultImages(toolCalls)) {
-    if (eligibleIds.has(image.toolCallId)) {
-      imageByToolCallId.set(image.toolCallId, image);
-    }
+  for (const image of projectImages(
+    toolCalls,
+    (toolCall, index, total) => eligibleIds.has(toolCall.id) && index === total,
+  )) {
+    imageByToolCallId.set(image.toolCallId, image);
   }
 
   const gallery: ActivityScreenshotOccurrence[] = [];
@@ -212,9 +218,15 @@ function ActivityStepsPanelTarget({
       ),
     [items],
   );
+  const projectImages = useMemo(() => createToolResultImageProjector(), []);
   const screenshotGallery = useMemo(
-    () => buildActivityScreenshotGalleryForIds(toolCalls, orderedToolCallIds),
-    [toolCalls, orderedToolCallIds],
+    () =>
+      buildActivityScreenshotGalleryForIds(
+        toolCalls,
+        orderedToolCallIds,
+        projectImages,
+      ),
+    [toolCalls, orderedToolCallIds, projectImages],
   );
   const screenshotKeys = useMemo(
     () => screenshotGallery.map((entry) => entry.occurrenceKey),

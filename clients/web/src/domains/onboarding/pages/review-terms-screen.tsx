@@ -229,20 +229,18 @@ export function ReviewTermsScreen() {
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             disabled={continueDisabled}
             onClick={onContinue}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.continue")}
           </Button>
           <Button
             variant="outlined"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={handleLogout}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.logOut")}
           </Button>

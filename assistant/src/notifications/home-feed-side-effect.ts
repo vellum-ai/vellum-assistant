@@ -30,6 +30,7 @@ import {
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
+import { readChannelAllowlist } from "./channel-allowlist.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -556,7 +557,10 @@ function resolveHomeFeedMirror(
     signal.sourceChannel === "assistant_tool" ||
     signal.sourceEventName === "chat.assistant_reply"
   ) {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
+    const allowlist = readChannelAllowlist(signal.contextPayload);
+    if (!allowlist || allowlist.includes("vellum")) {
+      return { mirror: true, sourceConversationId, sourceScheduleJobId };
+    }
   }
   if (signal.attentionHints.isAsyncBackground) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };

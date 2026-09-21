@@ -1194,7 +1194,8 @@ describe("assistant subcommand classification", () => {
     { command: "assistant roadmap list --sort upvotes", risk: "low" },
     { command: "assistant roadmap get dark-mode", risk: "low" },
     {
-      command: "assistant roadmap update dark-mode --status planned",
+      command:
+        'assistant roadmap update dark-mode --description "Follow the OS setting"',
       risk: "medium",
     },
     { command: "assistant roadmap upvote dark-mode", risk: "medium" },

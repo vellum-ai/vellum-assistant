@@ -237,6 +237,7 @@
     "offerDiscard": "Descartar",
     "offerHeard": "{app} pegó eso",
     "offerNowhere": "No hay dónde ponerlas",
+    "offerPasteFailed": "No se pudieron pegar",
     "offerQuit": "Salir de {app}",
     "offerUse": "Usar la de Vellum",
     "offerVersion": "Vellum oyó",
@@ -483,7 +484,8 @@
   },
   "quickInputPage": {
     "logoAlt": "Vellum",
-    "placeholder": "Pregunta lo que quieras a Vellum..."
+    "placeholder": "Pregunta lo que quieras a Vellum...",
+    "send": "Enviar mensaje"
   },
   "referralContent": {
     "copied": "¡Copiado!",

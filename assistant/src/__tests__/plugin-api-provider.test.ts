@@ -21,4 +21,9 @@ describe("plugin-api provider access", () => {
     // registry), not a disjoint, uninitialized module copy.
     expect(PLUGIN_API_EXPORTS).toContain("getConfiguredProvider");
   });
+
+  test("getEffectiveContextWindow is exported and shim-rebound", () => {
+    expect(typeof pluginApi.getEffectiveContextWindow).toBe("function");
+    expect(PLUGIN_API_EXPORTS).toContain("getEffectiveContextWindow");
+  });
 });

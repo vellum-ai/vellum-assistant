@@ -239,7 +239,7 @@ function processResult(
 // Gateway log collection
 // ---------------------------------------------------------------------------
 
-async function collectGatewayLogs(
+export async function collectGatewayLogs(
   config: GatewayConfig,
   stagingDir: string,
   startTime?: number,

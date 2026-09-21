@@ -127,7 +127,12 @@ Examples:
         {
           flags: "--preferred-channels <channels>",
           description:
-            "Comma-separated channel hints (e.g. vellum,telegram,slack)",
+            "Comma-separated channel hints (e.g. vellum,telegram,slack). Additive: vellum stays selected.",
+        },
+        {
+          flags: "--channels <channels>",
+          description:
+            "Exclusive channel allowlist (e.g. telegram). Replaces the default set. Urgent delivery does not add vellum or platform. Wins over --preferred-channels.",
         },
         {
           flags: "--session-id <id>",
@@ -162,7 +167,15 @@ Behavioral notes:
     is treated as critical and requires user action. Explicit --urgency /
     --requires-action flags still win for back-compat.
   - Without --urgent, --urgency defaults to low and --requires-action to false.
-  - --preferred-channels are hints only; the decision engine may override them.
+  - --preferred-channels are additive hints; vellum stays in the selected set.
+  - --channels is an exclusive allowlist. Only those connected channels are
+    selected. Urgent delivery does not force vellum or platform, and Home
+    does not mirror unless vellum is in the list. When both flags are set,
+    --channels wins.
+  - --json includes selectedChannels, deliveryResults, and receiptClass.
+    receiptClass is the strongest delivery proof (provider_accepted,
+    gateway_accepted, client_os_posted, or unknown), not a promise the
+    user saw a banner.
   - --dedupe-key suppresses duplicate signals with the same key.
   - --conversation-id pins delivery to an existing vellum conversation
     deterministically. Other channels (telegram, slack) continue to use
@@ -171,6 +184,7 @@ Behavioral notes:
 Examples:
   $ assistant notifications send --message "Task complete"
   $ assistant notifications send --message "Pager: prod is down" --urgent
+  $ assistant notifications send --message "Alarm" --channels telegram --urgent
   $ assistant notifications send --message "Build green" --conversation-id 649c4645-3a6f-4ded-a713-504f02ca806b`,
     },
     {

@@ -78,6 +78,7 @@ export function NewChatPluginsPicker({
         <button
           type="button"
           onClick={() => setShowAll((prev) => !prev)}
+          aria-expanded={showAll}
           className="flex items-center gap-1 self-start text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
         >
           {showAll ? (

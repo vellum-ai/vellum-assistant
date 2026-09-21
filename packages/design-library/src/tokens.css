@@ -387,6 +387,12 @@
 
   /* Derived */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  /* Link ink. Tracks the theme's positive-strong, the colour markdown and
+     external links already wear, so a link reads the same wherever it is
+     drawn. Restated per theme block for the same reason as --ring: a var()
+     alias resolves where it is declared. */
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-disabled);
   --ghost-hover: var(--surface-active);
   --ghost-pressed: var(--border-disabled);
@@ -486,6 +492,8 @@
    * --ring tracks the dark --system-positive-strong even when data-theme is
    * applied to a non-root ancestor. */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);
@@ -585,6 +593,8 @@
 
   /* Derived. --ring re-declared so it tracks velvet's positive accent. */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --content-link: var(--system-positive-strong);
+  --content-link-hover: color-mix(in srgb, var(--system-positive-strong) 80%, transparent);
   --border-overlay: var(--border-hover);
   --ghost-hover: var(--border-base);
   --ghost-pressed: var(--primary-active);

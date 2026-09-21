@@ -856,9 +856,8 @@ export function SelectAssistantScreen() {
             >
               <Button
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
                 onClick={onContinue}
                 disabled={!selected || connecting}
               >

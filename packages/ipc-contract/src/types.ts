@@ -1540,13 +1540,15 @@ export type CompanionWatchRetro = "pending" | "ready";
  * Words a dictation produced that the surface is holding out to the user,
  * and why they were not simply typed where the user was.
  *
- * Two things end a hold with the words still in hand, and the surface draws
- * the same card for both. `claimed`: another dictation app heard the key
+ * Three things end a hold with the words still in hand, and the surface draws
+ * the same card for each. `claimed`: another dictation app heard the key
  * too, since nothing on macOS owns one, and has already pasted its own
  * version, so Vellum offers to put its own in place instead, to get that app
  * off the key, or to leave it. `no-text-field`: nothing in the application
  * in front takes text, so no paste was sent at all and the only place left
- * to put the words is the clipboard.
+ * to put the words is the clipboard. `paste-failed`: there was somewhere to
+ * put them and the paste did not go through, which the card says so the user
+ * knows to look for their words here rather than at the cursor.
  *
  * The reason is what the card reads to pick its answers, since the two cases
  * can offer nothing in common: there is no app to quit when none claimed the
@@ -1572,7 +1574,7 @@ interface OfferedDictation {
 
 export type CompanionDictationOffer =
   | (OfferedDictation & { reason: "claimed"; app: string })
-  | (OfferedDictation & { reason: "no-text-field" });
+  | (OfferedDictation & { reason: "no-text-field" | "paste-failed" });
 
 /**
  * The most an offered dictation can be, in characters. One bound for the

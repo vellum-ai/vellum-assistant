@@ -1,4 +1,4 @@
-import { CheckCircle, CircleSlash, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, CircleSlash, XCircle } from "lucide-react";
 import { type ComponentType, type ReactNode, useState } from "react";
 
 import { Button } from "@vellumai/design-library";
@@ -114,11 +114,7 @@ export function SurfaceContainer({
                   variant={action.style === "primary" ? "primary" : "outlined"}
                   disabled={submittingAction !== null}
                   onClick={() => handleAction(action.id)}
-                  leftIcon={
-                    submittingAction === action.id ? (
-                      <Loader2 className="animate-spin" />
-                    ) : undefined
-                  }
+                  loading={submittingAction === action.id}
                 >
                   {action.label}
                 </Button>

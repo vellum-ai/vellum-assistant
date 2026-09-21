@@ -53,6 +53,7 @@ export const WebSearchProviderIdSchema = z.enum([
   "firecrawl",
   "fastcrw",
   "searxng",
+  "tinyfish",
 ]);
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
@@ -61,6 +62,7 @@ export const WebFetchProviderIdSchema = z.enum([
   "default",
   "firecrawl",
   "fastcrw",
+  "tinyfish",
 ]);
 
 export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;

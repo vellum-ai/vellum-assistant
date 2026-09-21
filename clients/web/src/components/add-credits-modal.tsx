@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
@@ -208,11 +208,7 @@ function AddCreditsModalContent({ open, onOpenChange }: AddCreditsModalProps) {
           </Modal.Close>
           <Button
             variant="primary"
-            leftIcon={
-              checkoutMutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : undefined
-            }
+            loading={checkoutMutation.isPending}
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >

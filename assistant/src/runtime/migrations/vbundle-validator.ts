@@ -53,6 +53,7 @@ const ExportOptions = z.object({
   include_logs: z.boolean(),
   include_browser_state: z.boolean(),
   include_memory_vectors: z.boolean(),
+  include_gateway: z.boolean().optional(),
 });
 
 export const ManifestSchema = z

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -303,6 +303,29 @@ describe("rememberTool.execute — buffer writes", () => {
     expect(result.isError).toBe(true);
     expect(enqueueCalls).toHaveLength(0);
   });
+});
+
+describe("rememberTool.execute — memory access", () => {
+  test.each(["trusted_contact", "unverified_contact", "unknown"] as const)(
+    "refuses a %s write without touching the memory buffer",
+    async (trustClass) => {
+      const fact = `a claim made on a ${trustClass} turn`;
+      const result = await rememberTool.execute(
+        { content: fact, finish_turn: true },
+        makeContext({ trustClass }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Not saved");
+      // The turn continues so the model can relay the refusal.
+      expect(result.yieldToUser).toBeUndefined();
+      const bufferPath = join(tmpWorkspace, "memory", "buffer.md");
+      const buffer = existsSync(bufferPath)
+        ? readFileSync(bufferPath, "utf-8")
+        : "";
+      expect(buffer).not.toContain(fact);
+    },
+  );
 });
 
 describe("rememberTool.execute — batch (array) content", () => {

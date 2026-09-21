@@ -305,11 +305,7 @@ export function UpdateWindowPolicy({ assistantId }: UpdateWindowPolicyProps) {
 
       <Button
         variant="primary"
-        leftIcon={
-          policyUpdate.isPending ? (
-            <Loader2 className="animate-spin" />
-          ) : undefined
-        }
+        loading={policyUpdate.isPending}
         onClick={handleSavePolicy}
         disabled={policyUpdate.isPending || !dirty}
       >

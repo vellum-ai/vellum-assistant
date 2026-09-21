@@ -55,6 +55,17 @@ export const rememberTool = {
     const typedInput = input as unknown as RememberInput;
     // The append below writes the memory buffer, so a cancelled turn stops here.
     throwIfCancelled(context);
+    if (!resolveCapabilities(context.trustClass).canAccessMemory) {
+      // No yield even when finish_turn is set: the model has to see this, so
+      // it never tells someone a fact was saved when it was not. An error, not
+      // a quiet no-op: a non-error `remember` result reads as a durable write to
+      // `memory-run-evidence`.
+      return {
+        content:
+          "Not saved: remember writes the guardian's long-term memory, which is only available on the guardian's own turns. Retrying will not help. Tell the person only if they asked you to remember this or you said you would.",
+        isError: true,
+      };
+    }
     const result = handleRemember(
       typedInput,
       context.conversationId,
@@ -127,7 +138,7 @@ export const recallTool = {
 export const deleteMemoryPageTool = {
   name: "delete_memory_page",
   description:
-    "Delete one concept page from your memory wiki, addressed by slug (its path under `memory/concepts/` minus `.md`, e.g. `alice`, `people/alice`, `procs/git-flow`). Use during a consolidation/maintenance pass to retire a page you merged into another, renamed (write the new page, then delete the old slug), or dropped as a dead stub. Only concept pages can be deleted: the index files (`recent.md`, `essentials.md`, `threads.md`) are rewritten with file_write/file_edit, never deleted, and `buffer.md` is never written by you at all; the runtime removes the entries it handed you once the pass completes. Idempotent: deleting a slug that is already gone is not an error. The immutable archive retains buffer history, so removing a page never loses source facts.",
+    "Delete one concept page from your memory wiki, addressed by slug (its path under `memory/concepts/` minus `.md`, e.g. `alice`, `people/alice`, `procs/git-flow`). Use during a consolidation/maintenance pass to retire a page you merged into another, renamed (write the new page, then delete the old slug), or dropped as a dead stub. Only concept pages can be deleted: the index files (`recent.md`, `essentials.md`, `threads.md`) are rewritten with file_write/file_edit, never deleted, and `buffer.md` is never written by you at all; the runtime removes the entries it handed you once the pass completes. Idempotent: deleting a slug that is already gone is not an error.",
   category: "memory",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,

@@ -3,12 +3,12 @@ import { createPortal } from "react-dom";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { ChevronRight } from "lucide-react";
 
 import { Trans, useTranslation } from "@/i18n";
 import {
@@ -160,7 +160,6 @@ export function ProviderCreateForm({
   const [connectionModels, setConnectionModels] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDetailsExpanded, setIsDetailsExpanded] = useState(false);
 
   const isOpenAICompatible = provider === "openai-compatible";
   const allowsCustomBaseUrl = providerAllowsCustomBaseUrl(provider);
@@ -365,47 +364,35 @@ export function ProviderCreateForm({
   );
 
   // Display Name is optional and rarely needs editing.
-  const detailsOpen = isDetailsExpanded;
-
   const advancedDetailsSection = (
-    <div>
-      <button
-        type="button"
-        aria-expanded={detailsOpen}
-        onClick={() => setIsDetailsExpanded((v) => !v)}
-        className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-      >
-        <ChevronRight
-          className={`h-4 w-4 transition-transform ${detailsOpen ? "rotate-90" : ""}`}
-        />
-        <span>{t("providerCreateForm.advanced")}</span>
-      </button>
+    <Disclosure.Root>
+      <Disclosure.Trigger fullWidth>
+        {t("providerCreateForm.advanced")}
+      </Disclosure.Trigger>
 
-      {detailsOpen && (
-        <div className="mt-2 space-y-4">
-          {/* Display Name */}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              <Trans
-                i18nKey="providerCreateForm.displayNameLabel"
-                ns="settings"
-                components={{
-                  optional: (
-                    <span className="text-[var(--content-disabled)]" />
-                  ),
-                }}
-              />
-            </label>
-            <Input
-              value={label}
-              onChange={(e) => handleLabelChange(e.target.value)}
-              placeholder={t("providerCreateForm.displayNamePlaceholder")}
-              fullWidth
+      <Disclosure.Content className="mt-2 space-y-4">
+        {/* Display Name */}
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            <Trans
+              i18nKey="providerCreateForm.displayNameLabel"
+              ns="settings"
+              components={{
+                optional: (
+                  <span className="text-[var(--content-disabled)]" />
+                ),
+              }}
             />
-          </div>
+          </label>
+          <Input
+            value={label}
+            onChange={(e) => handleLabelChange(e.target.value)}
+            placeholder={t("providerCreateForm.displayNamePlaceholder")}
+            fullWidth
+          />
         </div>
-      )}
-    </div>
+      </Disclosure.Content>
+    </Disclosure.Root>
   );
 
   const body = (
