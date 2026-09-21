@@ -163,9 +163,9 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
   redeemA2AInvite: async () => ({ success: true }),
 }));
 
-// Resolve every query the page renders synchronously to a fixture so the
-// guardian auto-selects and no real network is attempted. Real mutation
-// hooks (merge / channel-patch) are kept — they aren't fired here.
+// Resolve every query the page renders to a fixture so the detail pane rests
+// on the guardian and no real network is attempted. Real mutation hooks (merge
+// and channel-patch) are kept; they aren't fired here.
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...rqGen,
   contactsGetOptions: () => ({
@@ -243,6 +243,18 @@ function getButton(label: string): HTMLButtonElement {
   ).find((b) => b.textContent?.trim() === label);
   if (!match) {
     throw new Error(`expected a "${label}" button`);
+  }
+  return match;
+}
+
+function getModalButton(label: string): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>(
+      '[data-slot="modal-content"] button',
+    ),
+  ).find((button) => button.textContent?.trim() === label);
+  if (!match) {
+    throw new Error(`expected a "${label}" button inside a modal`);
   }
   return match;
 }
@@ -340,7 +352,7 @@ describe("ContactsPage mutation error handling", () => {
       </Wrapper>,
     );
 
-    // The guardian auto-selects, rendering its editable Name field.
+    // The pane rests on the guardian, rendering its editable Name field.
     const nameInput = await waitFor(() => getInputByPlaceholder("Your name"));
 
     // Dirty the form so Save enables, then submit.
@@ -360,8 +372,8 @@ describe("ContactsPage mutation error handling", () => {
   });
 });
 
-describe("ContactsPage contact permissions", () => {
-  test("hides Permissions on the guardian, the assistant, and a peer assistant", async () => {
+describe("ContactsPage list and detail", () => {
+  test("lists the guardian and the contacts, and no assistant row", async () => {
     render(
       <Wrapper>
         <ContactsPage assistantId="asst-1" />
@@ -369,16 +381,53 @@ describe("ContactsPage contact permissions", () => {
     );
 
     await waitFor(() => getInputByPlaceholder("Your name"));
-    expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
-      null,
+
+    const buttonLabels = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).map((button) => button.textContent ?? "");
+    expect(buttonLabels.some((label) => label.includes("your assistant"))).toBe(
+      false,
+    );
+    expect(buttonLabels.some((label) => label.includes("Example User"))).toBe(
+      true,
+    );
+    expect(buttonLabels.some((label) => label.includes("Alice"))).toBe(true);
+    expect(buttonLabels.some((label) => label.includes("Peer Assistant"))).toBe(
+      true,
+    );
+  });
+
+  test("deleting the selected contact lands on the guardian", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
     );
 
-    fireEvent.click(getButtonByText("your assistant"));
-    await waitFor(() => {
-      expect(document.body.textContent).toContain(
-        "Where your assistant can be reached.",
-      );
-    });
+    // The detail pane stays blank while contacts load: "Select a contact" is
+    // the wrong copy before the guardian is known.
+    expect(document.body.textContent).not.toContain("Select a contact");
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+  });
+});
+
+describe("ContactsPage contact permissions", () => {
+  test("hides Permissions on the guardian and a peer assistant", async () => {
+    render(
+      <Wrapper>
+        <ContactsPage assistantId="asst-1" />
+      </Wrapper>,
+    );
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
     expect(document.querySelector('[data-testid="contact-permissions"]')).toBe(
       null,
     );
@@ -464,7 +513,8 @@ describe("ContactsPage plugin verify", () => {
         supportsVerification: false,
         setupMessages: {
           guardian: "I want to set up iMessage. Can you help me?",
-          contact: "I'd like to reach you on iMessage. Can you help me get set up?",
+          contact:
+            "I'd like to reach you on iMessage. Can you help me get set up?",
         },
       },
     ];
@@ -488,17 +538,7 @@ describe("ContactsPage plugin verify", () => {
     );
     fireEvent.change(addressInput, { target: { value: "+15551234567" } });
 
-    const dialog = document.querySelector('[data-slot="modal-content"]');
-    if (!dialog) {
-      throw new Error("expected the verify modal");
-    }
-    const confirm = Array.from(dialog.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Verify",
-    );
-    if (!confirm) {
-      throw new Error("expected a Verify button in the modal");
-    }
-    fireEvent.click(confirm);
+    fireEvent.click(getModalButton("Verify"));
 
     await waitFor(() => {
       expect(linkAndVerifyCalls).toEqual([

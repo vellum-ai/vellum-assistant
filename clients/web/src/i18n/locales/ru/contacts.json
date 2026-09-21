@@ -8,9 +8,6 @@
     "deleting": "Удаление…",
     "connect": "Подключить",
     "connecting": "Подключение…",
-    "manage": "Настроить",
-    "disconnect": "Отключить",
-    "disconnecting": "Отключение…",
     "cancel": "Отмена",
     "back": "Назад",
     "verify": "Подтвердить",
@@ -54,8 +51,7 @@
     "verified": "Подтверждён",
     "unverified": "Не подтверждён",
     "you": "Вы",
-    "youNamed": "{name} (вы)",
-    "assistantFallback": "Ассистент"
+    "youNamed": "{name} (вы)"
   },
   "contactDetailView": {
     "namePlaceholder": "Имя этой персоны",
@@ -92,15 +88,6 @@
     "channelsTitle": "Каналы",
     "channelsSubtitle": "После подтверждения ассистент узнает отправителя сообщений с этих каналов.",
     "setupLabel": "Подтвердить меня"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (ассистент)",
-    "channelsTitle": "Каналы",
-    "channelsSubtitle": "Где можно достучаться до {name}."
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "Отключить {channel}?",
-    "disconnectConfirmMessage": "Это удалит сохранённые учётные данные канала. Потом можно подключить снова."
   },
   "accountLink": {
     "linked": "Связан как @{username}",

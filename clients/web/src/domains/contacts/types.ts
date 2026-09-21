@@ -16,9 +16,6 @@ export type ChannelInfo = ChannelsAvailableGetResponse["channels"][number];
 // UI-only types (no daemon/gateway equivalent)
 // ---------------------------------------------------------------------------
 
-export type ContactSelection =
-  { kind: "assistant" } | { kind: "contact"; contactId: string };
-
 export interface ContactSummary extends Pick<
   ContactPayload,
   "id" | "displayName" | "role"

@@ -8,9 +8,6 @@
     "deleting": "Eliminando…",
     "connect": "Conectar",
     "connecting": "Conectando…",
-    "manage": "Gestionar",
-    "disconnect": "Desconectar",
-    "disconnecting": "Desconectando…",
     "cancel": "Cancelar",
     "back": "Atrás",
     "verify": "Verificar",
@@ -54,8 +51,7 @@
     "verified": "Verificado",
     "unverified": "Sin verificar",
     "you": "Tú",
-    "youNamed": "{name} (tú)",
-    "assistantFallback": "Tu asistente"
+    "youNamed": "{name} (tú)"
   },
   "contactDetailView": {
     "namePlaceholder": "Ponle un nombre a esta persona",
@@ -92,15 +88,6 @@
     "channelsTitle": "Canales",
     "channelsSubtitle": "Una vez verificado, tu asistente te reconocerá cuando escribas desde estos canales.",
     "setupLabel": "Verificarme"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (tu asistente)",
-    "channelsTitle": "Canales",
-    "channelsSubtitle": "Dónde se puede contactar con {name}."
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "¿Desconectar {channel}?",
-    "disconnectConfirmMessage": "Esto borra las credenciales guardadas de este canal. Puedes volver a conectarlo más tarde."
   },
   "accountLink": {
     "linked": "Vinculado como @{username}",
