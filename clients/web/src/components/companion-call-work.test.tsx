@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   VoiceActivityState,
@@ -149,5 +149,23 @@ describe("the call's work on its bar", () => {
     expect(shelfOf(container)).toBeNull();
     rerenderCall({ ...CALL, work: [FLIGHTS] });
     expect(shelfOf(container)).toBeNull();
+  });
+
+  test("tells the host when the list opens and closes", () => {
+    const onWorkShelfChange = mock((_shown: boolean) => undefined);
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...CALL, work: [FLIGHTS] }}
+        assistantName="Ziggy"
+        accentHex="#5eead4"
+        onWorkShelfChange={onWorkShelfChange}
+      />,
+    );
+    expect(onWorkShelfChange.mock.calls.at(-1)?.[0]).toBe(false);
+    fireEvent.click(chipOf(container)!);
+    expect(onWorkShelfChange.mock.calls.at(-1)?.[0]).toBe(true);
+    fireEvent.click(chipOf(container)!);
+    expect(onWorkShelfChange.mock.calls.at(-1)?.[0]).toBe(false);
   });
 });

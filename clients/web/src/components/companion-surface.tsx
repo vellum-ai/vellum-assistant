@@ -967,6 +967,13 @@ export interface CompanionSurfaceProps {
    * {@link CompanionContext.dictationText}.
    */
   dictationText?: string;
+  /**
+   * Told when the list of the call's work opens or closes on the bar. The
+   * host hit-tests the pointer against the joined row, and a list that closes
+   * on its own (the work ran out) under a still pointer leaves nothing there
+   * to move off; the host gives the desktop back on this.
+   */
+  onWorkShelfChange?: (shown: boolean) => void;
 }
 
 export function CompanionSurface({
@@ -1026,6 +1033,7 @@ export function CompanionSurface({
   promptRef,
   promptsDeferred = 0,
   onReviewPrompts,
+  onWorkShelfChange,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -1048,6 +1056,13 @@ export function CompanionSurface({
    * user and so always outranks it, or else the call's work while its list is
    * open.
    */
+  const workShelfShown =
+    hostPrompt === null || hostPrompt === undefined
+      ? workShelfOpen && hasWork
+      : false;
+  useEffect(() => {
+    onWorkShelfChange?.(workShelfShown);
+  }, [onWorkShelfChange, workShelfShown]);
   const prompt = useMemo(
     () =>
       hostPrompt ??

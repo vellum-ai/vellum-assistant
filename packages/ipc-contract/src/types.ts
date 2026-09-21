@@ -661,6 +661,15 @@ export const VOICE_ACTIVITY_WORK_STATES = [
 export type VoiceActivityWorkState =
   (typeof VOICE_ACTIVITY_WORK_STATES)[number];
 
+/**
+ * The longest `title` or `step` a piece of work carries. Both are model-worded,
+ * so the sender clamps them to this rather than have the whole update refused.
+ */
+export const VOICE_ACTIVITY_WORK_TEXT_MAX = 500;
+
+/** The most pieces of work one update carries; the sender keeps the newest. */
+export const VOICE_ACTIVITY_WORK_MAX = 50;
+
 /** One piece of work on the call's list. */
 export interface VoiceActivityWork {
   /** Stable across updates: `turn` for the foreground, the sub-agent's id otherwise. */

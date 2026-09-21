@@ -33,6 +33,8 @@ import {
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
   VOICE_ACTIVITY_WORK_STATES,
+  VOICE_ACTIVITY_WORK_TEXT_MAX,
+  VOICE_ACTIVITY_WORK_MAX,
   COMPANION_DICTATION_OFFER_MAX,
   COMPANION_POPOVER_ACTIONS_MAX,
   COMPANION_PICKER_MICROPHONES,
@@ -222,8 +224,8 @@ export const voiceActivityPhaseSchema = z.enum(VOICE_ACTIVITY_PHASES);
 export const voiceActivityWorkSchema = z.object({
   id: z.string().max(200),
   kind: z.enum(["turn", "subagent"]),
-  title: z.string().max(500),
-  step: z.string().max(500),
+  title: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
+  step: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
   state: z.enum(VOICE_ACTIVITY_WORK_STATES),
   startedAt: z.number().finite(),
 });
@@ -236,7 +238,10 @@ export const voiceActivityContentSchema = z.object({
   outputMuted: z.boolean(),
   detail: z.string(),
   approvalRequestId: z.string(),
-  work: z.array(voiceActivityWorkSchema).max(50).optional(),
+  work: z
+    .array(voiceActivityWorkSchema)
+    .max(VOICE_ACTIVITY_WORK_MAX)
+    .optional(),
 });
 
 export const voiceActivityStartSchema = voiceActivityContentSchema.extend({

@@ -24,7 +24,7 @@ const WORK = {
   step: "Reading a page",
   state: "running",
   startedAt: 1_000,
-};
+} as const;
 
 describe("voiceActivityContentSchema", () => {
   test("takes a payload from a sender that predates the work list", () => {

@@ -10,10 +10,15 @@
  * not the call's work.
  */
 
-import type { VoiceActivityWork } from "@vellumai/ipc-contract";
+import {
+  VOICE_ACTIVITY_WORK_MAX,
+  VOICE_ACTIVITY_WORK_TEXT_MAX,
+  type VoiceActivityWork,
+} from "@vellumai/ipc-contract";
 
 import { computeSubagentSteps } from "@/domains/chat/hooks/use-subagent-card-data";
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import { truncate } from "@/domains/chat/utils/truncate";
 import { isActiveStatus } from "@/utils/subagent-status";
 
 /** How long a finished piece of work stays on the list, as "Done". */
@@ -53,6 +58,14 @@ export interface CallWork {
   nextChangeAt: number | null;
 }
 
+/**
+ * Model-worded text clamped to what the contract carries, so a long label or
+ * activity sentence shortens on the bar rather than getting the whole update
+ * refused at main's boundary.
+ */
+const clampText = (text: string): string =>
+  truncate(text, VOICE_ACTIVITY_WORK_TEXT_MAX);
+
 /** Keyed by the timeline array, which the store replaces on every event. */
 const stepCache = new WeakMap<readonly unknown[], string>();
 
@@ -91,8 +104,8 @@ export function buildCallWork(
     work.push({
       id: "turn",
       kind: "turn",
-      title: assistantName,
-      step: activityLabel,
+      title: clampText(assistantName),
+      step: clampText(activityLabel),
       state: "running",
       startedAt: tracker.turnStartedAt,
     });
@@ -113,8 +126,8 @@ export function buildCallWork(
       work.push({
         id,
         kind: "subagent",
-        title: entry.label,
-        step: subagentStep(entry),
+        title: clampText(entry.label),
+        step: clampText(subagentStep(entry)),
         state: "running",
         startedAt: entry.spawnedAt,
       });
@@ -133,14 +146,24 @@ export function buildCallWork(
     work.push({
       id,
       kind: "subagent",
-      title: entry.label,
+      title: clampText(entry.label),
       step: "",
       state: entry.status === "completed" ? "done" : "failed",
       startedAt: entry.spawnedAt,
     });
   }
 
-  return { work, nextChangeAt };
+  // The turn first, then the newest sub-agents, as many as one update carries.
+  const capped =
+    work.length <= VOICE_ACTIVITY_WORK_MAX
+      ? work
+      : [
+          ...work.filter((item) => item.kind === "turn"),
+          ...work
+            .filter((item) => item.kind === "subagent")
+            .slice(-(VOICE_ACTIVITY_WORK_MAX - (activityLabel === "" ? 0 : 1))),
+        ];
+  return { work: capped, nextChangeAt };
 }
 
 /** Whether two lists would draw the same bar. */

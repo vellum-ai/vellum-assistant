@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  VOICE_ACTIVITY_WORK_MAX,
+  VOICE_ACTIVITY_WORK_TEXT_MAX,
+} from "@vellumai/ipc-contract";
+
 import type { SubagentEntry } from "@/domains/chat/subagent-store";
 
 import {
@@ -207,5 +212,30 @@ describe("sameCallWork", () => {
     expect(sameCallWork(item, [{ ...item[0]!, step: "Reading a file" }])).toBe(
       false,
     );
+  });
+});
+
+describe("the contract's bounds", () => {
+  test("clamps a label longer than one update carries", () => {
+    const { work } = buildCallWork(
+      input({ subagents: [entry({ label: "x".repeat(2_000) })] }),
+      createCallWorkTracker(),
+    );
+    expect(work[0]!.title.length).toBe(VOICE_ACTIVITY_WORK_TEXT_MAX);
+    expect(work[0]!.title.endsWith("…")).toBe(true);
+  });
+
+  test("keeps the turn and the newest sub-agents past the list's limit", () => {
+    const subagents = Array.from(
+      { length: VOICE_ACTIVITY_WORK_MAX + 5 },
+      (_, index) => entry({ subagentId: `sub-${index}` }),
+    );
+    const { work } = buildCallWork(
+      input({ activityLabel: "Searching the web", subagents }),
+      createCallWorkTracker(),
+    );
+    expect(work).toHaveLength(VOICE_ACTIVITY_WORK_MAX);
+    expect(work[0]!.id).toBe("turn");
+    expect(work.at(-1)!.id).toBe(`sub-${VOICE_ACTIVITY_WORK_MAX + 4}`);
   });
 });
