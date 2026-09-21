@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,

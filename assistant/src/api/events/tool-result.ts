@@ -68,13 +68,18 @@ export const WebFetchProviderIdSchema = z.enum([
 export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;
 
 export const WebSearchResultItemSchema = z.object({
+  /** 1-indexed. */
   rank: z.number(),
   title: z.string(),
   url: z.string(),
+  /** The lowercased host. */
   domain: z.string(),
   faviconUrl: z.string().optional(),
+  /** Absent for `anthropic-native`, whose content is encrypted. */
   snippet: z.string().optional(),
+  /** A freshness hint; Brave only. */
   age: z.string().optional(),
+  /** Tavily only. */
   score: z.number().optional(),
 });
 

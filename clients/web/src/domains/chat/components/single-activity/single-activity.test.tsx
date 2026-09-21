@@ -17,7 +17,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 

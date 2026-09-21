@@ -26,7 +26,7 @@
  * downstream). Returns `[]` when no URLs are found.
  */
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 
 const URL_PATTERN = /^https?:\/\/\S+/;
 const URL_PREFIX_BRAVE_TAVILY = /^URL:\s*(https?:\/\/\S+)/i;

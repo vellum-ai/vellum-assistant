@@ -14,7 +14,7 @@ import { useState } from "react";
 
 import { Popover, Typography } from "@vellumai/design-library";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 import { ExternalAnchor } from "@/components/external-anchor";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
