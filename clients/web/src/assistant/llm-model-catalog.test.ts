@@ -188,22 +188,17 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     ).toBe(true);
   });
 
-  test("structured-decision models stay visible on the provider row but not in text pickers", () => {
-    expect(
-      getModelsForProvider("typesafe").some((model) => model.id === "jev-latest"),
-    ).toBe(true);
-    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
-    expect(providerOffersTextGeneration("typesafe")).toBe(false);
+  test("chat providers offer text generation", () => {
+    // Decision models live in the daemon's classification catalog, so every
+    // LLM catalog model here can back a conversation.
+    expect(catalogModelSupportsText("anthropic", "claude-opus-4-8")).toBe(true);
     expect(providerOffersTextGeneration("anthropic")).toBe(true);
     expect(providerOffersTextGeneration("openai-compatible")).toBe(true);
     expect(
-      getTextGenerationModelsForProvider("typesafe", catalogEnabledFlags({})),
-    ).toEqual([]);
-    expect(
-      getVisibleModelsForProvider("typesafe", catalogEnabledFlags({})).some(
-        (model) => model.id === "jev-latest",
-      ),
-    ).toBe(true);
+      getTextGenerationModelsForProvider("anthropic", catalogEnabledFlags({})),
+    ).toEqual(
+      getVisibleModelsForProvider("anthropic", catalogEnabledFlags({})),
+    );
   });
 
   test("every meta provider exists in the web mirror", () => {

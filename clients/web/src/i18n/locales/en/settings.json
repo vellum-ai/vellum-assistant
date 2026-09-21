@@ -491,6 +491,26 @@
     "tryAgain": "Try again",
     "viewPlans": "View plans"
   },
+  "classificationCard": {
+    "apiKeyLabel": "API Key",
+    "apiKeyPlaceholder": "Your TypeSafe API key",
+    "apiKeyPlaceholderReplace": "Enter a new key to replace the stored one",
+    "modeAriaLabel": "Classification mode",
+    "modeLabel": "Mode",
+    "modeManaged": "Vellum",
+    "modeYourOwn": "Your own key",
+    "providerAriaLabel": "Classification provider",
+    "providerLabel": "Provider",
+    "saveFailed": "Failed to save classification settings",
+    "saveSuccess": "Classification settings saved",
+    "statusManaged": "Running through Vellum.",
+    "statusMissingCredential": "Add an API key to turn this on.",
+    "statusPlatformUnavailable": "Sign in to Vellum to use the managed option.",
+    "statusUnavailable": "Not configured.",
+    "statusUserKey": "Running on your key.",
+    "subtitle": "Decision model behind the voice judges and memory selection",
+    "title": "Classification"
+  },
   "communityPage": {
     "communityHubDescription": "Showcases, guides, and projects shared by the community.",
     "communityHubTitle": "Community Hub",

@@ -9,6 +9,9 @@
  *   2. Search providers — names come from `SEARCH_PROVIDER_CATALOG` in
  *      `search-provider-catalog.ts`. `getSearchProviderEnvVar` consults
  *      the catalog directly.
+ *   3. Classification providers — names come from the classification
+ *      catalog in `classification/provider-catalog.ts`; only the
+ *      any-provider lookup consults it.
  *
  * Use `getLlmProviderEnvVar` when you're scoped to LLM providers,
  * `getSearchProviderEnvVar` when you're scoped to search providers, and
@@ -18,6 +21,7 @@
  * Each helper returns `undefined` for keyless providers (e.g. Ollama),
  * unknown IDs, and providers outside the helper's scope.
  */
+import { classificationEnvVarForCredential } from "./classification/provider-catalog.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 import { SEARCH_PROVIDER_CATALOG } from "./search-provider-catalog.js";
 
@@ -46,13 +50,15 @@ export function getSearchProviderEnvVar(
 }
 
 /**
- * Resolve a provider env-var name from either source — LLM catalog first,
- * then the search-provider mirror. Returns `undefined` when no provider
- * scope declares an env var for the given ID (keyless LLM providers like
- * Ollama, unknown IDs, etc.).
+ * Resolve a provider env-var name from any source — LLM catalog first, then
+ * the search-provider mirror, then the classification catalog. Returns
+ * `undefined` when no provider scope declares an env var for the given ID
+ * (keyless LLM providers like Ollama, unknown IDs, etc.).
  */
 export function getAnyProviderEnvVar(providerId: string): string | undefined {
   return (
-    getLlmProviderEnvVar(providerId) ?? getSearchProviderEnvVar(providerId)
+    getLlmProviderEnvVar(providerId) ??
+    getSearchProviderEnvVar(providerId) ??
+    classificationEnvVarForCredential(providerId)
   );
 }

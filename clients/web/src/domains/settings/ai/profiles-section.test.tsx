@@ -338,23 +338,6 @@ describe("ProfilesSection - kebab menus", () => {
     expect(items).not.toContain("Remove as Advisor");
   });
 
-  test("a non-text catalog profile hides Make Default", async () => {
-    profilesState = {
-      ...profilesState,
-      jev: {
-        label: "Jev",
-        source: "user",
-        provider: "typesafe",
-        model: "jev-latest",
-      },
-    };
-    renderSection();
-    const menu = await openKebab("Jev");
-    const items = menuItems(menu);
-    expect(items).not.toContain("Make Default");
-    expect(items).toContain("Edit");
-  });
-
   test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {
     renderSection();
     const menu = await openKebab("Speed");

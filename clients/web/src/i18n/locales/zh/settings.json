@@ -491,6 +491,26 @@
     "tryAgain": "重试",
     "viewPlans": "查看套餐"
   },
+  "classificationCard": {
+    "apiKeyLabel": "API 密钥",
+    "apiKeyPlaceholder": "您的 TypeSafe API 密钥",
+    "apiKeyPlaceholderReplace": "输入新密钥以替换已保存的密钥",
+    "modeAriaLabel": "分类模式",
+    "modeLabel": "模式",
+    "modeManaged": "Vellum",
+    "modeYourOwn": "自己的密钥",
+    "providerAriaLabel": "分类提供商",
+    "providerLabel": "提供商",
+    "saveFailed": "保存分类设置失败",
+    "saveSuccess": "分类设置已保存",
+    "statusManaged": "通过 Vellum 运行。",
+    "statusMissingCredential": "添加 API 密钥以启用。",
+    "statusPlatformUnavailable": "登录 Vellum 以使用托管选项。",
+    "statusUnavailable": "未配置。",
+    "statusUserKey": "使用您的密钥运行。",
+    "subtitle": "语音判定和记忆选择背后的决策模型",
+    "title": "分类"
+  },
   "communityPage": {
     "communityHubDescription": "社区分享的展示、指南和项目。",
     "communityHubTitle": "社区中心",

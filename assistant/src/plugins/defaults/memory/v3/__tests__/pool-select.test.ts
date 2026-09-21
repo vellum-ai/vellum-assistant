@@ -86,6 +86,29 @@ mock.module("@vellumai/plugin-api", () => ({
       : realPluginApi.getEffectiveContextWindow(...args),
 }));
 
+// The selector prefers a configured classification provider over the LLM
+// call site. Stubs named "typesafe" stand in for that family; every other
+// stub leaves the family unconfigured so the LLM path is exercised.
+mock.module("../../../../../providers/classification/resolve.js", () => ({
+  resolveClassificationProvider: async () =>
+    providerStub?.name === "typesafe"
+      ? {
+          provider: providerStub,
+          providerId: "typesafe",
+          model: providerStub.defaultModel ?? "jev-latest",
+          maxInputTokens: selectorMaxInputTokens,
+          source: "user-key",
+        }
+      : null,
+  resolveClassificationAvailability: async () => ({
+    available: false,
+    mode: "your-own",
+    providerId: "typesafe",
+    model: "jev-latest",
+    reason: "missing_credential",
+  }),
+}));
+
 mock.module("../../../../../providers/registry.js", () => ({
   ...registryReal,
   getProviderRoutingSource: (providerName: string) =>

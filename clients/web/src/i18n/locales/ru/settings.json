@@ -477,6 +477,26 @@
     "tryAgain": "Попробовать снова",
     "viewPlans": "Смотреть планы"
   },
+  "classificationCard": {
+    "apiKeyLabel": "API-ключ",
+    "apiKeyPlaceholder": "Ваш API-ключ TypeSafe",
+    "apiKeyPlaceholderReplace": "Введите новый ключ, чтобы заменить сохранённый",
+    "modeAriaLabel": "Режим классификации",
+    "modeLabel": "Режим",
+    "modeManaged": "Vellum",
+    "modeYourOwn": "Свой ключ",
+    "providerAriaLabel": "Провайдер классификации",
+    "providerLabel": "Провайдер",
+    "saveFailed": "Не удалось сохранить настройки классификации",
+    "saveSuccess": "Настройки классификации сохранены",
+    "statusManaged": "Работает через Vellum.",
+    "statusMissingCredential": "Добавьте API-ключ, чтобы включить.",
+    "statusPlatformUnavailable": "Войдите в Vellum, чтобы использовать управляемый вариант.",
+    "statusUnavailable": "Не настроено.",
+    "statusUserKey": "Работает на вашем ключе.",
+    "subtitle": "Модель принятия решений для голосовых судей и отбора памяти",
+    "title": "Классификация"
+  },
   "communityPage": {
     "communityHubDescription": "Витрины, гайды и проекты от сообщества.",
     "communityHubTitle": "Центр сообщества",

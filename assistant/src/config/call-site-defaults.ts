@@ -153,14 +153,13 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
-  // The escalation judge only runs when this site resolves to the TypeSafe
-  // provider (see calls/voice-escalation-judge.ts), so the shipped default is
-  // any ordinary profile: the judge stays off until a user pins a TypeSafe
-  // profile here.
+  // The escalation judge dispatches through `services.classification`, not
+  // this site (see calls/voice-escalation-judge.ts); the site only labels the
+  // call for attribution. It stays off until a classification provider
+  // resolves.
   voiceEscalationJudge: { profile: "cost-optimized" },
   // Same arrangement for the barge-in continuation judge
-  // (live-voice/continuation-judge.ts): off until a TypeSafe profile is
-  // pinned here.
+  // (live-voice/continuation-judge.ts).
   voiceContinuationJudge: { profile: "cost-optimized" },
   // Names the background continuation a barge-in spawns, from the interrupted
   // transcript. The label is fixed at spawn, so the call runs under a short

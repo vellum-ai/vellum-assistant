@@ -203,14 +203,6 @@ describe("resolveModelFirstOptions", () => {
     expect(shown).toContain("Qwen3 8B");
   });
 
-  test("omits structured-decision models from the conversation list", () => {
-    const options = resolveModelFirstOptions(
-      input([connection("jev-key", "typesafe")]),
-    );
-    expect(options.map((option) => option.displayName)).not.toContain("Jev");
-    expect(options.some((option) => option.owner === "typesafe")).toBe(false);
-  });
-
   test("surfaces the managed route as one entry rather than its upstreams", () => {
     const option = optionFor([VELLUM_CONNECTION], "Claude Opus 4.8");
     expect(option.candidates[0]).toMatchObject({

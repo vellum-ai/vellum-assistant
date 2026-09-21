@@ -491,6 +491,26 @@
     "tryAgain": "再試一次",
     "viewPlans": "查看方案"
   },
+  "classificationCard": {
+    "apiKeyLabel": "API 金鑰",
+    "apiKeyPlaceholder": "您的 TypeSafe API 金鑰",
+    "apiKeyPlaceholderReplace": "輸入新金鑰以取代已儲存的金鑰",
+    "modeAriaLabel": "分類模式",
+    "modeLabel": "模式",
+    "modeManaged": "Vellum",
+    "modeYourOwn": "自己的金鑰",
+    "providerAriaLabel": "分類提供者",
+    "providerLabel": "提供者",
+    "saveFailed": "儲存分類設定失敗",
+    "saveSuccess": "分類設定已儲存",
+    "statusManaged": "透過 Vellum 執行。",
+    "statusMissingCredential": "新增 API 金鑰以啟用。",
+    "statusPlatformUnavailable": "登入 Vellum 以使用託管選項。",
+    "statusUnavailable": "未設定。",
+    "statusUserKey": "使用您的金鑰執行。",
+    "subtitle": "語音判定與記憶選擇背後的決策模型",
+    "title": "分類"
+  },
   "communityPage": {
     "communityHubDescription": "社群分享的展示、指南和專案。",
     "communityHubTitle": "社群中心",

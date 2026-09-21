@@ -1154,16 +1154,6 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
-  typesafe: [
-    {
-      id: "jev-latest",
-      displayName: "Jev",
-      contextWindowTokens: 32_000,
-      defaultContextWindowTokens: 32_000,
-      maxOutputTokens: 4_096,
-      supportsText: false,
-    },
-  ],
   vellum: [
     {
       id: "qwen/qwen3-8b",
@@ -1195,7 +1185,6 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
-  typesafe: "jev-latest",
   vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
@@ -1225,7 +1214,6 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
-  typesafe: "TypeSafe",
 };
 
 /**
@@ -1281,7 +1269,6 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
-  typesafe: false,
   vellum: true,
 };
 

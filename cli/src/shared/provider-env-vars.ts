@@ -34,6 +34,14 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   opencode: "OPENCODE_API_KEY",
   baseten: "BASETEN_API_KEY",
   poolside: "POOLSIDE_API_KEY",
+};
+
+/**
+ * Classification-provider env var names. Mirrors
+ * `assistant/src/providers/classification/provider-catalog.ts`; that catalog
+ * has no generated JSON, so keep this in step by hand when it changes.
+ */
+export const CLASSIFICATION_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   typesafe: "TYPESAFE_API_KEY",
 };
 
@@ -50,11 +58,13 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
 };
 
 /**
- * Combined provider env var names — the union of LLM and search providers.
+ * Combined provider env var names — the union of LLM, search, and
+ * classification providers.
  * Used by the cloud-infra flows (docker/aws/gcp) to forward every supported
  * provider API key from the caller's environment.
  */
 export const PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   ...LLM_PROVIDER_ENV_VAR_NAMES,
   ...SEARCH_PROVIDER_ENV_VAR_NAMES,
+  ...CLASSIFICATION_PROVIDER_ENV_VAR_NAMES,
 };

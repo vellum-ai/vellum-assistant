@@ -6,6 +6,13 @@ import {
   getSearchProviderEnvVar,
 } from "../provider-env-vars.js";
 
+describe("getAnyProviderEnvVar", () => {
+  test("covers classification providers after the LLM and search catalogs", () => {
+    expect(getAnyProviderEnvVar("typesafe")).toBe("TYPESAFE_API_KEY");
+    expect(getLlmProviderEnvVar("typesafe")).toBeUndefined();
+  });
+});
+
 describe("getLlmProviderEnvVar", () => {
   test("returns ANTHROPIC_API_KEY for anthropic", () => {
     expect(getLlmProviderEnvVar("anthropic")).toBe("ANTHROPIC_API_KEY");

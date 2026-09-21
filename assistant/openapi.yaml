@@ -5583,6 +5583,119 @@ paths:
                   - messageIds
                   - lastMessageId
                 additionalProperties: false
+  /v1/classification/providers:
+    get:
+      operationId: classification_providers_get
+      summary: List classification providers
+      description:
+        Return the catalog of classification (decision-model) providers with client-facing metadata, and whether
+        the configured provider currently resolves.
+      tags:
+        - classification
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        subtitle:
+                          type: string
+                        setupMode:
+                          type: string
+                        setupHint:
+                          type: string
+                        apiKeyProviderName:
+                          type: string
+                        defaultModel:
+                          type: string
+                        models:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              displayName:
+                                type: string
+                            required:
+                              - id
+                              - displayName
+                            additionalProperties: false
+                        supportsManaged:
+                          type: boolean
+                        credentialsGuide:
+                          type: object
+                          properties:
+                            description:
+                              type: string
+                            url:
+                              type: string
+                            linkLabel:
+                              type: string
+                          required:
+                            - description
+                            - url
+                            - linkLabel
+                          additionalProperties: false
+                      required:
+                        - id
+                        - displayName
+                        - subtitle
+                        - setupMode
+                        - setupHint
+                        - apiKeyProviderName
+                        - defaultModel
+                        - models
+                        - supportsManaged
+                        - credentialsGuide
+                      additionalProperties: false
+                  availability:
+                    type: object
+                    properties:
+                      available:
+                        type: boolean
+                      mode:
+                        type: string
+                        enum:
+                          - managed
+                          - your-own
+                      providerId:
+                        type: string
+                      model:
+                        type: string
+                      source:
+                        type: string
+                        enum:
+                          - user-key
+                          - managed-proxy
+                      reason:
+                        type: string
+                        enum:
+                          - unknown_provider
+                          - missing_credential
+                          - managed_unsupported
+                          - platform_unavailable
+                    required:
+                      - available
+                      - mode
+                      - providerId
+                      - model
+                    additionalProperties: false
+                required:
+                  - providers
+                  - availability
+                additionalProperties: false
   /v1/clients:
     get:
       operationId: clients_get
@@ -16670,8 +16783,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, typesafe,
-            vellum"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, vellum"
       responses:
         "200":
           description: Successful response
@@ -16943,8 +17055,8 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, typesafe,
-            vellum, chatgpt"
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, vellum,
+            chatgpt"
       responses:
         "200":
           description: Successful response
@@ -39051,7 +39163,6 @@ components:
         - atlascloud
         - baseten
         - poolside
-        - typesafe
         - vellum
         - chatgpt
     Auth:

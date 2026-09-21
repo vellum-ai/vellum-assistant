@@ -68,9 +68,7 @@ export function createContinuationJudge(options?: {
   resolveProvider?: () => Promise<Provider | null>;
   timeoutMs?: number;
 }): LiveVoiceContinuationJudge {
-  const resolveProvider =
-    options?.resolveProvider ??
-    (() => resolveTypesafeProvider(VOICE_CONTINUATION_JUDGE_CALL_SITE));
+  const resolveProvider = options?.resolveProvider ?? resolveTypesafeProvider;
   return async (args) => {
     const startedAt = Date.now();
     const kept = (

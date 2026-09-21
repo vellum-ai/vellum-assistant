@@ -48,6 +48,10 @@ describe("API_KEY_PROVIDERS", () => {
     expect(API_KEY_PROVIDERS).toContain("firecrawl");
   });
 
+  test("includes classification providers", () => {
+    expect(API_KEY_PROVIDERS).toContain("typesafe");
+  });
+
   test("includes custom for OpenAI-compatible memory embeddings", () => {
     expect(API_KEY_PROVIDERS).toContain("custom");
   });

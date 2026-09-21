@@ -42,6 +42,7 @@ import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_SEND_ROUTES } from "./channel-send-routes.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CHATGPT_SUBSCRIPTION_AUTH_ROUTES } from "./chatgpt-subscription-auth-routes.js";
+import { ROUTES as CLASSIFICATION_ROUTES } from "./classification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONSOLIDATION_ROUTES } from "./consolidation-routes.js";
 import { CONTACT_PROMPT_ROUTES } from "./contact-prompt-routes.js";
@@ -307,6 +308,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SLACK_SHARE_ROUTES,
   ...SLACK_USERS_ROUTES,
   ...STT_ROUTES,
+  ...CLASSIFICATION_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
   ...SURFACE_ACTION_ROUTES,

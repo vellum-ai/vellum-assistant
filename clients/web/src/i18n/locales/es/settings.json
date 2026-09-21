@@ -491,6 +491,26 @@
     "tryAgain": "Intentar de nuevo",
     "viewPlans": "Ver planes"
   },
+  "classificationCard": {
+    "apiKeyLabel": "Clave de API",
+    "apiKeyPlaceholder": "Tu clave de API de TypeSafe",
+    "apiKeyPlaceholderReplace": "Introduce una clave nueva para reemplazar la guardada",
+    "modeAriaLabel": "Modo de clasificación",
+    "modeLabel": "Modo",
+    "modeManaged": "Vellum",
+    "modeYourOwn": "Tu propia clave",
+    "providerAriaLabel": "Proveedor de clasificación",
+    "providerLabel": "Proveedor",
+    "saveFailed": "No se pudo guardar la configuración de clasificación",
+    "saveSuccess": "Configuración de clasificación guardada",
+    "statusManaged": "Funcionando a través de Vellum.",
+    "statusMissingCredential": "Añade una clave de API para activarlo.",
+    "statusPlatformUnavailable": "Inicia sesión en Vellum para usar la opción gestionada.",
+    "statusUnavailable": "Sin configurar.",
+    "statusUserKey": "Funcionando con tu clave.",
+    "subtitle": "Modelo de decisión detrás de los jueces de voz y la selección de memoria",
+    "title": "Clasificación"
+  },
   "communityPage": {
     "communityHubDescription": "Muestras, guías y proyectos compartidos por la comunidad.",
     "communityHubTitle": "Centro de la comunidad",

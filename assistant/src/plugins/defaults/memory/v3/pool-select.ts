@@ -69,6 +69,7 @@ import {
 } from "../../../../context/token-estimator.js";
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
+import { resolveClassificationProvider } from "../../../../providers/classification/resolve.js";
 import { redactLogString, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
@@ -1103,9 +1104,16 @@ export async function selectPool(
     return { pages: [], keptAll: false, pool, turn };
   }
 
-  const provider = await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE, {
-    selectionSeed: turn.conversationId,
-  });
+  // A configured classification provider takes the selector over the LLM
+  // call site: its per-candidate noul verdicts are what the TypeSafe path
+  // below consumes, and its request budget comes from its own catalog rather
+  // than the call site's context window.
+  const classifier = await resolveClassificationProvider();
+  const provider =
+    classifier?.provider ??
+    (await getConfiguredProvider(MEMORY_V3_SELECT_CALL_SITE, {
+      selectionSeed: turn.conversationId,
+    }));
   if (!provider) {
     log.warn(
       {
@@ -1122,10 +1130,11 @@ export async function selectPool(
     );
   }
 
-  const effectiveContextWindow = getEffectiveContextWindow(
-    MEMORY_V3_SELECT_CALL_SITE,
-    { selectionSeed: turn.conversationId },
-  );
+  const effectiveContextWindow = classifier
+    ? { model: classifier.model, maxInputTokens: classifier.maxInputTokens }
+    : getEffectiveContextWindow(MEMORY_V3_SELECT_CALL_SITE, {
+        selectionSeed: turn.conversationId,
+      });
   const budget = budgetSelectorPool({
     pool,
     turn,

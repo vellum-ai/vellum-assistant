@@ -91,17 +91,6 @@ describe("resolveModelFirstGroups", () => {
     }
   });
 
-  test("omits structured-decision providers from the section list", () => {
-    expect(groupLabels([])).not.toContain("TypeSafe");
-    expect(groupLabels([])).not.toContain("Jev");
-    expect(groupLabels([connection("jev-key", "typesafe")])).not.toContain(
-      "TypeSafe",
-    );
-    expect(groupLabels([connection("jev-key", "typesafe")])).not.toContain(
-      "Jev",
-    );
-  });
-
   test("merges the providers that list one vendor's work", () => {
     // Fireworks lists the newest MiniMax, OpenRouter the older ones, and
     // MiniMax hosts its own: one section, each model once.

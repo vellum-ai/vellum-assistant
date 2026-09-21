@@ -233,14 +233,20 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
-  test("jev-latest opts out of chat text generation", () => {
-    expect(catalogModelSupportsText("typesafe", "jev-latest")).toBe(false);
+  test("chat and custom-endpoint models support text generation", () => {
     expect(catalogModelSupportsText("anthropic", "claude-opus-4-8")).toBe(true);
     expect(catalogModelSupportsText("openai-compatible", "local-model")).toBe(
       true,
     );
-    expect(DEFAULT_PROVIDER_CHOICES).not.toContain("typesafe");
     expect(DEFAULT_PROVIDER_CHOICES).toContain("poolside");
+  });
+
+  test("classification providers live outside the LLM catalog", () => {
+    // Decision models resolve through services.classification, so the LLM
+    // catalog must not offer them to text pickers or profiles.
+    expect(PROVIDER_CATALOG.some((entry) => entry.id === "typesafe")).toBe(
+      false,
+    );
   });
 
   test("cache pricing rates are positive when defined", () => {

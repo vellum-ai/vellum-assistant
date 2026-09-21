@@ -1,19 +1,17 @@
 /**
  * One bounded yes/no question to TypeSafe's System One model (Jev), shared by
- * the voice judges. A judge runs only when its call site resolves to the
- * TypeSafe provider; every failure comes back as a non-answer so the caller
- * keeps its default behavior.
+ * the voice judges. A judge runs only when `services.classification` resolves
+ * a provider; every failure comes back as a non-answer so the caller keeps
+ * its default behavior.
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { resolveClassificationProvider } from "../providers/classification/resolve.js";
 import { type JevJsonValue, noulFromAnswer } from "../providers/jev/client.js";
-import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("typesafe-noul");
-
-const TYPESAFE_PROVIDER_NAME = "typesafe";
 
 export type TypesafeNoulOutcome =
   | "answered"
@@ -28,14 +26,9 @@ export interface TypesafeNoulResult {
   latencyMs: number;
 }
 
-/** The call site's provider when it resolves to TypeSafe, else null. */
-export async function resolveTypesafeProvider(
-  callSite: LLMCallSite,
-): Promise<Provider | null> {
-  const resolved = await resolveConfiguredProvider(callSite);
-  return resolved?.configuredProviderName === TYPESAFE_PROVIDER_NAME
-    ? resolved.provider
-    : null;
+/** The configured classification provider, or null when none resolves. */
+export async function resolveTypesafeProvider(): Promise<Provider | null> {
+  return (await resolveClassificationProvider())?.provider ?? null;
 }
 
 function answersFrom(
@@ -77,7 +70,7 @@ export async function askTypesafeNoul(args: {
   instructions: string;
   timeoutMs: number;
   signal?: AbortSignal;
-  /** Defaults to {@link resolveTypesafeProvider} for `callSite`. */
+  /** Defaults to {@link resolveTypesafeProvider}. */
   resolveProvider?: () => Promise<Provider | null>;
 }): Promise<TypesafeNoulResult> {
   const startedAt = Date.now();
@@ -90,7 +83,7 @@ export async function askTypesafeNoul(args: {
   const ask = async (): Promise<TypesafeNoulResult> => {
     try {
       const provider = await (
-        args.resolveProvider ?? (() => resolveTypesafeProvider(args.callSite))
+        args.resolveProvider ?? resolveTypesafeProvider
       )();
       if (!provider) {
         return { outcome: "unavailable", latencyMs: elapsed() };

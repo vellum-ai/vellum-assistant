@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
+import { ClassificationCard } from "@/domains/settings/ai/classification-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import {
   LanguageModelCard,
@@ -57,6 +58,7 @@ export function AiPage() {
           voice picker got buried under an API-key form. */}
       <TextToSpeechCard />
       <SpeechToTextCard />
+      <ClassificationCard />
     </div>
   );
 

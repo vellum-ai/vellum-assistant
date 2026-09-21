@@ -72,7 +72,7 @@ describe("LLMSchema.defaultProvider", () => {
     ).toThrow();
   });
 
-  test("rejects a structured-decision catalog provider", () => {
+  test("rejects a provider outside the default-choice set", () => {
     expect(() =>
       DefaultProviderSchema.parse({ provider: "typesafe" }),
     ).toThrow();

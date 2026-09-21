@@ -62,7 +62,6 @@ export const KNOWN_LLM_PROVIDERS = [
   "opencode",
   "baseten",
   "poolside",
-  "typesafe",
   // Routing identities: "vellum" = the platform-managed route (upstream
   // derived from the model at dispatch) and the catalog owner of
   // Vellum-hosted GPU models; "chatgpt" = the subscription route to OpenAI.

@@ -3,12 +3,12 @@ import { z } from "zod";
 import { DEFAULT_IMAGE_MODEL } from "../../media/image-models.js";
 import { FETCH_PROVIDER_IDS } from "../../providers/fetch-provider-catalog.js";
 import { SEARCH_PROVIDER_IDS } from "../../providers/search-provider-catalog.js";
+import { ClassificationServiceSchema } from "./classification.js";
+import { ServiceModeSchema } from "./service-mode.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
-export const ServiceModeSchema = z
-  .enum(["managed", "your-own"])
-  .meta({ id: "ServiceMode" });
+export { ServiceModeSchema };
 type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [
@@ -202,6 +202,9 @@ export const ServicesSchema = z.object({
     SttServiceSchema.parse({ provider: "deepgram", providers: {} }),
   ),
   tts: TtsServiceSchema.default(TtsServiceSchema.parse({})),
+  classification: ClassificationServiceSchema.default(
+    ClassificationServiceSchema.parse({}),
+  ),
   "google-oauth": GoogleOAuthServiceSchema.default(
     GoogleOAuthServiceSchema.parse({}),
   ),

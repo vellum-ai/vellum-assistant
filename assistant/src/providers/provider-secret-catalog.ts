@@ -24,6 +24,7 @@
  */
 
 import { listCatalogProviders } from "../tts/provider-catalog.js";
+import { listClassificationCredentialProviderNames } from "./classification/provider-catalog.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 import { BYOK_SEARCH_PROVIDERS } from "./search-provider-catalog.js";
 import { listCredentialProviderNames as listSttCredentialProviderNames } from "./speech-to-text/provider-catalog.js";
@@ -144,7 +145,8 @@ const EMBEDDING_API_KEY_PROVIDERS: readonly string[] = ["custom"];
  * `SEARCH_PROVIDER_CATALOG` (`search-provider-catalog.ts`) automatically
  * includes it here. Adding a new TTS provider to the TTS catalog with a
  * bare-name secret requirement automatically includes it here. Adding a
- * new STT provider to the STT catalog automatically includes it here.
+ * new STT provider to the STT catalog automatically includes it here, as
+ * does adding a classification provider to its catalog.
  * Shared credential names across domains (e.g. `openai` for both LLM
  * and STT; `deepgram` for both STT and TTS) are deduplicated so the
  * list contains no duplicates.
@@ -157,6 +159,7 @@ export const API_KEY_PROVIDERS: readonly string[] = (() => {
     ...LLM_AND_SEARCH_API_KEY_PROVIDERS,
     ...sttApiKeyProviderNames(),
     ...catalogApiKeyNames(),
+    ...listClassificationCredentialProviderNames(),
     ...EMBEDDING_API_KEY_PROVIDERS,
   ]) {
     if (!seen.has(name)) {
