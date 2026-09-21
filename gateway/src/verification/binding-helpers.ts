@@ -23,55 +23,46 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * Every active guardian channel row on a channel.
+ *
+ * A channel holds one guardian identity, so this is normally zero or one
+ * row. Readers deciding whether a write may take the channel from its
+ * guardian weigh the whole set, so a second active row is never hidden behind
+ * a `LIMIT 1`.
+ */
+function activeGuardianRows(
+  channel: string,
+): Array<{ id: string; address: string }> {
+  return getGatewayDb()
+    .select({ id: gwContactChannels.id, address: gwContactChannels.address })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .all();
+}
+
+/**
  * Find the existing active guardian binding for a channel.
  */
 export function getExistingGuardianBinding(
   channel: string,
 ): { address: string } | null {
-  const row = getGatewayDb()
-    .select({ address: gwContactChannels.address })
-    .from(gwContacts)
-    .innerJoin(
-      gwContactChannels,
-      eq(gwContactChannels.contactId, gwContacts.id),
-    )
-    .where(
-      and(
-        eq(gwContacts.role, "guardian"),
-        eq(gwContactChannels.type, channel),
-        eq(gwContactChannels.status, "active"),
-      ),
-    )
-    .limit(1)
-    .get();
+  const [row] = activeGuardianRows(channel);
   return row ? { address: row.address } : null;
 }
 
-/**
- * Every active guardian address on a channel.
- *
- * A channel holds one guardian identity, so this is normally zero or one
- * address. Callers deciding whether a write may take the channel from its
- * guardian read the whole set, so a second active row is weighed rather
- * than hidden behind a `LIMIT 1`.
- */
+/** Every active guardian address on a channel. */
 export function activeGuardianAddresses(channel: string): string[] {
-  return getGatewayDb()
-    .select({ address: gwContactChannels.address })
-    .from(gwContacts)
-    .innerJoin(
-      gwContactChannels,
-      eq(gwContactChannels.contactId, gwContacts.id),
-    )
-    .where(
-      and(
-        eq(gwContacts.role, "guardian"),
-        eq(gwContactChannels.type, channel),
-        eq(gwContactChannels.status, "active"),
-      ),
-    )
-    .all()
-    .map((row) => row.address);
+  return activeGuardianRows(channel).map((row) => row.address);
 }
 
 /**
@@ -164,23 +155,11 @@ export function resolveCanonicalPrincipal(fallback: string): string {
 export function revokeExistingChannelGuardian(channel: string): void {
   const now = Date.now();
 
-  const revokedRows = getGatewayDb()
-    .select({ id: gwContactChannels.id, address: gwContactChannels.address })
-    .from(gwContacts)
-    .innerJoin(
-      gwContactChannels,
-      eq(gwContactChannels.contactId, gwContacts.id),
-    )
-    .where(
-      and(
-        eq(gwContacts.role, "guardian"),
-        eq(gwContactChannels.type, channel),
-        eq(gwContactChannels.status, "active"),
-      ),
-    )
-    .all();
+  const revokedRows = activeGuardianRows(channel);
 
-  if (revokedRows.length === 0) return;
+  if (revokedRows.length === 0) {
+    return;
+  }
 
   // Gateway DB is the source of truth.
   const gwDb = getGatewayDb();

@@ -19,10 +19,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
-  bindsSameIdentity,
-  boundIdentity,
   CHALLENGE_TTL_MS,
   hashVerificationSecret,
+  inheritedReplaceConsent,
 } from "@vellumai/gateway-client";
 import type {
   CreateInboundSessionIpcResponse,
@@ -273,16 +272,9 @@ export function createOutboundSessionGuarded(
 
 /**
  * The guardian address a guardian code minted here may take the channel
- * from, or null when it may take it from nobody.
- *
- * A resend continues a live session, so it carries that session's consent
- * forward instead of reading the channel again: the guardian consented to
- * replacing the guardian they were shown, which a later read could miss. The
- * source has to be a live guardian code on this channel bound to the same
- * identity, so consent given for one person never moves onto another.
- *
- * Otherwise the consent is the caller's `replaceGuardian`, and the guardian
- * it names is read in the same synchronous section as the insert.
+ * from, or null when it may take it from nobody: inherited from the session a
+ * resend continues, otherwise the channel's guardian when the caller states
+ * the guardian's consent, read in the same synchronous section as the insert.
  */
 function replaceConsentFor(params: {
   channel: string;
@@ -296,19 +288,13 @@ function replaceConsentFor(params: {
   if (params.verificationPurpose === "trusted_contact") {
     return null;
   }
-
   if (params.continuesSessionId !== undefined) {
-    const source = getSessionById(params.continuesSessionId);
-    const continues =
-      source !== null &&
-      source.channel === params.channel &&
-      source.verificationPurpose !== "trusted_contact" &&
-      source.status === "awaiting_response" &&
-      source.expiresAt > Date.now() &&
-      bindsSameIdentity(boundIdentity(source), boundIdentity(params));
-    return continues ? source.replacesGuardianAddress : null;
+    return inheritedReplaceConsent(
+      getSessionById(params.continuesSessionId),
+      params,
+      Date.now(),
+    );
   }
-
   return params.replaceGuardian
     ? guardianAddressToReplace(params.channel)
     : null;

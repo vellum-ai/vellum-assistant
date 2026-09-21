@@ -36,18 +36,15 @@ export interface RedeemedGuardianBindingParams {
   replacesGuardianAddress: string | null;
 }
 
-export type RedeemedGuardianBindingResult =
-  | { bound: true; writes: GuardianBindingGatewayWrites }
-  | { bound: false; reason: "blocked" | "replace_not_consented" };
-
 function sameAddress(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
 /**
- * Bind the sender of a redeemed guardian code as the channel's guardian.
+ * Bind the sender of a redeemed guardian code as the channel's guardian, and
+ * return the committed writes for the assistant mirror.
  *
- * Refuses, writing nothing, when:
+ * Returns null, writing nothing, when:
  *
  * - the sender's own row on the channel is blocked. The binding writer leaves
  *   a blocked row untouched without saying so, so revoking first would leave
@@ -59,7 +56,7 @@ function sameAddress(a: string, b: string): boolean {
  */
 export function applyRedeemedGuardianBinding(
   params: RedeemedGuardianBindingParams,
-): RedeemedGuardianBindingResult {
+): GuardianBindingGatewayWrites | null {
   const { channel, externalUserId, replacesGuardianAddress } = params;
 
   return getGatewayDb().transaction(() => {
@@ -68,7 +65,7 @@ export function applyRedeemedGuardianBinding(
         { channel, address: externalUserId },
         "Guardian code refused: the sender's channel is blocked",
       );
-      return { bound: false, reason: "blocked" } as const;
+      return null;
     }
 
     const otherGuardians = activeGuardianAddresses(channel).filter(
@@ -84,7 +81,7 @@ export function applyRedeemedGuardianBinding(
         { channel, sender: externalUserId, guardians: otherGuardians },
         "Guardian code refused: the channel has a guardian this code was not minted to replace",
       );
-      return { bound: false, reason: "replace_not_consented" } as const;
+      return null;
     }
 
     if (otherGuardians.length > 0) {
@@ -95,7 +92,7 @@ export function applyRedeemedGuardianBinding(
     }
 
     revokeExistingChannelGuardian(channel);
-    const writes = applyGuardianBindingGatewayWrites({
+    return applyGuardianBindingGatewayWrites({
       channel,
       externalUserId,
       deliveryChatId: params.deliveryChatId,
@@ -104,6 +101,5 @@ export function applyRedeemedGuardianBinding(
       verifiedVia: "challenge",
       reactivateRevoked: true,
     });
-    return { bound: true, writes } as const;
   });
 }

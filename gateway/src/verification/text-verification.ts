@@ -357,17 +357,17 @@ async function applyGuardianSideEffects(params: {
     ? existingContact.displayName
     : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
-  const result = applyRedeemedGuardianBinding({
+  const writes = applyRedeemedGuardianBinding({
     channel: sourceChannel,
     externalUserId: canonicalUserId,
     deliveryChatId: actorChatId,
     displayName,
     replacesGuardianAddress,
   });
-  if (!result.bound) {
+  if (writes === null) {
     return false;
   }
-  await mirrorGuardianBinding(result.writes);
+  await mirrorGuardianBinding(writes);
   return true;
 }
 

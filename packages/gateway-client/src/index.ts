@@ -197,6 +197,7 @@ export {
   ResolveBootstrapSessionIpcParamsSchema,
   bindsSameIdentity,
   boundIdentity,
+  inheritedReplaceConsent,
   RevokePendingSessionsIpcParamsSchema,
   SessionLookupIpcResponseSchema,
   SessionMutationIpcResponseSchema,

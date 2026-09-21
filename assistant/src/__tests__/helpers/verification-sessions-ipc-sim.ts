@@ -25,6 +25,7 @@ import {
   bindsSameIdentity,
   boundIdentity,
   hashVerificationSecret,
+  inheritedReplaceConsent,
   VERIFICATION_SESSIONS_IPC_METHODS,
   type VerificationSessionWire,
 } from "@vellumai/gateway-client";
@@ -335,15 +336,11 @@ function replaceConsentFor(
     return null;
   }
   if (params.continuesSessionId !== undefined) {
-    const source = sessions.get(params.continuesSessionId);
-    const continues =
-      source !== undefined &&
-      source.channel === params.channel &&
-      source.verificationPurpose !== "trusted_contact" &&
-      source.status === "awaiting_response" &&
-      source.expiresAt > Date.now() &&
-      bindsSameIdentity(boundIdentity(source), boundIdentity(params));
-    return continues ? source.replacesGuardianAddress : null;
+    return inheritedReplaceConsent(
+      sessions.get(params.continuesSessionId),
+      params,
+      Date.now(),
+    );
   }
   return params.replaceGuardian
     ? (channelGuardians.get(params.channel) ?? null)

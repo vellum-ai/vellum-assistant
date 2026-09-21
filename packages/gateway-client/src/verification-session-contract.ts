@@ -190,6 +190,32 @@ export function bindsSameIdentity(
   return a !== null && b !== null && a.field === b.field && a.value === b.value;
 }
 
+/**
+ * The replace consent a guardian code inherits from the session it continues,
+ * or null when it inherits none.
+ *
+ * A resend carries the consent of the code it replaces instead of reading the
+ * channel again: the guardian consented to replacing the guardian they were
+ * shown, which a later read could miss. The source has to be a live guardian
+ * code on the same channel bound to the same identity, so consent given for
+ * one person never moves onto another. Stated here because the gateway mint
+ * and the daemon's session simulator both have to apply it.
+ */
+export function inheritedReplaceConsent(
+  source: VerificationSessionWire | null | undefined,
+  mint: IdentityBoundSession & { channel: string },
+  now: number,
+): string | null {
+  const continues =
+    source != null &&
+    source.channel === mint.channel &&
+    source.verificationPurpose !== "trusted_contact" &&
+    source.status === "awaiting_response" &&
+    source.expiresAt > now &&
+    bindsSameIdentity(boundIdentity(source), boundIdentity(mint));
+  return continues ? source.replacesGuardianAddress : null;
+}
+
 // ---------------------------------------------------------------------------
 // IPC methods
 // ---------------------------------------------------------------------------
@@ -298,14 +324,11 @@ export const CreateOutboundSessionIpcParamsSchema = z.object({
   // Sender-scoped variant: mint unless the channel's active session is bound
   // to this expectedExternalUserId (a different sender may supersede).
   ifNoneActiveForExternalUserId: z.string().min(1).optional(),
-  // Guardian purpose only. The guardian asked to replace the channel's
-  // current guardian; the gateway records that guardian on the session
-  // (`replacesGuardianAddress`) in the same synchronous section as the mint.
+  // As on the inbound mint. Read for a guardian code only.
   replaceGuardian: z.boolean().optional(),
-  // A resend: the new code continues this live session, so it keeps that
-  // session's `replacesGuardianAddress` when both are guardian codes bound to
-  // the same identity. A session claimed through
-  // `requireSourceSessionPending` is continued the same way without this.
+  // A resend: the session this code continues (`inheritedReplaceConsent`).
+  // A session claimed through `requireSourceSessionPending` is continued
+  // without it.
   continuesSessionId: z.string().min(1).optional(),
 });
 
