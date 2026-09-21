@@ -1,10 +1,18 @@
-import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { create } from "zustand";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import * as eventBus from "@/lib/event-bus";
+import { makeEnvelope } from "@/assistant/sse-service.test-helper";
+
+// Registered before the bus is imported so the bus binds to the mock.
+const captureErrorMock = mock(() => {});
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: captureErrorMock,
+}));
+
+const eventBus = await import("@/lib/event-bus");
 
 type EventHandler = (envelope: AssistantEventEnvelope) => void;
 
@@ -20,21 +28,13 @@ const { sseService } = await import("@/assistant/sse-service");
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function makeEnvelope(seq: number): AssistantEventEnvelope {
-  return {
-    id: `evt-${seq}`,
-    seq,
-    emittedAt: new Date(0).toISOString(),
-    message: { type: "avatar_updated", avatarPath: "/tmp/avatar.png" },
-  };
-}
-
 let root: Root | null = null;
 let container: HTMLElement | null = null;
 let detach: (() => void) | null = null;
 
 beforeEach(() => {
   eventBus.__resetForTesting();
+  captureErrorMock.mockClear();
   activeOnEvent = null;
 });
 
@@ -53,8 +53,8 @@ afterEach(() => {
 // effect below leaves a default-priority update pending that cannot render
 // until that task ends, so the count climbs with every envelope and React
 // throws `Maximum update depth exceeded` from the store write after the 50th.
-// The bus catches a throwing handler and logs it, which is what this asserts
-// never happens.
+// The bus catches a throwing handler and reports it through `captureError`,
+// which is what this asserts never happens.
 test("a long run of envelopes reaches React as one commit and never trips the nested-update limit", async () => {
   const useSeqStore = create<{ seq: number }>()(() => ({ seq: 0 }));
   let renders = 0;
@@ -78,7 +78,6 @@ test("a long run of envelopes reaches React as one commit and never trips the ne
   root.render(<View />);
   await sleep(20);
 
-  const consoleError = spyOn(console, "error").mockImplementation(() => {});
   eventBus.subscribe("sse.event", (envelope) => {
     useSeqStore.setState({ seq: envelope.seq ?? 0 });
   });
@@ -91,12 +90,7 @@ test("a long run of envelopes reaches React as one commit and never trips the ne
   }
   await sleep(50);
 
-  const handlerThrows = consoleError.mock.calls.filter(
-    ([label]) => label === "[event-bus] handler threw",
-  );
-  consoleError.mockRestore();
-
-  expect(handlerThrows).toEqual([]);
+  expect(captureErrorMock).not.toHaveBeenCalled();
   expect(container.textContent).toBe("300:300");
   // One commit for the run and one for the effect's follow-up.
   expect(renders - rendersBefore).toBeLessThanOrEqual(3);

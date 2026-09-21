@@ -109,7 +109,11 @@ export function ListRow({
           {title}
         </span>
         {subtitle != null ? (
-          <span className="min-w-0 text-label-small-default text-[var(--content-tertiary)]">
+          // `leading-4` because the label token ships `line-height: 1`, which
+          // runs a subtitle's wrapped lines into each other and clips glyph
+          // tails. The token's size and weight still apply; `SectionLabel`
+          // gives the same token the same line height.
+          <span className="min-w-0 text-label-small-default leading-4 text-[var(--content-tertiary)]">
             {subtitle}
           </span>
         ) : null}

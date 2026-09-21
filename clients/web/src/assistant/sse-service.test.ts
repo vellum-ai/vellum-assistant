@@ -10,6 +10,7 @@ import {
 } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { makeEnvelope } from "@/assistant/sse-service.test-helper";
 import * as eventBus from "@/lib/event-bus";
 import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 import { useSSEConnectedStore } from "@/stores/sse-connected-store";
@@ -88,18 +89,6 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // The service drains received envelopes from a `MessageChannel` task. A short
 // real timer is the portable way to let that task run.
 const nextTask = () => sleep(5);
-
-function makeEnvelope(seq: number): AssistantEventEnvelope {
-  return {
-    id: `evt-${seq}`,
-    seq,
-    emittedAt: new Date(0).toISOString(),
-    message: {
-      type: "avatar_updated",
-      avatarPath: "/tmp/avatar.png",
-    },
-  };
-}
 
 /** Hands envelopes to the service one per microtask, as the transport's
  *  `for await` read loop does. */
@@ -435,6 +424,30 @@ describe("sseService.attach: envelope delivery", () => {
     await nextTask();
 
     expect(publishedNames()).toEqual(["sse.event", "sse.opened"]);
+  });
+
+  test("a throw escaping publish loses only the envelope it was publishing", async () => {
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    const seen: number[] = [];
+    eventBus.subscribe("sse.event", (envelope) => {
+      seen.push(envelope.seq ?? -1);
+    });
+    // The bus catches handler errors today. This pins the queue against the
+    // day a throw gets past it: the envelopes behind the failing one stay
+    // queued and drain on the next task.
+    publishSpy.mockImplementationOnce(() => {
+      throw new Error("publish failed");
+    });
+
+    activeOnEvent!(makeEnvelope(1));
+    activeOnEvent!(makeEnvelope(2));
+    activeOnEvent!(makeEnvelope(3));
+    expect(() => activeOnError!(new Error("boom"))).toThrow("publish failed");
+    expect(seen).toEqual([]);
+
+    await nextTask();
+    expect(seen).toEqual([2, 3]);
   });
 
   test("a handler that reaches a teardown does not reorder the run in progress", async () => {

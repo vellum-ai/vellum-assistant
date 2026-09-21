@@ -1,6 +1,8 @@
 # Virtual desktop browser CLI
 
-`assistant browser --virtual-desktop` uses the browser CLI's shared operation handlers against the Chrome process owned by `DesktopSessionManager`. It requires a platform-hosted container, the `assistant-desktop` flag, completed automatic desktop installation and an identified guardian conversation. Availability is checked before starting or reusing control and after asynchronous startup; loss of the flag or installation readiness cancels active control. The first eligible browser command waits for the shared installation job, starts Chrome, and executes the original action exactly once. Cancellation and feature revocation stop the pending action while shared installation can finish for other viewers. Browser CLI requests allow ten minutes, with an eight-minute setup wait limit. Eligible web conversations receive browser guidance in the bash tool description, including the configured shell timeout; native clients retain their existing tool description. Opening the picture-in-picture panel also starts setup and shows progress automatically; failed installs retain a retry action. The persistent profile remains `data/desktop-profile`; no data migration or extension installation is required.
+`assistant browser --virtual-desktop` uses the browser CLI's shared operation handlers against the Chrome process owned by `DesktopSessionManager`. It requires a platform-hosted container, the `assistant-desktop` flag, image-provided desktop components and an identified guardian conversation. Availability is checked before starting or reusing control and after asynchronous startup; losing readiness or the feature flag cancels active control. The first eligible browser command starts Chrome and executes its action without downloading or installing dependencies. Opening the picture-in-picture panel checks readiness and starts the viewer directly. The persistent profile remains `data/desktop-profile`.
+
+The assistant Dockerfile installs desktop system packages, pinned WezTerm and pinned Google Chrome before Bun and application source. Architecture-specific SHA-256 checksums verify both downloads. Chrome is extracted to `/opt/google/chrome` without running package scripts or registering its repository. Missing components require replacing the assistant image. Runtime code only checks readiness. `POST /v1/desktop/setup` remains a read-only compatibility endpoint for released clients; current clients only use GET.
 
 Automatic browser selection in platform-hosted web conversations uses the streamed Chrome when the desktop flag is enabled and the actor is an identified guardian. The macOS and Windows apps keep their existing browser selection and fallback behavior; they use the streamed desktop only with explicit `--virtual-desktop`. Their shared renderer reports a `web` transport, so selection also reads the active turn's frozen `clientOs`; it does not change transport identity or host capability checks. Explicit `--virtual-desktop`, `--browser-mode`, `--target-client-id` and active-tab requests override the default. Existing personal-browser sessions and tab pins remain on their selected browser. Tab commands use the same streamed-browser default as page commands. `--browser-mode local` selects assistant-side Playwright, not the user's Chrome.
 
@@ -16,7 +18,7 @@ flowchart LR
   Chrome --> Stream[Existing desktop stream]
 ```
 
-The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a plain dark native title bar, minimize/maximize/close controls, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. Setup installs an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
+The Terminal dock launcher opens [WezTerm](https://wezterm.org/), with a plain dark native title bar, minimize/maximize/close controls, a new-tab button and split panes. Use Ctrl+Shift+T for a tab, Ctrl+Shift+D to split side by side, and Ctrl+Shift+E to split top and bottom. The desktop seeds an editable `data/desktop-panel/wezterm/wezterm.lua` configuration with software rendering and a dark theme. The managed launcher keeps its stable `data/desktop-panel/applications/xterm.desktop` path so existing dock pins remain valid. The image includes an exact-version, SHA-256-verified WezTerm package for Linux x64 or ARM64, plus its rendering libraries.
 
 Chrome and WezTerm use explicit desktop window classes shared with their launcher entries. The desktop session bus and Plank share `XDG_DATA_HOME` so the D-Bus-activated window matcher can resolve the generated launchers and group running windows under their pinned icons.
 
@@ -34,9 +36,9 @@ The client records key and mouse presses before dispatch. On release it opens a 
 
 `--use-active-tab` and personal browser targeting are rejected with `--virtual-desktop`. Download waiting is unsupported. Browser operations are bounded to two minutes and share the desktop lease's action budget and idle expiry.
 
-Validation: focused client tests exercise shared snapshot/click behavior, namespace isolation, stale references, target changes, cancellation and uncertain-input cleanup. Lease tests cover browser ownership, cancellation and cleanup independently of native input. The Linux smoke script exercises real Chrome, the CLI and visible pointer feedback.
+Validation: focused client tests exercise shared snapshot/click behavior, namespace isolation, stale references, target changes, cancellation and uncertain-input cleanup. Lease tests cover browser ownership, cancellation and cleanup independently of native input. The Linux smoke script exercises real Chrome, the CLI and visible pointer feedback. For image replacement coverage, run `scripts/smoke-desktop-browser-cli.ts` in two disposable containers with the same workspace volume and networking disabled from first use. Both runs require baked components to be ready before navigation and assert that no installation progress is emitted. Each run needs a temporary `ASSISTANT_IPC_SOCKET_DIR`.
 
-The desktop header icon pulses in the assistant's avatar accent color while a browser automation lease is active, including between browser commands. It shares the progress indicator's accent and neutral fallback. Reduced-motion clients show a solid accent. Setup status exposes the optional `automationActive` field; `desktop_activity_changed` events refresh it on acquisition and cancellation or release. Installation progress retains its `assistant:self:desktop` sync invalidations. The indicator reads status without starting installation, and reconnects refetch the current lease state.
+The desktop header icon pulses in the assistant's avatar accent color while a browser automation lease is active, including between browser commands. It shares the progress indicator's accent and neutral fallback. Reduced-motion clients show a solid accent. Setup status exposes the optional `automationActive` field; `desktop_activity_changed` events refresh it on acquisition and cancellation or release. The indicator reads status, and reconnects refetch the current lease state.
 
 Desktop streaming checks the current in-memory gateway feature flags during connection startup. Once connected, frame and drain callbacks do not check feature flags or load workspace configuration. Turning the flag off prevents new connections; an existing stream continues until it closes or the desktop stops.
 
@@ -50,8 +52,10 @@ Non-platform assistants keep their connected-computer behavior.
 
 Explicit `target: "connected-computer"` or `target_client_id` selects a connected
 computer on every client. The selected target never falls back to another
-computer when unavailable. Virtual desktop observations return full-screen
-screenshots and mouse actions use screen coordinates.
+computer when unavailable. The virtual desktop uses a fixed 1440x810 display.
+Observations return full-screen screenshots and mouse actions use the same
+screen coordinates.
+Viewer resizing scales the canvas locally without changing the desktop layout.
 
 Observe first and pass the returned `observation_id` with each native action.
 Browser commands, user handoff, errors, and interruption require a fresh

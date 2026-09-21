@@ -160,8 +160,8 @@ function SeededPanel({
     useOrganizationStore.setState({ persistedOrganizationId: "org_storybook" });
     // The usage panel withholds both of its readings until the BYOK route
     // classifier settles, and that classifier asks nothing at all without a
-    // resolved assistant. Left unseeded, every story below renders the
-    // neutral pre-settle bar instead of the state it documents.
+    // resolved assistant. Left unseeded, a spent story renders its empty
+    // pre-settle slot instead of the state it documents.
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(STORY_ASSISTANT_ID);

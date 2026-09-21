@@ -99,6 +99,7 @@ export function ToolDetailBody({
 }) {
   const liveTc = useLiveToolCall(source, detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
+  const activityMetadata = liveTc?.activityMetadata ?? detail.activityMetadata;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
   const isRunning = liveTc
@@ -141,6 +142,7 @@ export function ToolDetailBody({
         <renderer.Component
           detail={detail}
           result={result}
+          activityMetadata={activityMetadata}
           streamedOutput={streamedOutput}
           isRunning={isRunning}
           isError={isError}

@@ -13,6 +13,7 @@
  */
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ChevronDown, SwitchCamera } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -23,6 +24,7 @@ import {
 import type { FlashMode } from "@/stores/voice-prefs-store";
 
 import { CameraFlashControl, nextFlashMode } from "./camera-flash-control";
+import { VoiceRoomControl } from "./voice-room-control";
 
 /** The accessible name each state carries, mirroring the room's catalog copy. */
 const LABELS: Record<FlashMode, string> = {
@@ -50,10 +52,21 @@ type Story = StoryObj<typeof CameraFlashControl>;
  * between two outlines.
  */
 export const States: Story = {
-  render: () => (
+  render: () => <FlashStateCells />,
+};
+
+/**
+ * The three states as captioned cells. `captionPrefix` names them apart where
+ * other controls stand beside them.
+ */
+function FlashStateCells({ captionPrefix }: { captionPrefix?: string }) {
+  return (
     <>
       {ORDER.map((mode) => (
-        <ToneCell key={mode} caption={mode}>
+        <ToneCell
+          key={mode}
+          caption={captionPrefix ? `${captionPrefix} ${mode}` : mode}
+        >
           <CameraFlashControl
             mode={mode}
             ariaLabel={LABELS[mode]}
@@ -63,8 +76,8 @@ export const States: Story = {
         </ToneCell>
       ))}
     </>
-  ),
-};
+  );
+}
 
 /**
  * The order, pressable. Off, auto, on, off. Auto sits in the middle because it
@@ -90,11 +103,35 @@ function CycleScene() {
 }
 
 /**
- * Where it actually sits: left of the shutter, opposite flip. Not rendered at
- * all on the browser fallback path or on a native camera whose probe came back
- * without a capture-flash mode, which is most front cameras. There is no
- * disabled state to look at here on purpose. A control that cannot do anything
- * is a control the user has to press to discover that.
+ * One set. The flash is an element of its own, and the read to check is
+ * that nothing on screen says so: beside flip and a corner control it is
+ * the same circle in all three states, around the same 20px glyph.
+ */
+export const WithTheRoomControls: Story = {
+  render: () => (
+    <>
+      <FlashStateCells captionPrefix="flash" />
+      <ToneCell caption="flip">
+        <VoiceRoomControl label="Flip camera" surface="camera">
+          <SwitchCamera className="size-5" />
+        </VoiceRoomControl>
+      </ToneCell>
+      <ToneCell caption="minimize">
+        <VoiceRoomControl label="Minimize voice room" surface="camera" bare>
+          <ChevronDown className="size-5" />
+        </VoiceRoomControl>
+      </ToneCell>
+    </>
+  ),
+};
+
+/**
+ * Where it actually sits: left of the shutter, flip's mirror image on the
+ * other side: the same circle, the same distance in from its edge. Not
+ * rendered at all on the browser fallback path or on a native camera whose
+ * probe came back without a capture-flash mode, which is most front cameras.
+ * There is no disabled state to look at here on purpose. A control that cannot
+ * do anything is a control the user has to press to discover that.
  */
 export const InTheShutterRow: Story = {
   render: () => (

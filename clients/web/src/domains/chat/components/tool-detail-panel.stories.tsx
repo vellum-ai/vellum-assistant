@@ -23,6 +23,8 @@ import {
   mcpSqlDetail,
   minimalDetail,
   recallDetail,
+  recallNothingFoundDetail,
+  recallTextOnlyDetail,
   recordListDetail,
   rememberDetail,
   riskVariant,
@@ -215,11 +217,25 @@ export const MinimalOutput: Story = { args: { detail: minimalDetail } };
 // Memory and search
 // ---------------------------------------------------------------------------
 
-/** `remember`. Full section chrome around a one-line acknowledgement. */
+/** `remember`: the facts it saved, as a list under whether they were saved. */
 export const Remember: Story = { args: { detail: rememberDetail } };
 
-/** `recall`. A ranked result list flattened into preformatted text. */
+/**
+ * `recall`: what it searched for and where, the answer, and the evidence the
+ * answer stands on.
+ */
 export const Recall: Story = { args: { detail: recallDetail } };
+
+/**
+ * `recall` from history recorded before it reported a structured result. Its
+ * text reads as the markdown it was written as.
+ */
+export const RecallTextOnly: Story = { args: { detail: recallTextOnlyDetail } };
+
+/** `recall` that found nothing, and says which place it could not search. */
+export const RecallNothingFound: Story = {
+  args: { detail: recallNothingFoundDetail },
+};
 
 /** `code_search`, the widest native input shape. */
 export const CodeSearch: Story = { args: { detail: codeSearchDetail } };

@@ -1,13 +1,12 @@
 /**
  * The voice room's shared layout vocabulary: the device insets every surface
- * in it clears, the vertical zones its text sits in, and the corner offsets
- * and camera band its chrome hangs off.
+ * in it clears, the vertical zones its text sits in, the corner offsets and
+ * camera band its chrome hangs off, and the circle its round controls take.
  *
  * One home for these because two implementations draw the room: `voice-room.tsx`
  * over a live session, and the Storybook scenes that stand the same chrome up
- * over a still frame. An offset written twice is an offset that drifts the
- * first time one of them is retuned, and the story is where the layout is
- * reviewed.
+ * over a still frame. A value written twice is a value that drifts the first
+ * time one of them is retuned, and the story is where the layout is reviewed.
  *
  * ## Vertical zones for the room's text surfaces
  *
@@ -108,14 +107,15 @@ export const VOICE_ROOM_CORNER_RIGHT = `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_ARE
  * without a bound the pill runs under that chrome and off a phone-width room.
  *
  * ONE reserve, taken off both edges: the deepest of the room's corner offset
- * and the two safe-area insets, plus the 3.25rem control a corner holds, plus
- * the 0.5rem gap the pill and that control never close. Each corner holds a
- * single control, so one control's width covers both, and one value covers
- * both sides because a display cutout is not symmetric: a reserve computed per
- * side would differ by the difference between the insets and carry the pill
- * half that far off the room's centre line, which is the line the eye reads it
- * against. The corner controls still hug their own side's inset, so the
- * shallow side gets more clearance than it strictly needs.
+ * and the two safe-area insets, plus the 3.25rem control a corner holds
+ * ({@link VOICE_ROOM_CONTROL_SIZE_CLASS}), plus the 0.5rem gap the pill and
+ * that control never close. Each corner holds a single control, so one
+ * control's width covers both, and one value covers both sides because a
+ * display cutout is not symmetric: a reserve computed per side would differ by
+ * the difference between the insets and carry the pill half that far off the
+ * room's centre line, which is the line the eye reads it against. The corner
+ * controls still hug their own side's inset, so the shallow side gets more
+ * clearance than it strictly needs.
  *
  * The pill's floor survives both ends of that. A 320pt portrait room has no
  * side insets to deepen the reserve, and the landscape rooms where the insets
@@ -124,3 +124,26 @@ export const VOICE_ROOM_CORNER_RIGHT = `max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_ARE
  * the ceiling the band gives it rather than overhanging a corner.
  */
 export const CAMERA_PILL_INSET = `calc(max(${VOICE_ROOM_CORNER_GAP}, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT}) + 3.75rem)`;
+
+/**
+ * How far in from its own edge each flank of the voice room's shutter row
+ * sits: flash on the left, flip on the right. One value read by both, so the
+ * pair is a mirror image around the shutter. The row publishes it as
+ * `--camera-flank-inset` and each flank takes it off its own side.
+ *
+ * 30px, or the deeper of the two side safe-area insets where a landscape
+ * cutout reaches further in than that. px because that is the unit the design
+ * measures this pair in. The same value on both sides for the reason
+ * {@link CAMERA_PILL_INSET} spells out: a cutout is not symmetric, and the
+ * flanks are read against each other.
+ */
+export const CAMERA_ROW_FLANK_INSET = `max(30px, ${SAFE_AREA_LEFT}, ${SAFE_AREA_RIGHT})`;
+
+/**
+ * The circle every round control in the room is drawn at: 52px, in every
+ * state, the same 3.25rem the pill's band reserves in
+ * {@link CAMERA_PILL_INSET}. The row is the same one whether or not the
+ * viewfinder is up, and a control that resized as the camera opened would move
+ * out from under a thumb already on its way to it.
+ */
+export const VOICE_ROOM_CONTROL_SIZE_CLASS = "size-13";

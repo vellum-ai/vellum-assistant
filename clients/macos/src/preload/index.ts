@@ -638,6 +638,9 @@ const bridge: VellumBridge = {
     setFrameScrolling: (scrolling: boolean): void => {
       ipcRenderer.send("vellum:companion:setFrameScrolling", scrolling);
     },
+    frameDrawn: (): void => {
+      ipcRenderer.send("vellum:companion:frameDrawn");
+    },
     sharedFrame: (target: WatchCaptureTarget): void => {
       ipcRenderer.send("vellum:companion:sharedFrame", target);
     },

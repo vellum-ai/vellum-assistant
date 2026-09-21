@@ -1097,12 +1097,21 @@ body, a response shape, an enum from the schema. The generated types in
 fields like a blob `previewUrl`). A hand-written copy silently drifts
 from the wire the moment the schema changes.
 
+`src/generated/` covers what the HTTP routes carry. A wire shape no route
+declares, such as a conversation stream event and the shapes nested in it,
+comes from `@vellumai/assistant-api` instead: the zod schemas in
+`assistant/src/api`, served to the web as source (see `AGENTS.md`). The two
+share one origin, since a route whose `responseBody` embeds one of those
+schemas reaches `src/generated/` through the OpenAPI spec. Import the value
+from whichever of the two carries it, never a copy of either.
+
 If a type is **missing or wrong**, the fix is at the schema, not in the
 client: add or correct the route's `responseBody` (the daemon routes in
 `assistant/src/runtime/routes/*` declare zod `responseBody` schemas that
 drive the OpenAPI spec) and regenerate — do **not** paper over it with a
 hand-rolled type. A missing response-body schema is the usual reason a
-type isn't generated.
+type isn't generated. For a shape from `@vellumai/assistant-api`, the fix
+is its schema in `assistant/src/api`.
 
 ```ts
 // Good — derive the client view-model from the generated shape

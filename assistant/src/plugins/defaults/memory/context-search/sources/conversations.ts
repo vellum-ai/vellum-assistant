@@ -181,6 +181,7 @@ export async function searchConversationSource(
         metadata: {
           role: row.role,
           conversationId: row.conversation_id,
+          messageId: row.message_id,
         },
       })),
     ),

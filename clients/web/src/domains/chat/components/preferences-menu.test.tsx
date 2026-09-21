@@ -578,6 +578,16 @@ describe("PreferencesMenu", () => {
     ).toBeTruthy();
   });
 
+  test("asks for the usage reading before the menu is opened", () => {
+    render(<PreferencesMenu activeConversationId="conv-7" />);
+
+    // The panel and the credits row only mount with the menu, so a reading
+    // asked for from inside it starts cold on the first open. The trigger is
+    // mounted with the sidebar, so asking from here means the requests run
+    // while the app loads and the menu opens onto answers.
+    expect(usageRef.opts).toEqual({ conversationId: "conv-7" });
+  });
+
   test("the open conversation reaches both readings of the usage", async () => {
     await openMenu({ activeConversationId: "conv-7" });
 

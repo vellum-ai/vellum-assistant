@@ -43,12 +43,13 @@ export function PreferencesUsagePanel({
   // extra usage credits in the bar's place. An empty wallet keeps the red
   // reading whether or not the BYOK-aware `exhausted` raises the strip below.
   const { spent, exhausted, usingExtraCredits } = usage;
-  // The bar's length comes off the summary alone, so it is drawn as soon as
-  // there is a ratio. Which of the two readings it means is a separate
-  // question answered by queries that land later, and painting an alarm
-  // colour before they do would make the panel flash red on its way to a
-  // state that was never alarming. Neutral until then: honest at 100%, and
-  // the one thing that cannot be wrong.
+  // Below 100% the neutral bar is the reading the panel settles on, so its
+  // length comes off the summary alone and it is drawn as soon as there is a
+  // ratio. At 100% the settled panel is either the amber line or the red bar,
+  // both answered by queries that land later, so the slot stays empty until
+  // the classification arrives rather than filling with a full neutral bar
+  // that nothing settles on.
+  const showsBar = !spent || settled;
   const alarming = settled && spent && !usingExtraCredits;
 
   return (
@@ -100,7 +101,7 @@ export function PreferencesUsagePanel({
             >
               {t("preferencesUsagePanel.extraCredits")}
             </Typography>
-          ) : (
+          ) : showsBar ? (
             <ProgressBar
               value={usage.ratio}
               height={10}
@@ -108,7 +109,7 @@ export function PreferencesUsagePanel({
               fillColor={alarming ? "var(--system-negative-strong)" : undefined}
               className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
             />
-          )}
+          ) : null}
         </div>
       </div>
       {exhausted ? (

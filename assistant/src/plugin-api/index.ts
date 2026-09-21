@@ -410,6 +410,16 @@ export { persistSystemCard } from "./system-card.js";
 // what makes that true. Host tools and plugin tools share this one guard.
 export type { CancellableToolContext } from "./tool-cancellation.js";
 export { throwIfCancelled } from "./tool-cancellation.js";
+// Tool input from a Zod schema: derive the advertised `input_schema` from the
+// schema the tool parses its input with, so what the model is told and what
+// the tool accepts share one source. The host validates built-in tools'
+// input centrally; a plugin tool parses its own, and answers a failed parse
+// with `invalidToolInputResult` so its message reads the same as the host's.
+export {
+  invalidToolInputResult,
+  nullAsOmitted,
+  toToolInputSchema,
+} from "../tools/shared/zod-tool-schema.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing
