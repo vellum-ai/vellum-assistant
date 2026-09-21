@@ -139,6 +139,13 @@ export const RecallEvidenceItemSchema = z.object({
   /** The excerpt, collapsed to one line and cut to a few hundred characters. */
   excerpt: z.string(),
   timestampMs: z.number().optional(),
+  /**
+   * The workspace-relative file the item was found in, for a workspace file or
+   * a memory page, so a client can open it.
+   */
+  path: z.string().optional(),
+  /** The conversation the item was found in, so a client can open it. */
+  conversationId: z.string().optional(),
 });
 
 export type RecallEvidenceItem = z.infer<typeof RecallEvidenceItemSchema>;

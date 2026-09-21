@@ -1039,6 +1039,49 @@ describe("runAgenticRecall activity", () => {
     ]);
   });
 
+  test("carries the file or conversation each item was found in", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace", "conversations"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              "launch notes": [
+                makeEvidence("workspace:launch", {
+                  metadata: { path: "notes/launch.md", lineNumber: 4 },
+                }),
+                makeEvidence("workspace:unreadable", {
+                  metadata: { path: "notes/gone.md", inspectError: true },
+                }),
+              ],
+            }),
+            makeAdapter(
+              {
+                "launch notes": [
+                  makeEvidence("conversations:c1:m1", {
+                    source: "conversations",
+                    metadata: { conversationId: "c1", role: "user" },
+                  }),
+                ],
+              },
+              [],
+              "conversations",
+            ),
+          ],
+        },
+      },
+    );
+
+    const byTitle = Object.fromEntries(
+      result.activity.evidence.map((item) => [item.title, item]),
+    );
+    expect(byTitle["workspace:launch title"]?.path).toBe("notes/launch.md");
+    expect(byTitle["workspace:unreadable title"]?.path).toBeUndefined();
+    expect(byTitle["conversations:c1:m1 title"]?.conversationId).toBe("c1");
+    expect(byTitle["conversations:c1:m1 title"]?.path).toBeUndefined();
+  });
+
   test("reports a degraded source and no evidence when nothing is found", async () => {
     const result = await runAgenticRecall(
       { query: "launch notes", sources: ["workspace"] },

@@ -75,15 +75,23 @@ export function buildRecallActivity(options: {
     depth: options.input.depth,
     sources: [...options.input.sources],
     ...(answer ? { answer } : {}),
-    evidence: options.evidence.map((item) => ({
-      source: item.source,
-      title: item.title,
-      locator: item.locator,
-      excerpt: compactText(item.excerpt, CITATION_EXCERPT_MAX_CHARS),
-      ...(item.timestampMs !== undefined
-        ? { timestampMs: item.timestampMs }
-        : {}),
-    })),
+    evidence: options.evidence.map((item) => {
+      // A path recall could not read is not one a client can open.
+      const path =
+        item.metadata?.inspectError === true ? undefined : item.metadata?.path;
+      const conversationId = item.metadata?.conversationId;
+      return {
+        source: item.source,
+        title: item.title,
+        locator: item.locator,
+        excerpt: compactText(item.excerpt, CITATION_EXCERPT_MAX_CHARS),
+        ...(item.timestampMs !== undefined
+          ? { timestampMs: item.timestampMs }
+          : {}),
+        ...(typeof path === "string" ? { path } : {}),
+        ...(typeof conversationId === "string" ? { conversationId } : {}),
+      };
+    }),
     searchedSources: [...options.searchedSources],
   };
 }
