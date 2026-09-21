@@ -3253,6 +3253,27 @@ describe("the watch session main relays", () => {
   });
 
   /**
+   * Presses of a call's shortcut, which the three call beats' chips answer.
+   * The chord reaches only the window that armed it, so this count and the
+   * control it names are the surface's only evidence of one.
+   */
+  test("carries the shortcut presses and their control into pushed state", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ introChordPresses: 2, introChordControl: "draw" }),
+    );
+    expect(state().introChordPresses).toBe(2);
+    expect(state().introChordControl).toBe("draw");
+  });
+
+  /** A publisher that reports no presses has heard none, and names nothing. */
+  test("reads a context with no shortcut presses as none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().introChordPresses).toBe(0);
+    expect(state().introChordControl).toBeUndefined();
+  });
+
+  /**
    * One channel carries the whole snapshot, so a context that flips watching is
    * a single push. Pushing the fact separately from the context it arrived with
    * would send the surface two states for one publish, the first of them stale.
@@ -5934,6 +5955,124 @@ describe("companion window: pointing at what is shared", () => {
  * neither renderer. The app's own window carries the reports out, so what these
  * cases watch is what main sends it.
  */
+/**
+ * Which chord the run is asking the app's window to listen for.
+ *
+ * Three beats draw a call control beside the shortcut that reaches it, and the
+ * chip on that card lights when the real keys are pressed. Only the app's
+ * window can hear a chord, and only main knows which beat is up, so main says
+ * when a card is asking and for what. It matters more than a push usually
+ * would: while the binding is armed the host takes Option+S, so a beat named
+ * here that is not on screen is a key taken out of the user's own editor.
+ */
+describe("the chord the introduction asks for", () => {
+  /** Every control main has named for the app's window, most recent last. */
+  const asked = (): (string | null)[] =>
+    mainSends
+      .filter((sent) => sent.channel === "vellum:companion:introChord")
+      .map((sent) => sent.payload as string | null);
+
+  /** What a window mounting mid-run pulls, which is the beat rather than the push. */
+  const introChord = (): string | null => {
+    const pull = invocable.get("vellum:companion:getIntroChord");
+    if (!pull) {
+      throw new Error("No handler registered for vellum:companion:getIntroChord");
+    }
+    return pull([]) as string | null;
+  };
+
+  /** An install owed a run, with the surface reaching the screen. */
+  const startIntro = (): void => {
+    introSeen = 0;
+    companionOpen = false;
+    openCompanionWindow();
+    mainSends.length = 0;
+  };
+
+  /** Walk the run forward, which is what the card's Next does. */
+  const walk = (steps: number): void => {
+    for (let i = 0; i < steps; i++) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+  };
+
+  afterEach(() => {
+    // Ended through the tray's own path, the way the reports' cases end theirs:
+    // main holds the beat across a window closing, so only an answer to the
+    // introduction clears it.
+    setCompanionSurfaceVisible(false);
+    takeReports();
+    mainSends.length = 0;
+  });
+
+  /** Five of the eight beats draw no control, and the run opens on one of them. */
+  test("asks for nothing on a beat that draws no control", () => {
+    startIntro();
+
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([]);
+  });
+
+  test("names the control once the run reaches a beat that draws one", () => {
+    startIntro();
+
+    // idle, meet, talk, key, and then the first of the call's three.
+    walk(4);
+
+    expect(state().intro).toBe("share");
+    expect(introChord()).toBe("share");
+    expect(asked()).toEqual(["share"]);
+  });
+
+  /**
+   * One push per change rather than one per press. The beat moves on every
+   * Next and this answer moves four times in a whole run, and each move of it
+   * arms or releases a binding out on the desktop.
+   */
+  test("says nothing walking between beats that ask for nothing", () => {
+    startIntro();
+
+    walk(3);
+
+    expect(state().intro).toBe("key");
+    expect(asked()).toEqual([]);
+  });
+
+  test("names each of the three in turn", () => {
+    startIntro();
+
+    walk(6);
+
+    expect(state().intro).toBe("mute");
+    expect(asked()).toEqual(["share", "draw", "mute"]);
+  });
+
+  /** The last of the three is walked off onto the offer, which asks for none. */
+  test("gives the key back when the run walks off the last of them", () => {
+    startIntro();
+    walk(6);
+    mainSends.length = 0;
+
+    walk(1);
+
+    expect(state().intro).toBe("try");
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([null]);
+  });
+
+  /** A run refused mid-beat is a binding nobody is left to release. */
+  test("gives the key back when the run is dismissed on one of them", () => {
+    startIntro();
+    walk(4);
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([null]);
+  });
+});
+
 describe("the introduction's reports", () => {
   /** Every report main has handed the app's window, most recent last. */
   const reports = (): CompanionIntroReport[] =>

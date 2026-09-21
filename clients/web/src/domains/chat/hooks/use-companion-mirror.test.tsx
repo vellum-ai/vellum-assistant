@@ -111,6 +111,8 @@ const { offerSurfaceToCompanion, useCompanionPopoverStore } =
   await import("@/domains/chat/companion-popover");
 const { useVoiceKeyTapStore } =
   await import("@/domains/chat/voice/voice-key-tap-store");
+const { useIntroCallChordStore } =
+  await import("@/domains/chat/voice/intro-call-chord-store");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -889,5 +891,45 @@ describe("the tap count the companion mirror publishes", () => {
     // it, so this store never hears about it and neither does the surface.
     expect(published.length).toBe(pushes);
     expect(latest().voiceKeyTaps).toBe(useVoiceKeyTapStore.getState().taps);
+  });
+});
+
+/**
+ * The presses of a call's shortcut reach the surface the same way, and for the
+ * same reason: the chord is heard by the window that armed it, and the card
+ * drawing that chord is a different renderer.
+ *
+ * The control travels with the count. A count alone says a chord was pressed
+ * and not which one, and the run walks between cards while a press is still
+ * crossing.
+ */
+describe("the shortcut presses the companion mirror publishes", () => {
+  test("publishes the press and the control it was for", async () => {
+    render(<Mirror />);
+    const before = latest().introChordPresses ?? 0;
+
+    act(() => {
+      useIntroCallChordStore.getState().countPress("draw");
+    });
+
+    await waitFor(() => {
+      expect(latest().introChordPresses).toBe(before + 1);
+      expect(latest().introChordControl).toBe("draw");
+    });
+  });
+
+  /**
+   * Nothing is armed to hear one of these outside the three beats that ask
+   * for it, so a store standing still is the resting state of every window
+   * that is not in a run.
+   */
+  test("publishes nothing while no press has been made", () => {
+    render(<Mirror />);
+    const pushes = published.length;
+
+    expect(published.length).toBe(pushes);
+    expect(latest().introChordPresses).toBe(
+      useIntroCallChordStore.getState().presses,
+    );
   });
 });

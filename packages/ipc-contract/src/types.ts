@@ -2321,6 +2321,43 @@ export interface CompanionContext {
    * reports no taps has reported none.
    */
   voiceKeyTaps?: number;
+  /**
+   * Presses of a call shortcut made while the introduction was asking for one,
+   * counted by the window that armed it, since the publishing window loaded.
+   *
+   * The same errand `voiceKeyTaps` runs, for the other half of the run. Three
+   * of its beats draw a call control beside the chord that reaches it, and a
+   * chord reaches only the window that armed the binding, which is never the
+   * surface's. So the press is counted here and the card is told.
+   *
+   * Counted only while one of those beats is up, which is also the only time
+   * anything is armed to hear a press: the binding takes Option+S off the
+   * desktop while it is up, so it is held for exactly as long as a card is
+   * asking for it. Nothing acts on the press. The beat draws a demonstration
+   * rather than a call, so the chord lights the card and does nothing else,
+   * exactly as a tap of the voice key does.
+   *
+   * A running count rather than an event, for the reason `voiceKeyTaps` is: a
+   * number that goes up is the only shape that survives the crossing and still
+   * says "that was another one" to a renderer repainting on its own schedule.
+   *
+   * Optional and defaulted, the bargain `captureCount` makes.
+   */
+  introChordPresses?: number;
+  /**
+   * Which control the last of those presses was for, while there has been one.
+   *
+   * Published with the count rather than beside it, the way `captureTarget`
+   * travels with `captureCount`: the two are one fact about one press, and a
+   * count that arrived a push apart from the control it belongs to would light
+   * a chip for a chord the user pressed on some other card. The card reads it
+   * as the press's address and ignores a step in the count that is not for the
+   * beat it is drawing.
+   *
+   * Absent until a press has been made, which is a publisher that has counted
+   * none.
+   */
+  introChordControl?: CompanionIntroCallControl;
 }
 
 /**
@@ -2408,6 +2445,29 @@ export const COMPANION_INTRO_BEATS = [
 ] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
+
+/**
+ * The beats that draw a call control beside the key that reaches it.
+ *
+ * Each of these cards says the same thing twice over: here is the button on the
+ * pill, and here is the shortcut for it. A beat named here is a beat whose card
+ * is asking for a chord, which is what makes it worth taking that chord off the
+ * desktop for as long as the card is up and worth nothing at all the rest of
+ * the time.
+ *
+ * The names are the beats' own, because the control and the beat about it are
+ * one thing: a reader with one can light the other without a table in between.
+ * Asserted against the beats so a beat renamed cannot leave a control pointing
+ * at a card that no longer exists.
+ */
+export const COMPANION_INTRO_CALL_CONTROLS = [
+  "share",
+  "draw",
+  "mute",
+] as const satisfies readonly CompanionIntroBeat[];
+
+export type CompanionIntroCallControl =
+  (typeof COMPANION_INTRO_CALL_CONTROLS)[number];
 
 /**
  * Which introduction this is, counted up whenever the run is rewritten enough
@@ -2881,6 +2941,29 @@ export interface CompanionSurfaceState {
    * {@link CompanionSurfaceState.captureCount} makes with absence.
    */
   voiceKeyTaps?: number;
+  /**
+   * Presses of a call shortcut, counted by the window that armed the binding
+   * while the introduction was asking for one. See
+   * {@link CompanionContext.introChordPresses}.
+   *
+   * What the three call beats' shortcut chips answer with: the card draws the
+   * chord beside the button it belongs to, and a step in this number is the
+   * only evidence this window has that the user pressed it. Outside those
+   * beats nothing is armed, so nothing steps it.
+   *
+   * Optional, and absence reads as no presses, the bargain
+   * {@link CompanionSurfaceState.captureCount} makes.
+   */
+  introChordPresses?: number;
+  /**
+   * Which control that last press was for. See
+   * {@link CompanionContext.introChordControl}.
+   *
+   * Carried with the count because a count alone cannot say which card it
+   * answers: a press still crossing when the run walked on would otherwise
+   * light the next card's chip for a chord made on the last one.
+   */
+  introChordControl?: CompanionIntroCallControl;
 }
 
 // ---------------------------------------------------------------------------

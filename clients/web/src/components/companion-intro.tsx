@@ -7,6 +7,7 @@ import {
 import type {
   CompanionIntroAction,
   CompanionIntroBeat,
+  CompanionIntroCallControl,
 } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 import { useEffect, useState } from "react";
@@ -160,21 +161,23 @@ const INTRO_COPY_KEYS = {
 >;
 
 /**
- * Which control on the pill the beat is about, drawn as though the pointer were
- * on it: its name and its key are revealed and the rest of the bar dims, so the
- * sentence on the card has the one thing it names lit beside it.
+ * Which call control a beat is about, where it is about one.
  *
  * One beat, one control, which is why each of the call's three has a beat. The
  * rest have none: `idle` and `meet` are the surface itself, and the Talk beats
  * and the closing offer point at the creature by walking it into the card
  * instead.
  *
- * Shared with the page and the stories so a beat cannot be introduced in one
- * place and spotlighted in another.
+ * The beats are named after their controls, so this is a narrowing rather than
+ * a lookup, and that is the point of it: the card, the spotlight on the pill
+ * and the chord armed on the keyboard all address the same control by the same
+ * name, and none of them needs a table to get from the beat to it. It is also
+ * how a press crossing from another window says which card it answers
+ * (`CompanionSurfaceState.introChordControl`).
  */
-export const introSpotlight = (
+export const introCallControl = (
   beat: CompanionIntroBeat | null,
-): CompanionSurfaceSpotlight | undefined => {
+): CompanionIntroCallControl | undefined => {
   switch (beat) {
     case "share":
     case "draw":
@@ -184,6 +187,20 @@ export const introSpotlight = (
       return undefined;
   }
 };
+
+/**
+ * Which control on the pill the beat is about, drawn as though the pointer were
+ * on it: its name and its key are revealed and the rest of the bar dims, so the
+ * sentence on the card has the one thing it names lit beside it.
+ *
+ * The beats that light one are the beats that are about one, so this is
+ * {@link introCallControl} under the name the surface reads it by. Shared with
+ * the page and the stories so a beat cannot be introduced in one place and
+ * spotlighted in another.
+ */
+export const introSpotlight = (
+  beat: CompanionIntroBeat | null,
+): CompanionSurfaceSpotlight | undefined => introCallControl(beat);
 
 /**
  * The session the `call` beat draws the pill around: a call that is not
@@ -358,6 +375,20 @@ export interface CompanionIntroProps {
    * card cares about is how much of it arrived while the beat was up.
    */
   voiceKeyTaps?: number;
+  /**
+   * How many of the call's shortcuts have been pressed while a run was asking
+   * for one, counted by the window that armed the binding, and which control
+   * the last of them was for.
+   *
+   * The other half of {@link voiceKeyTaps}, for the three beats that draw a
+   * call control beside its chord: those presses reach only that window, so
+   * this card is told about them rather than seeing them. A running count for
+   * the reason the taps are one, and the control beside it because a count
+   * alone cannot say which card it answers (see
+   * `CompanionSurfaceState.introChordControl`).
+   */
+  chordPresses?: number;
+  chordControl?: CompanionIntroCallControl;
 }
 
 export function CompanionIntro({
@@ -373,6 +404,8 @@ export function CompanionIntro({
   micGranted,
   greeted = false,
   voiceKeyTaps = 0,
+  chordPresses = 0,
+  chordControl,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
@@ -382,10 +415,9 @@ export function CompanionIntro({
   /** Which subject the run is in, which is what the dots draw. */
   const group = COMPANION_INTRO_BEAT_GROUPS[beat];
   /** The control on the pill this beat is about, where it is about one. */
+  const controlOfBeat = introCallControl(beat);
   const control: { icon: ReactNode; shortcut: string } | undefined =
-    beat === "share" || beat === "draw" || beat === "mute"
-      ? BEAT_CONTROLS[beat]
-      : undefined;
+    controlOfBeat === undefined ? undefined : BEAT_CONTROLS[controlOfBeat];
   /**
    * Whether the drawn keycap has been clicked with the pointer, which is the
    * one thing on that beat the user can do that the beat is not asking for.
@@ -438,10 +470,15 @@ export function CompanionIntro({
    * instead of the old beat's reading corrected a frame later.
    */
   const [tapsBeforeBeat, setTapsBeforeBeat] = useState(voiceKeyTaps);
-  const [beatOfTaps, setBeatOfTaps] = useState<CompanionIntroBeat>(beat);
-  if (beatOfTaps !== beat) {
-    setBeatOfTaps(beat);
+  // The same, for the chord the call beats ask for. One sentinel for both,
+  // because it is one fact: the beat changed, so everything counted from the
+  // beat starts again from here.
+  const [chordsBeforeBeat, setChordsBeforeBeat] = useState(chordPresses);
+  const [beatOfCounts, setBeatOfCounts] = useState<CompanionIntroBeat>(beat);
+  if (beatOfCounts !== beat) {
+    setBeatOfCounts(beat);
     setTapsBeforeBeat(voiceKeyTaps);
+    setChordsBeforeBeat(chordPresses);
   } else if (voiceKeyTaps < tapsBeforeBeat) {
     // **The count went backwards, so it is a different count.** It belongs to
     // another window's store, which starts again at zero when that window
@@ -456,6 +493,28 @@ export function CompanionIntro({
   // Floored as well as capped, for the render that notices either of the two
   // resets above and still holds the baseline they are replacing.
   const taps = Math.min(Math.max(voiceKeyTaps - tapsBeforeBeat, 0), 2);
+  if (chordPresses < chordsBeforeBeat) {
+    // The count went backwards, so it is another window's count. The same
+    // reading, and the same repair, as the taps above.
+    setChordsBeforeBeat(chordPresses);
+  }
+  /**
+   * Whether the shortcut this beat draws has been pressed on this beat.
+   *
+   * **Both halves are load-bearing.** The count says a press happened and the
+   * control says which chord it was: a press made on the beat before, still
+   * crossing when the run walked on, arrives here as a step in the count that
+   * belongs to a different card, and lighting this chip with it would be
+   * answering a key nobody pressed on this one. The beats are named after
+   * their controls, so the address is the beat.
+   *
+   * One press rather than two. The cap asks for a double tap and has a look
+   * per press; a chord is one press and is either made or not.
+   */
+  const shortcutPressed =
+    controlOfBeat !== undefined &&
+    chordControl === controlOfBeat &&
+    chordPresses > chordsBeforeBeat;
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
@@ -698,7 +757,22 @@ export function CompanionIntro({
               </span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
-              <span className="flex h-10 items-center rounded-xl border border-white/15 bg-white/10 px-3 text-[13px] font-medium text-white/85">
+              {/* **It answers the real keys, and lights for nothing else.**
+                  The chord is armed for as long as this beat is up and for no
+                  longer, and a press of it does nothing but reach this chip:
+                  the pill beside the card is a drawing of a call, so there is
+                  no session to mute and no share to draw on. Green is the same
+                  green the keycap earns on the beats before, and it means the
+                  same thing, which is "that landed". A chip that stayed grey
+                  while the user pressed the keys the card told them to press
+                  would be teaching a shortcut that looks broken. */}
+              <span
+                className={`flex h-10 items-center rounded-xl border px-3 text-[13px] font-medium transition-colors ${
+                  shortcutPressed
+                    ? "border-emerald-300/90 bg-emerald-400/55 text-emerald-50"
+                    : "border-white/15 bg-white/10 text-white/85"
+                }`}
+              >
                 {control.shortcut}
               </span>
               <span className="text-[10px] leading-none text-white/40">

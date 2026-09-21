@@ -7,7 +7,11 @@ import {
   type CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
 
-import { CompanionIntro, introSpotlight } from "./companion-intro";
+import {
+  CompanionIntro,
+  INTRO_DEMO_SHORTCUTS,
+  introSpotlight,
+} from "./companion-intro";
 import { CompanionSurface } from "./companion-surface";
 
 afterEach(cleanup);
@@ -271,6 +275,141 @@ describe("the introduction's keycap", () => {
     rerender(<CompanionIntro beat="key" voiceKeyTaps={1} />);
     expect(keycapOf(container).className).not.toContain("scale-90");
     expect(keycapOf(container).className).toContain("emerald");
+  });
+});
+
+/**
+ * The shortcut chip answers the keys on the keyboard.
+ *
+ * The three call beats say the same thing twice, as a button on the pill and
+ * as a chord, and the chord is armed for as long as the beat is up. The card
+ * never sees the press: it is taken by the window that armed the binding and
+ * told to this one as a count. Green is that count moving *for this beat's own
+ * control*, because a press is addressed and the run walks between cards while
+ * one is still crossing.
+ */
+describe("the introduction's shortcut chip", () => {
+  /** The chip, which is the one thing on these beats that prints a chord. */
+  const chipOf = (container: HTMLElement, shortcut: string): HTMLElement => {
+    const found = [...container.querySelectorAll<HTMLElement>("span")].find(
+      (span) => span.textContent === shortcut,
+    );
+    if (!found) {
+      throw new Error(`Expected the beat to draw ${shortcut}`);
+    }
+    return found;
+  };
+
+  test("is grey until the shortcut is pressed", () => {
+    const { container } = render(
+      <CompanionIntro beat="share" chordPresses={0} />,
+    );
+
+    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.share).className).toContain(
+      "bg-white/10",
+    );
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.share).className,
+    ).not.toContain("emerald");
+  });
+
+  test("lights when its own shortcut is pressed", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="share" chordPresses={0} />,
+    );
+
+    rerender(
+      <CompanionIntro beat="share" chordPresses={1} chordControl="share" />,
+    );
+
+    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.share).className).toContain(
+      "emerald",
+    );
+  });
+
+  /**
+   * A press made on the beat before, still crossing when the run walked on,
+   * arrives as a step in the count that belongs to a card the user has left.
+   * The control is what keeps it off this one.
+   */
+  test("stays grey when another control's shortcut is pressed", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="mute" chordPresses={0} />,
+    );
+
+    rerender(
+      <CompanionIntro beat="mute" chordPresses={1} chordControl="share" />,
+    );
+
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.muteMicrophone).className,
+    ).not.toContain("emerald");
+
+    rerender(
+      <CompanionIntro beat="mute" chordPresses={2} chordControl="mute" />,
+    );
+
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.muteMicrophone).className,
+    ).toContain("emerald");
+  });
+
+  /**
+   * The count is a total for the life of the window that publishes it, so a
+   * chord pressed before this beat came up has not answered this card. The
+   * beat that opened lit would be answering a press nobody made on it.
+   */
+  test("counts presses from the beat rather than from the window", () => {
+    const { container } = render(
+      <CompanionIntro beat="draw" chordPresses={4} chordControl="draw" />,
+    );
+
+    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className).not.toContain(
+      "emerald",
+    );
+  });
+
+  /** Walking on to the next beat asks again, so the next chip starts grey. */
+  test("starts the next beat grey however many presses came before it", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="share" chordPresses={0} />,
+    );
+    rerender(
+      <CompanionIntro beat="share" chordPresses={1} chordControl="share" />,
+    );
+    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.share).className).toContain(
+      "emerald",
+    );
+
+    rerender(
+      <CompanionIntro beat="draw" chordPresses={1} chordControl="share" />,
+    );
+    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className).not.toContain(
+      "emerald",
+    );
+  });
+
+  /**
+   * The count belongs to the app's window, which can reload while the beat is
+   * still up: the run is main's and the surface holds it across that. The
+   * press after the reload has to land on something rather than wait for the
+   * new count to climb past the old total.
+   */
+  test("follows the count back down when its window restarts", () => {
+    const { container, rerender } = render(
+      <CompanionIntro beat="mute" chordPresses={9} chordControl="mute" />,
+    );
+    rerender(<CompanionIntro beat="mute" chordPresses={0} />);
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.muteMicrophone).className,
+    ).not.toContain("emerald");
+
+    rerender(
+      <CompanionIntro beat="mute" chordPresses={1} chordControl="mute" />,
+    );
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.muteMicrophone).className,
+    ).toContain("emerald");
   });
 });
 

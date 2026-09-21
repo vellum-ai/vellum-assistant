@@ -43,6 +43,7 @@ import {
 } from "@/domains/chat/watch/watch-controller";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
+import { useIntroCallChordStore } from "@/domains/chat/voice/intro-call-chord-store";
 import { useVoiceKeyTapStore } from "@/domains/chat/voice/voice-key-tap-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
@@ -164,6 +165,14 @@ function currentContext(): CompanionContext {
     // surface that draws the key while teaching it is a different renderer
     // entirely.
     voiceKeyTaps: useVoiceKeyTapStore.getState().taps,
+    // Presses of a call's shortcut, published from here for the reason the
+    // taps are: the chord reaches only the window that armed it, and the card
+    // drawing that shortcut is a different renderer. The control travels with
+    // the count the way `captureTarget` travels with `captureCount`: the two
+    // are one fact about one press, and a count that arrived a push apart from
+    // the control it belongs to would light a chip on the wrong card.
+    introChordPresses: useIntroCallChordStore.getState().presses,
+    introChordControl: useIntroCallChordStore.getState().control ?? undefined,
   };
 }
 
@@ -301,7 +310,9 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.dictationOffer?.text === b.dictationOffer?.text &&
     samePopover(a.popover, b.popover) &&
     a.voicesPickable === b.voicesPickable &&
-    a.voiceKeyTaps === b.voiceKeyTaps
+    a.voiceKeyTaps === b.voiceKeyTaps &&
+    a.introChordPresses === b.introChordPresses &&
+    a.introChordControl === b.introChordControl
   );
 }
 
@@ -442,6 +453,12 @@ export function useCompanionMirror(): void {
     // changes: the next run's first push would arrive carrying every tap made
     // since, and open with the cap already filled.
     const unsubscribeTaps = useVoiceKeyTapStore.subscribe(sync);
+    // The call's shortcuts being pressed, which only the introduction has ever
+    // drawn. Ungated here for the reason the taps are, and with a sharper
+    // version of the same gate upstream: nothing is armed to hear one of these
+    // outside the three beats that ask (`use-call-chords`), so a move of this
+    // store is a press a card is waiting for.
+    const unsubscribeChords = useIntroCallChordStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published
       // and the surface does not keep a capture indicator over a machine
@@ -464,6 +481,7 @@ export function useCompanionMirror(): void {
       unsubscribePopover();
       unsubscribeDictation();
       unsubscribeTaps();
+      unsubscribeChords();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record
       // of whose surface this is, and the surface is still on screen.

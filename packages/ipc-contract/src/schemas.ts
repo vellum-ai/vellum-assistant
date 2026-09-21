@@ -21,6 +21,7 @@ import {
   COMPANION_ANNOTATION_TOOLS,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
+  COMPANION_INTRO_CALL_CONTROLS,
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
   NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
@@ -547,6 +548,14 @@ export const companionContextSchema = z.object({
   // as a press having happened, and the only shape that can say that is a whole
   // number that goes up.
   voiceKeyTaps: z.number().int().nonnegative().default(0),
+  // Presses of a call shortcut made on the beats that ask for one, counted.
+  // Bounded for the reason the taps are: the card reads a step in it as a
+  // chord having been pressed.
+  introChordPresses: z.number().int().nonnegative().default(0),
+  // Which control that press was for. Optional rather than defaulted, for the
+  // reason `captureTarget` is: every value it can hold names a press that
+  // happened, and absence is the only way to say none has.
+  introChordControl: z.enum(COMPANION_INTRO_CALL_CONTROLS).optional(),
 });
 
 // ---------------------------------------------------------------------------
