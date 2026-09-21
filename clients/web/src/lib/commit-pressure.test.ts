@@ -197,21 +197,25 @@ describe("store pressure probe", () => {
     }));
   }
 
-  test("names each slice a write replaced", () => {
+  test("names each slice a write replaced, highest first", () => {
     const store = probedStore();
     installStorePressureProbe("chat-session", store);
 
+    store.setState({ error: "boom" });
     store.setState({ snapshot: { seq: 1 } });
     store.setState({ snapshot: { seq: 2 } });
-    store.setState({ error: "boom" });
 
-    expect(snapshotCommitPressure()?.sources).toEqual({
-      "store:chat-session.snapshot": 2,
-      "store:chat-session.error": 1,
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.storeWrites).toEqual({
+      "chat-session.snapshot": 2,
+      "chat-session.error": 1,
     });
+    expect(Object.keys(snapshot?.storeWrites ?? {})[0]).toBe(
+      "chat-session.snapshot",
+    );
   });
 
-  test("a write no selector can see records nothing", () => {
+  test("a write that replaces no slice records nothing", () => {
     const store = probedStore();
     installStorePressureProbe("chat-session", store);
 
@@ -223,14 +227,54 @@ describe("store pressure probe", () => {
     expect(snapshotCommitPressure()).toBeNull();
   });
 
-  test("a store write attributes the commit it causes", () => {
+  test("a store write never marks a commit attributed", () => {
+    const store = probedStore();
+    installStorePressureProbe("composer", store);
+
+    // The write may render only a component below the one that counts
+    // commits, or nothing at all, so it must not vouch for the next commit.
+    for (let i = 1; i <= 4; i += 1) {
+      store.setState({ snapshot: { seq: i } });
+      recordCommit();
+      clock += 2;
+    }
+
+    const snapshot = snapshotCommitPressure();
+    expect(snapshot?.updates).toBe(0);
+    expect(snapshot?.sources).toEqual({});
+    expect(snapshot?.unattributedCommits).toBe(4);
+    expect(snapshot?.maxUnattributedCommits).toBe(4);
+    expect(snapshot?.storeWrites).toEqual({ "composer.snapshot": 4 });
+  });
+
+  test("a store write does not break an unattributed run a real updater would", () => {
     const store = probedStore();
     installStorePressureProbe("chat-session", store);
 
+    recordCommit();
+    recordCommit();
     store.setState({ snapshot: { seq: 1 } });
     recordCommit();
+    expect(snapshotCommitPressure()?.maxUnattributedCommits).toBe(3);
 
-    expect(snapshotCommitPressure()?.unattributedCommits).toBe(0);
+    recordUpdate("smooth-stream");
+    recordCommit();
+    recordCommit();
+    expect(snapshotCommitPressure()?.maxUnattributedCommits).toBe(3);
+    expect(snapshotCommitPressure()?.unattributedCommits).toBe(4);
+  });
+
+  test("caps distinct slices so the payload stays bounded", () => {
+    const wide = createStore<Record<string, number>>()(() => ({}));
+    installStorePressureProbe("wide", wide);
+
+    for (let i = 0; i < 40; i += 1) {
+      wide.setState({ [`slice${i}`]: i + 1 });
+    }
+
+    const writes = snapshotCommitPressure()?.storeWrites ?? {};
+    expect(Object.keys(writes).length).toBeLessThanOrEqual(25);
+    expect(writes.other).toBe(16);
   });
 
   test("stops tallying once uninstalled", () => {

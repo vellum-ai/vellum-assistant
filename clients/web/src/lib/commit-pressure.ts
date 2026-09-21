@@ -46,8 +46,7 @@ const MAX_SOURCES = 24;
 /**
  * Known high-frequency update sources on the conversation route. Callers are
  * not restricted to these — the type documents the ones we deliberately
- * instrumented, `query:*` keys are minted from live query ids, and `store:*`
- * keys from the slices of probed stores.
+ * instrumented, and `query:*` keys are minted from live query ids.
  */
 export type UpdateSource =
   | "audio-amplitude"
@@ -65,6 +64,15 @@ export interface CommitPressureSnapshot {
   updates: number;
   /** Per-source update counts, highest first. */
   sources: Record<string, number>;
+  /**
+   * Zustand store writes in the window, by `<store>.<slice>`, highest first.
+   * Traffic, never attribution: a write may render only a component below
+   * the one that counts commits, or (a slice read through `getState()` alone)
+   * nothing at all, so it neither counts toward `updates` nor marks a commit
+   * attributed. React's nested-update limit is per root, so a slice written
+   * hundreds of times a second is commit pressure wherever it renders.
+   */
+  storeWrites: Record<string, number>;
   /** Commits observed in the window (chat-route subtree only). */
   commits: number;
   /** Longest run of commits separated by less than {@link BACK_TO_BACK_MS}. */
@@ -90,6 +98,7 @@ interface Bucket {
   commits: number;
   unattributed: number;
   sources: Map<string, number>;
+  storeWrites: Map<string, number>;
 }
 
 function emptyBucket(startedAt: number): Bucket {
@@ -99,6 +108,7 @@ function emptyBucket(startedAt: number): Bucket {
     commits: 0,
     unattributed: 0,
     sources: new Map(),
+    storeWrites: new Map(),
   };
 }
 
@@ -163,6 +173,20 @@ export function recordUpdate(source: UpdateSource): void {
 }
 
 /**
+ * Record a write to one slice of a Zustand store. Tallied apart from
+ * {@link recordUpdate} because a store write is not known to re-render the
+ * subtree whose commits are counted; see `CommitPressureSnapshot.storeWrites`.
+ */
+function recordStoreWrite(label: string): void {
+  roll(now());
+  const key =
+    current.storeWrites.has(label) || current.storeWrites.size < MAX_SOURCES
+      ? label
+      : "other";
+  current.storeWrites.set(key, (current.storeWrites.get(key) ?? 0) + 1);
+}
+
+/**
  * Record a React commit. Called from a dependency-less layout effect in the
  * chat route, so it counts commits of that subtree, not every root commit.
  * Layout-effect timing keeps attribution honest: the commit is recorded
@@ -201,6 +225,22 @@ export function recordCommit(): void {
   lastCommitAt = ts;
 }
 
+/** Sum two buckets' tallies into one record, highest count first. */
+function mergeTallies(
+  older: Map<string, number>,
+  newer: Map<string, number>,
+): Record<string, number> {
+  const merged = new Map<string, number>(older);
+  for (const [key, count] of newer) {
+    merged.set(key, (merged.get(key) ?? 0) + count);
+  }
+  const tallies: Record<string, number> = {};
+  for (const [key, count] of [...merged].sort((a, b) => b[1] - a[1])) {
+    tallies[key] = count;
+  }
+  return tallies;
+}
+
 /**
  * Current tallies, or `null` when nothing has been recorded — a null snapshot
  * means the probe never ran (route never mounted, error raised elsewhere) and
@@ -211,23 +251,20 @@ export function snapshotCommitPressure(): CommitPressureSnapshot | null {
   roll(ts);
   const updates = current.updates + previous.updates;
   const commits = current.commits + previous.commits;
-  if (updates === 0 && commits === 0) {
+  const wroteStores =
+    current.storeWrites.size > 0 || previous.storeWrites.size > 0;
+  if (updates === 0 && commits === 0 && !wroteStores) {
     return null;
   }
 
-  const merged = new Map<string, number>(previous.sources);
-  for (const [key, count] of current.sources) {
-    merged.set(key, (merged.get(key) ?? 0) + count);
-  }
-  const sources: Record<string, number> = {};
-  for (const [key, count] of [...merged].sort((a, b) => b[1] - a[1])) {
-    sources[key] = count;
-  }
+  const sources = mergeTallies(previous.sources, current.sources);
+  const storeWrites = mergeTallies(previous.storeWrites, current.storeWrites);
 
   return {
     windowMs: Math.round(ts - previous.startedAt),
     updates,
     sources,
+    storeWrites,
     commits,
     maxBackToBackCommits: maxBackToBackRun,
     unattributedCommits: current.unattributed + previous.unattributed,
@@ -275,17 +312,15 @@ export function installQueryPressureProbe(
 }
 
 /**
- * Tally a Zustand store's writes as update sources, one per top-level slice
- * whose reference changed: `store:<name>.<slice>`. Store notifications
- * re-render through `useSyncExternalStore` exactly as query notifications do,
- * and the chat route renders from a dozen stores, so without this a commit
- * driven by a store write is indistinguishable from one driven by an unknown
- * updater: both read as `unattributedCommits`.
+ * Tally a Zustand store's writes, one per top-level slice whose reference
+ * changed, as `<name>.<slice>` in `storeWrites`. Store notifications re-render
+ * through `useSyncExternalStore` exactly as query notifications do, and the
+ * chat route renders from a dozen stores; with none of them tallied, a commit
+ * run driven by a store (the transcript snapshot, written once per stream
+ * event) is indistinguishable from one driven by an unknown updater.
  *
  * Slices are compared the way an atomic selector compares them (`Object.is`),
- * so a `set` that changes nothing a selector can see records nothing. A write
- * that changes several slices records each; read `sources` for who is
- * writing, not `updates` for how many renders were scheduled.
+ * so a `set` that replaces nothing records nothing.
  *
  * Returns the unsubscribe handle.
  */
@@ -303,10 +338,10 @@ export function installStorePressureProbe<T extends object>(
       }
       let label = labels.get(slice);
       if (label === undefined) {
-        label = `store:${name}.${slice}`;
+        label = `${name}.${slice}`;
         labels.set(slice, label);
       }
-      recordUpdate(label);
+      recordStoreWrite(label);
     }
   });
 }
