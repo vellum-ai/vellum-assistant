@@ -224,7 +224,7 @@ This applies only when the session was created with `--rebind`: the identity alr
 
 - Report success only when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The field is present while the verification session is still pending, and disappears once the user's code is redeemed.
 - If a poll shows `bound: true` but `verificationSessionId` is still present, the new code has not been redeemed yet - continue polling.
-- Non-rebind flows are unaffected, including a replacement (revoke, then create): after the revoke the channel reports `bound: false`, so the first `bound: true` is the new link.
+- Non-rebind flows are unaffected, including a replacement on a text channel (revoke, then create): after the revoke the channel reports `bound: false`, so the first `bound: true` is the new link.
 
 **Important polling rules:**
 

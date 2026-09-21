@@ -1,7 +1,8 @@
 /**
  * The guardian is one person, and a channel holds at most one linked identity
- * for them. A guardian code never swaps that identity for another, and a
- * guardian who removed their identity can link the same one again.
+ * for them. On a text channel a guardian code never swaps that identity for
+ * another, and a guardian who removed their identity can link the same one
+ * again.
  *
  * The gateway DB and session store are real; the assistant mirror IPC is
  * acknowledged and otherwise inert.

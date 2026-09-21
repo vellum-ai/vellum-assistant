@@ -245,7 +245,7 @@ The channel guardian service generates verification challenge instructions with 
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
 - **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the HTTP request. Without it, the assistant returns `already_bound`. On text channels the resulting code can only be redeemed by the account already bound, which is how the same guardian verifies again; to move the guardian to a different account, revoke the binding first and verify again. An outbound phone verification is the exception: its code replaces the bound number.
-- **Takeover prevention:** Verification is rejected when an active binding exists for a different external user: the code is spent, the reply is the generic "invalid or expired", and the sender is made neither guardian nor contact. Same-user re-verification is allowed, including for a guardian who revoked their binding and is verifying the same account again.
+- **Takeover prevention:** On text channels, verification is rejected when an active binding exists for a different external user: the code is spent, the reply is the generic "invalid or expired", and the sender is made neither guardian nor contact. Same-user re-verification is allowed, including for a guardian who revoked their binding and is verifying the same account again. Phone differs: an outbound verification with `rebind: true` replaces the bound number once its code is entered, and an inbound call from a different number is not bound.
 
 ### Vellum Guardian Identity (Actor Tokens)
 

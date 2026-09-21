@@ -372,7 +372,8 @@ async function applyGuardianSideEffects(params: {
   // or links the same one again. It never swaps one identity for another, and
   // grants nothing in its place: swapping is two explicit acts, remove the
   // link and then connect again. Every active row is read, so a second one is
-  // weighed and not hidden behind a LIMIT 1.
+  // weighed and not hidden behind a LIMIT 1. This is the text-channel rule; an
+  // outbound phone code replaces the bound number (session-service.ts).
   const otherLinkedIdentities = activeGuardianAddresses(sourceChannel).filter(
     (address) => address !== canonicalUserId,
   );

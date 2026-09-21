@@ -156,7 +156,9 @@ export async function createInboundChallenge(
       success: false,
       error: "already_bound",
       message:
-        "A guardian is already bound for this channel. To verify a different account, revoke the existing binding first. Set rebind: true only to verify the same account again.",
+        resolvedChannel === "phone"
+          ? "A guardian is already bound for this channel. To change the number, start an outbound verification to the new number with rebind: true, which replaces the bound number once the code is entered. Set rebind: true on this challenge only to verify the same number again."
+          : "A guardian is already bound for this channel. To verify a different account, revoke the existing binding first. Set rebind: true only to verify the same account again.",
       channel: resolvedChannel,
     };
   }
