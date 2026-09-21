@@ -222,6 +222,13 @@ export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// The configured classification (decision-model) provider, or `null` when
+// `services.classification` cannot dispatch. Plugins that want a structured
+// verdict (the memory pool selector) prefer it over an LLM call site.
+export {
+  resolveClassificationProvider,
+  type ResolvedClassificationProvider,
+} from "../providers/classification/resolve.js";
 export type {
   EffectiveContextWindowInfo,
   EffectiveContextWindowOptions,

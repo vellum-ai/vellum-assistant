@@ -59,6 +59,7 @@ import type {
 import {
   getConfiguredProvider,
   getEffectiveContextWindow,
+  resolveClassificationProvider,
   safeStringSlice,
 } from "@vellumai/plugin-api";
 import { z } from "zod";
@@ -69,7 +70,6 @@ import {
 } from "../../../../context/token-estimator.js";
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { resolveClassificationProvider } from "../../../../providers/classification/resolve.js";
 import { redactLogString, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
