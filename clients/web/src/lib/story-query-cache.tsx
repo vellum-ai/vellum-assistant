@@ -21,7 +21,9 @@ export type SeedQueryCache = (client: QueryClient) => void;
  * an error at once instead of looping. A seeded entry never goes stale, and
  * nothing refetches it on mount, focus or reconnect, so it is never replaced by
  * a request to an assistant the story does not have, even from a query that
- * sets its own finite `staleTime`. A query with no data still loads on mount,
+ * sets its own finite `staleTime`. A query that sets its own `refetchInterval`
+ * still polls, since no client default can stop that. A query with no data
+ * still loads on mount,
  * so a story of a loading or error state keeps it. Nothing is garbage-collected,
  * so an entry seeded for a query that mounts later (a section that starts
  * collapsed) is still there.
