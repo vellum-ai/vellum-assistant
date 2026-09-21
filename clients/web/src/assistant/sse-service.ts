@@ -201,13 +201,23 @@ export const sseService: SseService = {
         return;
       }
       draining = true;
+      // Counts envelopes handed to `publish`, the one in flight included, so
+      // a throw that escapes it removes exactly what was delivered. The bus
+      // catches handler errors itself; this keeps the queue from depending
+      // on that. Whatever is left drains on the next task.
+      let published = 0;
       try {
-        for (let i = 0; i < pendingEnvelopes.length; i += 1) {
-          publish("sse.event", pendingEnvelopes[i]);
+        while (published < pendingEnvelopes.length) {
+          const envelope = pendingEnvelopes[published];
+          published += 1;
+          publish("sse.event", envelope);
         }
       } finally {
-        pendingEnvelopes.length = 0;
+        pendingEnvelopes.splice(0, published);
         draining = false;
+        if (pendingEnvelopes.length > 0) {
+          scheduleDrain();
+        }
       }
     };
     // The drain runs from a `MessageChannel` task. It has to be a task so
@@ -218,6 +228,12 @@ export const sseService: SseService = {
     // window to deliver notifications.
     const drainChannel = new MessageChannel();
     let drainScheduled = false;
+    const scheduleDrain = (): void => {
+      if (!drainScheduled) {
+        drainScheduled = true;
+        drainChannel.port2.postMessage(null);
+      }
+    };
     drainChannel.port1.onmessage = () => {
       drainScheduled = false;
       flushPendingEnvelopes();
@@ -230,10 +246,7 @@ export const sseService: SseService = {
         return;
       }
       pendingEnvelopes.push(envelope);
-      if (!drainScheduled) {
-        drainScheduled = true;
-        drainChannel.port2.postMessage(null);
-      }
+      scheduleDrain();
     };
 
     const openConnection = () => {

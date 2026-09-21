@@ -437,6 +437,30 @@ describe("sseService.attach: envelope delivery", () => {
     expect(publishedNames()).toEqual(["sse.event", "sse.opened"]);
   });
 
+  test("a throw escaping publish loses only the envelope it was publishing", async () => {
+    sseService.attach("asst-1");
+    activeOnStreamOpen!();
+    const seen: number[] = [];
+    eventBus.subscribe("sse.event", (envelope) => {
+      seen.push(envelope.seq ?? -1);
+    });
+    // The bus catches handler errors today. This pins the queue against the
+    // day a throw gets past it: the envelopes behind the failing one stay
+    // queued and drain on the next task.
+    publishSpy.mockImplementationOnce(() => {
+      throw new Error("publish failed");
+    });
+
+    activeOnEvent!(makeEnvelope(1));
+    activeOnEvent!(makeEnvelope(2));
+    activeOnEvent!(makeEnvelope(3));
+    expect(() => activeOnError!(new Error("boom"))).toThrow("publish failed");
+    expect(seen).toEqual([]);
+
+    await nextTask();
+    expect(seen).toEqual([2, 3]);
+  });
+
   test("a handler that reaches a teardown does not reorder the run in progress", async () => {
     sseService.attach("asst-1");
     activeOnStreamOpen!();

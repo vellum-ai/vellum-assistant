@@ -85,8 +85,21 @@ keeps:
   background tab and stop animation frames, and the stream stays open
   through the hidden grace window to deliver notifications.
 
+- **A drain survives its own failure.** The queue is consumed as it is
+  published, so if a throw ever escapes `publish`, only the envelope being
+  published is lost and the rest drain on the next task.
+
 A subscriber may rely on seeing every envelope in order. It may not rely
 on React having committed between two envelopes.
+
+### Handler errors
+
+`publish` catches each handler's throw so one failing subscriber cannot
+block the ones after it, and reports it through `captureError`
+(`context: "event_bus.handler"`, tagged `bus_event` with the event name).
+A handler that throws has skipped the rest of its work for that event,
+and most subscribers have no catch of their own, so the report is the
+only trace.
 
 ## Event protocol
 
@@ -377,8 +390,9 @@ export function setupMyStore(): () => void {
 ## Testing
 
 `lib/event-bus.test.ts` covers the pub/sub surface (subscribe,
-unsubscribe, publish, isolation between event names, throwing-handler
-robustness). `assistant/sse-service.test.ts` covers SSE behavior:
+unsubscribe, publish, isolation between event names, and a throwing
+handler: downstream handlers still run, and each throw is reported
+through `captureError` tagged with its event). `assistant/sse-service.test.ts` covers SSE behavior:
 open gating, event re-broadcast, envelope delivery (one task per run,
 ordering against `sse.opened` / `sse.closed` / teardown / detach),
 `sse.opened` cause tagging, teardown
