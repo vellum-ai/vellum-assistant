@@ -19,6 +19,7 @@ import {
 const TERMINAL_WINDOW_CLASS = "vellum-desktop-terminal";
 const TERMINAL_HEADER_CONFIG = `  window_decorations = 'INTEGRATED_BUTTONS|RESIZE',
   integrated_title_button_style = 'Gnome',
+  integrated_title_buttons = { 'Maximize', 'Close' },
 `;
 
 // Absolute icon paths work without an installed icon theme.
@@ -78,11 +79,10 @@ ${TERMINAL_HEADER_CONFIG}  font_size = 11,
   },
 }
 `;
-  seedFile(
-    terminalConfig,
-    terminalConfigContents,
+  seedFile(terminalConfig, terminalConfigContents, [
     terminalConfigContents.replace(TERMINAL_HEADER_CONFIG, ""),
-  );
+    terminalConfigContents.replace(/  integrated_title_buttons = .*\n/, ""),
+  ]);
 
   const applicationsDir = join(configDir, "applications");
   mkdirSync(applicationsDir, { recursive: true });
@@ -168,7 +168,7 @@ function desktopCommand(args: string[]): string {
 function seedFile(
   path: string,
   contents: string,
-  previousContents?: string,
+  previousContents: readonly string[] = [],
 ): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
@@ -180,8 +180,8 @@ function seedFile(
       throw err;
     }
     if (
-      previousContents !== undefined &&
-      readFileSync(path, "utf8") === previousContents
+      previousContents.length > 0 &&
+      previousContents.includes(readFileSync(path, "utf8"))
     ) {
       renameSync(temporaryPath, path);
     }
