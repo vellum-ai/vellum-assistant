@@ -5,6 +5,11 @@ import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_CALL_CONTROLS,
+  COMPANION_SIZES,
+  companionBoxFor,
+  companionCardSideFor,
+  companionPadFor,
+  companionScaleFor,
   companionIntroCallControlFor,
   type CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
@@ -48,6 +53,36 @@ const offCanvasBottom = (top: string): number => {
  * the two.
  */
 describe("the companion introduction's clearance", () => {
+  test("fits the larger card above the perched creature at every size pairing", () => {
+    for (const avatarSize of COMPANION_SIZES) {
+      for (const optionsSize of COMPANION_SIZES) {
+        const avatarBox = companionBoxFor("avatar", avatarSize);
+        const optionsBox = companionBoxFor("options", optionsSize);
+        const view = render(
+          <CompanionIntro
+            beat="share"
+            avatarBox={avatarBox}
+            optionsBox={optionsBox}
+          />,
+        );
+        const card = cardOf(view.container);
+        const step = /^translateY\(calc\(-100% - ([\d.]+)px\)\)$/.exec(
+          card.style.transform,
+        );
+        expect(step).not.toBeNull();
+        const reach =
+          (Number.parseFloat(card.style.height) + Number(step![1])) *
+          companionScaleFor(optionsBox);
+        expect(
+          companionCardSideFor(avatarBox, optionsBox) + 0.001,
+        ).toBeGreaterThanOrEqual(
+          reach + companionPadFor(avatarBox, optionsBox),
+        );
+        view.unmount();
+      }
+    }
+  });
+
   /**
    * A small creature under a large pill, which is the pair that separates the
    * two rules: the creature's box reaches 22 points above its centre and the
@@ -533,9 +568,48 @@ describe("the introduction's card box", () => {
 });
 
 describe("permission setup in the coachmark", () => {
+  test("keeps the card mounted during its initial permission check", () => {
+    const view = render(
+      <CompanionIntro
+        beat="talk"
+        permission={{
+          kind: "microphone",
+          state: { phase: "checking" },
+          enable: () => {},
+        }}
+      />,
+    );
+    const card = view.getByRole("group");
+    expect(view.getByText("Talk to me")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Next" })).toBeTruthy();
+    expect(view.queryByText("Enable microphone")).toBeNull();
+    view.rerender(
+      <CompanionIntro
+        beat="talk"
+        permission={{
+          kind: "microphone",
+          state: {
+            phase: "known",
+            item: {
+              kind: "microphone",
+              status: "granted",
+              canRequest: false,
+              canOpenSettings: false,
+              requiresRestart: false,
+            },
+          },
+          enable: () => {},
+        }}
+      />,
+    );
+    expect(view.getByText("Click me to start a conversation.")).toBeTruthy();
+    expect(view.getByRole("group")).toBe(card);
+    expect(view.queryByText("Enable microphone")).toBeNull();
+  });
+
   test.each([
     ["talk", "microphone", "Enable microphone"],
-    ["key", "inputMonitoring", "Enable shortcut"],
+    ["key", "inputMonitoring", "Open Settings"],
     ["share", "screen", "Enable screen sharing"],
   ] as const)(
     "offers explicit setup and skipping on %s",

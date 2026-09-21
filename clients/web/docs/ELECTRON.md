@@ -126,6 +126,19 @@ below system UI. Returning to Vellum or advancing the tour restores its floating
 level. Finishing the tour sets the idle pill's home to the display's bottom
 center, including the home held by a call started from the final step.
 
+The tour prefetches permission status during its opening cards and retains the
+latest result across steps and background checks. An initial check keeps the
+card shell visible without showing a permission action before it is needed. Its
+size and the perched avatar's clearance share constants with the native canvas,
+so larger cards fit at every companion size. Helper permission setup first requests
+the native alert; Settings opens through that alert or a separate explicit action,
+so the two windows do not compete for attention.
+
+When resetting local development grants, reset `PostEvent` as well as
+`ListenEvent` and `Accessibility` for the helper bundle. A cached denial of the
+parent event permission can keep Input Monitoring denied after `ListenEvent`
+alone is reset.
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.

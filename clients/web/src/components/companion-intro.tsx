@@ -3,6 +3,10 @@ import {
   COMPANION_INTRO_BEAT_GROUPS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_GROUPS,
+  COMPANION_INTRO_CARD_WIDTH,
+  COMPANION_INTRO_CARD_HEIGHT,
+  COMPANION_INTRO_PERCH_GAP,
+  COMPANION_PERCH_HOP,
   companionIntroCallControlFor,
 } from "@vellumai/ipc-contract";
 import type {
@@ -24,7 +28,6 @@ import {
 } from "./use-companion-intro-permission";
 
 import { companionLayoutFor } from "@/components/companion-layout";
-import { COMPANION_PERCH_HOP } from "@/components/companion-surface";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -58,50 +61,12 @@ import type {
  */
 
 /**
- * The card's width, fixed rather than measured.
- *
- * Prose has no natural width, so measuring would size the card to whichever
- * beat happened to say the most and change its shape as the run advanced. It
- * fits the canvas at every size, which main sizes by its own `maxReach`
- * (`geometryFor` in `companion-window.ts`).
- */
-const CARD_WIDTH = 244;
-
-/**
- * The card's height, fixed like its width rather than grown to each beat.
- *
- * **One box for the whole run.** The beats say different amounts: one names
- * three controls in a list, another offers a press and warns what it will
- * raise. A card sized to each of them would resize under the reader between
- * every Next, which turns four cards about the surface into four differently
- * shaped panels appearing on the desktop, and moves the controls at the bottom
- * to a new place on each beat. So the tallest beat sets the box and the rest
- * keep it: the dots and the way on hold one position for the entire run.
- *
- * Sized to fit the canvas main already reserves on the card's side
- * (`COMPANION_BASE_CARD_HEIGHT`) after the card has stepped off whatever the
- * creature and the pill leave standing there.
- */
-const CARD_HEIGHT = 192;
-
-/**
  * How long the card holds its answer to a pointer pressing the drawn key.
  *
  * Long enough to be read and to land as a joke, short enough that the card goes
  * back to saying what to actually do while the hand is still hovering over it.
  */
 const SCOLD_MS = 3_000;
-
-/**
- * The room left between a perched creature's head and the card above it, in the
- * units this layout is authored in.
- *
- * Flat rather than scaled, and smaller than the surface's own gap: what it is
- * protecting is the sight of the creature standing on the control, and the
- * canvas above the pill is not deep enough to spend a full gap on it at the
- * larger sizes (see `companionCardSideFor`).
- */
-const PERCH_CARD_GAP = 6;
 
 /**
  * Where each beat's lines live, by beat.
@@ -116,11 +81,8 @@ const PERCH_CARD_GAP = 6;
  * checks against nothing, which is how a renamed beat becomes a card printing
  * its own key path at someone.
  *
- * **Titles repeat where the subject does.** `meet` keeps the greeting `idle`
- * opens with and `key` keeps Talk's title, because each pair is one subject
- * split across two cards: a fresh title on the second would read as a new topic
- * rather than as the rest of the one before it. `key` carries no body either,
- * since what it has to say is a picture of a key and the line above it.
+ * `meet` keeps the greeting `idle` opens with. `key` carries no body, since
+ * its instruction is a picture of a key and the line above it.
  *
  * `titleNamed` is the version for an assistant whose name this window has been
  * told. Two keys rather than one with an empty argument: a sentence built
@@ -143,7 +105,7 @@ const INTRO_COPY_KEYS = {
     body: "companionIntro.talk.body",
   },
   key: {
-    title: "companionIntro.talk.title",
+    title: "companionIntro.key.title",
   },
   share: {
     title: "companionIntro.share.title",
@@ -398,6 +360,7 @@ export function CompanionIntro({
   const isFirst = index <= 0;
   const copy = INTRO_COPY_KEYS[beat];
   const needsPermission = companionIntroNeedsPermission(permission);
+  const checkingPermission = permission?.state.phase === "checking";
   /** Which subject the run is in, which is what the dots draw. */
   const group = COMPANION_INTRO_BEAT_GROUPS[beat];
   /** The control on the pill this beat is about, where it is about one. */
@@ -527,7 +490,7 @@ export function CompanionIntro({
       : inUnits(avatarHalf + gap) +
         COMPANION_PERCH_HOP +
         inUnits(avatarHalf) +
-        PERCH_CARD_GAP;
+        COMPANION_INTRO_PERCH_GAP;
 
   // Hung off the avatar's own edge, which is the point the host positioned this
   // window around and the point the pill is measured from too.
@@ -558,10 +521,10 @@ export function CompanionIntro({
       // behaviour this panel cannot deliver.
       role="group"
       aria-label={t("companionIntro.ariaLabel")}
-      className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 px-3.5 py-3 shadow-lg shadow-black/40"
+      className="absolute flex flex-col rounded-2xl border border-white/10 bg-[#17181b]/95 p-5 shadow-lg shadow-black/40"
       style={{
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: COMPANION_INTRO_CARD_WIDTH,
+        height: COMPANION_INTRO_CARD_HEIGHT,
         ...placement,
         ...anchor,
       }}
@@ -593,7 +556,7 @@ export function CompanionIntro({
             chose and there is no length it has to be. The card's box is fixed,
             so a title free to wrap is a title free to push the rest of the beat
             out of it. Two lines holds every name worth reading. */}
-        <p className="pr-6 text-[13px] leading-tight font-medium text-white">
+        <p className="pr-6 text-[16px] leading-tight font-medium text-white">
           {/* The cards that greet say the name, where this window has been
               told one. See {@link INTRO_COPY_KEYS}. */}
           <span className="line-clamp-2">
@@ -602,12 +565,12 @@ export function CompanionIntro({
               : t(copy.title)}
           </span>
         </p>
-        {needsPermission && permission !== null ? (
+        {checkingPermission ? null : needsPermission && permission !== null ? (
           <CompanionIntroPermission permission={permission} />
         ) : (
           <>
             {"body" in copy ? (
-              <p className="text-[12px] leading-[1.45] text-white/70">
+              <p className="text-[14px] leading-[1.45] text-white/70">
                 {/* The click landing is worth more than the instruction to make
                 it: the user has just pressed the thing this whole run is
                 about, and a card that carried on asking would be a card that
@@ -654,7 +617,7 @@ export function CompanionIntro({
                 they were already reading. Silence would read as a broken
                 button, and a cap that started a conversation would teach the
                 click instead of the key. */}
-                <p className="text-[12px] leading-[1.45] text-white/70">
+                <p className="text-[14px] leading-[1.45] text-white/70">
                   {scolded
                     ? t("companionIntro.key.scolded")
                     : t("companionIntro.talk.gesture")}
@@ -795,7 +758,7 @@ export function CompanionIntro({
           {isFirst ? null : (
             <button
               type="button"
-              className="h-7 whitespace-nowrap rounded-full px-3 text-[12px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+              className="h-8 whitespace-nowrap rounded-full px-3 text-[14px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
               onClick={() => onAdvance?.("back")}
             >
               {t("companionIntro.back")}
@@ -803,12 +766,12 @@ export function CompanionIntro({
           )}
           <button
             type="button"
-            className="h-7 whitespace-nowrap rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+            className="h-8 whitespace-nowrap rounded-full bg-white/15 px-3 text-[14px] text-white transition-colors hover:bg-white/25"
             onClick={() => onAdvance?.("next")}
           >
             {isLast
               ? t("companionIntro.done")
-              : needsPermission
+              : needsPermission && !checkingPermission
                 ? t("companionIntro.permission.skip")
                 : t("companionIntro.next")}
           </button>

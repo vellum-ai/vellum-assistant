@@ -44,6 +44,7 @@ import type {
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
+  COMPANION_PERCH_HOP,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionAnnotationTool,
@@ -1974,18 +1975,6 @@ const trackInBox = (
     cancelAnimationFrame(frame);
   };
 };
-
-/**
- * How far above its own line the creature stands while perched on a control,
- * beyond the step everything beside the creature takes.
- *
- * Flat rather than scaled, like the caption's lift: it is the clearance over
- * the bar's top edge, and that edge is the same few pixels away at every size.
- *
- * Exported for the introduction's card, which hangs off the same line and has
- * to leave the perched creature its room. See `CompanionIntro`.
- */
-export const COMPANION_PERCH_HOP = 22;
 
 /**
  * The lift that puts the caption's beak on the creature's edge rather than

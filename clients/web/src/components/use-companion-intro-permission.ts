@@ -8,6 +8,7 @@ import {
   openSystemPermissionSettings,
   requestSystemPermission,
   subscribeToSystemPermissions,
+  type SystemPermissionsState,
   type SystemPermissionStateItem,
 } from "@/runtime/system-permissions";
 
@@ -21,6 +22,17 @@ export interface CompanionIntroPermission {
   kind: CompanionIntroPermissionKind;
   state: CompanionIntroPermissionState;
   enable: () => void;
+}
+
+export function companionIntroOpensSettings(
+  kind: CompanionIntroPermissionKind,
+  item: SystemPermissionStateItem | null,
+): boolean {
+  return (
+    kind === "inputMonitoring" ||
+    item?.canRequest === false ||
+    (kind !== "screen" && item?.status === "denied")
+  );
 }
 
 function permissionFor(
@@ -53,14 +65,19 @@ export function useCompanionIntroPermission(
   beat: CompanionIntroBeat | null,
 ): CompanionIntroPermission | null {
   const kind = permissionFor(beat);
-  const [snapshot, setSnapshot] = useState<{
+  const tourActive = beat !== null;
+  const [permissions, setPermissions] = useState<
+    SystemPermissionsState | null | undefined
+  >(undefined);
+  const [action, setAction] = useState<{
     kind: CompanionIntroPermissionKind;
-    state: CompanionIntroPermissionState | null;
+    phase: "requesting" | "error";
   } | null>(null);
   const enableRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (kind === null) {
+    setAction(null);
+    if (!tourActive) {
       return;
     }
     let active = true;
@@ -68,26 +85,26 @@ export function useCompanionIntroPermission(
     let revision = 0;
     let pollGeneration = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const record = (state: CompanionIntroPermissionState | null) => {
+    const record = (state: SystemPermissionsState | null) => {
       if (!active) {
         return;
       }
-      setSnapshot((previous) => {
-        if (
-          previous?.kind === kind &&
-          JSON.stringify(previous.state) === JSON.stringify(state)
-        ) {
+      setPermissions((previous) => {
+        if (JSON.stringify(previous) === JSON.stringify(state)) {
           return previous;
         }
-        return { kind, state };
+        return state;
       });
+      setAction(null);
     };
     const failed = (error: unknown) => {
       if (active) {
-        record({ phase: "error" });
+        if (kind !== null) {
+          setAction({ kind, phase: "error" });
+        }
         captureError(error, {
           context: "companionIntro.permission",
-          tags: { kind },
+          tags: { kind: kind ?? "tour" },
         });
       }
     };
@@ -96,7 +113,7 @@ export function useCompanionIntroPermission(
       try {
         const state = await getSystemPermissionsState();
         if (active && reading === revision && !pending) {
-          record(state === null ? null : { phase: "known", item: state[kind] });
+          record(state);
         }
         return state !== null;
       } catch (error) {
@@ -118,40 +135,41 @@ export function useCompanionIntroPermission(
     const unsubscribe = subscribeToSystemPermissions((state) => {
       revision += 1;
       if (!pending) {
-        record({ phase: "known", item: state[kind] });
+        record(state);
       }
     });
-    record({ phase: "checking" });
     void poll();
     enableRef.current = () => {
-      if (!active || pending) {
+      if (!active || pending || kind === null) {
         return;
       }
       clearTimeout(timer);
       pending = true;
       revision += 1;
       pollGeneration += 1;
-      record({ phase: "requesting" });
+      setAction({ kind, phase: "requesting" });
       void (async () => {
         try {
           const permissions = await getSystemPermissionsState();
           if (!active) {
             return;
           }
-          const item = permissions?.[kind];
+          if (!permissions) {
+            record(null);
+            return;
+          }
+          const item = permissions[kind];
           if (
-            !item ||
             item.status === "granted" ||
             item.status === "restricted"
           ) {
-            record(item ? { phase: "known", item } : null);
+            record(permissions);
             return;
           }
-          const result =
-            item.status === "denied" || !item.canRequest
-              ? await openSystemPermissionSettings(kind)
-              : await requestSystemPermission(kind);
-          record(result ? { phase: "known", item: result } : null);
+          const result = companionIntroOpensSettings(kind, item)
+            ? await openSystemPermissionSettings(kind)
+            : await requestSystemPermission(kind);
+          record(result ? { ...permissions, [kind]: result } : null);
         } catch (error) {
           failed(error);
         } finally {
@@ -169,16 +187,19 @@ export function useCompanionIntroPermission(
       clearTimeout(timer);
       unsubscribe();
     };
-  }, [kind]);
+  }, [kind, tourActive]);
 
-  if (kind === null || (snapshot?.kind === kind && snapshot.state === null)) {
+  if (kind === null || permissions === null) {
     return null;
   }
   return {
     kind,
-    state: (snapshot?.kind === kind ? snapshot.state : null) ?? {
-      phase: "checking",
-    },
+    state:
+      action?.kind === kind
+        ? { phase: action.phase }
+        : permissions
+          ? { phase: "known", item: permissions[kind] }
+          : { phase: "checking" },
     enable: () => enableRef.current(),
   };
 }

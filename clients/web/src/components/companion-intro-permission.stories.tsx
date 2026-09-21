@@ -19,7 +19,7 @@ function Preview({ locale = "en", ...args }: PreviewProps) {
     );
   }, [locale]);
   return (
-    <div className="relative h-[340px] w-[320px]">
+    <div className="relative h-[400px] w-[380px]">
       <CompanionIntro {...args} />
     </div>
   );

@@ -156,7 +156,8 @@
       "titleNamed": "嘿，我是 {name}"
     },
     "key": {
-      "scolded": "不是这个，是键盘上的那个键"
+      "scolded": "不是这个，是键盘上的那个键",
+      "title": "让我更方便地和你交谈"
     },
     "meet": {
       "body": "我会在您的桌面上，即使 Vellum 不可见。"
@@ -184,7 +185,6 @@
     "permission": {
       "microphoneAction": "启用麦克风",
       "microphoneBody": "允许我使用你的麦克风进行语音对话。",
-      "shortcutAction": "启用快捷键",
       "shortcutBody": "允许我在你使用其他应用时识别快捷键。",
       "screenAction": "启用屏幕共享",
       "screenBody": "设置屏幕共享。使用时再选择要共享的内容。",

@@ -2854,11 +2854,11 @@ describe("geometryFor", () => {
       CompanionSize,
       { maxReach: number; canvasWidth: number; canvasHeight: number }
     > = {
-      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 267 },
-      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 374 },
-      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 547 },
-      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 720 },
-      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1035 },
+      small: { maxReach: 322, canvasWidth: 692, canvasHeight: 306 },
+      medium: { maxReach: 445, canvasWidth: 962, canvasHeight: 435 },
+      large: { maxReach: 662, canvasWidth: 1420, canvasHeight: 624 },
+      huge: { maxReach: 879, canvasWidth: 1878, canvasHeight: 813 },
+      ridiculous: { maxReach: 1140, canvasWidth: 2520, canvasHeight: 1230 },
     };
     for (const size of COMPANION_SIZES) {
       const { maxReach, canvasWidth, canvasHeight } = geometryFor(size, size);
@@ -2914,16 +2914,16 @@ describe("geometryFor", () => {
         COMPANION_BASE_AVATAR_BOX,
         COMPANION_BASE_AVATAR_BOX,
       ),
-    ).toBe(300);
+    ).toBe(332);
     const sides: Record<
       CompanionSize,
       { riseAbove: number; dropBelow: number }
     > = {
-      small: { riseAbove: 221, dropBelow: 46 },
-      medium: { riseAbove: 305, dropBelow: 69 },
-      large: { riseAbove: 455, dropBelow: 92 },
-      huge: { riseAbove: 605, dropBelow: 115 },
-      ridiculous: { riseAbove: 805, dropBelow: 230 },
+      small: { riseAbove: 260, dropBelow: 46 },
+      medium: { riseAbove: 366, dropBelow: 69 },
+      large: { riseAbove: 532, dropBelow: 92 },
+      huge: { riseAbove: 698, dropBelow: 115 },
+      ridiculous: { riseAbove: 1000, dropBelow: 230 },
     };
     for (const size of COMPANION_SIZES) {
       const { riseAbove, dropBelow } = geometryFor(size, size);
@@ -3018,9 +3018,9 @@ describe("geometryFor with the two axes apart", () => {
       optionsBox: 32,
       maxReach: 355,
       canvasWidth: 830,
-      riseAbove: 274,
+      riseAbove: 362,
       dropBelow: 115,
-      canvasHeight: 389,
+      canvasHeight: 477,
     });
     // A base half box, the base gap, and a pill twice as wide.
     expect(BIG_OPTIONS).toEqual({

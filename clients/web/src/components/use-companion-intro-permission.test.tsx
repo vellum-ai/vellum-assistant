@@ -102,14 +102,60 @@ describe("companion tour permission setup", () => {
     expect(settings).not.toHaveBeenCalled();
     expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
   });
-  test.each(["idle", "meet", "draw", "mute", null] as const)(
-    "does not read or request permissions on %s",
-    (beat) => {
+  test.each(["idle", "meet", "draw", "mute"] as const)(
+    "prepares permission status in the background on %s",
+    async (beat) => {
       const view = setup(beat);
       expect(view.result.current).toBeNull();
-      expect(read).not.toHaveBeenCalled();
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+      expect(request).not.toHaveBeenCalled();
+      expect(settings).not.toHaveBeenCalled();
     },
   );
+  test("does not read permissions outside the tour", () => {
+    const view = setup(null);
+    expect(view.result.current).toBeNull();
+    expect(read).not.toHaveBeenCalled();
+  });
+  test("retains prefetched grants across steps and background checks", async () => {
+    current = permissions("granted");
+    const view = setup("meet");
+    await act(async () => {});
+    let resolve!: (state: SystemPermissionsState) => void;
+    read.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    for (const beat of ["talk", "key", "share", "draw", "try"] as const) {
+      view.rerender({ beat });
+      expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+      if (beat !== "draw") {
+        expect(view.result.current?.state.phase).toBe("known");
+      }
+    }
+    await act(async () => resolve(current));
+    expect(view.result.current?.state.phase).toBe("known");
+  });
+  test("retains the last result during periodic permission checks", async () => {
+    jest.useFakeTimers();
+    current = permissions("granted");
+    const view = setup("talk");
+    await act(async () => {});
+    let resolve!: (state: SystemPermissionsState) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+    expect(view.result.current?.state.phase).toBe("known");
+    await act(async () => resolve(current));
+    expect(view.result.current?.state.phase).toBe("known");
+  });
   test("only requests the permission of the clicked step", async () => {
     const view = setup("talk");
     await known(view);
@@ -117,6 +163,23 @@ describe("companion tour permission setup", () => {
     await waitFor(() => expect(request).toHaveBeenCalledWith("microphone"));
     await known(view);
     expect(companionIntroNeedsPermission(view.result.current)).toBe(true);
+  });
+  test("uses the Settings action for shortcut setup", async () => {
+    const view = setup("key");
+    await known(view);
+    act(() => view.result.current?.enable());
+    await waitFor(() =>
+      expect(settings).toHaveBeenCalledWith("inputMonitoring"),
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+  test("requests screen access before offering the Settings fallback", async () => {
+    current.screen = { ...current.screen, status: "denied", canRequest: true };
+    const view = setup("share");
+    await known(view);
+    act(() => view.result.current?.enable());
+    await waitFor(() => expect(request).toHaveBeenCalledWith("screen"));
+    expect(settings).not.toHaveBeenCalled();
   });
   test("observes a Settings grant on the same step", async () => {
     current = permissions("denied");

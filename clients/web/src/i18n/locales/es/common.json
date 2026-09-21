@@ -156,7 +156,8 @@
       "titleNamed": "Hola, soy {name}"
     },
     "key": {
-      "scolded": "No, la tecla de tu teclado"
+      "scolded": "No, la tecla de tu teclado",
+      "title": "Haz que sea fácil hablar conmigo"
     },
     "meet": {
       "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
@@ -184,7 +185,6 @@
     "permission": {
       "microphoneAction": "Activar micrófono",
       "microphoneBody": "Permíteme usar tu micrófono para conversar por voz.",
-      "shortcutAction": "Activar atajo",
       "shortcutBody": "Permíteme detectar el atajo mientras usas otras apps.",
       "screenAction": "Activar pantalla compartida",
       "screenBody": "Activa esta opción. Tú eliges qué compartir al usarla.",

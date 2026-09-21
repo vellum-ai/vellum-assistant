@@ -1830,11 +1830,15 @@ if CommandLine.arguments.contains("--front-selection") {
     }
 } else if CommandLine.arguments.contains("--request-input-monitoring") {
     MainActor.assumeIsolated {
-        NSApplication.shared.setActivationPolicy(.prohibited)
-        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
-            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        DispatchQueue.main.async {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+                _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+            }
+            NSApplication.shared.terminate(nil)
         }
-        NSApplication.shared.terminate(nil)
+        NSApplication.shared.run()
     }
 } else if CommandLine.arguments.contains("--request-screen-recording") {
     // Asking is also what lists the helper under Screen Recording in System

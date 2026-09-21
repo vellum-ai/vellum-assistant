@@ -156,7 +156,8 @@
       "titleNamed": "Hey, it’s {name}"
     },
     "key": {
-      "scolded": "No, the button on your keyboard"
+      "scolded": "No, the button on your keyboard",
+      "title": "Make it easy to talk to me"
     },
     "meet": {
       "body": "I stay on your desktop, even when Vellum isn’t visible."
@@ -184,7 +185,6 @@
     "permission": {
       "microphoneAction": "Enable microphone",
       "microphoneBody": "Let me use your microphone for voice conversations.",
-      "shortcutAction": "Enable shortcut",
       "shortcutBody": "Let me hear the shortcut while you use other apps.",
       "screenAction": "Enable screen sharing",
       "screenBody": "Prepare screen sharing. You choose what to share when you use it.",

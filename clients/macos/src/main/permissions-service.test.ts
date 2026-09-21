@@ -48,6 +48,7 @@ class FakeElectronNotification {
 /** The helper launches and Settings opens, in the order they happened. */
 const helperCalls: string[] = [];
 let helperScreenStatus = "denied";
+const helperInputStatus = "denied";
 
 mock.module("electron", () => ({
   app: {
@@ -103,8 +104,10 @@ mock.module("./appleScriptExecutor", () => ({
 
 mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async () => "granted",
-  queryMacHelperPermission: async () => "granted",
-  requestMacHelperInputMonitoringPermission: async () => undefined,
+  queryMacHelperPermission: async () => helperInputStatus,
+  requestMacHelperInputMonitoringPermission: async () => {
+    helperCalls.push("request inputMonitoring");
+  },
   requestMacHelperScreenRecordingPermission: async () => {
     helperCalls.push("request screen");
   },
@@ -453,13 +456,35 @@ describe("screen recording", () => {
     expect(state.screen.requiresRestart).toBe(false);
   });
 
-  test("asks the helper before opening Settings, so its row is there", async () => {
-    await new PermissionsService().openSettings("screen");
+  test.each([
+    ["screen", "ScreenCapture"],
+    ["inputMonitoring", "ListenEvent"],
+  ] as const)(
+    "keeps %s's native alert separate from a Settings visit",
+    async (kind, pane) => {
+      const service = new PermissionsService();
+      await service.openSettings(kind);
+      expect(helperCalls).toEqual([`request ${kind}`]);
 
-    expect(helperCalls).toEqual([
-      "request screen",
-      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-    ]);
+      await service.openSettings(kind);
+      expect(helperCalls).toEqual([
+        `request ${kind}`,
+        `open x-apple.systempreferences:com.apple.preference.security?Privacy_${pane}`,
+      ]);
+    },
+  );
+
+  test("offers the first screen request before the explicit Settings fallback", async () => {
+    const service = new PermissionsService();
+    expect((await service.state()).screen.canRequest).toBe(true);
+    expect((await service.request("screen")).canRequest).toBe(false);
+    expect(helperCalls).toEqual(["request screen"]);
+  });
+
+  test("does not open Settings for a helper grant that already arrived", async () => {
+    helperScreenStatus = "granted";
+    await new PermissionsService().openSettings("screen");
+    expect(helperCalls).toEqual([]);
   });
 
   test("a request asks the helper", async () => {
@@ -475,7 +500,7 @@ describe("screen recording", () => {
 describe("permission window presentation", () => {
   beforeEach(() => {
     helperCalls.length = 0;
-    helperScreenStatus = "granted";
+    helperScreenStatus = "denied";
   });
 
   test("yields before a native microphone prompt and unsubscribes", async () => {
@@ -493,12 +518,15 @@ describe("permission window presentation", () => {
     expect(helperCalls).toEqual(["request microphone"]);
   });
 
-  test("yields before both the helper prompt and the Settings window", async () => {
+  test("yields for the native alert, then for a separate Settings action", async () => {
     const stop = onPermissionPresentation(() => {
       helperCalls.push("yield tour");
     });
     try {
-      await new PermissionsService().openSettings("screen");
+      const service = new PermissionsService();
+      await service.openSettings("screen");
+      expect(helperCalls).toEqual(["yield tour", "request screen"]);
+      await service.openSettings("screen");
       expect(helperCalls).toEqual([
         "yield tour",
         "request screen",
