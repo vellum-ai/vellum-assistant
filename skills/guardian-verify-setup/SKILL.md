@@ -141,7 +141,7 @@ Handle each error code:
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `missing_destination` | Ask the user to provide their phone number, Telegram destination, Slack user ID, or Discord user ID.                                                                                                                                                                                                                                                                               |
 | `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. For Slack: explain that the value must be a Slack member ID (e.g. U01ABCDEF). For Discord: explain that the value must be a numeric user snowflake, not a username. For email: suggest a valid email address. |
-| `already_bound`       | Tell the user a verified identity is already bound for this channel. Ask if they want to replace it. If yes, revoke the current one first (Step 7), confirm the response shows `bound: false`, then run the create command again. A code cannot take a channel from the identity already verified on it, so there is no replace-in-place.                                          |
+| `already_bound`       | Tell the user a verified identity is already bound for this channel, and ask whether they want to verify that same identity again or replace it. Same identity: re-run create with `--rebind`. A different one: revoke the current one first (Step 7), confirm the response shows `bound: false`, then run create again without `--rebind`. A code never swaps identities.         |
 | `rate_limited`        | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later.                                                                                                                                                                                                                                                             |
 | `unsupported_channel` | Tell the user the channel is not supported. Valid channels are phone, telegram, slack, discord, and email.                                                                                                                                                                                                                                                                         |
 | `no_bot_username`     | Telegram bot is not configured. Load and run the `telegram-setup` skill first.                                                                                                                                                                                                                                                                                                     |
@@ -212,12 +212,19 @@ if [ -z "$CHANNEL" ]; then echo "ERROR: CHANNEL not set"; exit 1; fi
 assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
-3. If the response shows `bound: true`: immediately send that channel's success message in the current chat and stop polling.
+3. If the response shows `bound: true` (subject to the rebind guard below): immediately send that channel's success message in the current chat and stop polling.
 4. If not yet bound: wait one more interval and poll again.
 5. Stop at the channel's timeout.
 6. On timeout, proactively tell the user: "I've been checking for a couple of minutes but verification hasn't completed yet. The code may have expired or wasn't entered. Would you like me to resend a new code (Step 4) or start a new session (Step 3)?"
 
 A timeout is also how a silent delivery failure surfaces. Code delivery is fire-and-forget, so a Discord user with DMs closed, or a Slack DM that could not be opened, produces a clean `create` response and then no arrival. Offer resend rather than asserting the code was received.
+
+**Rebind guard:**
+This applies only when the session was created with `--rebind`, which is how the identity already linked on the channel verifies again. That identity reports `bound: true` the whole time, so `bound: true` alone would report success before the user has entered the new code. For a rebind session:
+
+- Report success only when BOTH conditions are met: `bound: true` AND `verificationSessionId` is **absent** from the status response. The field is present while the verification session is still pending, and disappears once the user's code is redeemed.
+- If a poll shows `bound: true` but `verificationSessionId` is still present, the new code has not been redeemed yet - continue polling.
+- Every other flow is unaffected, including a replacement (revoke, then create): after the revoke the channel reports `bound: false`, so the first `bound: true` is the new link.
 
 **Important polling rules:**
 
