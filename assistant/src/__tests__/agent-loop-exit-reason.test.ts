@@ -192,6 +192,11 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(isContentFilterStopReason("content_filter")).toBe(true);
     expect(isContentFilterStopReason("SAFETY")).toBe(true);
     expect(isContentFilterStopReason("PROHIBITED_CONTENT")).toBe(true);
+    expect(isContentFilterStopReason("RECITATION")).toBe(true);
+    expect(isContentFilterStopReason("IMAGE_RECITATION")).toBe(true);
+    expect(isContentFilterStopReason("JAILBREAK")).toBe(true);
+    expect(isContentFilterStopReason("MALFORMED_FUNCTION_CALL")).toBe(false);
+    expect(isContentFilterStopReason("OTHER")).toBe(false);
     expect(isContentFilterStopReason("refusal")).toBe(false);
     expect(isContentFilterStopReason("stop")).toBe(false);
     expect(isContentFilterStopReason(null)).toBe(false);
