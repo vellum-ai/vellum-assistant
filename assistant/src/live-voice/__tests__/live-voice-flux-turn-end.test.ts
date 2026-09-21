@@ -80,12 +80,19 @@ class MockFluxTranscriber implements StreamingTranscriber {
   // Transcript Flux answers `CloseStream` with, for a turn still in flight
   // when the caller released. Null models a stop with nothing left to flush.
   pendingFlushText: string | null = null;
+  holdStopEvents = false;
 
   stop(): void {
     if (this.stopped) {
       return;
     }
     this.stopped = true;
+    if (!this.holdStopEvents) {
+      this.flushStopEvents();
+    }
+  }
+
+  flushStopEvents(): void {
     if (this.pendingFlushText !== null) {
       this.onEvent?.({ type: "final", text: this.pendingFlushText });
     }
@@ -1586,6 +1593,46 @@ describe("LiveVoiceSession Flux end-of-turn during the STT dial", () => {
       }
     },
   );
+
+  test("a fully parked follow-up retains its guard when the next dial falls back", async () => {
+    const abort = mock();
+    const options = {
+      providerId: "deepgram-flux" as SttProviderId,
+      fluxConfig: FLUX_ON,
+      startVoiceTurn: async () => ({ turnId: "reply-turn", abort }),
+    };
+    const { frames, session, transcribers } = createHarness(options);
+    try {
+      await session.start();
+      await waitFor(() => transcribers.length === 1);
+      const first = transcribers[0]!;
+      first.holdStopEvents = true;
+      first.pendingFlushText = "tell me a story";
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      first.startOfTurn(0);
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => first.stopped);
+
+      // The first input is released but cannot dispatch until its final arrives.
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await sleep(PAST_SILENCE_BOUNDARY_MS);
+      options.providerId = "vellum";
+      first.flushStopEvents();
+      await waitFor(() => countFrames(frames, "thinking") === 1);
+      expect(countFrames(frames, "turn_cancelled")).toBe(0);
+
+      // Idle input arms the parked follow-up without any further speech.
+      await session.handleBinaryAudio(pcm(0));
+      await waitFor(() => transcribers.length === 2);
+      await waitFor(() => countFrames(frames, "turn_cancelled") === 1);
+      expect(abort).toHaveBeenCalledTimes(1);
+      expect(transcribers[1]!.received).toContainEqual(
+        Buffer.from(SUSTAINED_LOUD_CHUNK),
+      );
+    } finally {
+      await session.close("client_end");
+    }
+  });
 
   test("seeds the latch from the live-voice role, not the global provider", async () => {
     // The configuration roles exist for: live voice on flux while the global

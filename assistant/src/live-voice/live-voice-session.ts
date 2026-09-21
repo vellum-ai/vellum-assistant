@@ -1396,6 +1396,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // The ring holds speech parked during the release→turn-start window;
   // protected from silent-chunk eviction until it flushes.
   private vadPreRollHasSpeech = false;
+  private vadPreRollBargeInGuard: BargeInGuard | null = null;
   // Detector turn-end that fired while its speech sat parked in the ring;
   // replayed once the parked speech flushes into the next armed utterance.
   private vadPendingTurnEnd: "silence" | "max-duration" | null = null;
@@ -2715,7 +2716,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     // Locally endpointed streams keep idle audio in pre-roll.
     if (!hasSpeech && !detector.isActive && !this.providerTurnEndActive) {
-      this.pushVadPreRoll(chunk, false);
+      this.pushVadPreRoll(chunk, "silence");
       return;
     }
 
@@ -2767,7 +2768,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!this.canArmNextUtterance(utterance)) {
         // Speech in the release→turn-start window: hold it in the pre-roll
         // ring so it flushes into the next utterance once it arms.
-        this.pushVadPreRoll(chunk, hasSpeech);
+        this.pushVadPreRoll(chunk, energyClassification);
         return;
       }
       // Sets currentUtterance synchronously; the transcriber resolves async
@@ -3048,7 +3049,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return utterance.completed || utterance.assistantTurnStarted;
   }
 
-  private pushVadPreRoll(chunk: Buffer, hasSpeech: boolean): void {
+  private pushVadPreRoll(
+    chunk: Buffer,
+    classification: VadEnergyClassification,
+  ): void {
+    const hasSpeech = classification === "speech";
+    if (hasSpeech && !this.vadPreRollBargeInGuard) {
+      this.vadPreRollBargeInGuard = createBargeInGuard(this.bargeInMinSpeechMs);
+    }
+    this.vadPreRollBargeInGuard?.track(
+      classification,
+      pcm16DurationMs(
+        chunk.byteLength,
+        this.context.startFrame.audio.sampleRate,
+      ),
+    );
     // A full ring never lets idle silence evict parked speech.
     if (
       !hasSpeech &&
@@ -3068,6 +3083,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   private takeVadPreRoll(): Buffer[] {
     this.vadPreRollHasSpeech = false;
+    this.vadPreRollBargeInGuard = null;
     return this.vadPreRollChunks.splice(0);
   }
 
@@ -3077,11 +3093,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // Read before takeVadPreRoll resets it: a ring holding parked speech
     // makes this cycle speech-bearing, a silence-only ring does not.
     const preRollHadSpeech = this.vadPreRollHasSpeech;
+    const preRollBargeInGuard = this.vadPreRollBargeInGuard;
     for (const chunk of this.takeVadPreRoll()) {
       this.collectUserAudio(utterance, chunk);
       this.bufferPendingUtteranceAudio(utterance, chunk);
     }
     if (preRollHadSpeech) {
+      utterance.preDialBargeInGuard = preRollBargeInGuard;
       utterance.speechRouted = true;
       this.detectedSpeech = true;
     }
