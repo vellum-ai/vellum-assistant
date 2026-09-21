@@ -433,7 +433,7 @@ describe("insertTextIntoElement", () => {
     }
   });
 
-  test("clears controls that do not support text selection", async () => {
+  test("handles controls that do not support text selection", async () => {
     const inputEvents: Array<{ type: string; bubbles?: boolean }> = [];
     let focusedBackendNodeId: number | undefined;
     class TestInputEvent {
@@ -465,6 +465,10 @@ describe("insertTextIntoElement", () => {
       }
 
       select(): void {}
+
+      setSelectionRange(): never {
+        throw new Error("selection is not supported");
+      }
 
       dispatchEvent(event: TestInputEvent): boolean {
         inputEvents.push({ type: event.type, bubbles: event.init.bubbles });
@@ -501,7 +505,12 @@ describe("insertTextIntoElement", () => {
           this: TestInput,
           clearFirst: boolean,
         ) => unknown;
-        return { result: { value: selectText.call(input, true) } };
+        const args = params?.arguments as Array<{ value: unknown }>;
+        return {
+          result: {
+            value: selectText.call(input, Boolean(args[0]?.value)),
+          },
+        };
       }
       return {};
     });
@@ -513,6 +522,14 @@ describe("insertTextIntoElement", () => {
     expect(
       cdp.calls.filter((call) => call.method === "DOM.focus"),
     ).toHaveLength(2);
+
+    await insertTextIntoElement(cdp, 42, "56", { clearFirst: false });
+
+    expect(input.value).toBe("3456");
+    expect(inputEvents).toEqual([{ type: "input", bubbles: true }]);
+    expect(
+      cdp.calls.filter((call) => call.method === "DOM.focus"),
+    ).toHaveLength(3);
   });
 
   test("fails when the edited node is detached instead of claiming success", async () => {
@@ -822,6 +839,35 @@ describe("dispatchKeyPress", () => {
         windowsVirtualKeyCode: 91,
       },
     ]);
+  });
+
+  test("uses physical keyboard codes for punctuation chords", async () => {
+    const cases = [
+      ["Control+/", "/", "Slash", 191, 2],
+      ["Meta+[", "[", "BracketLeft", 219, 4],
+    ] as const;
+
+    for (const [chord, key, code, windowsVirtualKeyCode, modifiers] of cases) {
+      const cdp = fakeCdp(() => ({}));
+
+      await dispatchKeyPress(cdp, chord);
+
+      expect(cdp.calls).toHaveLength(4);
+      expect(cdp.calls[1]!.params).toEqual({
+        type: "rawKeyDown",
+        key,
+        code,
+        windowsVirtualKeyCode,
+        modifiers,
+      });
+      expect(cdp.calls[2]!.params).toEqual({
+        type: "keyUp",
+        key,
+        code,
+        windowsVirtualKeyCode,
+        modifiers,
+      });
+    }
   });
 
   test("dispatches standalone modifier key presses", async () => {

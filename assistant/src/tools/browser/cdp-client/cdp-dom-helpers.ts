@@ -220,7 +220,13 @@ export async function insertTextIntoElement(
           }
           if (typeof this.setSelectionRange === "function") {
             const end = this.value.length;
-            this.setSelectionRange(clearFirst ? 0 : end, end);
+            try {
+              this.setSelectionRange(clearFirst ? 0 : end, end);
+            } catch (error) {
+              if (clearFirst) {
+                throw error;
+              }
+            }
             return clearFirst
               ? { needsRefocus: false }
               : { initialLength: value.length, needsRefocus: false };
@@ -368,6 +374,75 @@ const MODIFIER_DESCRIPTORS: Record<string, ModifierDescriptor> = {
   shift: SHIFT_MODIFIER,
 };
 
+const PUNCTUATION_KEYS = [
+  {
+    unshifted: "`",
+    shifted: "~",
+    code: "Backquote",
+    windowsVirtualKeyCode: 192,
+  },
+  {
+    unshifted: "-",
+    shifted: "_",
+    code: "Minus",
+    windowsVirtualKeyCode: 189,
+  },
+  {
+    unshifted: "=",
+    shifted: "+",
+    code: "Equal",
+    windowsVirtualKeyCode: 187,
+  },
+  {
+    unshifted: "[",
+    shifted: "{",
+    code: "BracketLeft",
+    windowsVirtualKeyCode: 219,
+  },
+  {
+    unshifted: "]",
+    shifted: "}",
+    code: "BracketRight",
+    windowsVirtualKeyCode: 221,
+  },
+  {
+    unshifted: "\\",
+    shifted: "|",
+    code: "Backslash",
+    windowsVirtualKeyCode: 220,
+  },
+  {
+    unshifted: ";",
+    shifted: ":",
+    code: "Semicolon",
+    windowsVirtualKeyCode: 186,
+  },
+  {
+    unshifted: "'",
+    shifted: '"',
+    code: "Quote",
+    windowsVirtualKeyCode: 222,
+  },
+  {
+    unshifted: ",",
+    shifted: "<",
+    code: "Comma",
+    windowsVirtualKeyCode: 188,
+  },
+  {
+    unshifted: ".",
+    shifted: ">",
+    code: "Period",
+    windowsVirtualKeyCode: 190,
+  },
+  {
+    unshifted: "/",
+    shifted: "?",
+    code: "Slash",
+    windowsVirtualKeyCode: 191,
+  },
+] as const;
+
 /**
  * Subset of the US keyboard layout used to populate
  * `Input.dispatchKeyEvent` params. Without these fields, sites that
@@ -453,6 +528,17 @@ function resolveKeyDescriptor(key: string): KeyDescriptor | null {
   if (fromMap) {
     return fromMap;
   }
+  const punctuation = PUNCTUATION_KEYS.find(
+    ({ unshifted, shifted }) => key === unshifted || key === shifted,
+  );
+  if (punctuation) {
+    return {
+      key,
+      code: punctuation.code,
+      windowsVirtualKeyCode: punctuation.windowsVirtualKeyCode,
+      text: key,
+    };
+  }
   if (key.length !== 1) {
     return null;
   }
@@ -516,7 +602,6 @@ function describeKeyEvent(
 }
 
 const SHIFTED_CHARACTERS: Record<string, string> = {
-  "`": "~",
   "1": "!",
   "2": "@",
   "3": "#",
@@ -527,16 +612,9 @@ const SHIFTED_CHARACTERS: Record<string, string> = {
   "8": "*",
   "9": "(",
   "0": ")",
-  "-": "_",
-  "=": "+",
-  "[": "{",
-  "]": "}",
-  "\\": "|",
-  ";": ":",
-  "'": '"',
-  ",": "<",
-  ".": ">",
-  "/": "?",
+  ...Object.fromEntries(
+    PUNCTUATION_KEYS.map(({ unshifted, shifted }) => [unshifted, shifted]),
+  ),
 };
 
 function applyShift(descriptor: KeyDescriptor): KeyDescriptor {
