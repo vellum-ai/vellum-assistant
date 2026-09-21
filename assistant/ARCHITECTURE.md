@@ -578,6 +578,20 @@ All guardian decisions for voice access requests flow through:
 | `src/runtime/trust-verdict-consumer.ts`        | Gateway verdict → caller trust classification (`actorTrustContextFromVerdict`)         |
 | `src/channels/gateway-guardian-requests.ts`    | Gateway client for request persistence and the atomic decide                           |
 
+### Classification (Decision Models)
+
+`services.classification` selects a decision model: a provider that answers a question about some input with structured output (a probability, a choice, a score) rather than chat text. It is a service family beside inference, STT, and TTS, with its own catalog (`src/providers/classification/provider-catalog.ts`), config schema (`src/config/schemas/classification.ts`), and resolver (`src/providers/classification/resolve.ts`). A classification model is never in the LLM catalog, so it cannot back a conversation or an inference profile.
+
+**Resolution:** `resolveClassificationProvider()` reads `{ mode, provider, model }`. `your-own` dispatches on the provider's stored API key (credential name and env-var fallback from the catalog entry); `managed` dispatches on the assistant API key through the platform runtime proxy at the entry's `managedProxyPath`. Either route yields a `Provider` whose `sendMessage` carries the structured answers in `rawResponse`. When neither route resolves the family is inert and every consumer keeps its default behavior.
+
+| Consumer                 | File                                                                         | Behavior without a provider           |
+| ------------------------ | ---------------------------------------------------------------------------- | ------------------------------------- |
+| Voice escalation judge   | `src/calls/voice-escalation-judge.ts`                                        | Front door's escalate decision stands |
+| Voice continuation judge | `src/live-voice/continuation-judge.ts`                                       | Barged-in request keeps running       |
+| Memory v3 pool selection | `src/plugins/defaults/memory/v3/pool-select.ts` (via `@vellumai/plugin-api`) | LLM call-site selector                |
+
+Clients read the catalog and current availability from `GET /v1/classification/providers`. To add a provider, follow `docs/classification-provider-onboarding.md`.
+
 ### Speech-to-Text (STT) Boundaries
 
 Audio-to-text conversion occurs in six distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block is the single source of truth for STT provider selection across assistant, client, live voice, and telephony boundaries.

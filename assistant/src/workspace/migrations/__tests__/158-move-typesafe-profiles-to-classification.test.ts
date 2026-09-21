@@ -1,6 +1,7 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import { moveTypesafeProfilesToClassificationMigration } from "../158-move-typesafe-profiles-to-classification.js";
@@ -11,12 +12,31 @@ function workspaceWith(config: unknown): string {
   return dir;
 }
 
+function seedConnections(
+  dir: string,
+  rows: Array<{ name: string; provider: string }>,
+): void {
+  mkdirSync(join(dir, "data", "db"), { recursive: true });
+  const db = new Database(join(dir, "data", "db", "assistant.db"));
+  db.exec(
+    `CREATE TABLE provider_connections (name TEXT PRIMARY KEY, provider TEXT NOT NULL)`,
+  );
+  for (const row of rows) {
+    db.prepare(`INSERT INTO provider_connections VALUES (?, ?)`).run(
+      row.name,
+      row.provider,
+    );
+  }
+  db.close();
+}
+
 function readConfig(dir: string): any {
   return JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
 }
 
 const JEV = { provider: "typesafe", model: "jev-latest", source: "user" };
 const BALANCED = { provider: "anthropic", model: "claude-opus-4-8" };
+const FAST = { provider: "openai", model: "gpt-5.5" };
 
 describe("158-move-typesafe-profiles-to-classification", () => {
   test("moves a TypeSafe profile into services.classification and unpins its call sites", () => {
@@ -46,7 +66,43 @@ describe("158-move-typesafe-profiles-to-classification", () => {
     });
   });
 
-  test("clears mix arms, fallback pointers, and the active profile that named it", () => {
+  test("recognizes a profile bound to a TypeSafe connection by entry name", () => {
+    const dir = workspaceWith({
+      llm: {
+        profiles: {
+          "jev-work": { provider: "jev-work", model: "jev-custom" },
+          balanced: BALANCED,
+        },
+        callSites: { voiceEscalationJudge: { profile: "jev-work" } },
+      },
+    });
+    seedConnections(dir, [
+      { name: "jev-work", provider: "typesafe" },
+      { name: "anthropic-personal", provider: "anthropic" },
+    ]);
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    const config = readConfig(dir);
+    expect(config.services.classification.model).toBe("jev-custom");
+    expect(config.llm.profiles).toEqual({ balanced: BALANCED });
+    expect(config.llm.callSites).toEqual({});
+  });
+
+  test("fails the run when the connection table cannot be read", () => {
+    const dir = workspaceWith({ llm: { profiles: { jev: JEV } } });
+    mkdirSync(join(dir, "data", "db"), { recursive: true });
+    writeFileSync(join(dir, "data", "db", "assistant.db"), "not a database");
+
+    expect(() =>
+      moveTypesafeProfilesToClassificationMigration.run(dir),
+    ).toThrow(/retrying/);
+    expect(
+      moveTypesafeProfilesToClassificationMigration.retryFailedCheckpoint,
+    ).toBe(true);
+  });
+
+  test("keeps a mix with two or more surviving arms and clears top-level pointers", () => {
     const dir = workspaceWith({
       llm: {
         activeProfile: "jev",
@@ -54,7 +110,14 @@ describe("158-move-typesafe-profiles-to-classification", () => {
         profiles: {
           jev: JEV,
           balanced: BALANCED,
-          blend: { mix: [{ profile: "jev" }, { profile: "balanced" }] },
+          fast: FAST,
+          blend: {
+            mix: [
+              { profile: "jev", weight: 1 },
+              { profile: "balanced", weight: 1 },
+              { profile: "fast", weight: 2 },
+            ],
+          },
         },
         callSites: {
           memoryV3SelectL2: { mix: [{ profile: "jev" }] },
@@ -69,10 +132,53 @@ describe("158-move-typesafe-profiles-to-classification", () => {
     expect(config.llm.activeProfile).toBeUndefined();
     expect(config.llm.advisorProfile).toBeUndefined();
     expect(config.llm.profiles.blend).toEqual({
-      mix: [{ profile: "balanced" }],
+      mix: [
+        { profile: "balanced", weight: 1 },
+        { profile: "fast", weight: 2 },
+      ],
     });
     expect(config.llm.callSites).toEqual({
       voiceFrontDoor: { profile: "balanced" },
+    });
+  });
+
+  test("collapses a mix left with one arm onto that arm and rewrites its references", () => {
+    const dir = workspaceWith({
+      llm: {
+        activeProfile: "blend",
+        profiles: {
+          jev: JEV,
+          balanced: BALANCED,
+          blend: {
+            mix: [
+              { profile: "jev", weight: 1 },
+              { profile: "balanced", weight: 1 },
+            ],
+          },
+          outer: {
+            mix: [
+              { profile: "blend", weight: 1 },
+              { profile: "jev", weight: 1 },
+            ],
+          },
+        },
+        callSites: {
+          mainAgent: { profile: "blend" },
+          voiceFrontDoor: { mix: [{ profile: "outer" }, { profile: "jev" }] },
+          advisor: { fallbackProfile: "outer", effort: "low" },
+        },
+      },
+    });
+
+    moveTypesafeProfilesToClassificationMigration.run(dir);
+
+    const config = readConfig(dir);
+    expect(config.llm.profiles).toEqual({ balanced: BALANCED });
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.callSites).toEqual({
+      mainAgent: { profile: "balanced" },
+      voiceFrontDoor: { profile: "balanced" },
+      advisor: { fallbackProfile: "balanced", effort: "low" },
     });
   });
 

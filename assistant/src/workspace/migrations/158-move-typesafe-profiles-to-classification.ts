@@ -1,31 +1,30 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Move TypeSafe out of the LLM profile system into `services.classification`.
+ * Move TypeSafe out of `llm.profiles` into `services.classification`.
  *
- * Jev (TypeSafe System One) used to be an LLM catalog provider, so the only
- * way to use it was an `llm.profiles.*` entry with `provider: "typesafe"`
- * pinned onto a judge call site. It now belongs to the classification
- * family, which the judges and the memory selector read directly, and
- * "typesafe" is no longer a valid LLM provider: a profile still naming it
- * would fail the loader's provider check.
+ * A profile is a TypeSafe profile when its `provider` is the literal
+ * `"typesafe"` or names a `provider_connections` row of that kind (an
+ * entry-name binding). For a config holding at least one:
  *
- * For a config with at least one such profile:
+ *   - `services.classification` is written as the BYOK route on the first
+ *     such profile's model unless the block already exists.
+ *   - Every TypeSafe profile is deleted.
+ *   - A mix that loses arms is repaired: with two or more left it keeps
+ *     them; with one left it collapses, and every reference to the mix is
+ *     rewritten to that survivor; with none left it is deleted like a
+ *     TypeSafe profile. Repairs cascade until no mix names a deleted or
+ *     collapsed profile.
+ *   - References to deleted profiles are dropped from `activeProfile`,
+ *     `advisorProfile`, and each call site's `profile`, `fallbackProfile`,
+ *     and `mix`; a call-site entry left empty is removed.
  *
- *   - `services.classification` is written once, as the BYOK route on the
- *     profile's model (the LLM catalog never served TypeSafe through the
- *     platform, so no profile can have been managed). An existing block is
- *     left alone.
- *   - Each TypeSafe profile is deleted.
- *   - Every reference to a deleted profile goes with it: a call site's
- *     `profile` or `fallbackProfile`, the arms of a `mix` (a mix emptied this
- *     way is removed), and the top-level `activeProfile` / `advisorProfile`
- *     pointers. A call-site entry left empty is removed so the shipped
- *     default applies.
- *
+ * Connection rows are judged against the real table, so the run fails and
+ * is retried on the next start when the database cannot be read.
  * Idempotent: a config with no TypeSafe profile has nothing to rewrite.
  */
 const TYPESAFE_PROVIDER = "typesafe";
@@ -35,7 +34,8 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
   {
     id: "158-move-typesafe-profiles-to-classification",
     description:
-      "Move llm.profiles that name the typesafe provider into services.classification and drop their references",
+      "Move llm.profiles that route to TypeSafe into services.classification and repair their references",
+    retryFailedCheckpoint: true,
     run(workspaceDir: string): void {
       const configPath = join(workspaceDir, "config.json");
       if (!existsSync(configPath)) {
@@ -60,16 +60,28 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
         return;
       }
 
+      const connectionKinds = readConnectionKinds(workspaceDir);
+      if (connectionKinds === null) {
+        throw new Error(
+          "provider_connections is not readable; retrying the TypeSafe profile move on the next run",
+        );
+      }
+
       const removed = new Set<string>();
       let model: string = DEFAULT_CLASSIFICATION_MODEL;
       for (const [name, value] of Object.entries(profiles)) {
         const profile = asRecord(value);
-        if (profile?.provider !== TYPESAFE_PROVIDER) {
+        const provider = profile?.provider;
+        const routesToTypesafe =
+          provider === TYPESAFE_PROVIDER ||
+          (typeof provider === "string" &&
+            connectionKinds.get(provider) === TYPESAFE_PROVIDER);
+        if (!routesToTypesafe) {
           continue;
         }
         if (
           removed.size === 0 &&
-          typeof profile.model === "string" &&
+          typeof profile?.model === "string" &&
           profile.model
         ) {
           model = profile.model;
@@ -91,16 +103,19 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
       }
       config.services = services;
 
-      for (const key of ["activeProfile", "advisorProfile"]) {
-        if (typeof llm[key] === "string" && removed.has(llm[key] as string)) {
-          delete llm[key];
-        }
-      }
+      const collapsed = repairProfileMixes(profiles, removed);
+      const resolve = referenceResolver(collapsed, removed);
 
-      for (const value of Object.values(profiles)) {
-        const profile = asRecord(value);
-        if (profile) {
-          stripMixArms(profile, removed);
+      for (const key of ["activeProfile", "advisorProfile"]) {
+        const target = llm[key];
+        if (typeof target !== "string") {
+          continue;
+        }
+        const resolved = resolve(target);
+        if (resolved === undefined) {
+          delete llm[key];
+        } else if (resolved !== target) {
+          llm[key] = resolved;
         }
       }
 
@@ -112,14 +127,21 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
             continue;
           }
           for (const key of ["profile", "fallbackProfile"]) {
-            if (
-              typeof entry[key] === "string" &&
-              removed.has(entry[key] as string)
-            ) {
+            const target = entry[key];
+            if (typeof target !== "string") {
+              continue;
+            }
+            const resolved = resolve(target);
+            if (resolved === undefined) {
               delete entry[key];
+            } else if (resolved !== target) {
+              entry[key] = resolved;
             }
           }
-          stripMixArms(entry, removed);
+          const survivor = repairMixArms(entry, resolve);
+          if (survivor !== undefined && typeof entry.profile !== "string") {
+            entry.profile = survivor;
+          }
           if (Object.keys(entry).length === 0) {
             delete callSites[site];
           }
@@ -130,33 +152,134 @@ export const moveTypesafeProfilesToClassificationMigration: WorkspaceMigration =
     },
 
     down(_workspaceDir: string): void {
-      // Forward-only: "typesafe" is gone from the LLM provider set, so
-      // restoring a profile would produce a config the loader rejects.
+      // Forward-only: "typesafe" is not an LLM provider, so a restored
+      // profile would fail the loader's provider check.
     },
   };
 
-/** Drop `mix` arms that name a removed profile; drop an emptied `mix`. */
-function stripMixArms(
-  entry: Record<string, unknown>,
-  removed: ReadonlySet<string>,
-): void {
-  if (!Array.isArray(entry.mix)) {
-    return;
+/**
+ * Repair every mix profile against `removed`, cascading until stable.
+ * Returns the collapse map (mix name -> sole surviving arm's profile);
+ * mixes with no arms left are added to `removed` and deleted.
+ */
+function repairProfileMixes(
+  profiles: Record<string, unknown>,
+  removed: Set<string>,
+): Map<string, string> {
+  const collapsed = new Map<string, string>();
+  const resolve = referenceResolver(collapsed, removed);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, value] of Object.entries(profiles)) {
+      const profile = asRecord(value);
+      if (!profile || !Array.isArray(profile.mix)) {
+        continue;
+      }
+      const before = JSON.stringify(profile.mix);
+      const survivor = repairMixArms(profile, resolve);
+      if (survivor !== undefined) {
+        collapsed.set(name, survivor);
+        delete profiles[name];
+        changed = true;
+      } else if (!Array.isArray(profile.mix)) {
+        removed.add(name);
+        delete profiles[name];
+        changed = true;
+      } else if (JSON.stringify(profile.mix) !== before) {
+        changed = true;
+      }
+    }
   }
-  const kept = entry.mix.filter((arm) => {
+  return collapsed;
+}
+
+/**
+ * Rewrite or drop the arms of `entry.mix` through `resolve`. Returns the
+ * sole survivor's profile name when exactly one arm is left (the mix is
+ * removed from the entry), otherwise `undefined`; a mix with no arms left
+ * is removed too.
+ */
+function repairMixArms(
+  entry: Record<string, unknown>,
+  resolve: (name: string) => string | undefined,
+): string | undefined {
+  if (!Array.isArray(entry.mix)) {
+    return undefined;
+  }
+  const kept: unknown[] = [];
+  for (const arm of entry.mix) {
     const record = asRecord(arm);
-    return !(
-      typeof record?.profile === "string" && removed.has(record.profile)
+    if (typeof record?.profile !== "string") {
+      kept.push(arm);
+      continue;
+    }
+    const resolved = resolve(record.profile);
+    if (resolved === undefined) {
+      continue;
+    }
+    kept.push(
+      resolved === record.profile ? arm : { ...record, profile: resolved },
     );
-  });
-  if (kept.length === entry.mix.length) {
-    return;
   }
   if (kept.length === 0) {
     delete entry.mix;
-  } else {
-    entry.mix = kept;
+    return undefined;
   }
+  if (kept.length === 1) {
+    delete entry.mix;
+    const only = asRecord(kept[0]);
+    return typeof only?.profile === "string" ? only.profile : undefined;
+  }
+  entry.mix = kept;
+  return undefined;
+}
+
+/**
+ * Connection name -> provider kind, or null when the database or table is
+ * not readable. A missing database means a workspace with no connections.
+ */
+function readConnectionKinds(workspaceDir: string): Map<string, string> | null {
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+  if (!existsSync(dbPath)) {
+    return new Map();
+  }
+  let db: Database;
+  try {
+    db = new Database(dbPath);
+  } catch {
+    return null;
+  }
+  try {
+    const rows = db
+      .query(`SELECT name, provider FROM provider_connections`)
+      .all() as Array<{ name: string; provider: string }>;
+    return new Map(rows.map((row) => [row.name, row.provider]));
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Map a profile reference through collapsed mixes to the profile it now
+ * means, or `undefined` when it ends on a deleted profile.
+ */
+function referenceResolver(
+  collapsed: ReadonlyMap<string, string>,
+  removed: ReadonlySet<string>,
+): (name: string) => string | undefined {
+  return (name) => {
+    let current = name;
+    const seen = new Set<string>();
+    while (collapsed.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = collapsed.get(current)!;
+    }
+    return removed.has(current) ? undefined : current;
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
