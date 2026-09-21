@@ -370,8 +370,22 @@ export function gatewayChannelStatus(
   type: string,
   address: string,
 ): string | null {
+  return gatewayChannelRow(type, address)?.status ?? null;
+}
+
+/**
+ * The authoritative gateway row behind {@link gatewayChannelStatus}, with the
+ * address as stored, for a caller that has to compare it exactly.
+ */
+export function gatewayChannelRow(
+  type: string,
+  address: string,
+): { status: string; address: string } | null {
   const row = getGatewayDb()
-    .select({ status: gwContactChannels.status })
+    .select({
+      status: gwContactChannels.status,
+      address: gwContactChannels.address,
+    })
     .from(gwContactChannels)
     .where(
       and(
@@ -380,7 +394,7 @@ export function gatewayChannelStatus(
       ),
     )
     .get();
-  return row?.status ?? null;
+  return row ?? null;
 }
 
 export interface VerifiedChannelRow {

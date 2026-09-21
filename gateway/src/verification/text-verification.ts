@@ -26,7 +26,7 @@ import {
 import { getLogger } from "../logger.js";
 
 import {
-  getExistingGuardianBinding,
+  activeGuardianAddresses,
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
@@ -37,7 +37,7 @@ import {
 } from "./code-parsing.js";
 import {
   findContactChannelByAddress,
-  gatewayChannelStatus,
+  gatewayChannelRow,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -252,7 +252,8 @@ export async function tryTextVerificationIntercept(
       : "guardian";
 
   // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
-  //    the verification: the actor must not regain trusted status nor see a
+  //    the verification, and so does a guardian code on a channel another
+  //    account guards: the actor must not gain trusted status nor see a
   //    success reply, even though the code matched and the session consumed.
   const sideEffectsVerified =
     trustClass === "guardian"
@@ -274,7 +275,7 @@ export async function tryTextVerificationIntercept(
   if (!sideEffectsVerified) {
     log.warn(
       { sourceChannel, actorExternalUserId: canonicalUserId, trustClass },
-      "Verification rejected: authoritative gateway channel is blocked/revoked",
+      "Verification rejected: the consumed code granted nothing",
     );
     const pendingReplyText = await replyWithFailure(
       replyCallbackUrl,
@@ -341,27 +342,23 @@ async function applyGuardianSideEffects(params: {
     actorUsername,
   } = params;
 
-  // Check for binding conflict — another user already holds guardian
-  const existing = getExistingGuardianBinding(sourceChannel);
-  if (existing?.address && existing.address !== canonicalUserId) {
+  // A guardian code never takes a channel from its guardian, and grants
+  // nothing in its place. Changing the guardian's account is two explicit
+  // acts: remove the connection, then connect again. Every active guardian
+  // row is read, so a second one is weighed and not hidden behind a LIMIT 1.
+  const otherGuardians = activeGuardianAddresses(sourceChannel).filter(
+    (address) => address !== canonicalUserId,
+  );
+  if (otherGuardians.length > 0) {
     log.warn(
       {
         sourceChannel,
-        existingGuardian: existing.address,
+        existingGuardians: otherGuardians,
         newActor: canonicalUserId,
       },
-      "Guardian binding conflict: another user already holds this channel",
+      "Guardian code refused: another account is this channel's guardian",
     );
-    // Still upsert the contact channel so the sender is a known contact,
-    // but skip guardian binding creation.
-    const { verified } = await upsertVerifiedContactChannel({
-      sourceChannel,
-      externalUserId: canonicalUserId,
-      externalChatId: actorChatId,
-      displayName: actorDisplayName,
-      username: actorUsername,
-    });
-    return verified;
+    return false;
   }
 
   // The gateway is the source of truth: a blocked/revoked gateway row rejects
@@ -369,13 +366,24 @@ async function applyGuardianSideEffects(params: {
   // re-verifying guardian (whose current row is active) isn't blocked by their
   // own about-to-be-revoked row. createGuardianBinding writes "active"
   // unconditionally, so this guard is the only thing stopping a blocked actor.
-  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  //
+  // One revoked row gets past it: the sender's own, on a channel no other
+  // account guards. That is a guardian who removed their connection and is
+  // connecting the same account again. A blocked row never does.
+  const gwRow = gatewayChannelRow(sourceChannel, canonicalUserId);
+  const gwStatus = gwRow?.status ?? null;
   if (gwStatus === "blocked" || gwStatus === "revoked") {
-    log.warn(
-      { sourceChannel, address: canonicalUserId, status: gwStatus },
-      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
-    );
-    return false;
+    const reconnectsOwnRevokedRow =
+      gwStatus === "revoked" &&
+      gwRow?.address === canonicalUserId &&
+      otherGuardians.length === 0;
+    if (!reconnectsOwnRevokedRow) {
+      log.warn(
+        { sourceChannel, address: canonicalUserId, status: gwStatus },
+        "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
+      );
+      return false;
+    }
   }
 
   // Revoke existing binding (same-user re-verification)

@@ -469,11 +469,11 @@ The inbound message handler (`inbound-message-handler.ts`) accepts verification 
 
 #### Explicit Rebind Policy
 
-Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeVerification` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. Minting is all it permits: a code never replaces a guardian when it is redeemed (see below). To change the guardian's account on a channel, revoke the existing binding and then verify again.
 
 #### Guardian Takeover Prevention
 
-`validateAndConsumeVerification` rejects verification when an active binding exists for a _different_ external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+Text-channel redemption (`applyGuardianSideEffects` in `gateway/src/verification/text-verification.ts`) rejects a guardian code when any active guardian binding on the channel belongs to a _different_ external user: the code is spent, the sender is told it was invalid or expired, and they are made neither guardian nor contact. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding. A guardian who revoked their binding can verify the same account again: their own revoked row is reactivated when its stored address is exactly the redeeming one and no other account guards the channel. A blocked row is never reactivated.
 
 #### Guardian Verification Flow
 
