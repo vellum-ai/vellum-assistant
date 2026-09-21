@@ -90,6 +90,19 @@ function rowByName(name: string): HTMLButtonElement {
   return row;
 }
 
+/** The row's name line, which is the only span holding the name alone. */
+function nameSpan(name: string): HTMLElement {
+  const span = Array.from(
+    rowByName(name).querySelectorAll<HTMLElement>("span"),
+  ).find((candidate) => candidate.textContent === name);
+  if (!span) {
+    throw new Error(`No name span for ${name}`);
+  }
+  return span;
+}
+
+const NAME_COLOR_CLASS = "text-[var(--content-default)]";
+
 function searchInput(): HTMLInputElement {
   return screen.getByPlaceholderText("Search Contacts") as HTMLInputElement;
 }
@@ -124,6 +137,13 @@ describe("ContactsList card surface", () => {
 
     expect(rowByName("Alice (You)").querySelectorAll("svg").length).toBe(1);
     expect(rowByName("Bob").querySelectorAll("svg").length).toBe(1);
+  });
+
+  test("leaves the row name at the panel row's resting color", () => {
+    render(<Harness surface="card" />);
+
+    expect(nameSpan("Bob").className).not.toContain(NAME_COLOR_CLASS);
+    expect(nameSpan("Alice (You)").className).not.toContain(NAME_COLOR_CLASS);
   });
 });
 
@@ -161,6 +181,16 @@ describe("ContactsList screen surface", () => {
     render(<Harness surface="screen" />);
 
     expect(rowByName("Bob").textContent).toContain("Telegram | WhatsApp");
+  });
+
+  test("paints the row name at full strength and the subtitle muted", () => {
+    render(<Harness surface="screen" />);
+
+    expect(nameSpan("Bob").className).toContain(NAME_COLOR_CLASS);
+    expect(nameSpan("Alice (You)").className).toContain(NAME_COLOR_CLASS);
+    expect(screen.getByText("Telegram | WhatsApp").style.color).toBe(
+      "var(--content-tertiary)",
+    );
   });
 
   test("renders every row as a button and reports the contact id", () => {

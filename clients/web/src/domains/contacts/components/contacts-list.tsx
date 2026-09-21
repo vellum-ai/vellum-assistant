@@ -248,7 +248,17 @@ function ContactRow({
         <span
           className={cn("flex min-w-0 flex-1 flex-col", isScreen && "gap-0.5")}
         >
-          <span className="truncate text-body-medium-default">{name}</span>
+          {/* `PanelItem` rests its row at `--content-secondary`; the screen
+              surface draws the name at full strength and leaves the channel
+              subtitle beneath it muted. */}
+          <span
+            className={cn(
+              "truncate text-body-medium-default",
+              isScreen && "text-[var(--content-default)]",
+            )}
+          >
+            {name}
+          </span>
           {channelLabel ? (
             <span
               className={cn(
