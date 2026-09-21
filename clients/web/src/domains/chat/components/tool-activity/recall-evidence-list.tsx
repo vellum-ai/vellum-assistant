@@ -14,8 +14,13 @@ import { Typography } from "@vellumai/design-library";
 import { MachineText } from "@/components/detail-primitives";
 import { useRecallSourceLabel } from "@/domains/chat/components/tool-activity/recall-labels";
 
-function RecallEvidenceRow({ item }: { item: RecallEvidenceItem }) {
-  const sourceLabel = useRecallSourceLabel();
+function RecallEvidenceRow({
+  item,
+  sourceLabel,
+}: {
+  item: RecallEvidenceItem;
+  sourceLabel: string;
+}) {
   return (
     <li className="min-w-0">
       <Typography
@@ -31,7 +36,7 @@ function RecallEvidenceRow({ item }: { item: RecallEvidenceItem }) {
           as="span"
           className="shrink-0 text-[var(--content-tertiary)]"
         >
-          {sourceLabel(item.source)}
+          {sourceLabel}
         </Typography>
         <MachineText
           tone="muted"
@@ -59,10 +64,15 @@ export function RecallEvidenceList({
 }: {
   evidence: readonly RecallEvidenceItem[];
 }) {
+  const sourceLabel = useRecallSourceLabel();
   return (
     <ul className="flex flex-col gap-4">
       {evidence.map((item, index) => (
-        <RecallEvidenceRow key={`${index}:${item.locator}`} item={item} />
+        <RecallEvidenceRow
+          key={`${index}:${item.locator}`}
+          item={item}
+          sourceLabel={sourceLabel(item.source)}
+        />
       ))}
     </ul>
   );
