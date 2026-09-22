@@ -112,9 +112,8 @@ type SendStreamResult =
       status: "ok";
       resolvedConversationId?: string;
       /** Server-assigned user message id from the active POST resolve.
-       *  Absent for an older assistant's queued acceptance (POST returns
-       *  only `requestId`) and
-       *  for scope-changed-mid-flight results. The optimistic send is no
+       *  Absent for an older assistant's queued acceptance (POST returns only
+       *  `requestId`) and for scope-changed-mid-flight results. The optimistic send is no
        *  longer id-swapped against this — the snapshot's echoed row and the
        *  overlay's `clientMessageId` dedup own that — so this is retained only
        *  for diagnostics / callers that want the persisted id. */

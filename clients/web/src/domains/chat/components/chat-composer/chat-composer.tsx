@@ -823,12 +823,6 @@ export function ChatComposer({
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
-  // A turn in flight keeps the row in its resting shape (attach, dictation,
-  // voice, Send): the message the user types stops that turn and is answered
-  // at once, so Send stays where it is and pressing it interrupts and sends in
-  // one move. The send slot is the exception, since a Send that cannot be
-  // pressed is no such gesture: it holds Stop there (`showStopInSendSlot`),
-  // which is the only way to end a turn without sending something.
   // Words already spoken are content the composer does not hold yet, so the
   // composer's own dictation session makes the send slot pressable on its
   // own: Send there means "finish, then send", and `useComposerSubmit`
@@ -841,10 +835,13 @@ export function ChatComposer({
   // is no press to make.
   const sendBlocked =
     sendDisabled || attachmentsUploadingCount > 0 || !canSendOrFinishDictation;
-  // A pressable Send is the interrupt, so Stop takes
-  // the send slot exactly while there is no press to make: an empty composer,
-  // an attachment still uploading, a prompt holding the send. Without it those
-  // rows leave a running turn with no end the user can reach.
+  // A turn in flight keeps the row in its resting shape (attach, dictation,
+  // voice, Send): the message the user types stops that turn and is answered
+  // at once, so pressing Send interrupts and sends in one move. The send slot
+  // is the exception, because a Send that cannot be pressed is no such
+  // gesture. Stop takes the slot exactly while there is no press to make: an
+  // empty composer, an attachment still uploading, a prompt holding the send.
+  // Without it those rows leave a running turn with no end the user can reach.
   //
   // A live-voice session this composer owns keeps the slot as it rests: the bar
   // above the card owns that session and the turn it is speaking.
