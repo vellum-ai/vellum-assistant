@@ -77,6 +77,28 @@ describe("parseLiveVoiceClientTextFrame", () => {
     expect(result).toEqual({ ok: true, frame });
   });
 
+  test.each([true, false])(
+    "parses screen sharing state %p",
+    (screenSharing) => {
+      const frame = { type: "update_config", screenSharing } as const;
+      expect(parseLiveVoiceClientTextFrame(JSON.stringify(frame))).toEqual({
+        ok: true,
+        frame,
+      });
+    },
+  );
+
+  test("rejects malformed screen sharing state", () => {
+    expect(
+      parseLiveVoiceClientTextFrame(
+        JSON.stringify({
+          type: "update_config",
+          screenSharing: "true",
+        }),
+      ).ok,
+    ).toBe(false);
+  });
+
   test("parses an update_config frame with a single field, omitting the other", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({ type: "update_config", silenceThresholdMs: 900 }),
