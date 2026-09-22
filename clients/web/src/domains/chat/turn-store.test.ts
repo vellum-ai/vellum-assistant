@@ -1687,6 +1687,22 @@ describe("an interrupting send", () => {
     expect(useTurnStore.getState().phase).toBe("idle");
   });
 
+  test("a queued send drops its handoff marker, so a later Stop is terminal", () => {
+    // An assistant that queues the send aborts nothing, so the cancel the
+    // marker is waiting for never comes.
+    useTurnStore.setState({ ...INITIAL_TURN_STATE });
+    useTurnStore.getState().requestSend("turn-b", {
+      interruptsRunningTurn: true,
+    });
+    useTurnStore.getState().clearInterruptHandoff();
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
+
+    useTurnStore.getState().cancelGeneration();
+    expect(useTurnStore.getState().phase).toBe("idle");
+    expect(useTurnStore.getState().activeTurnId).toBeNull();
+    expect(useTurnStore.getState().lastTerminalReason).toBe("cancelled");
+  });
+
   test("a Stop with no send behind it is terminal", () => {
     const stopped = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED", turnId: "turn-a" },

@@ -257,6 +257,9 @@ export interface TurnActions {
     },
   ) => void;
   acceptSend: (turnId: string) => void;
+  /** Drop the handoff marker of a send that is not replacing a running turn
+   *  after all, so the next cancel of this turn reads as terminal. */
+  clearInterruptHandoff: () => void;
   onTextDelta: () => void;
   onToolUseStart: () => void;
   onToolResult: () => void;
@@ -382,6 +385,8 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
           : null),
       };
     }),
+
+  clearInterruptHandoff: () => set({ interruptingTurnId: null }),
 
   // ----- Streaming -----
 

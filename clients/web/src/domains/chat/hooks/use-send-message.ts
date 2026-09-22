@@ -544,6 +544,11 @@ export function useSendMessage({
           .setRequestIdMapping(postResult.requestId, clientMessageId);
       }
       if (postResult.queued) {
+        // An assistant that queues the send aborts nothing, so the cancel this
+        // turn's handoff marker is waiting for never comes. Left armed, the
+        // next Stop on this conversation would read as that handoff and leave
+        // the composer busy with no turn behind it.
+        useTurnStore.getState().clearInterruptHandoff();
         return {
           status: "ok",
           resolvedConversationId: postResult.conversationId,

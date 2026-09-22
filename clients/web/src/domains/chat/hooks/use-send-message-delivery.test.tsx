@@ -208,5 +208,8 @@ describe("useSendMessage — SSE + reconciliation own delivery (no poll)", () =>
       useChatSessionStore.getState().requestIdToMessageId.get("request-1"),
     ).toBe(row?.id);
     expect(useChatSessionStore.getState().error).toBeNull();
+    // Nothing was aborted, so no cancel is owed to this send: a Stop during
+    // the queued message's turn must read as terminal, not as the handoff.
+    expect(useTurnStore.getState().interruptingTurnId).toBeNull();
   });
 });

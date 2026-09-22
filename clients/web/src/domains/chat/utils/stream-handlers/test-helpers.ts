@@ -41,6 +41,7 @@ export function makeCtx(
     turnActions: {
       requestSend: mock(() => {}),
       acceptSend: mock(() => {}),
+      clearInterruptHandoff: mock(() => {}),
       onTextDelta: mock(() => {}),
       onToolUseStart: mock(() => {}),
       onToolResult: mock(() => {}),
