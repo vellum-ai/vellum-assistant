@@ -21,10 +21,12 @@ import * as guardianToken from "../lib/guardian-token.js";
 import * as localRuntimeClient from "../lib/local-runtime-client.js";
 import * as platformClient from "../lib/platform-client.js";
 
-const resolveAssistantMock = spyOn(
+const resolveTargetMock = spyOn(
   assistantConfig,
-  "resolveAssistant",
-).mockReturnValue(null);
+  "resolveTargetAssistant",
+).mockImplementation(() => {
+  throw new Error("process.exit:1");
+});
 const readPlatformTokenMock = spyOn(
   platformClient,
   "readPlatformToken",
@@ -33,6 +35,10 @@ const exportMock = spyOn(
   localRuntimeClient,
   "localRuntimeExportToGcs",
 ).mockResolvedValue({ jobId: "job-1" });
+const identityMock = spyOn(
+  localRuntimeClient,
+  "localRuntimeIdentity",
+).mockResolvedValue({ version: "0.12.3" });
 const pollMock = spyOn(
   localRuntimeClient,
   "localRuntimePollJobStatus",
@@ -48,8 +54,15 @@ const loadGuardianTokenSpy = spyOn(
   "loadGuardianToken",
 ).mockReturnValue({
   accessToken: "local-token",
-  accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+  accessTokenExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
 } as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
+const leaseGuardianTokenSpy = spyOn(
+  guardianToken,
+  "leaseGuardianToken",
+).mockResolvedValue({
+  accessToken: "leased-token",
+  accessTokenExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+} as unknown as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>);
 
 const { debugBundle } = await import("../commands/debug-bundle.js");
 
@@ -91,8 +104,11 @@ beforeEach(() => {
       );
     },
   ) as unknown as typeof globalThis.fetch;
-  resolveAssistantMock.mockReset();
-  resolveAssistantMock.mockReturnValue(LOCAL_ENTRY);
+  resolveTargetMock.mockReset();
+  resolveTargetMock.mockReturnValue(LOCAL_ENTRY);
+  identityMock.mockReset();
+  identityMock.mockResolvedValue({ version: "0.12.3" });
+  leaseGuardianTokenSpy.mockClear();
   readPlatformTokenMock.mockReset();
   readPlatformTokenMock.mockReturnValue("platform-token");
   exportMock.mockClear();
@@ -105,7 +121,9 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  resolveAssistantMock.mockRestore();
+  resolveTargetMock.mockRestore();
+  identityMock.mockRestore();
+  leaseGuardianTokenSpy.mockRestore();
   readPlatformTokenMock.mockRestore();
   exportMock.mockRestore();
   pollMock.mockRestore();
@@ -138,6 +156,56 @@ describe("vellum debug-bundle", () => {
       profile: "debug",
     });
     expect(pollMock).toHaveBeenCalled();
+    // The daemon was checked for the debug profile before the platform call.
+    expect(identityMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("passes an unquoted multi-word display name through to the shared resolver", async () => {
+    process.argv = ["bun", "vellum", "debug-bundle", "Support", "Bot"];
+    await debugBundle();
+    expect(resolveTargetMock).toHaveBeenCalledWith("Support Bot");
+  });
+
+  test("refuses a daemon older than the debug profile before any URL is minted", async () => {
+    // Such a daemon strips `profile` and would upload the owner's
+    // credentials to the staff bucket.
+    identityMock.mockResolvedValue({ version: "0.12.2" });
+    const errors: string[] = [];
+    const errorSpy = spyOn(console, "error").mockImplementation((msg) => {
+      errors.push(String(msg));
+    });
+    try {
+      await expect(debugBundle()).rejects.toThrow("process.exit:1");
+    } finally {
+      errorSpy.mockRestore();
+    }
+    expect(errors.join("\n")).toContain("0.12.3");
+    expect(fetchCalls).toHaveLength(0);
+    expect(exportMock).not.toHaveBeenCalled();
+  });
+
+  test("re-leases the guardian token when the daemon answers 401 mid-poll", async () => {
+    pollMock.mockReset();
+    let polls = 0;
+    pollMock.mockImplementation(async (_entry, token) => {
+      polls += 1;
+      if (polls === 1) {
+        throw new Error("Local job status check failed: 401 Unauthorized");
+      }
+      expect(token).toBe("leased-token");
+      return {
+        jobId: "job-1",
+        type: "export",
+        status: "complete",
+      } as unknown as Awaited<
+        ReturnType<typeof localRuntimeClient.localRuntimePollJobStatus>
+      >;
+    });
+
+    await debugBundle();
+
+    expect(leaseGuardianTokenSpy).toHaveBeenCalledTimes(1);
+    expect(polls).toBe(2);
   });
 
   test("explains what to turn on when the platform refuses", async () => {
@@ -156,7 +224,7 @@ describe("vellum debug-bundle", () => {
   });
 
   test("refuses a Vellum-hosted assistant, which needs no bundle", async () => {
-    resolveAssistantMock.mockReturnValue({
+    resolveTargetMock.mockReturnValue({
       ...LOCAL_ENTRY,
       cloud: "vellum",
     } as unknown as assistantConfig.AssistantEntry);
@@ -170,7 +238,7 @@ describe("vellum debug-bundle", () => {
   });
 
   test("asks for a login when the assistant is not registered", async () => {
-    resolveAssistantMock.mockReturnValue({
+    resolveTargetMock.mockReturnValue({
       ...LOCAL_ENTRY,
       platformAssistantId: undefined,
     } as unknown as assistantConfig.AssistantEntry);

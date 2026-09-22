@@ -8,12 +8,18 @@ import {
 } from "@/domains/settings/teleport/teleport-gateway-client";
 import { assistantsDebugBundleUploadUrlCreate } from "@/generated/api/sdk.gen";
 import { useTranslation } from "@/i18n";
+import {
+  MIN_VERSION as DEBUG_EXPORT_MIN_VERSION,
+  useSupportsDebugExportProfile,
+} from "@/lib/backwards-compat/use-supports-debug-export-profile";
 import { getLocalGatewayUrl, getSelectedAssistant } from "@/lib/local-mode";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const POLL_INTERVAL_MS = 2_000;
-const EXPORT_TIMEOUT_MS = 15 * 60 * 1_000;
+// Matches the daemon's own upload deadline (EXPORT_TO_GCS_PUT_TIMEOUT_MS), so
+// this never reports a failure for a job the daemon is still finishing.
+const EXPORT_TIMEOUT_MS = 60 * 60 * 1_000;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,7 +32,11 @@ const sleep = (ms: number): Promise<void> =>
  *
  * Only the desktop app on the machine running the assistant can ask the
  * daemon to export, so the button appears only when a local gateway is
- * resolved. Everywhere else the row says where to go.
+ * resolved. Everywhere else the row says where to go. A daemon older than
+ * the debug profile would strip `profile` and export credentials, so below
+ * that version the row asks for an update instead.
+ *
+ * `assistantId` is the platform UUID (platform routes take no other id).
  */
 export function DebugBundleExport({
   assistantId,
@@ -39,7 +49,9 @@ export function DebugBundleExport({
   const { t } = useTranslation("settings");
   const [sentAt, setSentAt] = useState<Date | null>(null);
   const local = getSelectedAssistant();
-  const canExport = local !== null && getLocalGatewayUrl(local) !== null;
+  const hasLocalDaemon = local !== null && getLocalGatewayUrl(local) !== null;
+  const supportsProfile = useSupportsDebugExportProfile();
+  const canExport = hasLocalDaemon && supportsProfile;
 
   const exportBundle = useMutation({
     mutationFn: async () => {
@@ -110,7 +122,11 @@ export function DebugBundleExport({
         </div>
       ) : (
         <p className="mt-2 text-body-small-lighter text-[var(--content-tertiary)]">
-          {t("debugBundleExport.useDesktopApp")}
+          {hasLocalDaemon
+            ? t("debugBundleExport.updateAssistant", {
+                version: DEBUG_EXPORT_MIN_VERSION,
+              })
+            : t("debugBundleExport.useDesktopApp")}
         </p>
       )}
     </div>

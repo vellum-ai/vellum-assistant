@@ -674,6 +674,7 @@
     "toastFailed": "偵錯套件未傳送。",
     "toastFailedWithReason": "偵錯套件未傳送：{reason}",
     "toastSent": "偵錯套件已傳送給 Vellum。",
+    "updateAssistant": "請將助理更新到 {version} 或更新版本以匯出偵錯套件。",
     "useDesktopApp": "請在執行此助理的電腦上，透過 Vellum 桌面應用程式匯出。"
   },
   "debugControlsPanel": {

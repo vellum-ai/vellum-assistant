@@ -681,6 +681,7 @@
     "toastFailed": "The debug bundle was not sent.",
     "toastFailedWithReason": "The debug bundle was not sent: {reason}",
     "toastSent": "Debug bundle sent to Vellum.",
+    "updateAssistant": "Update the assistant to {version} or newer to export a debug bundle.",
     "useDesktopApp": "Export from the Vellum desktop app on the computer running this assistant."
   },
   "debugControlsPanel": {

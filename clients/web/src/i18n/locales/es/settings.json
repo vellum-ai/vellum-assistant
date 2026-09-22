@@ -674,6 +674,7 @@
     "toastFailed": "El paquete de depuración no se envió.",
     "toastFailedWithReason": "El paquete de depuración no se envió: {reason}",
     "toastSent": "Paquete de depuración enviado a Vellum.",
+    "updateAssistant": "Actualiza el asistente a la versión {version} o posterior para exportar un paquete de depuración.",
     "useDesktopApp": "Exporta desde la aplicación de escritorio de Vellum en el equipo que ejecuta este asistente."
   },
   "debugControlsPanel": {

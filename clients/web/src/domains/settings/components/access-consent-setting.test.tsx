@@ -86,6 +86,24 @@ mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantLifecycleIsLoading: () => false,
 }));
 
+// Local-mode ids are lockfile slugs; the platform wants the registered
+// UUID. Stand in the resolver: a UUID resolves to itself (as the real one
+// does, without a network round-trip) and a slug maps to ASSISTANT_ID.
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+const resolvedFor: string[] = [];
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: (id: string | null) => {
+    if (id) {
+      resolvedFor.push(id);
+    }
+    return {
+      platformAssistantId: id ? (UUID_RE.test(id) ? id : ASSISTANT_ID) : null,
+      isLoading: false,
+      error: null,
+    };
+  },
+}));
+
 // The export row is its own component with its own tests; here only its
 // presence matters.
 mock.module("@/domains/settings/components/debug-bundle-export", () => ({
@@ -127,6 +145,7 @@ describe("AccessConsentSetting", () => {
     neverExpires = false;
     platformSupportsKeepOn = true;
     selfHosted = false;
+    resolvedFor.length = 0;
     getCalls.length = 0;
     patchCalls.length = 0;
     patchGate.release = () => {};
@@ -306,5 +325,26 @@ describe("AccessConsentSetting", () => {
     renderSetting();
     await screen.findByText("Staff access ends in 3 hours.");
     expect(screen.queryByTestId("debug-bundle-export")).toBeNull();
+  });
+
+  test("a local-mode slug is resolved to the platform UUID before any platform call", async () => {
+    selfHosted = true;
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    useResolvedAssistantsStore
+      .getState()
+      .setActiveAssistantId("vellum-dark-cub");
+    renderSetting();
+
+    await screen.findByText("Staff access ends in 3 hours.");
+    expect(resolvedFor).toContain("vellum-dark-cub");
+    expect(getCalls[0]?.path?.id).toBe(ASSISTANT_ID);
+    expect(screen.getByTestId("debug-bundle-export").textContent).toBe(
+      ASSISTANT_ID,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Extend 24 hours" }));
+    await waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
   });
 });

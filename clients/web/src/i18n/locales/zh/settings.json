@@ -674,6 +674,7 @@
     "toastFailed": "调试包未发送。",
     "toastFailedWithReason": "调试包未发送：{reason}",
     "toastSent": "调试包已发送给 Vellum。",
+    "updateAssistant": "请将助手更新到 {version} 或更高版本以导出调试包。",
     "useDesktopApp": "请在运行此助手的电脑上，通过 Vellum 桌面应用导出。"
   },
   "debugControlsPanel": {

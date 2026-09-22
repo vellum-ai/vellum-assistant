@@ -17,6 +17,7 @@ import {
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -40,8 +41,12 @@ export function AccessConsentSetting() {
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
   // The privacy page is not under `ActiveAssistantGate`, so read the raw
-  // store and wait for a non-null id.
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  // store and wait for a non-null id. In local mode that id is a lockfile
+  // slug; platform routes take only the registered UUID, so resolve it
+  // first (a UUID resolves to itself).
+  const activeId = useResolvedAssistantsStore.use.activeAssistantId();
+  const { platformAssistantId: assistantId, isLoading: isResolvingId } =
+    usePlatformAssistantId(activeId, platformGate === "full");
   const canQuery = platformGate === "full" && assistantId !== null;
 
   const { data, isLoading, isError } = useQuery({
@@ -133,7 +138,8 @@ export function AccessConsentSetting() {
   // `isResolving` controls the spinner adjacent to the toggle, not its
   // disabled state, and is narrowed to the genuine lifecycle-loading
   // window so it doesn't get stuck in `retired` / `error`.
-  const isResolving = platformGate === "full" && isLifecycleLoading;
+  const isResolving =
+    platformGate === "full" && (isLifecycleLoading || isResolvingId);
   const checked = data?.access_consented ?? false;
   const disabled =
     platformGate !== "full" ||
