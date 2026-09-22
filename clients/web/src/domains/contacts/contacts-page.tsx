@@ -304,14 +304,26 @@ export function ContactsPage({
   const resolvingRouteContact =
     Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 
+  // One observer reports only its newest mutation, so the ids are held here:
+  // deleting a second contact while the first is still in flight must not let
+  // the first back into the list.
+  const [deletingContactIds, setDeletingContactIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
       return [];
     }
+    // A contact whose DELETE is open has left the list, so offering it as a
+    // donor would race that request.
     return contactsData.filter(
-      (c) => c.id !== selectedContact.id && c.role !== "guardian",
+      (c) =>
+        c.id !== selectedContact.id &&
+        c.role !== "guardian" &&
+        !deletingContactIds.has(c.id),
     );
-  }, [contactsData, selectedContact]);
+  }, [contactsData, selectedContact, deletingContactIds]);
   const canMerge = mergeCandidates.length > 0;
 
   // ---------------------------------------------------------------------------
@@ -339,12 +351,13 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
-  // One observer reports only its newest mutation, so the ids are held here:
-  // deleting a second contact while the first is still in flight must not let
-  // the first back into the list.
-  const [deletingContactIds, setDeletingContactIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  // Fresh options reach only the newest mutation, so an older delete's
+  // callbacks keep the selection they were built with. The ref carries the
+  // live one, written at commit so a response cannot read a stale value.
+  const selectedContactIdRef = useRef(selectedContactId);
+  useLayoutEffect(() => {
+    selectedContactIdRef.current = selectedContactId;
+  }, [selectedContactId]);
 
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
@@ -362,7 +375,7 @@ export function ContactsPage({
           : undefined,
       );
       // Another contact may be open by now, holding edits of its own.
-      if (selectedContactId === contactId) {
+      if (selectedContactIdRef.current === contactId) {
         backToList();
       }
     },
@@ -698,6 +711,15 @@ export function ContactsPage({
     thresholdMutation.variables,
   ]);
 
+  // Both flags are page-global, so each is narrowed to the contact its request
+  // names: saving one contact must not freeze the form of another.
+  const savePending =
+    updateMutation.isPending &&
+    updateMutation.variables?.contactId === selectedContactId;
+  const thresholdPending =
+    thresholdMutation.isPending &&
+    thresholdMutation.variables?.contactId === selectedContactId;
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -783,7 +805,7 @@ export function ContactsPage({
           optimisticContact.role === "guardian" ? (
             <GuardianDetailView
               contact={optimisticContact}
-              savePending={updateMutation.isPending}
+              savePending={savePending}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending
@@ -812,7 +834,7 @@ export function ContactsPage({
           ) : (
             <ContactDetailView
               contact={optimisticContact}
-              savePending={updateMutation.isPending}
+              savePending={savePending}
               // The list stays reachable during a delete, so the freeze
               // belongs to the contact being deleted, not whichever is open.
               deletePending={deletingContactIds.has(optimisticContact.id)}
@@ -841,7 +863,7 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={slackReady ? handleLinkAccount : undefined}
-              pendingAutoApproveThreshold={thresholdMutation.isPending}
+              pendingAutoApproveThreshold={thresholdPending}
               onAutoApproveThresholdChange={(autoApproveThreshold) => {
                 thresholdMutation.mutate({
                   contactId: optimisticContact.id,

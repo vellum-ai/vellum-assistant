@@ -67,6 +67,10 @@ let lastSwipeArgs: UseEdgeSwipeBackArgs | null = null;
 let holdDelete = false;
 /** One resolver per held contact id, so two deletes can overlap. */
 const heldDeletes = new Map<string, () => void>();
+/** Holds upserts open so a save's pending state is observable. */
+let holdUpsert = false;
+/** One resolver per held contact id, keyed the way `heldDeletes` is. */
+const heldUpserts = new Map<string, () => void>();
 const linkAndVerifyCalls: Array<{ type: string; address: string }> = [];
 const mergeRequests: Array<{ keepId: string; mergeId: string }> = [];
 const unhandledRejections: unknown[] = [];
@@ -91,6 +95,9 @@ const ALICE = {
   contactType: "human",
   autoApproveThreshold: null,
 } as unknown as ContactPayload;
+
+/** A second human contact, so a Permissions picker other than Alice's exists. */
+const BOB: ContactPayload = { ...ALICE, id: "c-bob", displayName: "Bob" };
 
 const PEER = {
   id: "c-peer",
@@ -210,6 +217,12 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
     lastUpsertBody = body;
     if (upsertShouldReject) {
       throw new ApiError(404, "Not found");
+    }
+    const heldId = body.id;
+    if (holdUpsert && heldId) {
+      await new Promise<void>((resolve) => {
+        heldUpserts.set(heldId, resolve);
+      });
     }
     if (!body.id) {
       return { ...DRAFT, displayName: body.displayName };
@@ -453,6 +466,19 @@ async function releaseDelete(contactId: string): Promise<void> {
   });
 }
 
+/** Lets one held upsert finish and settles the renders it causes. */
+async function releaseUpsert(contactId: string): Promise<void> {
+  const resolve = heldUpserts.get(contactId);
+  if (!resolve) {
+    throw new Error(`expected a held upsert for "${contactId}"`);
+  }
+  heldUpserts.delete(contactId);
+  await act(async () => {
+    resolve();
+    await new Promise((settle) => setTimeout(settle, 0));
+  });
+}
+
 /** The auto-approve threshold picker, standing in for the design-library Select. */
 function getPermissionsSelect(): HTMLSelectElement {
   const node = document.querySelector(
@@ -462,6 +488,13 @@ function getPermissionsSelect(): HTMLSelectElement {
     throw new Error("expected the permissions picker");
   }
   return node;
+}
+
+/** The names the merge dialog is currently offering as donors. */
+function mergeCandidateLabels(): string[] {
+  return Array.from(
+    document.querySelectorAll('[data-slot="modal-content"] [role="option"]'),
+  ).map((option) => option.textContent?.trim() ?? "");
 }
 
 function getModalButton(label: string): HTMLButtonElement {
@@ -505,6 +538,8 @@ beforeEach(() => {
   unhandledRejections.length = 0;
   holdDelete = false;
   heldDeletes.clear();
+  holdUpsert = false;
+  heldUpserts.clear();
   useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
   useIntelligenceLayoutSlotsStore.getState().setDetailIsScreen(false);
   process.on("unhandledRejection", onUnhandled);
@@ -681,6 +716,9 @@ describe("ContactsPage list and detail", () => {
 
   test("a delete in flight leaves every other contact interactive", async () => {
     holdDelete = true;
+    // Bob is the human of the pair: only a human carries a Permissions
+    // picker, so only Bob exercises the threshold gate.
+    contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
     renderContactsPage();
 
     await waitFor(() => getInputByPlaceholder("Your name"));
@@ -702,6 +740,15 @@ describe("ContactsPage list and detail", () => {
     expect(getInputByPlaceholder("Give this human a name").disabled).toBe(
       false,
     );
+
+    fireEvent.click(getButtonByText(BOB.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${BOB.id}`);
+    });
+
+    // The threshold picker upserts the id it belongs to, so Alice's delete
+    // has no claim on it.
+    expect(getPermissionsSelect().disabled).toBe(false);
 
     await releaseDelete(ALICE.id);
   });
@@ -759,6 +806,131 @@ describe("ContactsPage list and detail", () => {
     expect(() => getButtonByText("Alice")).toThrow();
 
     await releaseDelete(ALICE.id);
+    await releaseDelete(PEER.id);
+  });
+});
+
+/**
+ * Every mutation here is page-global, so each one has to name the contact it
+ * belongs to. A request left open on one contact must not reach into another.
+ */
+describe("ContactsPage overlapping mutations", () => {
+  test("a contact whose delete is in flight is not offered as a merge donor", async () => {
+    holdDelete = true;
+    contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(PEER.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${ALICE.id}`,
+      );
+    });
+
+    fireEvent.click(getButton("Merge…"));
+
+    // Bob proves the picker rendered, so Peer's absence is the filter rather
+    // than an empty list: picking Peer would race its open DELETE.
+    await waitFor(() => {
+      expect(mergeCandidateLabels()).toEqual([BOB.displayName]);
+    });
+
+    await releaseDelete(PEER.id);
+  });
+
+  test("a save in flight leaves another contact's form editable", async () => {
+    holdUpsert = true;
+    contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.change(getInputByPlaceholder("Give this human a name"), {
+      target: { value: "Renamed Alice" },
+    });
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => getButton("Saving…"));
+
+    fireEvent.click(getButtonByText(BOB.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${BOB.id}`);
+    });
+
+    // Alice's request is still open, and it is hers alone: Bob's form neither
+    // reads as saving nor locks.
+    expect(getButton("Save")).toBeDefined();
+    expect(getInputByPlaceholder("Give this human a name").disabled).toBe(
+      false,
+    );
+
+    await releaseUpsert(ALICE.id);
+  });
+
+  test("a permissions save in flight leaves another contact's picker enabled", async () => {
+    holdUpsert = true;
+    contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    fireEvent.change(await waitFor(getPermissionsSelect), {
+      target: { value: "fullAccess" },
+    });
+    await waitFor(() => {
+      expect(getPermissionsSelect().disabled).toBe(true);
+    });
+
+    fireEvent.click(getButtonByText(BOB.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${BOB.id}`);
+    });
+
+    expect(getPermissionsSelect().disabled).toBe(false);
+
+    await releaseUpsert(ALICE.id);
+  });
+
+  test("a superseded delete returns to the list when its own contact is open", async () => {
+    holdDelete = true;
+    const { router } = renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    fireEvent.click(getButtonByText(PEER.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    });
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    // Alice's delete stopped receiving fresh options the moment Peer's
+    // started, so its own closure still names Peer as the open contact.
+    await act(async () => {
+      await router.navigate(routes.contacts.detail(ALICE.id));
+    });
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    await releaseDelete(ALICE.id);
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    expect(currentLocation().pathname).toBe(routes.contacts.root);
+
     await releaseDelete(PEER.id);
   });
 });
