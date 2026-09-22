@@ -294,10 +294,10 @@ describe("cache bounds", () => {
 
     // Nothing was evictable on insert: every entry is mid-read.
     expect(__vellumPrincipalCacheSizeForTest()).toBeGreaterThan(MAX_ENTRIES);
+
     await Promise.all(burst);
 
-    await resolveVellumPrincipal("after-the-burst");
-
+    // No later lookup is needed to bring it back down.
     expect(__vellumPrincipalCacheSizeForTest()).toBeLessThanOrEqual(
       MAX_ENTRIES,
     );

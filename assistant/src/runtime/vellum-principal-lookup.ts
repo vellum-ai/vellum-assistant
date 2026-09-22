@@ -73,15 +73,15 @@ function prune(principalId: string): void {
 }
 
 /**
- * Evicts oldest-first until the map is back under the limit.
+ * Evicts idle principals, oldest first, until the map holds at most `limit`.
  *
  * A burst of distinct principals can push the map past MAX_ENTRIES: every
  * entry is mid-read, so nothing is evictable, and the insert happens anyway
- * rather than refusing the caller. Trimming to the limit rather than by one
- * entry is what brings the map back down once those reads settle.
+ * rather than refusing the caller. Nothing else would bring the map back
+ * down, so every settling read trims too, not just the next insert.
  */
-function evictIfFull(principalId: string): void {
-  if (states.size < MAX_ENTRIES || states.has(principalId)) {
+function trimTo(limit: number): void {
+  if (states.size <= limit) {
     return;
   }
   for (const [key, state] of states) {
@@ -89,10 +89,18 @@ function evictIfFull(principalId: string): void {
       continue;
     }
     states.delete(key);
-    if (states.size < MAX_ENTRIES) {
+    if (states.size <= limit) {
       return;
     }
   }
+}
+
+/** Makes room for a principal the map does not hold yet. */
+function evictIfFull(principalId: string): void {
+  if (states.has(principalId)) {
+    return;
+  }
+  trimTo(MAX_ENTRIES - 1);
 }
 
 async function fetchTrust(
@@ -178,6 +186,7 @@ function read(
         state.inFlight = undefined;
       }
       prune(key);
+      trimTo(MAX_ENTRIES);
     });
 
   if (!forceRefresh) {
