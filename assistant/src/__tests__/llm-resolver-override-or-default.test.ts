@@ -236,18 +236,36 @@ describe("shipped call-site tuning", () => {
     expect(resolved.model).toBe("jev-latest");
   });
 
-  test("an escalation judge call-site override replaces the shipped Jev pin", () => {
+  test("the escalation judge falls through on a BYOK default provider", () => {
+    const resolved = resolveCallSiteConfig(
+      "voiceEscalationJudge",
+      LLMSchema.parse(anthropicDp),
+    );
+
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe("jev-latest");
+  });
+
+  test("a BYOK Jev call-site override replaces the managed default", () => {
     const llm = LLMSchema.parse({
+      ...anthropicDp,
+      profiles: {
+        jev: {
+          ...completeCustom,
+          provider: "typesafe",
+          provider_connection: "typesafe-personal",
+          model: "jev-latest",
+        },
+      },
       callSites: {
-        voiceEscalationJudge: { profile: "latency-optimized" },
+        voiceEscalationJudge: { profile: "jev" },
       },
     });
-    const judge = resolveCallSiteConfig("voiceEscalationJudge", llm);
-    const frontDoor = resolveCallSiteConfig("voiceFrontDoor", llm);
+    const resolved = resolveCallSiteConfig("voiceEscalationJudge", llm);
 
-    expect(judge.provider).toBe(frontDoor.provider);
-    expect(judge.provider_connection).toBe(frontDoor.provider_connection);
-    expect(judge.model).toBe(frontDoor.model);
+    expect(resolved.provider).toBe("typesafe");
+    expect(resolved.provider_connection).toBe("typesafe-personal");
+    expect(resolved.model).toBe("jev-latest");
   });
 
   // A workspace entry that only repoints the profile must not cost the call
