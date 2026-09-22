@@ -152,6 +152,17 @@ describe("XlsxPreview", () => {
     await waitFor(() => expect(screen.getByText("Rent")).toBeTruthy());
   });
 
+  test("a workbook with no sheets shows the failure state", async () => {
+    const blob = await workbookBlob({ sheets: [] });
+
+    render(<XlsxPreview blob={blob} filename="empty.xlsx" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Can't preview this file")).toBeTruthy(),
+    );
+    expect(screen.getByText("empty.xlsx")).toBeTruthy();
+  });
+
   test("a blob that is not a workbook shows the failure state", async () => {
     render(
       <XlsxPreview

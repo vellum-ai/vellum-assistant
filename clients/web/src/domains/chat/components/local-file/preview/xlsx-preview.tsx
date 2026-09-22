@@ -120,6 +120,8 @@ export function WorkbookGrid({
   // Sheet names are unique within a workbook, so the name is the selection.
   // A name the current workbook no longer has falls back to its first sheet.
   const active = sheets.find((sheet) => sheet.name === activeName) ?? sheets[0];
+  // An empty list only arrives from a story or a test: the container turns a
+  // parsed workbook with no sheets into the preview error state.
   if (active === undefined) {
     return null;
   }
@@ -182,7 +184,9 @@ export function XlsxPreview({ blob, filename }: XlsxPreviewProps): ReactNode {
     parseWorkbook,
   );
 
-  if (parseFailed) {
+  // A workbook that parses but declares no sheets has nothing to show, so it
+  // lands on the failure state rather than a blank drawer body.
+  if (parseFailed || workbook?.sheets.length === 0) {
     return <PreviewError filename={filename} />;
   }
   if (workbook === null) {
