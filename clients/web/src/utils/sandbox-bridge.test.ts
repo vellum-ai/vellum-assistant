@@ -241,12 +241,21 @@ describe("injectBridge", () => {
   it("asks the host for context instead of baking a conversation id in", () => {
     const html = "<html><body></body></html>";
     const out = injectBridge(html, FRAME_ID, { fetch: true });
-    // The request payload carries only the frame and call ids: the
-    // conversation is whatever the host answers at call time, so a
-    // conversation switch under a mounted app cannot leave the app reading a
-    // value captured when its document was built.
-    expect(out).toContain("type: 'vellum_context_request'");
-    expect(out).not.toContain("activeConversationId:");
+
+    // The request carries only the frame and call ids. Sliced from the
+    // getContext definition so the response handler above it, which names the
+    // ids as the fields it reads off the reply, is not what is being checked.
+    const request = out.slice(out.indexOf("window.vellum.getContext"));
+    expect(request).toContain("type: 'vellum_context_request'");
+    expect(request).not.toContain("activeConversationId");
+    expect(request).not.toContain("editingConversationId");
+
+    // Both ids come off the host's reply rather than a literal in the
+    // document, so a conversation switch under a mounted app cannot leave the
+    // app reading a value fixed when its document was built.
+    expect(out).toContain("activeConversationId: d.activeConversationId");
+    expect(out).toContain("editingConversationId: d.editingConversationId");
+
     // And each call takes a fresh id rather than reusing a cached answer the
     // way `asset()` does.
     expect(out).toContain("window.vellum._contextNextId++");
