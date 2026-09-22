@@ -451,6 +451,23 @@ describe("rememberTool definition", () => {
       finish_turn: { type: "boolean" },
     });
   });
+
+  test("says later capture is conditional and never covers scheduled work", () => {
+    const description = rememberTool.description;
+    expect(description).toContain("not guaranteed");
+    expect(description).toContain("never runs over scheduled work");
+    expect(description).toContain("save it now");
+    // A pass that reviews every conversation on a cadence is not what runs:
+    // the enqueue gate skips scheduled conversations.
+    expect(description).not.toContain("after each message-count");
+    expect(description).not.toContain("saves what you didn't capture");
+    // The provider reads the definition after JSON serialization, so the
+    // contract has to survive that round trip unchanged.
+    const serialized = z
+      .object({ description: z.string() })
+      .parse(JSON.parse(JSON.stringify(rememberTool)));
+    expect(serialized.description).toBe(description);
+  });
 });
 
 describe("rememberTool definition — page-hint guidance gating", () => {
