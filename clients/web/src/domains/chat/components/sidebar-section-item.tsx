@@ -24,17 +24,12 @@
  * reload like the section's open state does.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
-import { useReducedMotion } from "motion/react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
-import {
-  SectionDoneFlashProvider,
-  useSectionDoneFlash,
-} from "@/domains/chat/components/section-done-flash";
 import { SectionViewAllLink } from "@/domains/chat/components/section-view-all-link";
 import {
   saveExpandedSections,
@@ -65,13 +60,6 @@ import { cn } from "@vellumai/design-library";
  * another Chats.
  */
 const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
-
-/**
- * How long the header's trailing cluster stays painted after a row in the
- * section is marked done, so the flash on "View all chats" is visible with
- * the pointer still down on the row rather than up on the header.
- */
-const DONE_FLASH_HOLD_MS = 420;
 
 /**
  * Where a section's "View all chats" goes: the Old chats page, narrowed to
@@ -131,19 +119,7 @@ export interface SidebarSectionItemProps {
   isLast?: boolean;
 }
 
-/**
- * The flash a row marked done sends this header is section-scoped, so the
- * provider stands above the card and the card reads it from inside.
- */
-export function SidebarSectionItem(props: SidebarSectionItemProps) {
-  return (
-    <SectionDoneFlashProvider>
-      <SidebarSectionCardWithMenu {...props} />
-    </SectionDoneFlashProvider>
-  );
-}
-
-function SidebarSectionCardWithMenu({
+export function SidebarSectionItem({
   section,
   assistantId,
   groupMenu: buildGroupMenu,
@@ -157,24 +133,6 @@ function SidebarSectionCardWithMenu({
   const { overlayCards } = useConversationListContext();
   const sidebarDone = useSidebarDoneEnabled();
   const navigate = useNavigate();
-  const reduceMotion = useReducedMotion();
-  const { count: doneFlashCount } = useSectionDoneFlash();
-  const [holdsReveal, setHoldsReveal] = useState(false);
-
-  /* The icon is a hover affordance, and the pointer is on the row that just
-     left, so the cluster is held up for the length of the flash. Reduced
-     motion asks for no flash at all, so there is nothing to hold up for. */
-  useEffect(() => {
-    if (doneFlashCount === 0 || reduceMotion) {
-      return;
-    }
-    setHoldsReveal(true);
-    const timer = window.setTimeout(
-      () => setHoldsReveal(false),
-      DONE_FLASH_HOLD_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [doneFlashCount, reduceMotion]);
 
   /* Where the section's whole history lives. The icon in the header is a
      hover affordance, so a device that cannot hover gets the same
@@ -323,7 +281,6 @@ function SidebarSectionCardWithMenu({
       }
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator?.(conversations, section)}
-      revealHold={holdsReveal}
       drag={drag}
       // Pinned collapses like every other section (one component, one
       // behavior; its open state defaults open and persists like the

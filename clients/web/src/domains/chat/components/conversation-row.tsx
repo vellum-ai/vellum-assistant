@@ -18,9 +18,13 @@
  */
 
 import { Check, Pin, PinOff } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import {
+  animate,
+  useReducedMotion,
+  type AnimationPlaybackControls,
+} from "motion/react";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { ContextMenu, PanelItem, Tooltip } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
@@ -33,7 +37,6 @@ import {
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
-import { useSectionDoneFlash } from "@/domains/chat/components/section-done-flash";
 import {
   useConversationDoneLabels,
   useSidebarDoneEnabled,
@@ -80,12 +83,12 @@ export interface ConversationRowProps {
   /** Override the select handler (the rail flyout also closes the popover). */
   onSelect?: (conversationId: string) => void;
   /**
-   * Whether this row may play the collapse-and-fade under `sidebar-done`.
-   * The list passes `false` for a windowed one: virtuoso owns the geometry
-   * of a row it is recycling, so a row animating its own height there fights
-   * the measurement rather than reading as the row leaving.
+   * Whether the row is an item of a windowed list. Virtuoso reports an item
+   * measured at zero height as an error, with the element attached, so a row
+   * leaving a windowed list closes to {@link WINDOWED_CLOSED_HEIGHT_PX}
+   * rather than to nothing. The archive removes it on the next frame.
    */
-  animateDone?: boolean;
+  windowed?: boolean;
 }
 
 export function buildMenuProps(
@@ -220,25 +223,50 @@ function buildSwipeActions(
 }
 
 /**
- * How long the row takes to collapse out of the list once it is marked done.
- * Short enough to read as the row leaving rather than as a wait for it.
+ * The two halves of a row leaving once it is marked done. The row's content
+ * slides out to the left and fades, then the row's box closes so the
+ * rows around it slide together over the space it held. The close starts
+ * before the slide ends, so the two read as one motion rather than as a
+ * slide followed by a snap. Short enough to read as the row leaving rather
+ * than as a wait for it.
  */
-const DONE_EXIT_MS = 180;
+const DONE_SLIDE_S = 0.2;
+const DONE_CLOSE_DELAY_S = 0.12;
+const DONE_CLOSE_S = 0.2;
+const DONE_EXIT_MS = (DONE_CLOSE_DELAY_S + DONE_CLOSE_S) * 1000;
+
+/** How far a row in a windowed list closes: the least virtuoso accepts. */
+const WINDOWED_CLOSED_HEIGHT_PX = 1;
 
 /**
- * The row's own box, animatable. `SwipeActionReveal` forwards its ref and
- * takes `style`, which is all motion needs to drive the element a list
- * already lays out, so the collapse costs no wrapper and the rows stand
- * exactly where they stand with the flag off.
+ * The space a list puts between this row and the next, which the row's box
+ * gives back as it closes: a box closed to zero height still has its gap
+ * beside it, and a gap that vanished only when the row unmounted would jump
+ * the rows below by that much at the end. The sidebar's lists space their
+ * rows with a flex gap that varies by surface (zeroed inside a card), and a
+ * windowed list's item has no gap at all, so it is read off the list rather
+ * than assumed. The list is the nearest ancestor that lays the row out: the
+ * touch path's long-press wrapper is `display: contents` and lays out
+ * nothing.
  */
-const MotionSwipeActionReveal = motion.create(SwipeActionReveal);
+function listGapPx(box: HTMLElement): number {
+  let list = box.parentElement;
+  while (list && getComputedStyle(list).display === "contents") {
+    list = list.parentElement;
+  }
+  if (!list) {
+    return 0;
+  }
+  const gap = parseFloat(getComputedStyle(list).rowGap);
+  return Number.isFinite(gap) ? gap : 0;
+}
 
 export function ConversationRow({
   conversation,
   withContextMenu = true,
   marquee = true,
   onSelect,
-  animateDone = false,
+  windowed = false,
 }: ConversationRowProps) {
   const ctx = useConversationListContext();
   const { conversationId } = conversation;
@@ -246,9 +274,9 @@ export function ConversationRow({
   const displayTitle = useDisplayConversationTitle();
   const sidebarDone = useSidebarDoneEnabled();
   const doneLabels = useConversationDoneLabels();
-  const { flash } = useSectionDoneFlash();
   const reduceMotion = useReducedMotion();
-  const [leaving, setLeaving] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
 
   const isProcessing =
     conversationId === ctx.activeConversationId
@@ -295,33 +323,82 @@ export function ConversationRow({
      ellipsis: Rename, Delete and the rest live in the row's right-click menu
      and in the chat header's title dropdown. The check takes the ellipsis's
      own slot, box and reveal, so nothing on the row moves. */
-  const collapsesOut = sidebarDone && animateDone && !reduceMotion;
+  const animatesOut = sidebarDone && !reduceMotion;
 
-  /* The archive the collapse is waiting on. Held in a ref and fired at most
+  /* The archive the exit is waiting on. Held in a ref and fired at most
      once, because the animation is a courtesy and the write is not: the
      accepted click has to reach the daemon whether the animation finishes,
      is cut short by a navigation that unmounts the row, or never runs at all
      because the tab was backgrounded before its first frame. */
   const pendingDoneRef = useRef<(() => void) | null>(null);
+  const exitRef = useRef<AnimationPlaybackControls[]>([]);
   const runPendingDone = useCallback(() => {
     const run = pendingDoneRef.current;
     pendingDoneRef.current = null;
     run?.();
   }, []);
-  useEffect(() => () => runPendingDone(), [runPendingDone]);
+  useEffect(
+    () => () => {
+      for (const controls of exitRef.current) {
+        controls.stop();
+      }
+      runPendingDone();
+    },
+    [runPendingDone],
+  );
 
+  /* The row leaves in two moves, then hands over to the archive, so the list
+     closes the space once rather than snapping shut under the pointer. The
+     row slides out to the left and fades; its box then closes, height
+     and the list's gap together, and the rows around it slide together over
+     the space it held. The box clips the slide, so a row sliding out never
+     widens the scroller it sits in.
+
+     Driven on the two elements the row already renders rather than through
+     animated wrappers, so the list lays out the same element with the same
+     single child in both flag states, and neither carries an inline value
+     at rest. The row unmounts once the archive lands, so nothing written
+     here has to be put back.
+
+     A windowed list plays it too: virtuoso measures its items with a resize
+     observer, so the box closing is a size change it follows frame by frame.
+     There the box stops a pixel short of closed (see `windowed`). */
   const markDone = useCallback(() => {
-    flash();
-    if (!collapsesOut) {
+    const box = boxRef.current;
+    const row = rowRef.current;
+    if (!animatesOut || !box || !row) {
       ctx.onArchive?.(conversation);
       return;
     }
+    if (pendingDoneRef.current) {
+      return;
+    }
     pendingDoneRef.current = () => ctx.onArchive?.(conversation);
-    setLeaving(true);
-    /* The backstop, not the usual path: `onAnimationComplete` gets there
-       first whenever frames are running. */
+    const gap = listGapPx(box);
+    box.style.overflow = "hidden";
+    const slide = animate(
+      row,
+      { x: "-100%", opacity: 0 },
+      { duration: DONE_SLIDE_S, ease: [0.4, 0, 1, 1] },
+    );
+    const close = animate(
+      box,
+      {
+        height: [box.offsetHeight, windowed ? WINDOWED_CLOSED_HEIGHT_PX : 0],
+        marginBottom: [0, -gap],
+      },
+      {
+        duration: DONE_CLOSE_S,
+        delay: DONE_CLOSE_DELAY_S,
+        ease: [0.4, 0, 0.2, 1],
+      },
+    );
+    exitRef.current = [slide, close];
+    void close.then(runPendingDone);
+    /* The backstop, not the usual path: the close gets there first whenever
+       frames are running. */
     window.setTimeout(runPendingDone, DONE_EXIT_MS * 2);
-  }, [collapsesOut, ctx, conversation, flash, runPendingDone]);
+  }, [animatesOut, ctx, conversation, runPendingDone, windowed]);
 
   const doneCheck =
     sidebarDone && ctx.onArchive && conversation.archivedAt == null ? (
@@ -363,6 +440,7 @@ export function ConversationRow({
 
   const rowBody = (
     <PanelItem
+      ref={rowRef}
       label={displayTitle(conversation.title)}
       marqueeOnHover={marquee}
       active={isActiveConversation}
@@ -398,37 +476,10 @@ export function ConversationRow({
     />
   );
 
-  /* The row collapses and fades as it is marked done, then hands over to the
-     archive, so the list closes the gap once rather than snapping shut under
-     the pointer.
-
-     Animated on the row's own box, never on a wrapper around it. An extra
-     element between the list and the row is another child for the list's
-     spacing to act on, which moved every row under the flag; the row the
-     list lays out has to be the same element in both states. `overflow` is
-     declared only while the row is leaving, because the box it is declared
-     on is a flex item, and one that clips gives up its content-sized
-     minimum (see `SwipeActionReveal`). At rest this writes `height: auto`
-     and `opacity: 1`, which are the values the element already had. */
-  const panelItem = collapsesOut ? (
-    <MotionSwipeActionReveal
-      {...swipeProps}
-      initial={false}
-      animate={
-        leaving ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }
-      }
-      transition={{ duration: DONE_EXIT_MS / 1000, ease: "easeOut" }}
-      style={leaving ? { overflow: "hidden" } : undefined}
-      onAnimationComplete={() => {
-        if (leaving) {
-          runPendingDone();
-        }
-      }}
-    >
+  const panelItem = (
+    <SwipeActionReveal {...swipeProps} ref={boxRef}>
       {rowBody}
-    </MotionSwipeActionReveal>
-  ) : (
-    <SwipeActionReveal {...swipeProps}>{rowBody}</SwipeActionReveal>
+    </SwipeActionReveal>
   );
 
   // Touch: replace the right-click ContextMenu with a long-press → bottom sheet.
