@@ -17,7 +17,6 @@ import {
 } from "../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
-  getAssistantMessageIdsInTurn,
   getConversation,
   getMessageById,
   parseMessageMetadata,
@@ -31,7 +30,6 @@ import { stringifyMessageContent } from "../persistence/message-content.js";
 import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
-import { hasPendingBackgroundWork } from "./has-pending-background-work.js";
 import {
   describeMedia,
   mediaEmbeds,
@@ -175,20 +173,6 @@ export async function emitAssistantReplyNotification(params: {
     if (
       isReplyPushIneligibleUserMessage(initiatingMetadata, {
         replyDeliveredInAppOnly: params.replyDeliveredInAppOnly,
-      })
-    ) {
-      return;
-    }
-
-    const firstAssistantMessageId =
-      getAssistantMessageIdsInTurn(assistantMessageId)[0];
-    const firstAssistantRow =
-      firstAssistantMessageId && firstAssistantMessageId !== assistantMessageId
-        ? getMessageById(firstAssistantMessageId, conversationId)
-        : assistantRow;
-    if (
-      hasPendingBackgroundWork(conversationId, {
-        startedAfter: firstAssistantRow?.createdAt ?? assistantRow.createdAt,
       })
     ) {
       return;

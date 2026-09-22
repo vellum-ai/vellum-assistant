@@ -31,17 +31,6 @@ let assistantRow: MessageRow | null = null;
 let initiatingRow: MessageRow | null = null;
 let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
-let pendingBackgroundWork = false;
-let firstAssistantRow: MessageRow | null = null;
-const pendingWorkArgs: unknown[][] = [];
-
-mock.module("../has-pending-background-work.js", () => ({
-  hasPendingBackgroundWork: (...args: unknown[]) => {
-    pendingWorkArgs.push(args);
-    return pendingBackgroundWork;
-  },
-}));
-
 mock.module("../emit-signal.js", () => ({
   emitNotificationSignal: async (params: any) => {
     emitCalls.push(params);
@@ -70,15 +59,8 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   },
   getMessageById: (messageId: string) => {
     messageLookups.push(messageId);
-    if (firstAssistantRow?.id === messageId) {
-      return firstAssistantRow;
-    }
     return messageId === ASSISTANT_MESSAGE_ID ? assistantRow : initiatingRow;
   },
-  getAssistantMessageIdsInTurn: () =>
-    firstAssistantRow
-      ? [firstAssistantRow.id, ASSISTANT_MESSAGE_ID]
-      : [ASSISTANT_MESSAGE_ID],
 }));
 
 // Attachments the assistant row carries. Linked by the agent loop before the
@@ -324,9 +306,6 @@ async function run(
 }
 
 beforeEach(() => {
-  pendingBackgroundWork = false;
-  firstAssistantRow = null;
-  pendingWorkArgs.length = 0;
   emitCalls.length = 0;
   warnCalls.length = 0;
   messageLookups.length = 0;
@@ -354,32 +333,6 @@ beforeEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("emitAssistantReplyNotification", () => {
-  test("scopes unfinished work to this reply's turn, including its tool-call rows", async () => {
-    firstAssistantRow = makeMessage({
-      id: "msg-first-assistant",
-      role: "assistant",
-      createdAt: 1700000000100,
-    });
-
-    await run();
-
-    expect(emitCalls).toHaveLength(1);
-    expect(pendingWorkArgs).toEqual([
-      [CONVERSATION_ID, { startedAfter: firstAssistantRow.createdAt }],
-    ]);
-  });
-
-  test("does not announce completion while delegated work is pending", async () => {
-    pendingBackgroundWork = true;
-    assistantRow = makeAssistantRow([
-      { type: "text", text: "I have started the requested work." },
-    ]);
-
-    await run();
-
-    expect(emitCalls).toHaveLength(0);
-  });
-
   test("emits one well-formed signal for an unseen user-conversation reply", async () => {
     await run();
 
