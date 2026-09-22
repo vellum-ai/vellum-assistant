@@ -3930,6 +3930,41 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/feedback/assistant/:
+    post:
+      operationId: feedback_assistant_create
+      description: |-
+        A report filed by an assistant under its own API key.
+
+        Everything about the submitter comes from the key: the assistant, its
+        organization, and its owner account's email as the contact. ``user``
+        stays unset, because the assistant is the submitter and its owner is not.
+        The public ``FeedbackIngestView`` is untouched by this path.
+      tags:
+      - feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/managed-speech/tts/voices/:
     get:
       operationId: managed_speech_tts_voices_retrieve
@@ -6191,6 +6226,39 @@ components:
       - address
       - created_at
       - id
+    AssistantFeedbackClassificationEnum:
+      enum:
+      - bug_report
+      - other
+      type: string
+      description: |-
+        * `bug_report` - Bug Report
+        * `other` - Other
+    AssistantFeedbackIngestRequestRequest:
+      type: object
+      description: |-
+        Body of a report an assistant files under its own API key.
+
+        Who filed it comes from the key, so there is no identity field, and no
+        upload field: what an assistant may attach is its own design.
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        classification:
+          $ref: '#/components/schemas/AssistantFeedbackClassificationEnum'
+        assistant_version:
+          type: string
+          default: ''
+          maxLength: 100
+        client_version:
+          type: string
+          default: ''
+          maxLength: 100
+      required:
+      - classification
+      - message
     AssistantHandleAvailability:
       type: object
       description: |-
