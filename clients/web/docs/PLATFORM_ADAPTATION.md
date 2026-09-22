@@ -236,6 +236,12 @@ The rule:
   ([HIG: Navigation bars](https://developer.apple.com/design/human-interface-guidelines/navigation-bars)).
   That is an idiom difference at rung 1 or 2, not a reason for a page to render its own header.
 
+About Assistant applies this wholesale. On a phone `IntelligenceLayout` publishes one top bar for
+every destination below the assistant overview: each section, plus the personality stage, which is
+full-bleed and no section but still one drill-down down. The desktop heading row and its back
+chevron render only on a roomy window, and no page under the layout paints a back control of its own.
+The overview is the root and takes no bar.
+
 Contacts is the worked example. The list is `/assistant/contacts` and a contact is
 `/assistant/contacts/:contactId`, two sibling routes rather than a selection held in page state, so
 depth is a property of the URL. `ContactsPage` measures its own pane and reports through
