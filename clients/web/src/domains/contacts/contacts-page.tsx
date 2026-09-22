@@ -336,6 +336,20 @@ export function ContactsPage({
     [queryClient, contactsQueryKey],
   );
 
+  // A mutation's own callbacks run from the request, not from this component,
+  // so a response that lands after the page is left still reaches them. The
+  // cache writes belong to the data either way; a navigation belongs to the
+  // page that asked for it, and would otherwise drag the user back to Contacts
+  // (under whichever assistant they switched to). Every post-success move
+  // below is gated on this.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const createMutation = useMutation({
     mutationFn: () =>
       upsertContact(assistantId, { displayName: DRAFT_CONTACT_NAME }),
@@ -346,7 +360,9 @@ export function ContactsPage({
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
-      selectContact(contact.id);
+      if (mountedRef.current) {
+        selectContact(contact.id);
+      }
     },
     onError: toastOnError(t("contactsPage.createFailed")),
     onSettled: () => invalidateContacts(),
@@ -376,7 +392,7 @@ export function ContactsPage({
           : undefined,
       );
       // Another contact may be open by now, holding edits of its own.
-      if (selectedContactIdRef.current === contactId) {
+      if (mountedRef.current && selectedContactIdRef.current === contactId) {
         backToList();
       }
     },
@@ -477,7 +493,9 @@ export function ContactsPage({
               }
             : undefined,
         );
-        selectContact(mergedContact.id);
+        if (mountedRef.current) {
+          selectContact(mergedContact.id);
+        }
       }
       setMergeDialogOpen(false);
       toast.success(t("contactsPage.mergeSucceeded"));

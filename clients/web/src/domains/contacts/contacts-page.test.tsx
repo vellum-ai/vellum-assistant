@@ -218,8 +218,10 @@ mock.module("@/domains/contacts/contacts-gateway", () => ({
     if (upsertShouldReject) {
       throw new ApiError(404, "Not found");
     }
-    const heldId = body.id;
-    if (holdUpsert && heldId) {
+    // A create carries no id, so it is held under the one the daemon answers
+    // with, which is what `releaseUpsert` is given.
+    const heldId = body.id ?? DRAFT.id;
+    if (holdUpsert) {
       await new Promise<void>((resolve) => {
         heldUpserts.set(heldId, resolve);
       });
@@ -354,6 +356,12 @@ const CONTACTS_ROUTE_PATHS = [
 ];
 
 /**
+ * A route outside Contacts, so a test can leave the page (unmounting it) and
+ * still read where the router ends up.
+ */
+const AWAY_PATH = routes.library.root;
+
+/**
  * Renders the page under that shape, so `useParams` yields `contactId` and a
  * step between list and detail keeps the page mounted. Returns the router the
  * suite reads its entry from and walks back with, plus the render's `unmount`.
@@ -372,6 +380,7 @@ function renderContactsPage(options?: {
       />
     ),
     initialEntries: [options?.initialPath ?? "/assistant/contacts"],
+    awayPaths: [AWAY_PATH],
   });
 
   const { unmount } = render(
@@ -464,6 +473,36 @@ async function releaseDelete(contactId: string): Promise<void> {
     resolve();
     await new Promise((settle) => setTimeout(settle, 0));
   });
+}
+
+/**
+ * Taps the list screen's add action and returns once the create is open at
+ * the gateway, so the caller can decide where the user is when it lands.
+ * Requires `holdUpsert`.
+ */
+async function startAddFromTopBar(): Promise<void> {
+  await waitFor(() => getInputByPlaceholder("Search Contacts"));
+  const addAction = headerTrailing();
+  if (!addAction) {
+    throw new Error("expected the top bar add action");
+  }
+  await act(async () => {
+    addAction.props.onClick();
+  });
+  await waitFor(() => {
+    expect(heldUpserts.has(DRAFT.id)).toBe(true);
+  });
+}
+
+/** Leaves Contacts for a route that mounts no page, unmounting the page. */
+async function leaveContacts(
+  router: ReturnType<typeof createProbedRouter>,
+): Promise<void> {
+  await act(async () => {
+    await router.navigate(AWAY_PATH);
+  });
+  expect(currentLocation().pathname).toBe(AWAY_PATH);
+  expect(queryInputByPlaceholder("Search Contacts")).toBe(null);
 }
 
 /** Lets one held upsert finish and settles the renders it causes. */
@@ -985,6 +1024,64 @@ describe("ContactsPage overlapping mutations", () => {
     expect(currentLocation().pathname).toBe(routes.contacts.root);
 
     await releaseDelete(PEER.id);
+  });
+});
+
+/**
+ * A mutation's callbacks run from the request rather than from the page, so
+ * they still fire once the page is gone. Their cache writes belong to the
+ * data, but a navigation belongs to the page that asked for it: after the
+ * user has left Contacts (or switched assistants) it would drag them back,
+ * onto an id the assistant they are now on may not have.
+ */
+describe("ContactsPage mutations that land after the page is left", () => {
+  test("a create that lands after the page is left stays off Contacts", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+    holdUpsert = true;
+    const { router } = renderContactsPage();
+
+    await startAddFromTopBar();
+    await leaveContacts(router);
+
+    await releaseUpsert(DRAFT.id);
+
+    expect(currentLocation().pathname).toBe(AWAY_PATH);
+  });
+
+  test("a delete that lands after the page is left stays off Contacts", async () => {
+    holdDelete = true;
+    const { router } = renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    // The deleted contact is the one open, so on the page this would return
+    // to the list.
+    await leaveContacts(router);
+
+    await releaseDelete(ALICE.id);
+
+    expect(currentLocation().pathname).toBe(AWAY_PATH);
+  });
+
+  test("a create that lands while the page is open still opens the contact", async () => {
+    isMobile = true;
+    hasRoomForList = false;
+    holdUpsert = true;
+    renderContactsPage();
+
+    await startAddFromTopBar();
+
+    await releaseUpsert(DRAFT.id);
+
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(routes.contacts.detail(DRAFT.id));
+    });
   });
 });
 

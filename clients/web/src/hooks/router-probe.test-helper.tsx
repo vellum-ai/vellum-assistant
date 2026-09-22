@@ -82,17 +82,23 @@ export function currentLocation(): {
  * component, so stepping between them keeps the page mounted. The returned
  * router is what a suite reads its entry from and walks the history with
  * (`router.navigate(-1)`), which a `MemoryRouter` cannot do.
+ *
+ * `awayPaths` mount the probe alone, standing in for the rest of the app: a
+ * suite navigates to one to unmount `element` while the location stays
+ * readable, which is how a move made after the page is left is asserted on.
  */
 export function createProbedRouter({
   paths,
   element,
   initialEntries,
   initialIndex,
+  awayPaths = [],
 }: {
   paths: readonly string[];
   element: ReactNode;
   initialEntries: InitialEntry[];
   initialIndex?: number;
+  awayPaths?: readonly string[];
 }) {
   function ProbedRoute(): ReactElement {
     return (
@@ -104,7 +110,10 @@ export function createProbedRouter({
   }
 
   return createMemoryRouter(
-    paths.map((path) => ({ path, Component: ProbedRoute })),
+    [
+      ...paths.map((path) => ({ path, Component: ProbedRoute })),
+      ...awayPaths.map((path) => ({ path, Component: LocationProbe })),
+    ],
     { initialEntries, initialIndex },
   );
 }
