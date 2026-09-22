@@ -2,6 +2,50 @@ import Testing
 
 @testable import MacHelperCore
 
+@Suite("Description-only annotation targets")
+struct AXDescriptionOnlyTargetTests {
+    @Test("a description-only text element can be selected after a visible-name miss")
+    func descriptionOnlyTarget() throws {
+        let description = try #require(AXLabel.textDescription(title: nil, value: "") {
+            "MainWindowTitleBarExportBtn"
+        })
+        let candidates = [AXTargetMatch.Candidate(label: description)]
+        #expect(AXTargetMatch.locate(query: "Export", among: candidates) == .notFound([description]))
+        #expect(AXTargetMatch.locate(query: description, among: candidates) == .found(0))
+    }
+
+    @Test("duplicate accessibility descriptions remain ambiguous")
+    func duplicateDescriptions() throws {
+        let description = try #require(AXLabel.textDescription(title: nil, value: nil) { "Export control" })
+        #expect(AXTargetMatch.locate(query: description, among: [
+            .init(label: description), .init(label: description),
+        ]) == .ambiguous([description, description]))
+    }
+
+    @Test("visible text is preserved without reading an implementation description", arguments: [
+        ("Export", ""), ("", "Export"), ("Heading", "Contents"),
+    ])
+    func preservesVisibleText(title: String, value: String) {
+        var descriptionReads = 0
+        let description = AXLabel.textDescription(title: title, value: value) {
+            descriptionReads += 1
+            return "InternalTextNode"
+        }
+        #expect(description == nil)
+        #expect(descriptionReads == 0)
+    }
+
+    @Test("blank attributes fall through to the accessibility description")
+    func blankText() {
+        #expect(AXLabel.textDescription(title: " \n", value: "\t") { "Export control" } == "Export control")
+    }
+
+    @Test("empty descriptions do not create unnamed targets", arguments: [nil, "", " \n\t"] as [String?])
+    func emptyDescription(description: String?) {
+        #expect(AXLabel.textDescription(title: nil, value: nil) { description } == nil)
+    }
+}
+
 @Suite("AXLabel.nonBlank")
 struct AXLabelNonBlankTests {
     @Test("an empty string carries no name")
