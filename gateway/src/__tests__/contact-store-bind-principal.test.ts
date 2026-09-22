@@ -25,8 +25,12 @@ import "./test-preload.js";
 
 mock.module("../ipc/assistant-client.js", () => ({
   ipcCallAssistant: mock(async (method: string) => {
-    if (method === "contacts_info_batch") return { infos: [] };
-    if (method === "contact_user_file_slugs") return { userFiles: [] };
+    if (method === "contacts_info_batch") {
+      return { infos: [] };
+    }
+    if (method === "contact_user_file_slugs") {
+      return { userFiles: [] };
+    }
     return {};
   }),
 }));
