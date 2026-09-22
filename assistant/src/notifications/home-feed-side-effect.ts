@@ -14,6 +14,7 @@ import {
   type FeedItem,
   type FeedItemCategory,
   type FeedItemDetailPanelKind,
+  feedItemIdForSignal,
   feedItemSchema,
   type FeedItemUpdate,
   feedItemUpdateSchema,
@@ -227,7 +228,7 @@ export async function writeHomeFeedItemForSignal(
   const item: FeedItem = {
     id: guardianProjection
       ? guardianFeedItemId(guardianProjection.requestId)
-      : `notif:${signal.signalId}`,
+      : feedItemIdForSignal(signal.signalId),
     type: "notification",
     priority: 50,
     title: resolvedTitle,

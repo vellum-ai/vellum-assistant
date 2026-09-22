@@ -10,7 +10,9 @@
 
 import { findConversation } from "../daemon/conversation-registry.js";
 import {
+  FEED_ITEM_ID_PREFIX,
   type FeedItem,
+  feedItemIdForSignal,
   type FeedItemStatus,
   type FeedItemUrgency,
 } from "../home/feed-types.js";
@@ -31,9 +33,6 @@ import { nonEmpty } from "./notification-utils.js";
 import type { NotificationChannel } from "./types.js";
 
 const log = getLogger("edit-notification");
-
-/** Prefix used by `home-feed-side-effect` when minting feed item ids. */
-export const FEED_ITEM_ID_PREFIX = "notif:";
 
 export interface EditNotificationParams {
   /** Feed item id (`notif:<uuid>`) or bare signal uuid. */
@@ -72,7 +71,7 @@ export function normalizeFeedItemId(id: string): string {
   if (trimmed.startsWith(FEED_ITEM_ID_PREFIX)) {
     return trimmed;
   }
-  return `${FEED_ITEM_ID_PREFIX}${trimmed}`;
+  return feedItemIdForSignal(trimmed);
 }
 
 /** Strip the `notif:` prefix to recover the original signal/event id. */
