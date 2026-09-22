@@ -1057,6 +1057,20 @@ export const LLMSchema = z
         message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile ${unresolvableProfileReason(config.advisorProfile, backupsResolve)}`,
       });
     }
+    // The managed Jev profile is a valid reference target for call-site pins
+    // only. Its model returns structured verdicts rather than chat text, so
+    // the conversation positions reject it here as well as at the write
+    // routes, which keeps a raw config write from handing the main agent or
+    // the advisor a model that cannot answer in prose.
+    for (const field of ["activeProfile", "advisorProfile"] as const) {
+      if (config[field] === JEV_MANAGED_PROFILE_KEY) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" referenced by llm.${field} returns structured answers rather than chat text, so it cannot be the conversation or advisor profile`,
+        });
+      }
+    }
 
     // --- Mix profile validation --------------------------------------------
     // Config keys a mix profile must NOT also set (a mix only references other

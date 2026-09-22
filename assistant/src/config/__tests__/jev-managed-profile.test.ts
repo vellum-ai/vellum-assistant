@@ -15,6 +15,19 @@ describe("jev-managed as a call-site pin target", () => {
     ).toBe(true);
   });
 
+  test("is rejected as the active or advisor profile even on the managed column", () => {
+    for (const field of ["activeProfile", "advisorProfile"] as const) {
+      const result = LLMSchema.safeParse({ [field]: "jev-managed" });
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain(
+        "structured answers rather than chat text",
+      );
+    }
+    expect(LLMSchema.safeParse({ activeProfile: "balanced" }).success).toBe(
+      true,
+    );
+  });
+
   test("is rejected under a BYOK default provider, where it has no body", () => {
     const result = LLMSchema.safeParse({
       ...PIN,
