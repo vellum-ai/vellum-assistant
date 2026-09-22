@@ -1,8 +1,8 @@
 /**
  * One bounded yes/no question to TypeSafe's System One model (Jev), shared by
- * the voice judges. A judge runs only when its call site resolves to the
- * TypeSafe provider; every failure comes back as a non-answer so the caller
- * keeps its default behavior.
+ * the voice judges. A judge runs through managed inference or an explicit
+ * TypeSafe call-site override; every failure comes back as a non-answer so
+ * the caller keeps its default behavior.
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
