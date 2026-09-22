@@ -225,6 +225,31 @@ describe("composeCallSiteTweak", () => {
 });
 
 describe("shipped call-site tuning", () => {
+  test("the escalation judge uses managed Jev by default", () => {
+    const resolved = resolveCallSiteConfig(
+      "voiceEscalationJudge",
+      LLMSchema.parse({}),
+    );
+
+    expect(resolved.provider).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
+    expect(resolved.model).toBe("jev-latest");
+  });
+
+  test("an escalation judge call-site override replaces the shipped Jev pin", () => {
+    const llm = LLMSchema.parse({
+      callSites: {
+        voiceEscalationJudge: { profile: "latency-optimized" },
+      },
+    });
+    const judge = resolveCallSiteConfig("voiceEscalationJudge", llm);
+    const frontDoor = resolveCallSiteConfig("voiceFrontDoor", llm);
+
+    expect(judge.provider).toBe(frontDoor.provider);
+    expect(judge.provider_connection).toBe(frontDoor.provider_connection);
+    expect(judge.model).toBe(frontDoor.model);
+  });
+
   // A workspace entry that only repoints the profile must not cost the call
   // site the tuning it ships with. `recall` carries a full set: a token
   // budget, effort, sampling, thinking, and cache posture.
