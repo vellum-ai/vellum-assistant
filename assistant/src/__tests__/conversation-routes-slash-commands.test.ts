@@ -268,21 +268,10 @@ function makeConversation() {
     },
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
     persistUserMessage,
     runAgentLoop,
     forceCompact,
     setPreactivatedSkillIds,
-    drainQueue: async (_reason?: string) => {},
-    // Forwards to drainQueue so tests that replace the drain observe the
-    // route's queue kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     warmPromptCache: () => {},
     getMessages: () => messages,
     assistantId: "self",
@@ -400,14 +389,8 @@ describe("handleSendMessage slash command interception", () => {
     expect(runAgentLoop).not.toHaveBeenCalled();
   });
 
-  test("clears processing and drains the queue when /compact's initial persist fails", async () => {
+  test("clears processing when /compact's initial persist fails", async () => {
     const { conversation } = makeConversation();
-    const drainQueue = mock(async () => {});
-    (
-      conversation as unknown as {
-        drainQueue: () => Promise<void>;
-      }
-    ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact
     // branch, on the synchronous pre-202 path) to throw.
@@ -430,9 +413,8 @@ describe("handleSendMessage slash command interception", () => {
     expect(caught?.message).toBe("disk full");
 
     // Regression: without the guard `processing` stays stuck true, leaving
-    // every later send queued forever; the queue must also be drained.
+    // every later send waiting forever.
     expect(conversation.isProcessing()).toBe(false);
-    expect(drainQueue).toHaveBeenCalledTimes(1);
   });
 
   test("passes regular messages through to agent loop unchanged", async () => {
@@ -551,19 +533,20 @@ describe("handleSendMessage canned wake-up greeting", () => {
     }
   });
 
-  test("queues a first greeting whose flag went away during the awaits", async () => {
+  test("defers a first greeting whose flag went away during the awaits", async () => {
     // The canned wake-up greeting used to claim the flag unconditionally, so
     // it greeted over a turn already writing and both mutated one history.
     // It declines instead and falls through, the way its sibling branches do,
-    // and the gate below answers as a busy conversation owes.
+    // and the submit below answers as a busy conversation owes.
     const { conversation, persistUserMessage, runAgentLoop } =
       makeConversation();
     conversation.setProcessing(true);
     const stub = conversation as unknown as { isProcessing: () => boolean };
     stub.isProcessing = () => false;
     // What the real one does while another holder has the flag, which is what
-    // the fall-through below runs into.
-    persistUserMessage.mockImplementationOnce(async () => {
+    // the fall-through below runs into. Every attempt refuses, so the deferred
+    // retries run out rather than landing a turn.
+    persistUserMessage.mockImplementation(async () => {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     });
 
@@ -575,7 +558,14 @@ describe("handleSendMessage canned wake-up greeting", () => {
     );
 
     expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    const greetingBody = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
+    expect(greetingBody.accepted).toBe(true);
+    expect(typeof greetingBody.messageId).toBe("string");
+    expect(greetingBody.queued).toBeUndefined();
     expect(runAgentLoop).not.toHaveBeenCalled();
     // No greeting rows: the branch never ran.
     expect(addMessageMock).not.toHaveBeenCalled();
@@ -602,20 +592,19 @@ describe("handleSendMessage canned wake-up greeting", () => {
   });
 });
 
-describe("handleSendMessage flag taken after its queue decision", () => {
+describe("handleSendMessage flag taken after its submit decision", () => {
   beforeEach(() => {
     addMessageMock.mockClear();
   });
 
-  test("queues a plain send whose flag went away during the awaits", async () => {
-    // The route decides to queue or run at the top, then awaits guardian
-    // cleanup, history scoping and slash resolution. A camera frame taking the
-    // flag inside those awaits leaves the persist rejecting busy, and the send
-    // has to reach the queue the early decision would have used rather than
-    // failing in the client's face.
+  test("defers a plain send whose flag went away during the awaits", async () => {
+    // The route decides to interrupt, defer or run at the top, then awaits
+    // guardian cleanup, history scoping and slash resolution. A camera frame
+    // taking the flag inside those awaits leaves the persist rejecting busy,
+    // and the send has to wait for idle rather than fail in the client's face.
     const { conversation, persistUserMessage, runAgentLoop } =
       makeConversation();
-    persistUserMessage.mockImplementationOnce(async () => {
+    persistUserMessage.mockImplementation(async () => {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     });
 
@@ -627,12 +616,19 @@ describe("handleSendMessage flag taken after its queue decision", () => {
     );
 
     expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    const plainBody = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
+    expect(plainBody.accepted).toBe(true);
+    expect(typeof plainBody.messageId).toBe("string");
+    expect(plainBody.queued).toBeUndefined();
     expect(runAgentLoop).not.toHaveBeenCalled();
   });
 
   test("still fails a send whose persist failed for any other reason", async () => {
-    // The control: only the busy rejection queues. Everything else is a real
+    // The control: only the busy rejection defers. Everything else is a real
     // failure and must not be answered as an accepted message.
     const { conversation } = makeConversation();
     const { persistUserMessage } = makeConversation();
@@ -655,10 +651,10 @@ describe("handleSendMessage flag taken after its queue decision", () => {
     ).rejects.toThrow("disk on fire");
   });
 
-  test("queues a slash command whose flag went away during the awaits", async () => {
+  test("defers a slash command whose flag went away during the awaits", async () => {
     // Same window, the branch that hand-rolls its own claim. It takes the flag
-    // rather than setting it, so a hold taken since is answered by the queue
-    // instead of being claimed away from the turn that owns it.
+    // rather than setting it, so a hold taken since is waited out instead of
+    // being claimed away from the turn that owns it.
     const { conversation, runAgentLoop } = makeConversation();
     conversation.setProcessing(true);
     // The early gate reads idle, the claim below does not.
@@ -673,7 +669,14 @@ describe("handleSendMessage flag taken after its queue decision", () => {
     );
 
     expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ accepted: true, queued: true });
+    const slashBody = (await res.json()) as {
+      accepted: boolean;
+      messageId?: string;
+      queued?: boolean;
+    };
+    expect(slashBody.accepted).toBe(true);
+    expect(typeof slashBody.messageId).toBe("string");
+    expect(slashBody.queued).toBeUndefined();
     expect(runAgentLoop).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,7 @@
  * (the repair could not be persisted, another waiter took the lock) leave a
  * conversation that reads idle and a durable `tool_use` with no result behind
  * it, so running the message there would persist a user row after it. Every
- * outcome but `released` takes the queue.
+ * outcome but `released` waits for idle instead.
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,10 +27,10 @@ let processingAfterInterrupt: boolean | null = null;
 
 /**
  * What the synchronous gate answers. `eligible` is the only value that reaches
- * `interruptRunningTurn`; everything else queues without a handover, which is
- * what the flag-off and wrong-actor paths do.
+ * `interruptRunningTurn`; everything else waits for idle without a handover,
+ * which is what a hidden or wrong-actor send does.
  */
-let interruptEligibility: "eligible" | "flag_off" = "eligible";
+let interruptEligibility: "eligible" | "hidden" = "eligible";
 
 /** Held open by the acknowledgement-timing test to stall the handover. */
 let interruptGate: Promise<void> = Promise.resolve();
@@ -46,19 +46,42 @@ mock.module("../daemon/conversation-interrupt.js", () => ({
   },
 }));
 
-const enqueued: string[] = [];
-const drainKicks: string[] = [];
+mock.module("../daemon/conversation-interrupt-repair.js", () => ({
+  repairInterruptedToolUseBlocks: async () => {},
+}));
+
+const idleWaiters = new Set<() => void>();
 
 const fakeConversation = {
+  conversationId: "conv-1",
   isProcessing: () => conversationProcessing,
-  enqueueMessage: ({ content }: { content: string }) => {
-    enqueued.push(content);
-    return { queued: true, requestId: "req-1" };
-  },
-  kickDrainQueue: async (_reason?: string, origin?: string) => {
-    drainKicks.push(origin ?? "");
-  },
+  waitForIdle: ({ timeoutMs }: { timeoutMs: number }) =>
+    new Promise<boolean>((resolve) => {
+      if (!conversationProcessing) {
+        resolve(true);
+        return;
+      }
+      const notify = (): void => {
+        clearTimeout(timer);
+        idleWaiters.delete(notify);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        idleWaiters.delete(notify);
+        resolve(false);
+      }, timeoutMs);
+      (timer as { unref?: () => void }).unref?.();
+      idleWaiters.add(notify);
+    }),
 } as unknown as Conversation;
+
+/** Free the conversation, the way a turn's own `finally` does. */
+function releaseConversation(): void {
+  conversationProcessing = false;
+  for (const notify of [...idleWaiters]) {
+    notify();
+  }
+}
 
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => fakeConversation,
@@ -67,19 +90,20 @@ mock.module("../daemon/conversation-store.js", () => ({
 const backgroundDispatches: string[] = [];
 /** Set to make the direct dispatch refuse, as it does when it loses the lock. */
 let backgroundDispatchError: Error | null = null;
+let failDispatchOnce = false;
 mock.module("../daemon/process-message.js", () => ({
   processMessageInBackground: async (_id: string, content: string) => {
     if (backgroundDispatchError) {
-      throw backgroundDispatchError;
+      const err = backgroundDispatchError;
+      if (failDispatchOnce) {
+        backgroundDispatchError = null;
+      }
+      throw err;
     }
     backgroundDispatches.push(content);
   },
   resolveTurnChannel: (c: string) => c,
   resolveTurnInterface: (i: string) => i,
-}));
-
-mock.module("../daemon/handlers/conversations.js", () => ({
-  supersedePendingInteractionsOnEnqueue: () => {},
 }));
 
 mock.module("../persistence/conversation-key-store.js", () => ({
@@ -99,6 +123,12 @@ mock.module("../util/platform.js", () => ({
   getSignalsDir: () => signalsDir,
 }));
 
+const { __resetConversationAdmissionForTests } =
+  await import("../daemon/conversation-admission.js");
+const { clearConversations, setConversation } =
+  await import("../daemon/conversation-registry.js");
+const { resetTurnFinalizationsForTesting } =
+  await import("../daemon/turn-finalization.js");
 const { handleUserMessageSignal } = await import("../signals/user-message.js");
 
 // ---------------------------------------------------------------------------
@@ -125,9 +155,9 @@ async function sendSignal(content: string): Promise<void> {
 }
 
 /**
- * Let the detached handover run. An eligible interrupt is acknowledged before
- * the abort, the wait, the repair and the dispatch, so anything they do lands
- * after `sendSignal` has already returned.
+ * Let the detached handover run. A busy send is acknowledged before the abort,
+ * the wait, the repair and the dispatch, so anything they do lands after
+ * `sendSignal` has already returned.
  */
 async function settleHandover(): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -137,18 +167,25 @@ async function settleHandover(): Promise<void> {
 }
 
 beforeEach(() => {
+  __resetConversationAdmissionForTests();
+  resetTurnFinalizationsForTesting();
+  clearConversations();
+  setConversation("conv-1", fakeConversation);
   interruptOutcome = "released";
   interruptEligibility = "eligible";
   interruptGate = Promise.resolve();
   conversationProcessing = false;
   processingAfterInterrupt = null;
-  enqueued.length = 0;
-  drainKicks.length = 0;
+  idleWaiters.clear();
   backgroundDispatches.length = 0;
   backgroundDispatchError = null;
+  failDispatchOnce = false;
 });
 
 afterEach(() => {
+  __resetConversationAdmissionForTests();
+  resetTurnFinalizationsForTesting();
+  clearConversations();
   // `mock.module` is process-wide, so leave the stub on the answer an idle
   // conversation gives, which is what every other file expects.
   interruptOutcome = "released";
@@ -161,14 +198,13 @@ describe("CLI signal send after an interrupt", () => {
     await sendSignal("run it");
 
     expect(backgroundDispatches).toEqual(["run it"]);
-    expect(enqueued).toEqual([]);
   });
 
-  test("queues on `busy` even though the conversation now reads idle", async () => {
+  test("defers on `busy` even though the conversation now reads idle", async () => {
     // The shape the repair failure and the lost-lock race both produce: the
     // conversation was busy at the check, the interrupted turn then ended, so
     // `isProcessing()` reads false while the history still carries a
-    // `tool_use` nothing answered.
+    // `tool_use` nothing answered. The deferred run repairs it first.
     interruptOutcome = "busy";
     conversationProcessing = true;
     processingAfterInterrupt = false;
@@ -176,57 +212,38 @@ describe("CLI signal send after an interrupt", () => {
     await sendSignal("what time is it");
     await settleHandover();
 
-    expect(enqueued).toEqual(["what time is it"]);
-    expect(backgroundDispatches).toEqual([]);
-    // Nothing is running to drain it, so the enqueue kicks one itself.
-    expect(drainKicks).toEqual(["signal_send_idle"]);
+    expect(backgroundDispatches).toEqual(["what time is it"]);
   });
 
-  test("queues a released send that loses the conversation before it dispatches", async () => {
+  test("defers a released send that loses the conversation before it dispatches", async () => {
     // `released` proves the interrupted turn let go, not that this send got the
     // conversation: an idle waiter registered earlier can take it on the same
     // transition. The direct dispatch then refuses, and the CLI's message must
-    // land on the queue rather than be lost to an internal error.
+    // wait for idle rather than be lost to an internal error.
     const { CONVERSATION_BUSY_MESSAGE } =
       await import("../daemon/conversation-busy-error.js");
     interruptOutcome = "released";
     conversationProcessing = true;
     processingAfterInterrupt = false;
     backgroundDispatchError = new Error(CONVERSATION_BUSY_MESSAGE);
+    failDispatchOnce = true;
 
     await sendSignal("answer me");
     await settleHandover();
 
-    expect(backgroundDispatches).toEqual([]);
-    expect(enqueued).toEqual(["answer me"]);
-    expect(drainKicks).toEqual(["signal_send_idle"]);
+    expect(backgroundDispatches).toEqual(["answer me"]);
   });
 
   test("surfaces a dispatch failure on the idle path, where nothing was promised", async () => {
     // No interrupt, so the acknowledgement is still the dispatch's own answer
-    // and a failure can be reported honestly rather than queued.
+    // and a failure can be reported honestly rather than deferred.
     conversationProcessing = false;
     backgroundDispatchError = new Error("disk on fire");
 
     await sendSignal("hello");
     await settleHandover();
 
-    expect(enqueued).toEqual([]);
-  });
-
-  test("queues any failure that lands after the send was acknowledged", async () => {
-    // Once accepted, the message is this handler's responsibility. The queue is
-    // the one place that survives, so even an unrecognised failure lands there
-    // rather than being dropped.
-    interruptOutcome = "released";
-    conversationProcessing = true;
-    processingAfterInterrupt = false;
-    backgroundDispatchError = new Error("disk on fire");
-
-    await sendSignal("still deliver me");
-    await settleHandover();
-
-    expect(enqueued).toEqual(["still deliver me"]);
+    expect(backgroundDispatches).toEqual([]);
   });
 
   test("writes the result before the handover, not after it", async () => {
@@ -273,15 +290,18 @@ describe("CLI signal send after an interrupt", () => {
     expect(backgroundDispatches).toEqual(["answer me"]);
   });
 
-  test("queues on `declined`, which is what the flag-off path answers", async () => {
-    interruptEligibility = "flag_off";
+  test("defers a send that may not interrupt until the turn ends", async () => {
+    interruptEligibility = "hidden";
     conversationProcessing = true;
 
     await sendSignal("hello");
+    await settleHandover();
 
-    expect(enqueued).toEqual(["hello"]);
+    // The running turn still holds the conversation, so nothing ran yet.
     expect(backgroundDispatches).toEqual([]);
-    // The running turn's own `finally` drains it, so no kick here.
-    expect(drainKicks).toEqual([]);
+
+    releaseConversation();
+    await settleHandover();
+    expect(backgroundDispatches).toEqual(["hello"]);
   });
 });

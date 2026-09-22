@@ -178,7 +178,6 @@ function makeConversation(opts: { processing?: boolean } = {}) {
   const emitActivityState = mock(
     (_phase: string, _reason: string, _options?: { statusText?: string }) => {},
   );
-  const drainQueue = mock(async () => {});
   const messages: unknown[] = [];
   const conversation = {
     conversationId: "conv-summarize-test",
@@ -187,16 +186,6 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     setProcessing,
     summarizeUpToMessage,
     emitActivityState,
-    drainQueue,
-    // Forwards to drainQueue so tests that spy the drain observe the route's
-    // queue kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getMessages: () => messages,
   };
   return {
@@ -204,7 +193,6 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     setProcessing,
     summarizeUpToMessage,
     emitActivityState,
-    drainQueue,
     messages,
   };
 }
@@ -323,7 +311,6 @@ describe("POST /v1/conversations/summarize", () => {
     ]);
 
     expect(ctx.conversation.isProcessing()).toBe(false);
-    expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });
 
   test("busy conversation → 409 without claiming processing", async () => {
@@ -398,7 +385,6 @@ describe("POST /v1/conversations/summarize", () => {
       true,
     );
     expect(ctx.conversation.isProcessing()).toBe(false);
-    expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });
 
   test("unexpected error → retryable conversation_error, processing cleared", async () => {
@@ -434,7 +420,6 @@ describe("POST /v1/conversations/summarize", () => {
       "error_terminal",
     );
     expect(ctx.conversation.isProcessing()).toBe(false);
-    expect(ctx.drainQueue).toHaveBeenCalledTimes(1);
   });
 
   test.each([

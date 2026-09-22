@@ -779,7 +779,12 @@ export async function postChatMessage(
     };
   }
 
-  if (sendData.queued) {
+  // A daemon older than the queue deletion answers a hidden or other-actor
+  // busy send with `{ accepted, queued: true }` and no `messageId`. The field
+  // is gone from the current schema, so it is read off an untyped view: the
+  // optimistic row stays and reconciles on `user_message_echo`, rather than
+  // being dropped as an acceptance with no id.
+  if ((sendData as { queued?: boolean }).queued === true) {
     return {
       ok: true,
       queued: true,

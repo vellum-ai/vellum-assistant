@@ -205,12 +205,12 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
     persistUserMessage: mock(async () => ({
       id: "persisted-user-id",
       deduplicated: false,
     })),
     runAgentLoop: mock(async () => undefined),
+    messages: [] as unknown[],
     getMessages: () => [] as unknown[],
     assistantId: "self",
     trustContext: undefined,
@@ -563,16 +563,20 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
     });
   });
 
-  test("persists client metadata on queued user messages", async () => {
-    const enqueueMessage = mock(
-      (_options: { metadata?: Record<string, unknown> }) => ({
-        queued: true,
-        requestId: "queued-id",
+  test("persists client metadata on a deferred user message", async () => {
+    // The conversation is busy with no abortable turn, so the send waits for
+    // idle. Its metadata has to survive that wait: the row is written by the
+    // deferred run, not by the request.
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
       }),
     );
+    let processing = true;
     const conversation = makeConversation({
-      isProcessing: () => true,
-      enqueueMessage,
+      isProcessing: () => processing,
+      persistUserMessage,
     });
 
     const res = await sendMessage(
@@ -585,13 +589,18 @@ describe("HTTP POST /v1/messages client metadata headers", () => {
     );
 
     expect(res.status).toBe(202);
-    expect(enqueueMessage).toHaveBeenCalledTimes(1);
-    const enqueueCall = enqueueMessage.mock.calls[0];
-    expect(enqueueCall).toBeDefined();
-    const [enqueueOptions] = enqueueCall as unknown as [
+    processing = false;
+    for (let i = 0; i < 20 && persistUserMessage.mock.calls.length === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistCall = persistUserMessage.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const [persistOptions] = persistCall as unknown as [
       { metadata?: Record<string, unknown> },
     ];
-    expect(enqueueOptions.metadata).toMatchObject({
+    expect(persistOptions.metadata).toMatchObject({
       client: {
         browser_family: "safari",
         browser_version: "17",

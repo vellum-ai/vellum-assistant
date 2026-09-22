@@ -190,7 +190,7 @@ interface FakeConversation {
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
   isProcessing: () => boolean;
-  hasQueuedMessages?: () => boolean;
+  hasPendingDeferredSends?: () => boolean;
   waitForIdle: (options: WaitForIdleCall) => Promise<boolean>;
   setAssistantId: (id: string) => void;
   setTrustContext: (ctx: unknown) => void;
@@ -225,8 +225,8 @@ function makeFakeConversation(opts: {
   waitForIdle?: (options: WaitForIdleCall) => Promise<boolean>;
   runAgentLoop?: () => Promise<void>;
   events?: string[];
-  /** Mirrors `Conversation.hasQueuedMessages`; undefined models an empty queue. */
-  hasQueuedMessages?: () => boolean;
+  /** Mirrors `Conversation.hasPendingDeferredSends`; undefined models none. */
+  hasPendingDeferredSends?: () => boolean;
   /** Runs before each persist resolves; throw to script a persist failure. */
   onPersist?: (attempt: number) => void;
   /** Workspace root; pass empty to model a missing boundary. */
@@ -266,7 +266,7 @@ function makeFakeConversation(opts: {
     forcePromptSideEffects: false,
     currentRequestId: undefined,
     isProcessing: () => opts.processing,
-    hasQueuedMessages: opts.hasQueuedMessages,
+    hasPendingDeferredSends: opts.hasPendingDeferredSends,
     waitForIdle: (options) => {
       waitForIdleCalls.push(options);
       if (!opts.waitForIdle) {
@@ -1564,25 +1564,25 @@ describe("startVoiceTurn prior-turn teardown barrier", () => {
   });
 });
 
-describe("startVoiceTurn queued-message drain race", () => {
-  test("a drain that retakes the lock on the idle transition is waited out", async () => {
-    // Models a prior NON-voice turn (no teardown entry) finishing with a
-    // queued text message: the same `finally` that resolves the idle wait
-    // hands the lock straight to `drainQueue`. The barge-in must wait the
-    // drained turn out within its budget — not race the drain's persist or
-    // throw the terminal busy error.
+describe("startVoiceTurn deferred-send race", () => {
+  test("a deferred send that takes the lock on the idle transition is waited out", async () => {
+    // Models a prior NON-voice turn (no teardown entry) finishing with a text
+    // send waiting on the conversation: the same `finally` that resolves the
+    // idle wait admits that send, which takes the lock. The barge-in must wait
+    // it out within its budget, not race its persist or throw the terminal
+    // busy error.
     let waitCount = 0;
     const fake = makeFakeConversation({
       processing: true,
-      hasQueuedMessages: () => waitCount < 2,
+      hasPendingDeferredSends: () => waitCount < 2,
       waitForIdle: async () => {
         waitCount += 1;
         if (waitCount === 1) {
-          // The prior turn released, and its queued-message drain retook
-          // the lock in the same window — isProcessing() stays true.
+          // The prior turn released, and the deferred send took the lock in
+          // the same window, so isProcessing() stays true.
           return true;
         }
-        // The drained turn completed; the lock releases for real.
+        // The deferred turn completed; the lock releases for real.
         fake.setProcessingFlag(false);
         return true;
       },

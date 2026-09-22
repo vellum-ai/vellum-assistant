@@ -40,7 +40,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+const realPendingInteractions =
+  await import("../runtime/pending-interactions.js");
 mock.module("../runtime/pending-interactions.js", () => ({
+  ...realPendingInteractions,
   register: () => undefined,
   resolve: () => undefined,
   get: () => undefined,

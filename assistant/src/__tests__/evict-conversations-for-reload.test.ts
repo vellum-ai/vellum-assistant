@@ -1,10 +1,10 @@
 /**
  * `evictConversationsForReload` drops in-memory conversations after a
  * config/prompt reload so the next turn rebuilds them against the new
- * config. Queued messages live only on the instance being disposed, so the
- * same "not idle while a queue is pending" rule the periodic evictor applies
- * has to hold here: `isProcessing()` reads false in the window between a turn
- * releasing and its queued successor being dispatched.
+ * config. A deferred send is registered against the instance being disposed,
+ * so the same "not idle while a send is waiting" rule the periodic evictor
+ * applies has to hold here: `isProcessing()` reads false in the window
+ * between a turn releasing and its deferred successor being dispatched.
  *
  * In-flight subagents and resident mode-session state are other non-idle
  * cases. Reload marks the conversation stale without discarding that state,
@@ -47,7 +47,7 @@ function register(
   id: string,
   state: {
     processing: boolean;
-    queued: boolean;
+    deferred: boolean;
     modeSessionWork?: boolean;
     stale?: boolean;
   },
@@ -58,12 +58,7 @@ function register(
     conversationId: id,
     liveVoiceResidencyLeases: 0,
     isProcessing: () => state.processing,
-    hasQueuedMessages: () => state.queued,
-    hasPendingDeferredSends() {
-      return Conversation.prototype.hasPendingDeferredSends.call(
-        fake as unknown as Conversation,
-      );
-    },
+    hasPendingDeferredSends: () => state.deferred,
     modeSessions: {
       hasResidentWork: () => state.modeSessionWork === true,
     },
@@ -92,7 +87,10 @@ describe("evictConversationsForReload", () => {
   });
 
   test("disposes an idle conversation", () => {
-    const idle = register("reload-idle", { processing: false, queued: false });
+    const idle = register("reload-idle", {
+      processing: false,
+      deferred: false,
+    });
 
     evictConversationsForReload();
 
@@ -101,23 +99,24 @@ describe("evictConversationsForReload", () => {
     expect(abortedParents).toEqual(["reload-idle"]);
   });
 
-  test("keeps a conversation with queued messages and marks it stale", () => {
-    const queued = register("reload-queued", {
+  test("keeps a conversation with a deferred send and marks it stale", () => {
+    const deferred = register("reload-deferred", {
       processing: false,
-      queued: true,
+      deferred: true,
     });
 
     evictConversationsForReload();
 
-    // Disposing here would silently destroy the in-memory queue.
-    expect(queued.disposed).toBe(false);
-    expect(queued.markedStale).toBe(true);
-    expect(findConversation("reload-queued")).toBeDefined();
+    // Disposing here would run the deferred send against a conversation whose
+    // state is already gone.
+    expect(deferred.disposed).toBe(false);
+    expect(deferred.markedStale).toBe(true);
+    expect(findConversation("reload-deferred")).toBeDefined();
     expect(abortedParents).toEqual([]);
   });
 
   test("marks a mid-turn conversation stale instead of disposing it", () => {
-    const busy = register("reload-busy", { processing: true, queued: false });
+    const busy = register("reload-busy", { processing: true, deferred: false });
 
     evictConversationsForReload();
 
@@ -130,7 +129,7 @@ describe("evictConversationsForReload", () => {
   test("marks an idle parent with in-flight subagents stale", () => {
     const parent = register("reload-with-children", {
       processing: false,
-      queued: false,
+      deferred: false,
     });
     activeParents.add("reload-with-children");
 
@@ -145,7 +144,7 @@ describe("evictConversationsForReload", () => {
   test("keeps resident mode-session ownership usable across reload eviction", () => {
     const resident = register("reload-mode-active", {
       processing: false,
-      queued: false,
+      deferred: false,
       modeSessionWork: true,
     });
 
@@ -160,7 +159,7 @@ describe("evictConversationsForReload", () => {
   test("keeps a Live voice residency lease until the socket releases it", () => {
     const resident = register("reload-live-voice", {
       processing: false,
-      queued: false,
+      deferred: false,
     });
     const release = Conversation.prototype.acquireLiveVoiceResidency.call(
       resident as unknown as Conversation,
@@ -182,11 +181,11 @@ describe("evictConversationsForReload", () => {
   test("still evicts other idle conversations when one parent is protected", () => {
     const protectedParent = register("reload-protected", {
       processing: false,
-      queued: false,
+      deferred: false,
     });
     const idle = register("reload-unprotected", {
       processing: false,
-      queued: false,
+      deferred: false,
     });
     activeParents.add("reload-protected");
 
@@ -203,7 +202,7 @@ describe("evictConversationsForReload", () => {
   test("defers stale rebuild while subagents are in flight", async () => {
     const parent = register("stale-parent", {
       processing: false,
-      queued: false,
+      deferred: false,
       stale: true,
     });
     activeParents.add("stale-parent");
@@ -218,7 +217,7 @@ describe("evictConversationsForReload", () => {
   test("rebuilds a stale parent once every child is terminal", async () => {
     const parent = register("stale-parent", {
       processing: false,
-      queued: false,
+      deferred: false,
       stale: true,
     });
 
