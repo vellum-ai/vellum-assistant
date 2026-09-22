@@ -299,7 +299,9 @@
     "workStopped": "已停止",
     "workMore": "還有 {count} 項",
     "workWaiting": "{count, plural, other {# 項等待你的回覆}}",
-    "workWaitingStep": "等待你的回覆"
+    "workWaitingStep": "等待你的回覆",
+    "captureScreenRecordingOff": "螢幕錄製已關閉",
+    "captureTurnOnScreenRecording": "開啟"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的螢幕",
