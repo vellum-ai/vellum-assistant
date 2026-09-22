@@ -71,9 +71,14 @@ describe("AskQuestionDetail", () => {
       screen.getByText("Which release should I triage first?"),
     ).toBeDefined();
     expect(screen.getByText("Both have failures waiting.")).toBeDefined();
-    expect(screen.getByText("The blocked release")).toBeDefined();
-    // The option not chosen is not part of the answer.
-    expect(screen.queryByText("The latest release")).toBeNull();
+    // Every option is shown, so the call can be read as asked, with the one
+    // the user took marked.
+    expect(screen.getByText("The latest release")).toBeDefined();
+    const chosen = screen.getByText("The blocked release");
+    expect(chosen.className).not.toContain("content-tertiary");
+    expect(screen.getByText("The latest release").className).toContain(
+      "content-tertiary",
+    );
   });
 
   test("shows a typed answer and a skipped question for what they are", () => {
@@ -88,8 +93,13 @@ describe("AskQuestionDetail", () => {
       },
     });
 
+    // A typed answer matched no option, so it reads as its own row under the
+    // options, and no option is marked as taken.
     expect(screen.getByText("The blocked one.")).toBeDefined();
     expect(screen.getByText("Skipped")).toBeDefined();
+    expect(
+      screen.getAllByText("The latest release")[0]?.className,
+    ).not.toContain("content-tertiary");
   });
 
   test("says it is running while the prompt is outstanding", () => {

@@ -15,7 +15,7 @@
  */
 
 import type { QuestionEntry } from "@vellumai/assistant-api";
-import { Typography } from "@vellumai/design-library";
+import { cn, Typography } from "@vellumai/design-library";
 
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import {
@@ -23,6 +23,7 @@ import {
   resolveAnswers,
 } from "@/domains/chat/answered-question";
 import { AnsweredQuestionRow } from "@/domains/chat/components/answered-question-row";
+import { QuestionRowContents } from "@/domains/chat/components/question-row-contents";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
@@ -61,33 +62,46 @@ function QuestionBlock({
   );
 }
 
-/** The options as offered, for a prompt the user has not answered yet. */
-function OfferedOptions({ entry }: { entry: QuestionEntry }) {
+/**
+ * The options a question offered, with the chosen one marked. Every option is
+ * shown, not only the answer: what was on offer is what the model asked, and
+ * reading the call means reading both.
+ *
+ * The same row the card above the composer draws, without its hotkey badge:
+ * nothing here is pressable, so a key number would promise a shortcut that
+ * does not exist.
+ */
+function QuestionOptions({
+  options,
+  chosenOptionId,
+}: {
+  options: QuestionEntry["options"];
+  /** The option the user took, when they took one. */
+  chosenOptionId?: string;
+}) {
   return (
     <ul className="flex flex-col gap-1">
-      {entry.options.map((option) => (
-        <li
-          key={option.id}
-          className="flex flex-col gap-0.5 rounded-md bg-[var(--surface-base)] px-3 py-2"
-        >
-          <Typography
-            variant="body-medium-default"
-            as="span"
-            className="text-[var(--content-default)]"
+      {options.map((option, index) => {
+        const chosen = option.id === chosenOptionId;
+        return (
+          <li
+            key={option.id}
+            className={cn(
+              "rounded-md p-1.5",
+              chosen && "bg-[var(--surface-base)]",
+            )}
           >
-            {option.label}
-          </Typography>
-          {option.description && (
-            <Typography
-              variant="body-small-default"
-              as="span"
-              className="text-[var(--content-tertiary)]"
-            >
-              {option.description}
-            </Typography>
-          )}
-        </li>
-      ))}
+            <QuestionRowContents
+              badgeNumber={index + 1}
+              showBadge={false}
+              label={option.label}
+              description={option.description}
+              showCheck={chosen}
+              muted={chosenOptionId !== undefined && !chosen}
+            />
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -126,15 +140,31 @@ export function AskQuestionDetail({
             : t("askQuestionDetail.questions")}
         </SectionLabel>
         <div className="flex flex-col gap-4">
-          {answers.map((item) => (
-            <QuestionBlock
-              key={item.questionId}
-              question={item.question}
-              description={item.description}
-            >
-              <AnsweredQuestionRow item={item} />
-            </QuestionBlock>
-          ))}
+          {answers.map((item, index) => {
+            const asked = answeredQuestion.questions[index];
+            const response = answeredQuestion.responses.find(
+              (candidate) => candidate.questionId === item.questionId,
+            );
+            return (
+              <QuestionBlock
+                key={item.questionId}
+                question={item.question}
+                description={item.description}
+              >
+                {asked && asked.options.length > 0 && (
+                  <QuestionOptions
+                    options={asked.options}
+                    chosenOptionId={
+                      item.kind === "option" ? response?.optionId : undefined
+                    }
+                  />
+                )}
+                {/* A typed answer or a skip matched no option, so it reads as
+                    its own row, the one the transcript's card draws. */}
+                {item.kind !== "option" && <AnsweredQuestionRow item={item} />}
+              </QuestionBlock>
+            );
+          })}
         </div>
       </div>
     );
@@ -156,7 +186,7 @@ export function AskQuestionDetail({
                 question={entry.question}
                 description={entry.description}
               >
-                <OfferedOptions entry={entry} />
+                <QuestionOptions options={entry.options} />
               </QuestionBlock>
             ))}
           </div>
