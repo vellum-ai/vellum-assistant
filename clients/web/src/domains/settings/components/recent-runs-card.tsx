@@ -54,11 +54,7 @@ export function RecentRunsCard({
           size="compact"
           onClick={onLoadMore}
           disabled={isLoadingMore}
-          leftIcon={
-            isLoadingMore ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : undefined
-          }
+          loading={isLoadingMore}
         >
           {isLoadingMore
             ? t("recentRunsCard.loadingMore")

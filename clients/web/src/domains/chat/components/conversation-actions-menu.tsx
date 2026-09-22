@@ -1,6 +1,7 @@
 import {
   Copy,
   ExternalLink,
+  FilePlus,
   FolderInput,
   GitBranch,
   MessageCircle,
@@ -158,6 +159,8 @@ export interface ConversationMenuItemsProps {
   onOpenInNewWindow?: () => void;
   /** Fork the conversation through the latest persisted message. */
   onForkConversation?: () => void;
+  /** Create a blank document in this conversation and open it. */
+  onNewDocument?: () => void;
   /** Open the Share Feedback modal for this conversation. */
   onShareFeedback?: () => void;
   /**
@@ -221,6 +224,7 @@ export function renderConversationMenuItems({
   onRemoveFromGroup,
   isReadonly = false,
   onForkConversation,
+  onNewDocument,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
@@ -380,6 +384,15 @@ export function renderConversationMenuItems({
   if (variant === "header") {
     return (
       <>
+        {onNewDocument ? (
+          <Primitive.Item
+            leftIcon={<FilePlus size={14} />}
+            onSelect={onNewDocument}
+          >
+            {t("conversationActions.newDocument")}
+          </Primitive.Item>
+        ) : null}
+
         {onCopyConversation ? (
           <Primitive.Item
             leftIcon={<Copy size={14} />}
@@ -544,6 +557,7 @@ export function renderConversationMenuItemsAsPanelItems({
   onRemoveFromGroup,
   isReadonly = false,
   onForkConversation,
+  onNewDocument,
   onOpenInNewWindow,
   onShareFeedback,
   onInspect,
@@ -716,6 +730,16 @@ export function renderConversationMenuItemsAsPanelItems({
   if (variant === "header") {
     return (
       <>
+        {onNewDocument
+          ? buildSheetMenuItem({
+              key: "new-document",
+              icon: FilePlus,
+              label: t("conversationActions.newDocument"),
+              run: onNewDocument,
+              onClose,
+            })
+          : null}
+
         {onCopyConversation
           ? buildSheetMenuItem({
               key: "copy",

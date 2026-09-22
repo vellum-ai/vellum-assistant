@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Loader2, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { SkillIcon } from "@/components/skill-icon";
@@ -73,7 +73,8 @@ export function SkillRow({
           isInstalling ? (
             <Button
               type="button"
-              iconOnly={<Loader2 className="animate-spin" aria-hidden />}
+              loading
+              iconOnly={<ArrowDownToLine aria-hidden />}
               disabled
               aria-label={t("skillRow.installingAriaLabel")}
               expandOnMobile={false}
@@ -95,13 +96,8 @@ export function SkillRow({
           <Button
             type="button"
             variant="dangerOutline"
-            iconOnly={
-              isRemoving ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Trash2 aria-hidden />
-              )
-            }
+            loading={isRemoving}
+            iconOnly={<Trash2 aria-hidden />}
             onClick={(e) => {
               e.stopPropagation();
               onRemove?.();

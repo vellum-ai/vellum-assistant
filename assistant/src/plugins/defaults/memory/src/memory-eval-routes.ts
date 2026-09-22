@@ -23,7 +23,7 @@ import type { RouteDefinition } from "../../../../runtime/routes/types.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { runMemoryEval } from "../v3-eval/eval-packets.js";
-import { type TallyResult, tallyVerdicts } from "../v3-eval/eval-tally.js";
+import { tallyVerdicts } from "../v3-eval/eval-tally.js";
 
 const log = getLogger("memory-eval-routes");
 
@@ -138,12 +138,11 @@ export type MemoryEvalTallyResult = z.infer<typeof MemoryEvalTallyResultSchema>;
  */
 export function handleMemoryEvalTally(body: unknown): MemoryEvalTallyResult {
   const params = MemoryEvalTallyParamsSchema.parse(body ?? {});
-  const result: TallyResult = tallyVerdicts(
+  return tallyVerdicts(
     params.verdicts,
     params.key,
     params.alpha !== undefined ? { alpha: params.alpha } : {},
   );
-  return result;
 }
 
 const WRITE_POLICY: RoutePolicy = {

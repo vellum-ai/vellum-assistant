@@ -91,15 +91,14 @@ try {
     `<bindings xmlns="http://openbox.org/3.4/rc">${mouse}${keyboard}</bindings>`,
   );
   const configDir = join(directory, "managed & theme");
-  const config = writeDesktopWindowTheme(configDir, home, "#53b7aa");
+  const config = writeDesktopWindowTheme(configDir, home);
   const expanded = run("xmllint", "--xinclude", config);
   assert(
     expanded.includes("NextWindow") && expanded.includes("Move"),
     "Relative includes must retain the actual keyboard and mouse bindings",
   );
   assert.equal(await readFile(sourcePath, "utf8"), source);
-  writeDesktopWindowTheme(configDir, home, "#bc7799");
-  writeDesktopWindowTheme(configDir, home, "#53b7aa");
+  writeDesktopWindowTheme(configDir, home);
   assert.equal(await readFile(sourcePath, "utf8"), source);
   const blocked = join(directory, "blocked");
   await writeFile(blocked, "not a directory");

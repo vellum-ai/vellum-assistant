@@ -10,7 +10,7 @@
  *    fires `onClose`.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ import type {
   ToolCallCardItem,
   ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
+import { appendThinkingDelta } from "@/domains/chat/utils/stream-updaters/message-updaters";
 import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-helpers";
 
 // The viewer store and chat-session-store (pulled in transitively) import the
@@ -439,6 +440,83 @@ describe("ActivityStepsPanel - computer screenshot gallery", () => {
       name: "Preview computer screenshot",
     });
     expect(tile.querySelector("img")?.getAttribute("src")).toContain("AAAA");
+  });
+
+  test("does not reprocess screenshot bytes when live thinking grows", () => {
+    const screenshot = computerUseCall("tc-live-shot", {
+      imageDataList: ["iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" + "A".repeat(128 * 1024)],
+    });
+    let messages: DisplayMessage[] = [
+      {
+        id: "m-streaming-gallery",
+        role: "assistant",
+        contentBlocks: [{ type: "tool_use", toolCall: screenshot }],
+      },
+    ];
+    seedTranscript(messages);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const decode = spyOn(globalThis, "atob");
+    try {
+      const { getByTestId } = render(
+        <QueryClientProvider client={client}>
+          <ActivityStepsPanel
+            payload={{
+              messageId: "m-streaming-gallery",
+              groupIndex: 0,
+              groupToolCallIds: [screenshot.id],
+              items: [{ kind: "toolCall", toolCall: screenshot }],
+              toolCalls: [screenshot],
+            }}
+            onClose={() => {}}
+          />
+        </QueryClientProvider>,
+      );
+      const tile = getByTestId("activity-screenshot-tile");
+      expect(decode).toHaveBeenCalled();
+      decode.mockClear();
+
+      for (let index = 0; index < 10; index += 1) {
+        messages = appendThinkingDelta(
+          messages,
+          " considering",
+          "m-streaming-gallery",
+        );
+        seedTranscript(messages);
+      }
+
+      expect(decode).not.toHaveBeenCalled();
+      expect(getByTestId("activity-screenshot-tile")).toBe(tile);
+    } finally {
+      decode.mockRestore();
+    }
+  });
+
+  test("does not process images that the screenshot gallery discards", () => {
+    const screenshot = computerUseCall("tc-selected", {
+      imageDataList: ["AAAA", "BBBB"],
+    });
+    const ordinary = makeToolCall({
+      id: "tc-ordinary",
+      name: "bash",
+      imageDataList: ["CCCC"],
+    });
+    const absent = computerUseCall("tc-absent", { imageDataList: ["DDDD"] });
+    const decode = spyOn(globalThis, "atob");
+    try {
+      const { getAllByTestId } = renderScreenshotPanel(
+        [screenshot, ordinary, absent],
+        [screenshot, ordinary].map((toolCall) => ({
+          kind: "toolCall",
+          toolCall,
+        })),
+      );
+      expect(getAllByTestId("activity-screenshot-tile")).toHaveLength(1);
+      expect(decode.mock.calls.map(([payload]) => payload)).toEqual(["BBBB"]);
+    } finally {
+      decode.mockRestore();
+    }
   });
 
   test("keeps the final image from each multi-image computer-use call", () => {

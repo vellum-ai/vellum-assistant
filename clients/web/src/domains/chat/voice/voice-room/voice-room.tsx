@@ -142,6 +142,7 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   minimizeVoiceRoom,
   setLiveVoiceMuted,
@@ -190,6 +191,7 @@ import { toRoomLocal, useRoomBox } from "./use-room-box";
 
 import {
   CAMERA_PILL_INSET,
+  CAMERA_ROW_FLANK_INSET,
   SAFE_AREA_BOTTOM,
   SAFE_AREA_LEFT,
   SAFE_AREA_RIGHT,
@@ -611,6 +613,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const responsePhase = useLiveVoiceStore.use.responsePhase();
+  const onToolStep = useLiveVoiceStore(isOnToolStep);
   const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Muting the assistant needs no hands-free gate: it silences the output
@@ -662,6 +665,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     assistantAudioActive,
     muted,
     responsePhase,
+    onToolStep,
   );
   const stateLabel = stateLabelKey ? t(stateLabelKey) : "";
 
@@ -1531,11 +1535,20 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
               the shutter off-centre, and the shutter is the target the user
               reaches for without looking. */}
           {cameraOpen ? (
-            <div className="relative flex w-full items-center justify-center">
+            <div
+              className="relative flex w-full items-center justify-center"
+              style={
+                {
+                  "--camera-flank-inset": CAMERA_ROW_FLANK_INSET,
+                } as CSSProperties
+              }
+            >
               {/* Flash on the left, flip on the right, shutter between them:
                   the two things that change how the next photo comes out sit
                   either side of the one that takes it, and neither can be hit
-                  by a thumb reaching for the middle.
+                  by a thumb reaching for the middle. Both hang off one inset,
+                  {@link CAMERA_ROW_FLANK_INSET}, so the pair is a mirror image
+                  around the shutter.
 
                   Present only where it does something, which `flashOffered`
                   above decides: absent rather than a dead control the user has
@@ -1553,10 +1566,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                           : nextFlashMode(flashMode),
                       )
                     }
-                    // The design's own offset. It is not flip's on the other
-                    // side: the design places the two flanks independently, so
-                    // matching them to each other is a departure from it.
-                    className="absolute left-11"
+                    className="absolute left-[var(--camera-flank-inset)]"
                     testId="voice-room-flash"
                   />
                 </Tooltip>
@@ -1594,7 +1604,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 label={t("voiceRoom.flipCamera")}
                 onClick={() => void camera.flipCamera()}
                 surface={controlSurface}
-                className="absolute right-[30px]"
+                className="absolute right-[var(--camera-flank-inset)]"
               >
                 <SwitchCamera className="size-5" />
               </VoiceRoomControl>

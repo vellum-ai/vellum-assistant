@@ -32,6 +32,14 @@ export const NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD =
   "notify_documents_changed_externally";
 
 /**
+ * IPC method the daemon exposes for the conversation-list hand-off. Shared by
+ * the worker caller and the daemon route registration so the wire name cannot
+ * drift.
+ */
+export const NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD =
+  "notify_conversation_list_changed_externally";
+
+/**
  * IPC method the daemon exposes for the activation-progress hand-off. Shared
  * by the worker caller and the daemon route registration so the wire name
  * cannot drift.
@@ -75,6 +83,42 @@ export async function notifyDaemonConversationPersisted(
     log.debug(
       { err, conversationId },
       "daemon conversation-persisted notify failed",
+    );
+  }
+}
+
+/**
+ * Ask the daemon to republish a conversation-list-and-metadata invalidation.
+ *
+ * A worker turn can change which rows the sidebar should hold, not just what
+ * one row contains: clearing `archived_at` on a Done conversation the turn
+ * woke is the case that matters. The list tag has to reach real subscribers
+ * for the conversation to reappear, and the worker's own hub has none.
+ *
+ * Best-effort by design, like the other hand-offs: an unreachable daemon is
+ * logged at debug and swallowed, and the client picks the change up on its
+ * next list fetch.
+ */
+export async function notifyDaemonConversationListChanged(
+  reason: string,
+  conversationIds: string[],
+): Promise<void> {
+  try {
+    const result = await cliIpcCall(
+      NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD,
+      { body: { reason, conversationIds } },
+      { timeoutMs: NOTIFY_TIMEOUT_MS },
+    );
+    if (!result.ok) {
+      log.debug(
+        { reason, conversationIds, error: result.error },
+        "daemon conversation-list-changed notify was not acknowledged",
+      );
+    }
+  } catch (err) {
+    log.debug(
+      { err, reason, conversationIds },
+      "daemon conversation-list-changed notify failed",
     );
   }
 }

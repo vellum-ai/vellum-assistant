@@ -161,27 +161,14 @@ function isNoDiffKeyAction(action: ActionIdentity | undefined): boolean {
   );
 }
 
-/**
- * Canonical signature for loop detection. Key presses collapse equivalent
- * spellings (`cmd+a`, `command+a`, `cmd + a`) of the same combo so a stuck
- * session retrying it with alias/whitespace variants is still caught —
- * important now that exempt keys no longer emit no-effect warnings. Only the
- * `key` value is normalized; all other input fields (e.g. the routing
- * `target_client_id`) are preserved, so the same combo sent to different
- * desktop clients is not mistaken for a repeat.
- */
+/** Normalize key aliases and ignore observation tokens when detecting repeats. */
 function actionSignature(record: ActionRecord): string {
-  if (
-    record.toolName === "computer_use_key" &&
-    typeof record.input.key === "string"
-  ) {
-    const normalizedInput = {
-      ...record.input,
-      key: canonicalizeKeyCombo(record.input.key),
-    };
-    return `computer_use_key:${JSON.stringify(normalizedInput)}`;
+  const input = { ...record.input };
+  delete input.observation_id;
+  if (record.toolName === "computer_use_key" && typeof input.key === "string") {
+    input.key = canonicalizeKeyCombo(input.key);
   }
-  return `${record.toolName}:${JSON.stringify(record.input)}`;
+  return `${record.toolName}:${JSON.stringify(input)}`;
 }
 
 /**
@@ -609,6 +596,30 @@ export class HostCuProxy {
     );
     interaction.rpcResolve(result);
     return result;
+  }
+
+  /** Run a screenshot-only backend through the shared CU budget and formatter. */
+  async executeLocal(
+    toolName: string,
+    input: Record<string, unknown>,
+    execute: () => Promise<CuObservationResult>,
+  ): Promise<ToolExecutionResult> {
+    if (this._stepCount >= this._maxSteps) {
+      return {
+        content: `Step limit (${this._maxSteps}) exceeded. Call computer_use_done to finish.`,
+        isError: true,
+      };
+    }
+    const reasoning =
+      typeof input.reasoning === "string" ? input.reasoning : undefined;
+    this.recordAction(toolName, input, reasoning);
+    this._previousAXTree = undefined;
+    this._consecutiveUnchangedSteps = 0;
+    const observation = await execute();
+    return this.formatObservation(observation, undefined, false, {
+      toolName,
+      input,
+    });
   }
 
   // ---------------------------------------------------------------------------

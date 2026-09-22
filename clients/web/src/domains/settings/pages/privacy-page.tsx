@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import {
@@ -109,11 +110,10 @@ export function PrivacyPage() {
               i18nKey="privacyPage.subtitleWithPolicy"
               components={{
                 policyLink: (
-                  <a
+                  <ExternalAnchor
                     href={legalUrl(routes.docs.legal.privacyPolicy)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
+                    tone="quiet"
+                    glyph={false}
                   />
                 ),
               }}

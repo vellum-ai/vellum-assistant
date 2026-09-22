@@ -284,7 +284,10 @@ function RightAction({
     return (
       <Button
         variant="ghost"
-        iconOnly={<Loader2 className="animate-spin" aria-hidden />}
+        loading
+        iconOnly={
+          isRemoving ? <Trash2 aria-hidden /> : <ArrowDownToLine aria-hidden />
+        }
         expandOnMobile
         disabled
         aria-label={t("skillDetail.pendingAriaLabel")}

@@ -140,9 +140,17 @@ registerSkillTools("app-builder", [mockBundledSkillTool]);
 
 // Register CU tools so check() can look them up in the tool registry
 // instead of falling through to Medium (unknown tool).
-import { allComputerUseTools } from "../tools/computer-use/definitions.js";
-for (const tool of allComputerUseTools) {
-  registerTool(tool);
+import { COMPUTER_USE_TOOL_NAMES } from "./test-support/computer-use-skill-harness.js";
+for (const name of COMPUTER_USE_TOOL_NAMES) {
+  registerTool({
+    name,
+    description: name,
+    category: "computer-use",
+    defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "host",
+    input_schema: { type: "object", properties: {} },
+    execute: async () => ({ content: "ok", isError: false }),
+  });
 }
 
 function writeSkill(

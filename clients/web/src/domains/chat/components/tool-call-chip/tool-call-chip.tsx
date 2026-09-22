@@ -10,7 +10,6 @@ import {
   FileText,
   FilePlus,
   Globe,
-  Loader2,
   Pencil,
   Search,
   Terminal,
@@ -208,11 +207,11 @@ export function InlineConfirmationCard({
           <div className="flex">
             <Button
               variant="primary"
+              loading={isSubmitting}
               disabled={isSubmitting}
               onClick={() => onSubmit?.("allow")}
               className="rounded-r-none"
             >
-              {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t("toolCallChip.allow")}
             </Button>
             {/* Internal divider between the two halves of the split pill. */}
@@ -237,10 +236,10 @@ export function InlineConfirmationCard({
         ) : (
           <Button
             variant="primary"
+            loading={isSubmitting}
             disabled={isSubmitting}
             onClick={() => onSubmit?.("allow")}
           >
-            {isSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t("toolCallChip.allow")}
           </Button>
         )}
@@ -261,6 +260,7 @@ export function InlineConfirmationCard({
           <button
             type="button"
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
             // typography: off-scale — 11px tertiary disclosure per the Figma spec
             className="flex items-center gap-1 self-start text-[11px] font-medium text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
           >
@@ -646,6 +646,7 @@ export function ToolCallChip({
       {/* Header row */}
       <button
         type="button"
+        aria-expanded={canExpand ? expanded : undefined}
         onClick={() => {
           if (canExpand) {
             toggleExpanded(!expanded);

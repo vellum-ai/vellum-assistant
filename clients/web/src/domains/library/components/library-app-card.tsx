@@ -161,7 +161,7 @@ export function LibraryAppCard({
         <button
           type="button"
           onClick={() => onOpen(app.id)}
-          className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
+          className="flex cursor-pointer flex-col gap-0.5 rounded-sm px-0.5 text-left outline-none keyboard-focus:ring-2 keyboard-focus:ring-inset keyboard-focus:ring-[var(--ring)]"
         >
           <span className="truncate text-body-large-default text-[color:var(--content-emphasised)] max-md:text-body-medium-lighter max-md:text-[color:var(--content-secondary)]">
             {app.name}

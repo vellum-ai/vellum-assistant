@@ -3,7 +3,7 @@ import { AlertTriangle, Clock, Inbox, Loader2, Send } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link } from "react-router";
 
-import { Tag } from "@vellumai/design-library";
+import { Tag, TextLink } from "@vellumai/design-library";
 
 import {
   assistantsEmailAddressesListOptions,
@@ -252,13 +252,15 @@ export function EmailsTab({ assistantId, platformGate }: EmailsTabProps) {
     return (
       <MessageBox>
         {t("emailsTab.noAddress")}{" "}
-        <Link
-          to={`${routes.channels}?setup=email`}
-          className="underline"
-          style={{ color: "var(--content-tertiary)" }}
+        <TextLink
+          asChild
+          tone="quiet"
+          className="text-[var(--content-tertiary)]"
         >
-          {t("emailsTab.setUpLink")}
-        </Link>
+          <Link to={`${routes.channels}?setup=email`}>
+            {t("emailsTab.setUpLink")}
+          </Link>
+        </TextLink>
       </MessageBox>
     );
   }

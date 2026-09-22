@@ -43,13 +43,63 @@ Centralizing through a bus also gives us:
 | `clients/web/src/runtime/event-sources/*`                 | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron window attention, Electron deep links). Each calls `publish` directly and returns an unsubscribe.                                                                                    |
 | `clients/web/src/runtime/event-sources/lifecycle-edge.ts` | Not a source: the shared seam the DOM-visibility, Capacitor app-state, and Electron window-attention sources publish through. Collapses two reports of one physical foreground / background edge into a single `app.resume` / `app.hidden`.                                                                          |
 | `clients/web/src/lib/lifecycle-diagnostics.ts`            | Bus consumer that records `app.*` / `power.*` signals into the durable lifecycle diagnostics ring so support bundles show whether any resume / visibility / network signal fired, and whether a desktop window reported itself watched (`app.attention`) when a notification did not arrive. Attached once alongside the signal sources in `use-event-bus-init.ts`.                                       |
-| `clients/web/src/assistant/sse-service.ts`                | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals.                                                                                                  |
+| `clients/web/src/assistant/sse-service.ts`                | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event` a task's worth at a time (see [SSE envelope delivery](#sse-envelope-delivery)), drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals.                                                                                                  |
 
 The bus is a plain pub/sub module. Handlers fire synchronously from
-`publish()` so a burst of events isn't collapsed into a single React
-commit cycle. The handler `Map` lives in module scope, not in any
-Zustand store — consumers never read it, only register handlers into
-it and dispatch through it.
+`publish()` and never through reactive state: an event held in a store
+field reaches React once per commit, so a burst written inside one
+batched commit would surface only its last event and lose the rest.
+Every published event reaches every handler. The handler `Map` lives in
+module scope, not in any Zustand store: consumers never read it, only
+register handlers into it and dispatch through it.
+
+### SSE envelope delivery
+
+Losing no event is a delivery guarantee. It is not a promise of one
+React commit per event, and `sse.event` is where the difference matters.
+The stream transport hands envelopes over one per microtask (its
+`for await` read loop), and React flushes a synchronous commit in the
+microtask after a store write. Published straight from that callback, a
+network chunk or a reconnect replay of N envelopes is N full commits
+back to back inside one task. That saturates a slower renderer for the
+length of a reply, and it is how the app reached
+`Maximum update depth exceeded`: React counts a commit toward its
+nested-update limit when it finishes with an update still pending, any
+effect that sets state leaves one pending until the task ends, and the
+store write after the fiftieth such commit throws.
+
+`sse-service.ts` therefore queues envelopes and drains the queue from a
+single `MessageChannel` task, publishing each in arrival order, so React
+batches everything the run writes into one commit. The rules the queue
+keeps:
+
+- **Order.** The queue is flushed synchronously before `sse.opened` and
+  `sse.closed` are published and on every teardown path (hidden grace,
+  power, reachability, anchor, debug, detach), so no lifecycle signal
+  overtakes an envelope received before it.
+- **Nothing dropped by a teardown.** A flushed envelope is dispatched
+  exactly as if it had been published on arrival. Only an envelope that
+  arrives after detach is discarded; its `seq` never advanced the
+  reconnect cursor, and the next attach starts cold.
+- **A task, and not a timer or a frame.** Browsers throttle timers in a
+  background tab and stop animation frames, and the stream stays open
+  through the hidden grace window to deliver notifications.
+
+- **A drain survives its own failure.** The queue is consumed as it is
+  published, so if a throw ever escapes `publish`, only the envelope being
+  published is lost and the rest drain on the next task.
+
+A subscriber may rely on seeing every envelope in order. It may not rely
+on React having committed between two envelopes.
+
+### Handler errors
+
+`publish` catches each handler's throw so one failing subscriber cannot
+block the ones after it, and reports it through `captureError`
+(`context: "event_bus.handler"`, tagged `bus_event` with the event name).
+A handler that throws has skipped the rest of its work for that event,
+and most subscribers have no catch of their own, so the report is the
+only trace.
 
 ## Event protocol
 
@@ -340,11 +390,17 @@ export function setupMyStore(): () => void {
 ## Testing
 
 `lib/event-bus.test.ts` covers the pub/sub surface (subscribe,
-unsubscribe, publish, isolation between event names, throwing-handler
-robustness). `assistant/sse-service.test.ts` covers SSE behavior:
-open gating, event re-broadcast, `sse.opened` cause tagging, teardown
+unsubscribe, publish, isolation between event names, and a throwing
+handler: downstream handlers still run, and each throw is reported
+through `captureError` tagged with its event). `assistant/sse-service.test.ts` covers SSE behavior:
+open gating, event re-broadcast, envelope delivery (one task per run,
+ordering against `sse.opened` / `sse.closed` / teardown / detach),
+`sse.opened` cause tagging, teardown
 on `app.hidden`, reopen on `app.resume`, the dedup window, and the
-power-driven bounce paths. `use-event-bus-init.test.tsx` asserts the
+power-driven bounce paths. `assistant/sse-service-react-commits.test.tsx`
+renders a component against the real service and bus and asserts a long
+run of envelopes costs one commit and never trips React's nested-update
+limit. `use-event-bus-init.test.tsx` asserts the
 thin React-adapter contract (don't attach without a resolved id /
 without an active assistant). Each `runtime/event-sources/*` file
 has a colocated unit test exercising its publish contract via

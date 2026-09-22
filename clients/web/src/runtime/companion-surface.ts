@@ -240,6 +240,15 @@ export function setCompanionFrameScrolling(scrolling: boolean): void {
 }
 
 /**
+ * Tell main the frame's page has drawn the border, so the frame can go on
+ * screen. Main holds a new frame off it until then: a frame shown before its
+ * page has drawn stays blank on a whole display.
+ */
+export function reportCompanionFrameDrawn(): void {
+  bridge()?.frameDrawn?.();
+}
+
+/**
  * One frame of what the user is sharing, as the helper takes it.
  *
  * The one call in this module made from the app's own window on a cadence

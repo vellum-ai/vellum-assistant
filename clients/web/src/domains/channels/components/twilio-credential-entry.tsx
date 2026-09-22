@@ -65,7 +65,7 @@ export function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
       {error ? (
         <p
           className="text-label-small-default"
-          style={{ color: "var(--content-negative)" }}
+          style={{ color: "var(--system-negative-strong)" }}
         >
           {error}
         </p>

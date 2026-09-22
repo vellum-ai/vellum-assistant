@@ -13,7 +13,7 @@
  * headings travel with their rows instead of sticking.
  */
 
-import { Check, RotateCcw, Search } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -273,7 +273,13 @@ export function OldChatsRow({
         <Button
           variant="ghost"
           size="compact"
-          iconOnly={done ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
+          iconOnly={
+            done ? (
+              <doneLabels.unarchiveIcon aria-hidden />
+            ) : (
+              <doneLabels.archiveIcon aria-hidden />
+            )
+          }
           aria-label={toggleLabel}
           tooltip={toggleLabel}
           onClick={toggleDone}

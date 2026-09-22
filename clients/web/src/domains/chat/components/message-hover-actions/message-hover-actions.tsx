@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useMessageReadAloudStore } from "@/domains/chat/message-read-aloud-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messageCopyText } from "@/domains/chat/utils/message-plain-text";
@@ -220,16 +221,15 @@ export function MessageHoverActions({
         )}
 
         {openInSlackUrl && (
-          <a
+          <ExternalAnchor
             href={openInSlackUrl}
-            target="_blank"
-            rel="noreferrer noopener"
             aria-label={t("messageHoverActions.openInSlack")}
             title={t("messageHoverActions.openInSlack")}
             className={ACTION_BUTTON_CLASS}
+            glyph={false}
           >
             <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          </ExternalAnchor>
         )}
 
         {onFork && (

@@ -52,6 +52,11 @@ transcript = selectTranscriptMessages(snapshot ⊕ optimisticSends)
 (`applyEnvelopeToSnapshot`). That fold is the only thing that writes transcript
 content.
 
+Envelopes reach the bus a task's worth at a time
+([`EVENT_BUS.md`](./EVENT_BUS.md#sse-envelope-delivery)), so a run of them folds
+one by one and React commits the result once. The [invariant](#invariant) below
+is what makes that equal to a commit per envelope.
+
 Stream handlers (`utils/stream-handlers/*`) own only the **control plane** —
 turn/interaction stores, reconciliation triggers, conversation-cache
 `isProcessing` patches, queue bookkeeping, dismissed-surface persistence,

@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { LibraryView } from "@/domains/library/library-view";
+import { useNewLibraryDocument } from "@/domains/library/use-new-library-document";
+import { useSupportsDocumentCreate } from "@/lib/backwards-compat/use-supports-document-create";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import {
@@ -31,6 +33,16 @@ export function LibraryPage() {
     [navigate, location],
   );
 
+  // A new document opens the way any Library document does.
+  const { newDocument, isCreating } = useNewLibraryDocument(
+    assistantId,
+    handleOpenDocument,
+  );
+  const supportsDocumentCreate = useSupportsDocumentCreate(assistantId);
+  const handleNewDocument = useCallback(() => {
+    void newDocument();
+  }, [newDocument]);
+
   // Clicking an app navigates to /assistant/library/:appId, where
   // LibraryDetailPage handles the dedicated load/render/error UI.
   const handleOpenApp = useCallback(
@@ -47,6 +59,8 @@ export function LibraryPage() {
       assistantId={assistantId}
       onNewConversation={handleNewConversation}
       onOpenDocument={handleOpenDocument}
+      onNewDocument={supportsDocumentCreate ? handleNewDocument : undefined}
+      isCreatingDocument={isCreating}
       onOpenApp={handleOpenApp}
     />
   );

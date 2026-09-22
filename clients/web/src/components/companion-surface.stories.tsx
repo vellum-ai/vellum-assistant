@@ -32,6 +32,7 @@ import {
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   companionBoxFor,
+  companionIntroCallControlFor,
   type CompanionIntroBeat,
   type CompanionSizeAxis,
   type VoiceActivityState,
@@ -140,6 +141,16 @@ type StoryArgs = React.ComponentProps<typeof CompanionSurface> & {
    * the control sends that many presses again.
    */
   introTaps?: number;
+  /**
+   * Whether the beat's own call shortcut is drawn as having been pressed.
+   *
+   * A control for the reason `introTaps` is: the lit chip is an answer to a
+   * chord made on a physical keyboard, which a story has none of, and it is
+   * the state worth checking on the three beats that draw one. Sent as a press
+   * of the beat's own control once the beat is up, which is how a desktop
+   * sends one.
+   */
+  introShortcutPressed?: boolean;
 };
 
 const meta: Meta<StoryArgs> = {
@@ -184,6 +195,7 @@ const meta: Meta<StoryArgs> = {
     },
     introGreeted: { control: "boolean" },
     introTaps: { control: { type: "range", min: 0, max: 2, step: 1 } },
+    introShortcutPressed: { control: "boolean" },
   },
   args: {
     phase: "resting",
@@ -1262,6 +1274,7 @@ function IntroWalkthrough({
   introBeat,
   introGreeted,
   introTaps,
+  introShortcutPressed,
   ...args
 }: StoryArgs) {
   const [beat, setBeat] = useState<CompanionIntroBeat | null>(
@@ -1290,6 +1303,17 @@ function IntroWalkthrough({
   useEffect(() => {
     setTaps((total) => total + (introTaps ?? 0));
   }, [beat, introTaps]);
+  // The press the chip answers, sent the way the taps are and for the same
+  // reason: the card counts presses from the beat it is on, so one handed over
+  // with the beat is one it discounts as history. Addressed to the beat's own
+  // control, since that is the only chord armed while the beat is up.
+  const [chordPresses, setChordPresses] = useState(0);
+  useEffect(() => {
+    if (introShortcutPressed !== true) {
+      return;
+    }
+    setChordPresses((total) => total + 1);
+  }, [beat, introShortcutPressed]);
   // The pill's element, which the card measures its beak against.
   const pillRef = useRef<HTMLDivElement | null>(null);
   // The creature's own element, so the story can tell a pointer on the creature
@@ -1351,6 +1375,8 @@ function IntroWalkthrough({
               micGranted={false}
               greeted={greeted}
               voiceKeyTaps={taps}
+              chordPresses={chordPresses}
+              chordControl={companionIntroCallControlFor(beat)}
               // The assistant's own name, which the greeting cards use. A real
               // surface is told one by the app's window; clear it here to see
               // the cold-launch cards, which greet with no name at all.
@@ -1394,6 +1420,7 @@ export const Introduction: Story = {
     phase: "resting",
     introBeat: COMPANION_INTRO_BEATS[0],
     introTaps: 0,
+    introShortcutPressed: false,
     assistantName: "Quill",
     // The sizes a real user actually has: `DEFAULT_COMPANION_SIZE` is medium on
     // both tables, which is a creature half again as big as the one this layout

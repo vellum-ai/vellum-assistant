@@ -13,6 +13,7 @@ import { Link } from "react-router";
 
 import { Trans } from "@/i18n";
 import { routes } from "@/utils/routes";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 export function ByoVoiceNote() {
   return (
@@ -23,7 +24,7 @@ export function ByoVoiceNote() {
           settingsLink: (
             <Link
               to={`${routes.settings.ai}#text-to-speech`}
-              className="text-[var(--primary-base)] hover:underline"
+              className={textLinkVariants()}
             />
           ),
         }}

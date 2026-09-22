@@ -195,14 +195,8 @@
     "reconnectButton": "重新連線",
     "title": "桌面",
     "unavailable": "此助理不支援虛擬桌面。",
-    "installButton": "安裝虛擬桌面",
     "checkingSetup": "正在檢查虛擬桌面設定…",
-    "installingPackages": "正在安裝虛擬桌面元件…",
-    "installingChrome": "正在安裝 Google Chrome…",
-    "checkingInstall": "正在檢查安裝…",
-    "installFailed": "安裝失敗。請重試以完成設定。",
-    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。",
-    "setupUnsupported": "虛擬桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。"
   },
   "assistantNavItem": {
     "newChat": "新增聊天"
@@ -737,6 +731,8 @@
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
+    "newDocument": "新增文件",
+    "newDocumentFailed": "無法建立文件。請再試一次。",
     "newGroup": "新增群組…",
     "openInNewWindow": "在新視窗中開啟",
     "pin": "釘選",
@@ -885,6 +881,7 @@
     "notFound": "找不到文件。"
   },
   "dynamicPageSurface": {
+    "collapse": "收合",
     "titleFallback": "動態內容"
   },
   "exportProgressModal": {
@@ -924,6 +921,7 @@
     "accepted": "已接受：{types}",
     "dropHint": "將檔案拖曳至此，或點擊以瀏覽",
     "maxSize": "最大大小：{size}",
+    "removeFile": "移除 {name}",
     "upload": "上傳",
     "uploading": "正在上傳..."
   },
@@ -1569,6 +1567,10 @@
     "cancel": "取消",
     "placeholder": "輸入您的回覆…"
   },
+  "rawDisclosure": {
+    "input": "原始輸入",
+    "output": "原始輸出"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "複製請求酬載",
     "copyResponsePayloadAriaLabel": "複製回應酬載",
@@ -1725,7 +1727,8 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · 執行中"
+    "runningSuffix": " · 執行中",
+    "unnamedTool": "技能工具"
   },
   "skillLoadCard": {
     "view": "檢視"
@@ -1738,10 +1741,6 @@
     "provides": "提供",
     "unnamedSkill": "技能",
     "usedSkill": "已使用技能"
-  },
-  "skillLoadOutput": {
-    "output": "輸出",
-    "outputFormatAria": "輸出格式"
   },
   "skillToolList": {
     "fromSkill": "來自 {name}"
@@ -1867,12 +1866,10 @@
   },
   "toolInputParameters": {
     "parameters": "參數",
-    "rawInput": "原始輸入",
     "moreCount": "{count, plural, other {另有 # 項，見「原始輸入」}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}",
-    "rawOutput": "原始輸出"
+    "moreCount": "{count, plural, other {另有 # 項，見「原始輸出」}}"
   },
   "valueFields": {
     "copyValue": "複製 {label}"
@@ -1994,12 +1991,12 @@
     "workflowFinished": "工作流程已完成"
   },
   "wakeDetailPanel": {
-    "close": "關閉",
     "details": "詳細資料",
     "result": "結果",
     "runStatus": "執行狀態",
     "title": "對話已喚醒",
-    "workflow": "工作流程"
+    "workflow": "工作流程",
+    "closeAria": "關閉詳細資料"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -2009,13 +2006,9 @@
     "now": "現在"
   },
   "webFetchDetailView": {
-    "content": "內容",
     "fetchFailed": "擷取失敗。",
     "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。",
-    "rawResult": "原始結果",
-    "viewExtracted": "檢視已擷取內容",
-    "viewRaw": "檢視原始內容"
+    "noContent": "未擷取到內容。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",
@@ -2129,5 +2122,23 @@
     "skip": "略過",
     "showMore": "展開",
     "showLess": "收起"
+  },
+  "rememberDetail": {
+    "saved": "已儲存",
+    "saving": "正在儲存",
+    "notSaved": "未儲存"
+  },
+  "recallDetail": {
+    "searchedFor": "搜尋內容",
+    "scope": "{depth} · {sources}",
+    "answer": "回答",
+    "evidence": "{count, plural, other {# 筆結果}}",
+    "noEvidence": "沒有找到相關內容。",
+    "degraded": "部分位置未能完整搜尋",
+    "degradedSource": "{source}：{error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {記憶} conversations {對話} workspace {工作區檔案} other {{source}}}",
+    "depth": "{depth, select, fast {快速搜尋} standard {標準搜尋} deep {深度搜尋} other {搜尋}}"
   }
 }

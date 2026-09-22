@@ -229,9 +229,7 @@ export function PaymentMethodModalShell({
                 data-testid="auto-top-up-pm-save-button"
                 className="h-auto rounded-lg py-[14px] text-[14.5px] font-semibold"
                 disabled={submitDisabled || locked}
-                leftIcon={
-                  locked ? <Loader2 className="animate-spin" /> : undefined
-                }
+                loading={locked}
               >
                 {locked
                   ? t("autoTopUpPaymentMethodModal.primarySubmitting")

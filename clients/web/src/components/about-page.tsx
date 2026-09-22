@@ -8,6 +8,8 @@ import {
 import { isElectron } from "@/runtime/is-electron";
 import { useDesktopAppPlatform } from "@/runtime/desktop-app-platform";
 import { useTranslation } from "@/i18n";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * Branded About page rendered inside the Electron About BrowserWindow
@@ -56,7 +58,7 @@ export function AboutPage() {
       </dl>
       <a
         href={display.website}
-        className="text-primary text-sm hover:underline"
+        className={cn(textLinkVariants(), "text-sm")}
         onClick={(event) => {
           // Off Electron, let the browser navigate via the `href`. In
           // Electron the renderer is sandboxed, so the only outbound

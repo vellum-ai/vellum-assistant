@@ -37,6 +37,23 @@ const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
+// The gateway's debug export arrives over IPC as a base64 tar.gz. Stand in
+// for the socket so the debug profile can be exercised without a gateway.
+const FAKE_GATEWAY_ARCHIVE = Buffer.from("not really a tar.gz");
+const gatewayDebugExportMock = mock(async () => ({
+  ok: true as const,
+  archive_base64: FAKE_GATEWAY_ARCHIVE.toString("base64"),
+  size_bytes: FAKE_GATEWAY_ARCHIVE.length,
+}));
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: (method: string) => {
+    if (method !== "gateway_debug_export") {
+      throw new Error(`unexpected IPC method ${method}`);
+    }
+    return gatewayDebugExportMock();
+  },
+}));
+
 mock.module("../permissions/trust-store.js", () => ({
   getAllRules: () => [],
   isStarterBundleAccepted: () => false,
@@ -323,6 +340,131 @@ describe("handleMigrationExportToGcs — happy path", () => {
       } else {
         process.env.IS_PLATFORM = originalIsPlatform;
       }
+      await fixture.close();
+    }
+  }, 15_000);
+});
+
+describe("handleMigrationExportToGcs — debug profile", () => {
+  test("adds the gateway's archive under gateway/ and marks the manifest", async () => {
+    gatewayDebugExportMock.mockClear();
+    let capturedBody: Buffer | undefined;
+    const fixture = await startFixtureServer(async (req, res) => {
+      capturedBody = await collectBody(req);
+      res.writeHead(200);
+      res.end();
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+          profile: "debug",
+        }),
+      });
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
+      const body = (await res.json()) as AcceptedResponse;
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("complete");
+
+      expect(gatewayDebugExportMock).toHaveBeenCalledTimes(1);
+      const validation = validateVBundle(new Uint8Array(capturedBody!));
+      expect(validation.is_valid).toBe(true);
+      const manifest = validation.manifest!;
+      expect(manifest.export_options.include_gateway).toBe(true);
+      const gatewayEntry = manifest.contents.find(
+        (f) => f.path === "gateway/export.tar.gz",
+      );
+      expect(gatewayEntry?.size_bytes).toBe(FAKE_GATEWAY_ARCHIVE.length);
+      // Staff never receive credentials. The store mock reports itself
+      // unreachable, which would force `secrets_redacted: false` had the
+      // handler tried to collect them.
+      expect(manifest.secrets_redacted).toBe(true);
+      expect(
+        manifest.contents.some((f) => f.path.startsWith("credentials/")),
+      ).toBe(false);
+    } finally {
+      await fixture.close();
+    }
+  }, 15_000);
+
+  test("the default profile never asks the gateway", async () => {
+    gatewayDebugExportMock.mockClear();
+    let capturedBody: Buffer | undefined;
+    const fixture = await startFixtureServer(async (req, res) => {
+      capturedBody = await collectBody(req);
+      res.writeHead(200);
+      res.end();
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+        }),
+      });
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
+      const body = (await res.json()) as AcceptedResponse;
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("complete");
+
+      expect(gatewayDebugExportMock).not.toHaveBeenCalled();
+      const manifest = validateVBundle(new Uint8Array(capturedBody!)).manifest!;
+      expect(manifest.export_options.include_gateway).toBeUndefined();
+      expect(manifest.contents.some((f) => f.path.startsWith("gateway/"))).toBe(
+        false,
+      );
+    } finally {
+      await fixture.close();
+    }
+  }, 15_000);
+
+  test("a debug bundle is not sent at all if the gateway cannot export", async () => {
+    gatewayDebugExportMock.mockImplementationOnce(async () => {
+      throw new Error("gateway socket missing");
+    });
+    let putCount = 0;
+    const fixture = await startFixtureServer(async (_req, res) => {
+      putCount += 1;
+      res.writeHead(200);
+      res.end();
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+          profile: "debug",
+        }),
+      });
+      const res = await callHandler(
+        handleMigrationExportToGcs,
+        req,
+        undefined,
+        202,
+      );
+      const body = (await res.json()) as { job_id: string };
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("failed");
+      expect(terminal.error?.code).toBe("gateway_debug_export_failed");
+      expect(putCount).toBe(0);
+    } finally {
       await fixture.close();
     }
   }, 15_000);

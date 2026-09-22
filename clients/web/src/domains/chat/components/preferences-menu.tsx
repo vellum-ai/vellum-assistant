@@ -144,6 +144,15 @@ export function PreferencesMenu({
     prefetchRoute(routes.settings.root);
   }, [isOpen]);
 
+  /* The usage panel and the credits row below it mount with the menu, and the
+     reading they share rests on requests that stay cold until something asks
+     for it. Asking from the trigger, which is mounted with the sidebar, means
+     those requests run while the app loads and an opening menu reads answers
+     that have already landed rather than its undecided state. The reading is
+     discarded here: TanStack Query dedupes it with the two call sites inside
+     the menu, which own what they render from it. */
+  usePreferencesUsage({ conversationId: activeConversationId });
+
   if (!isAuthenticated) {
     return null;
   }
@@ -155,6 +164,7 @@ export function PreferencesMenu({
       /* Solid surface: the pill floats over the scrolling conversation list,
          so it can't be transparent like `ghost`. */
       <Button
+        shape="pill"
         variant="ghost"
         /* Sized as the drawer's rows and the New Chat pill beside it: large
            body label, 16px glyph on a phone, and the rows' 8px between glyph
@@ -163,7 +173,7 @@ export function PreferencesMenu({
            8px plus the chip's 4px lead-in to its 16px glyph, less the 1px
            border, so this label starts where the assistant row's does (40px
            in, see `SIDEBAR_MOBILE_CHIP_CLASSES`). */
-        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 gap-2 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] pr-3 pl-[15px] max-md:text-body-large-default"
+        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 gap-2 border border-[var(--border-base)] bg-[var(--surface-lift)] pr-3 pl-[15px] max-md:text-body-large-default"
       >
         <CircleUser aria-hidden className="size-3.5 shrink-0 max-md:size-4" />
         {/* `truncate` is belt-and-braces: the label is a fixed short string,

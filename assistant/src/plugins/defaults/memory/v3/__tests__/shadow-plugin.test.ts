@@ -164,6 +164,23 @@ const PAGE_2_LEAD: Section = {
   text: "y",
   ordinal: 0,
 };
+const DEFAULT_FINDER = [
+  {
+    slug: "page-1",
+    section: PAGE_1_LEAD,
+    descriptor: "",
+    lane: "needle" as const,
+  },
+  {
+    slug: "page-2",
+    section: PAGE_2_LEAD,
+    descriptor: "",
+    lane: "dense" as const,
+  },
+  { slug: "page-3", descriptor: "", lane: "edge" as const },
+  { slug: "page-4", descriptor: "", lane: "reply" as const },
+  { slug: "page-5", descriptor: "", lane: "learned" as const },
+];
 const orchestrateSpy = mock(
   async (): Promise<OrchestrateResult> => ({
     selections: [
@@ -181,20 +198,18 @@ const orchestrateSpy = mock(
       hot: ["page-hot"],
       fresh: ["page-fresh"],
       always: [CAPABILITY_SLUG],
-      finder: [
-        {
-          slug: "page-1",
-          section: PAGE_1_LEAD,
-          descriptor: "",
-          lane: "needle",
-        },
-        { slug: "page-2", section: PAGE_2_LEAD, descriptor: "", lane: "dense" },
-        { slug: "page-3", descriptor: "", lane: "edge" },
-        { slug: "page-4", descriptor: "", lane: "reply" },
-        { slug: "page-5", descriptor: "", lane: "learned" },
-      ],
+      finder: DEFAULT_FINDER,
     },
     selectorRan: true,
+    pool: {
+      stable: [
+        { slug: "page-core", card: "core card", lane: "core" },
+        { slug: "page-hot", card: "hot card", lane: "hot" },
+        { slug: "page-fresh", card: "fresh card", lane: "fresh" },
+        { slug: CAPABILITY_SLUG, card: "skill card", lane: "always" },
+      ],
+      finder: DEFAULT_FINDER,
+    },
   }),
 );
 
@@ -665,6 +680,11 @@ function chosenBySlug(): Record<string, boolean> {
  *  needle lane, page-2 via dense, page-3 via edge) whose selector kept exactly
  *  `kept`. */
 function poolOf(kept: string[]): OrchestrateResult {
+  const finder = [
+    { slug: "page-1", descriptor: "", lane: "needle" as const },
+    { slug: "page-2", descriptor: "", lane: "dense" as const },
+    { slug: "page-3", descriptor: "", lane: "edge" as const },
+  ];
   return {
     selections: kept.map((slug) => ({ slug, sections: [] })),
     lanes: {
@@ -672,13 +692,10 @@ function poolOf(kept: string[]): OrchestrateResult {
       hot: [],
       fresh: [],
       always: [],
-      finder: [
-        { slug: "page-1", descriptor: "", lane: "needle" },
-        { slug: "page-2", descriptor: "", lane: "dense" },
-        { slug: "page-3", descriptor: "", lane: "edge" },
-      ],
+      finder,
     },
     selectorRan: true,
+    pool: { stable: [], finder },
   };
 }
 
@@ -893,6 +910,15 @@ describe("memory-v3 engine", () => {
       text: "x",
       ordinal: 1,
     };
+    const finder = [
+      {
+        slug: "page-rare",
+        section: inventory,
+        terms: ["turnip"],
+        descriptor: "",
+        lane: "rare" as const,
+      },
+    ];
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [{ slug: "page-rare", sections: [inventory] }],
       lanes: {
@@ -900,17 +926,10 @@ describe("memory-v3 engine", () => {
         hot: [],
         fresh: [],
         always: [],
-        finder: [
-          {
-            slug: "page-rare",
-            section: inventory,
-            terms: ["turnip"],
-            descriptor: "",
-            lane: "rare",
-          },
-        ],
+        finder,
       },
       selectorRan: true,
+      pool: { stable: [], finder },
     }));
 
     await observeTurn("conv-1", 2);
@@ -1023,7 +1042,7 @@ describe("memory-v3 engine", () => {
       keptAll: false,
       gateReason: "dense_pass",
       pool: {
-        stable: [{ slug: "page-core", card: "core card" }],
+        stable: [{ slug: "page-core", card: "core card", lane: "core" }],
         finder,
       },
     }));

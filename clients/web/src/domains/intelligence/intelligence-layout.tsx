@@ -84,12 +84,13 @@ export function IntelligenceLayout() {
       setMobileTopBar({
         leading: (
           <Button
+            shape="pill"
             asChild
             variant="ghost"
             iconOnly={<ArrowLeft aria-hidden />}
             aria-label={backAriaLabel}
             tooltip={backTitle}
-            className="rounded-full max-md:bg-[var(--surface-active)]"
+            className="max-md:bg-[var(--surface-active)]"
           >
             <Link to={routes.identity} />
           </Button>

@@ -3,10 +3,12 @@ import {
   COMPANION_INTRO_BEAT_GROUPS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_GROUPS,
+  companionIntroCallControlFor,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionIntroAction,
   CompanionIntroBeat,
+  CompanionIntroCallControl,
 } from "@vellumai/ipc-contract";
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 import { useEffect, useState } from "react";
@@ -169,21 +171,14 @@ const INTRO_COPY_KEYS = {
  * and the closing offer point at the creature by walking it into the card
  * instead.
  *
- * Shared with the page and the stories so a beat cannot be introduced in one
- * place and spotlighted in another.
+ * Which beats those are is {@link companionIntroCallControlFor}'s to say, so
+ * the button lit on the bar, the key armed on the keyboard and the chip drawn
+ * on the card are one answer read three times. This is that answer under the
+ * name the surface reads it by.
  */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
-): CompanionSurfaceSpotlight | undefined => {
-  switch (beat) {
-    case "share":
-    case "draw":
-    case "mute":
-      return beat;
-    default:
-      return undefined;
-  }
-};
+): CompanionSurfaceSpotlight | undefined => companionIntroCallControlFor(beat);
 
 /**
  * The session the `call` beat draws the pill around: a call that is not
@@ -232,6 +227,13 @@ export const INTRO_DEMO_SHORTCUTS = {
  * The key is here rather than in a caption on the control itself, because the
  * card is already naming that control and a caption in between would be the
  * same word again with a beak through it.
+ *
+ * **One row per control the contract names, and the compiler checks it.** A
+ * `ReactNode` cannot live in the contract, so this table has to stay here; what
+ * must not stay here is which controls exist. Typed as the whole of
+ * {@link CompanionIntroCallControl} rather than as some of the beats, so a
+ * control added to the contract without a mark and a key on this card is a
+ * typecheck failure rather than a card that draws nothing where its chip goes.
  */
 const BEAT_CONTROLS = {
   share: {
@@ -246,8 +248,9 @@ const BEAT_CONTROLS = {
     icon: <Mic className="size-5" />,
     shortcut: INTRO_DEMO_SHORTCUTS.muteMicrophone,
   },
-} as const satisfies Partial<
-  Record<CompanionIntroBeat, { icon: ReactNode; shortcut: string }>
+} as const satisfies Record<
+  CompanionIntroCallControl,
+  { icon: ReactNode; shortcut: string }
 >;
 
 /**
@@ -348,8 +351,8 @@ export interface CompanionIntroProps {
    */
   greeted?: boolean;
   /**
-   * How many times the real voice key has been tapped, counted for the life of
-   * the window that owns the binding.
+   * How many times the real voice key has been tapped, counted by the window
+   * that owns the binding for as long as a run is up.
    *
    * The key's edges reach only that window, so the beats that draw the key
    * cannot see it being pressed and are told instead. A running total rather
@@ -358,6 +361,20 @@ export interface CompanionIntroProps {
    * card cares about is how much of it arrived while the beat was up.
    */
   voiceKeyTaps?: number;
+  /**
+   * How many of the call's shortcuts have been pressed while a run was asking
+   * for one, counted by the window that armed the binding, and which control
+   * the last of them was for.
+   *
+   * The other half of {@link voiceKeyTaps}, for the three beats that draw a
+   * call control beside its chord: those presses reach only that window, so
+   * this card is told about them rather than seeing them. A running count for
+   * the reason the taps are one, and the control beside it because a count
+   * alone cannot say which card it answers (see
+   * `CompanionSurfaceState.introChordControl`).
+   */
+  chordPresses?: number;
+  chordControl?: CompanionIntroCallControl;
 }
 
 export function CompanionIntro({
@@ -373,6 +390,8 @@ export function CompanionIntro({
   micGranted,
   greeted = false,
   voiceKeyTaps = 0,
+  chordPresses = 0,
+  chordControl,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
@@ -382,10 +401,9 @@ export function CompanionIntro({
   /** Which subject the run is in, which is what the dots draw. */
   const group = COMPANION_INTRO_BEAT_GROUPS[beat];
   /** The control on the pill this beat is about, where it is about one. */
+  const controlOfBeat = companionIntroCallControlFor(beat);
   const control: { icon: ReactNode; shortcut: string } | undefined =
-    beat === "share" || beat === "draw" || beat === "mute"
-      ? BEAT_CONTROLS[beat]
-      : undefined;
+    controlOfBeat === undefined ? undefined : BEAT_CONTROLS[controlOfBeat];
   /**
    * Whether the drawn keycap has been clicked with the pointer, which is the
    * one thing on that beat the user can do that the beat is not asking for.
@@ -427,20 +445,26 @@ export function CompanionIntro({
    * How much of that count landed while this beat has been up, capped at the
    * two presses the cap has a look for.
    *
-   * Counted from the beat rather than taken raw, because the total is a
-   * window's whole life: a user who tapped the key an hour ago has not answered
-   * this card, and a beat that opened already lit would be answering a press
-   * nobody has made on it.
+   * Counted from the beat rather than taken raw, because the total outlives the
+   * beat: the presses that answered the last beat are still in it, and so are
+   * the ones that answered an earlier run of the introduction, which the count
+   * carries forward rather than resetting between. A beat that opened already
+   * lit would be answering a press nobody has made on it.
    *
    * The baseline is taken during the render that notices the beat change rather
    * than in an effect after it, so the new beat's first paint is the dark cap
    * instead of the old beat's reading corrected a frame later.
    */
   const [tapsBeforeBeat, setTapsBeforeBeat] = useState(voiceKeyTaps);
-  const [beatOfTaps, setBeatOfTaps] = useState<CompanionIntroBeat>(beat);
-  if (beatOfTaps !== beat) {
-    setBeatOfTaps(beat);
+  // The same, for the chord the call beats ask for. One sentinel for both,
+  // because it is one fact: the beat changed, so everything counted from the
+  // beat starts again from here.
+  const [chordsBeforeBeat, setChordsBeforeBeat] = useState(chordPresses);
+  const [beatOfCounts, setBeatOfCounts] = useState<CompanionIntroBeat>(beat);
+  if (beatOfCounts !== beat) {
+    setBeatOfCounts(beat);
     setTapsBeforeBeat(voiceKeyTaps);
+    setChordsBeforeBeat(chordPresses);
   } else if (voiceKeyTaps < tapsBeforeBeat) {
     // **The count went backwards, so it is a different count.** It belongs to
     // another window's store, which starts again at zero when that window
@@ -455,6 +479,28 @@ export function CompanionIntro({
   // Floored as well as capped, for the render that notices either of the two
   // resets above and still holds the baseline they are replacing.
   const taps = Math.min(Math.max(voiceKeyTaps - tapsBeforeBeat, 0), 2);
+  if (chordPresses < chordsBeforeBeat) {
+    // The count went backwards, so it is another window's count. The same
+    // reading, and the same repair, as the taps above.
+    setChordsBeforeBeat(chordPresses);
+  }
+  /**
+   * Whether the shortcut this beat draws has been pressed on this beat.
+   *
+   * **Both halves are load-bearing.** The count says a press happened and the
+   * control says which chord it was: a press made on the beat before, still
+   * crossing when the run walked on, arrives here as a step in the count that
+   * belongs to a different card, and lighting this chip with it would be
+   * answering a key nobody pressed on this one. The beats are named after
+   * their controls, so the address is the beat.
+   *
+   * One press rather than two. The cap asks for a double tap and has a look
+   * per press; a chord is one press and is either made or not.
+   */
+  const shortcutPressed =
+    controlOfBeat !== undefined &&
+    chordControl === controlOfBeat &&
+    chordPresses > chordsBeforeBeat;
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
@@ -697,7 +743,22 @@ export function CompanionIntro({
               </span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
-              <span className="flex h-10 items-center rounded-xl border border-white/15 bg-white/10 px-3 text-[13px] font-medium text-white/85">
+              {/* **It answers the real keys, and lights for nothing else.**
+                  The chord is armed for as long as this beat is up and for no
+                  longer, and a press of it does nothing but reach this chip:
+                  the pill beside the card is a drawing of a call, so there is
+                  no session to mute and no share to draw on. Green is the same
+                  green the keycap earns on the beats before, and it means the
+                  same thing, which is "that landed". A chip that stayed grey
+                  while the user pressed the keys the card told them to press
+                  would be teaching a shortcut that looks broken. */}
+              <span
+                className={`flex h-10 items-center rounded-xl border px-3 text-[13px] font-medium transition-colors ${
+                  shortcutPressed
+                    ? "border-emerald-300/90 bg-emerald-400/55 text-emerald-50"
+                    : "border-white/15 bg-white/10 text-white/85"
+                }`}
+              >
                 {control.shortcut}
               </span>
               <span className="text-[10px] leading-none text-white/40">

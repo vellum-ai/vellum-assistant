@@ -106,30 +106,39 @@ interface StoredPool {
 }
 
 /**
- * Build the turn's pool record from an orchestrate result. The stable prefix
- * comes first in cache order (core, hot, fresh, always-candidate) as
- * whole-page cards with no section; the finder tail follows in surfacing
- * order, each line tagged with the lane that surfaced it and the section it
- * carries. A finder hit on a stable-prefix page therefore appears twice, and
- * a page hit on several sections once per section, exactly as the selector
- * saw it. A card or a section-less line reads chosen when its page was kept;
+ * Build the turn's pool record from the exact selector pool carried by the
+ * orchestrate result. The stable prefix comes first in retained cache order as
+ * whole-page cards with no section; the finder tail follows in retained
+ * surfacing order, each line tagged with the lane that surfaced it and the
+ * section it carries. A finder hit on a stable-prefix page therefore appears
+ * twice, and a page hit on several sections once per section, exactly as the
+ * selector saw it. A card or a section-less line reads chosen when its page
+ * was kept;
  * a line carrying a section reads chosen when that section was selected.
  *
- * When the selector did not run and nothing was selected, no pool reached it:
- * either the injection gate hard-skipped selection (the result's lanes still
- * carry the stable prefix, which the selector never saw) or the pool was
- * empty. The record is then empty rather than a list of candidates marked
- * unchosen, which would read as a rejection the selector never made. The
- * disabled-selector passthrough keeps every pooled candidate as a selection,
- * so it still records its pool.
+ * A result without `pool` records no candidates: the injection gate either
+ * hard-skipped selection or no pool was assembled. A failed selector attempt
+ * still carries the exact pool it received, with retained stable cards chosen
+ * by the unjudged fallback and finder lines unchosen. The disabled-selector
+ * passthrough also carries and records its pool.
  */
 export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
-  if (!result.selectorRan && result.selections.length === 0) {
+  const pool = result.pool;
+  if (pool === undefined) {
+    if (result.selections.length > 0) {
+      log.warn(
+        {
+          selectorRan: result.selectorRan,
+          selectedCount: result.selections.length,
+        },
+        "memory-v3 pool record: result has selections but no selector pool",
+      );
+    }
     return {
       candidates: [],
       pool_size: 0,
-      selected_count: 0,
-      selector_ran: false,
+      selected_count: result.selections.length,
+      selector_ran: result.selectorRan,
     };
   }
   const selected = new Map<Slug, Set<string>>(
@@ -138,30 +147,27 @@ export function buildPoolRecord(result: OrchestrateResult): PoolRecord {
       new Set(s.sections.map((section) => sectionKey(section))),
     ]),
   );
-  const card = (slug: Slug, lane: PoolLane): PoolCandidateRecord => ({
-    slug,
-    lane,
-    section_title: null,
-    section_key: null,
-    chosen: selected.has(slug),
-  });
-  const { core, hot, fresh, always, finder } = result.lanes;
   const candidates: PoolCandidateRecord[] = [
-    ...core.map((slug) => card(slug, "core")),
-    ...hot.map((slug) => card(slug, "hot")),
-    ...fresh.map((slug) => card(slug, "fresh")),
-    ...always.map((slug) => card(slug, "always")),
-    ...finder.map(({ slug, lane, section }): PoolCandidateRecord => {
-      const key = section ? sectionKey(section) : null;
+    ...pool.stable.map(
+      (candidate): PoolCandidateRecord => ({
+        slug: candidate.slug,
+        lane: candidate.lane,
+        section_title: null,
+        section_key: null,
+        chosen: selected.has(candidate.slug),
+      }),
+    ),
+    ...pool.finder.map((candidate): PoolCandidateRecord => {
+      const key = candidate.section ? sectionKey(candidate.section) : null;
       return {
-        slug,
-        lane,
-        section_title: section?.title ?? null,
+        slug: candidate.slug,
+        lane: candidate.lane,
+        section_title: candidate.section?.title ?? null,
         section_key: key,
         chosen:
           key === null
-            ? selected.has(slug)
-            : (selected.get(slug)?.has(key) ?? false),
+            ? selected.has(candidate.slug)
+            : (selected.get(candidate.slug)?.has(key) ?? false),
       };
     }),
   ];
@@ -348,15 +354,15 @@ export interface PoolInputCapture {
 
 /**
  * Build the turn's input capture from an orchestrate result and the turn it
- * ran on. Each candidate text is exactly what the selector was shown minus
- * its pool number: a stable-prefix candidate's pre-rendered card, a finder
- * candidate's rendered line ({@link renderFinderLine}), in the pool
- * record's order ({@link buildPoolRecord}). A turn whose pool record is
- * empty (the selector never judged a pool and nothing was selected)
- * captures the context strings and no candidate texts, so the hashes stay
- * aligned with that record; a result that carries no selector pool, or one
- * that disagrees with its lanes on the candidate count, captures no texts
- * either and logs the mismatch.
+ * ran on. When selector budgeting trimmed the context, the result's
+ * `selectorTurn` is the source of truth. Each candidate text is exactly what
+ * the selector was shown minus its pool number: a stable-prefix candidate's
+ * pre-rendered card, a finder candidate's rendered line
+ * ({@link renderFinderLine}), in the pool
+ * record's order ({@link buildPoolRecord}). A result that carries no selector
+ * pool captures the turn context and no candidate texts, so the hashes stay
+ * aligned with the empty record. Failed attempts carry their exact attempted
+ * pool and trimmed context even though `selectorRan` is false.
  */
 export function buildPoolInput(
   result: OrchestrateResult,
@@ -365,44 +371,24 @@ export function buildPoolInput(
 ): PoolInputCapture {
   const texts = new Map<string, string>();
   const hashes: string[] = [];
-  const recordsPool = result.selectorRan || result.selections.length > 0;
-  if (recordsPool) {
-    const { core, hot, fresh, always, finder } = result.lanes;
-    const expected =
-      core.length + hot.length + fresh.length + always.length + finder.length;
-    const rendered =
-      result.pool === undefined
-        ? undefined
-        : [
-            ...result.pool.stable.map((candidate) => candidate.card),
-            ...result.pool.finder.map((candidate) =>
-              renderFinderLine(candidate),
-            ),
-          ];
-    if (rendered === undefined || rendered.length !== expected) {
-      log.warn(
-        {
-          conversationId: turn.conversationId,
-          turnNumber: turn.turnNumber,
-          rendered: rendered?.length ?? null,
-          expected,
-        },
-        "memory-v3 pool input capture: the result's pool does not match its lanes; capturing no candidate texts",
-      );
-    } else {
-      for (const text of rendered) {
-        const hash = hashPoolText(text);
-        hashes.push(hash);
-        texts.set(hash, text);
-      }
+  if (result.pool !== undefined) {
+    const rendered = [
+      ...result.pool.stable.map((candidate) => candidate.card),
+      ...result.pool.finder.map((candidate) => renderFinderLine(candidate)),
+    ];
+    for (const text of rendered) {
+      const hash = hashPoolText(text);
+      hashes.push(hash);
+      texts.set(hash, text);
     }
   }
+  const selectorTurn = result.selectorTurn ?? turn;
   return {
     input: {
-      situational_context: turn.situationalContext ?? null,
-      recent_context: turn.recentContext,
-      current_message: turn.currentMessage,
-      previous_assistant_message: turn.previousAssistantMessage ?? null,
+      situational_context: selectorTurn.situationalContext ?? null,
+      recent_context: selectorTurn.recentContext,
+      current_message: selectorTurn.currentMessage,
+      previous_assistant_message: selectorTurn.previousAssistantMessage ?? null,
       selector_prompt_hash:
         result.selectorRan && selectorPrompt !== undefined
           ? hashPoolText(selectorPrompt)

@@ -364,6 +364,7 @@ export function AcpRunChatView({
 
           {showScrollToLatest && (
             <Button
+              shape="pill"
               variant="outlined"
               size="compact"
               iconOnly={<ArrowDown />}
@@ -371,7 +372,7 @@ export function AcpRunChatView({
               aria-label={t("acpRunChatView.goToNewest")}
               tooltip={t("acpRunChatView.goToNewest")}
               data-testid="acp-chat-scroll-to-latest"
-              className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow-md"
             />
           )}
         </div>

@@ -22,6 +22,8 @@ import {
 } from "@/domains/account/login-flow";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * Provider signup completion page. Shown when allauth's provider flow needs
@@ -258,7 +260,10 @@ export function ProviderSignupPage() {
         footer={
           <Link
             to={routes.account.login}
-            className="text-sm text-[var(--content-secondary)] hover:text-[var(--content-default)]"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm text-[var(--content-secondary)]",
+            )}
           >
             {t("providerSignupPage.backToSignIn")}
           </Link>

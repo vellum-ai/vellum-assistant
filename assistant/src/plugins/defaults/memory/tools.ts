@@ -3,12 +3,14 @@
  *
  * Core, always-loaded tools registered via the host tool manifest
  * (`tools/tool-manifest.ts`), so they carry core/workspace-override precedence
- * and the `"memory"` tool category. Their implementations source from the
- * memory feature (`src/memory/*`).
+ * and the `"memory"` tool category. The host's central input check covers only
+ * tools it can import, which excludes a plugin's, so each tool here parses its
+ * own input.
  */
 
-import { throwIfCancelled } from "@vellumai/plugin-api";
+import { invalidToolInputResult, throwIfCancelled } from "@vellumai/plugin-api";
 
+import { RememberInputSchema } from "../../../api/remember-tool.js";
 import { getConfig, getConfigReadOnly } from "../../../config/loader.js";
 import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import { RiskLevel } from "../../../permissions/types.js";
@@ -19,8 +21,8 @@ import type {
   ToolExecutionResult,
 } from "../../../tools/types.js";
 import { runAgenticRecall } from "./context-search/agent-runner.js";
-import type { RecallInput } from "./context-search/types.js";
-import { handleRemember, type RememberInput } from "./graph/tool-handlers.js";
+import { RecallInputSchema } from "./context-search/recall-input.js";
+import { handleRemember } from "./graph/tool-handlers.js";
 import {
   buildRememberInputSchema,
   graphRecallDefinition,
@@ -52,7 +54,6 @@ export const rememberTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const typedInput = input as unknown as RememberInput;
     // The append below writes the memory buffer, so a cancelled turn stops here.
     throwIfCancelled(context);
     if (!resolveCapabilities(context.trustClass).canAccessMemory) {
@@ -66,15 +67,22 @@ export const rememberTool = {
         isError: true,
       };
     }
+    const parsed = RememberInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("remember", parsed.error);
+    }
     const result = handleRemember(
-      typedInput,
+      parsed.data,
       context.conversationId,
       getConfig(),
     );
     return {
       content: result.message,
       isError: !result.success,
-      ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
+      ...(result.success
+        ? { activityMetadata: { remember: { facts: result.facts } } }
+        : {}),
+      ...(parsed.data.finish_turn === true ? { yieldToUser: true } : {}),
     };
   },
 } satisfies ToolDefinition;
@@ -101,15 +109,23 @@ export const recallTool = {
       };
     }
 
+    const parsed = RecallInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("recall", parsed.error);
+    }
     const config = getConfig();
-    const result = await runAgenticRecall(input as unknown as RecallInput, {
+    const result = await runAgenticRecall(parsed.data, {
       workingDir: context.workingDir,
       conversationId: context.conversationId,
       config,
       signal: context.signal,
     });
 
-    return { content: result.content, isError: false };
+    return {
+      content: result.content,
+      isError: false,
+      activityMetadata: { recall: result.activity },
+    };
   },
 } satisfies ToolDefinition;
 

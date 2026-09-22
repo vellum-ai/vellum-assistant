@@ -1,4 +1,4 @@
-import { CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import {
@@ -162,9 +162,7 @@ export function ContactPromptCard({
               type="submit"
               variant="primary"
               disabled={!canSubmit}
-              leftIcon={
-                isSubmitting ? <Loader2 className="animate-spin" /> : undefined
-              }
+              loading={isSubmitting}
             >
               {isSubmitting
                 ? t("contactPromptCard.saving")

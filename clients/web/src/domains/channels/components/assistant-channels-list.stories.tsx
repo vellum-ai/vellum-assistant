@@ -1,6 +1,6 @@
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { withQueryCache } from "@/lib/story-query-cache";
 import type { SetupChannelId } from "@/types/channel-types";
 
 import { AssistantChannelsList } from "./assistant-channels-list";
@@ -12,16 +12,10 @@ import { AssistantChannelsList } from "./assistant-channels-list";
  * Entries + detail shape.
  */
 // The Slack panel owns its own queries (`SlackChannelSection`), so stories
-// need a QueryClient. Requests fail in Storybook (no daemon), so the Slack
+// need a query cache. Requests fail in Storybook (no daemon), so the Slack
 // panel's channel list renders its error state; the list's full visuals live
 // in the SlackChannelList stories, which mock data via props.
-const withQueryClient: Decorator = (Story) => (
-  <QueryClientProvider
-    client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-  >
-    <Story />
-  </QueryClientProvider>
-);
+const withQueryClient = withQueryCache();
 
 /**
  * The app's two Channels routes: the bare tab, and an adapter named in the URL.

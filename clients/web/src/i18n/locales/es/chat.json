@@ -195,14 +195,8 @@
     "reconnectButton": "Reconectar",
     "title": "Escritorio",
     "unavailable": "El escritorio virtual no está disponible en este asistente.",
-    "installButton": "Instalar escritorio virtual",
     "checkingSetup": "Comprobando el escritorio virtual…",
-    "installingPackages": "Instalando componentes del escritorio virtual…",
-    "installingChrome": "Instalando Google Chrome…",
-    "checkingInstall": "Comprobando la instalación…",
-    "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
-    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
-    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
+    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo."
   },
   "assistantNavItem": {
     "newChat": "Chat nuevo"
@@ -740,6 +734,8 @@
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
+    "newDocument": "Nuevo documento",
+    "newDocumentFailed": "No se pudo crear el documento. Inténtalo de nuevo.",
     "newGroup": "Nuevo grupo…",
     "openInNewWindow": "Abrir en una ventana nueva",
     "pin": "Fijar",
@@ -888,6 +884,7 @@
     "notFound": "Documento no encontrado."
   },
   "dynamicPageSurface": {
+    "collapse": "Contraer",
     "titleFallback": "Contenido dinámico"
   },
   "exportProgressModal": {
@@ -927,6 +924,7 @@
     "accepted": "Aceptados: {types}",
     "dropHint": "Arrastra y suelta archivos aquí, o haz clic para explorar",
     "maxSize": "Tamaño máximo: {size}",
+    "removeFile": "Eliminar {name}",
     "upload": "Subir",
     "uploading": "Subiendo..."
   },
@@ -1531,6 +1529,10 @@
     "cancel": "Cancelar",
     "placeholder": "Escribe tu respuesta…"
   },
+  "rawDisclosure": {
+    "input": "Entrada sin procesar",
+    "output": "Salida sin procesar"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copiar carga de la solicitud",
     "copyResponsePayloadAriaLabel": "Copiar carga de la respuesta",
@@ -1687,7 +1689,8 @@
     "titleFallback": "Habilidad"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · en ejecución"
+    "runningSuffix": " · en ejecución",
+    "unnamedTool": "Herramienta de habilidad"
   },
   "skillLoadCard": {
     "view": "Ver"
@@ -1700,10 +1703,6 @@
     "provides": "Proporciona",
     "unnamedSkill": "Habilidad",
     "usedSkill": "Habilidad usada"
-  },
-  "skillLoadOutput": {
-    "output": "Salida",
-    "outputFormatAria": "Formato de salida"
   },
   "skillToolList": {
     "fromSkill": "De {name}"
@@ -1829,12 +1828,10 @@
   },
   "toolInputParameters": {
     "parameters": "Parámetros",
-    "rawInput": "Entrada sin procesar",
     "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}",
-    "rawOutput": "Salida sin procesar"
+    "moreCount": "{count, plural, one {# más en Salida sin procesar} other {# más en Salida sin procesar}}"
   },
   "valueFields": {
     "copyValue": "Copiar {label}"
@@ -1955,12 +1952,12 @@
     "workflowFinished": "Flujo de trabajo finalizado"
   },
   "wakeDetailPanel": {
-    "close": "Cerrar",
     "details": "Detalles",
     "result": "Resultado",
     "runStatus": "Estado de la ejecución",
     "title": "La conversación se activó",
-    "workflow": "Flujo de trabajo"
+    "workflow": "Flujo de trabajo",
+    "closeAria": "Cerrar detalles"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1970,13 +1967,9 @@
     "now": "Ahora"
   },
   "webFetchDetailView": {
-    "content": "Contenido",
     "fetchFailed": "La obtención falló.",
     "fetching": "Obteniendo…",
-    "noContent": "No se extrajo contenido.",
-    "rawResult": "Resultado sin procesar",
-    "viewExtracted": "Ver extraído",
-    "viewRaw": "Ver sin procesar"
+    "noContent": "No se extrajo contenido."
   },
   "webSearchDetailView": {
     "noSources": "No se encontraron fuentes.",
@@ -2063,5 +2056,23 @@
     "skip": "Omitir",
     "showMore": "Mostrar más",
     "showLess": "Mostrar menos"
+  },
+  "rememberDetail": {
+    "saved": "Guardado",
+    "saving": "Guardando",
+    "notSaved": "No guardado"
+  },
+  "recallDetail": {
+    "searchedFor": "Se buscó",
+    "scope": "{depth} · {sources}",
+    "answer": "Respuesta",
+    "evidence": "{count, plural, one {# resultado} other {# resultados}}",
+    "noEvidence": "No apareció nada relevante.",
+    "degraded": "No se pudo buscar por completo en algunos lugares",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Memoria} conversations {Conversaciones} workspace {Archivos del espacio de trabajo} other {{source}}}",
+    "depth": "{depth, select, fast {Búsqueda rápida} standard {Búsqueda estándar} deep {Búsqueda profunda} other {Búsqueda}}"
   }
 }

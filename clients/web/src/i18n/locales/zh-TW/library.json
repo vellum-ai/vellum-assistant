@@ -10,6 +10,8 @@
     "loadingAria": "正在載入應用程式",
     "retry": "重試",
     "import": "匯入",
+    "newDocument": "新增文件",
+    "newDocumentFailed": "無法建立文件。請再試一次。",
     "searchPlaceholder": "搜尋您的資料庫",
     "noMatches": "沒有應用程式或文件符合「{query}」",
     "pinned": "已釘選",

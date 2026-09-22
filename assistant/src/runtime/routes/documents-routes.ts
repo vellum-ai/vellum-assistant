@@ -8,10 +8,13 @@ import { z } from "zod";
 
 import {
   addDocumentConversation,
+  createDocument,
+  DEFAULT_DOCUMENT_TITLE,
   getDocumentById,
   getDocumentsForConversation,
   saveDocument,
 } from "../../documents/document-store.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
 import { rawAll } from "../../persistence/raw-query.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -211,6 +214,54 @@ export const ROUTES: RouteDefinition[] = [
       // second, and the saving client suppresses its own echo by origin id.
       publishDocumentsChanged(getOriginClientId(headers));
       return result;
+    },
+  },
+
+  {
+    operationId: "createDocument",
+    endpoint: "documents/create",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Create a document",
+    description:
+      "Create an empty document owned by a conversation and return it with its new surface ID.",
+    tags: ["documents"],
+    requestBody: z.object({
+      conversationId: z.string().describe("Owning conversation"),
+      title: z
+        .string()
+        .optional()
+        .describe(`Document title. Defaults to "${DEFAULT_DOCUMENT_TITLE}".`),
+    }),
+    responseBody: documentPayloadSchema,
+    handler: ({ body, headers }) => {
+      const { conversationId, title } = (body ?? {}) as {
+        conversationId?: string;
+        title?: string;
+      };
+      if (!conversationId || typeof conversationId !== "string") {
+        throw new BadRequestError("conversationId is required");
+      }
+      if (title !== undefined && typeof title !== "string") {
+        throw new BadRequestError("title must be a string");
+      }
+      if (!getConversation(conversationId)) {
+        throw new NotFoundError("Conversation not found");
+      }
+
+      const result = createDocument({ conversationId, title: title?.trim() });
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
+      const doc = getDocumentById(result.surfaceId);
+      if (!doc) {
+        throw new InternalError("Created document could not be read back");
+      }
+      publishDocumentsChanged(getOriginClientId(headers));
+      return { success: true, ...doc };
     },
   },
 

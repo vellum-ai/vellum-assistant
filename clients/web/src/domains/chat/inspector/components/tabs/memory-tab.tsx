@@ -109,6 +109,7 @@ function ViewPill({
 }): ReactNode {
   return (
     <button
+      type="button"
       onClick={onClick}
       className="rounded-full px-3 py-1 text-label-medium-default transition-colors"
       style={{
@@ -466,6 +467,7 @@ function DisclosureCard({
     <Card>
       <div className="flex flex-col gap-3 p-4">
         <button
+          type="button"
           className="flex w-full items-start justify-between gap-2 text-left"
           style={{
             background: "none",
@@ -929,6 +931,7 @@ function ConceptRow({
       style={{ background: "var(--surface-base)" }}
     >
       <button
+        type="button"
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
         style={{ background: "none", border: "none", cursor: "pointer" }}
         onClick={() => setExpanded((v) => !v)}
@@ -1226,6 +1229,7 @@ function CopyButton({
 
   return (
     <button
+      type="button"
       onClick={handleCopy}
       title={copied ? t("memoryTab.copyTitleCopied") : t("memoryTab.copyTitle")}
       aria-label={

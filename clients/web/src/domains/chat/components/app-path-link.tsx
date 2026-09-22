@@ -7,7 +7,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { EXTERNAL_LINK_CLASS } from "@/components/external-anchor";
+import { TextLink } from "@vellumai/design-library/components/text-link";
 
 export function AppPathLink({
   href,
@@ -17,8 +17,8 @@ export function AppPathLink({
   children: ReactNode;
 }) {
   return (
-    <Link to={href} className={EXTERNAL_LINK_CLASS}>
-      {children}
-    </Link>
+    <TextLink asChild>
+      <Link to={href}>{children}</Link>
+    </TextLink>
   );
 }

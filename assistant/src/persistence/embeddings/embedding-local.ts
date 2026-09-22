@@ -7,6 +7,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { Subprocess } from "bun";
+
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -22,6 +24,7 @@ import {
   listWorkerProcesses,
   pid1OwnsWorkers,
 } from "../../util/worker-ownership.js";
+import { writeWorkerLine } from "../../util/worker-pipe.js";
 import { EmbeddingRuntimeManager } from "./embedding-runtime-manager.js";
 import {
   type EmbeddingBackend,
@@ -106,9 +109,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "local" as const;
   readonly model: string;
 
-  // Subprocess — typed loosely to avoid coupling to Bun's Subprocess generics
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private workerProc: any = null;
+  private workerProc: Subprocess<"pipe", "pipe", "pipe"> | null = null;
   private stdoutBuffer = "";
   private requestCounter = 0;
   private pendingRequests = new Map<
@@ -119,7 +120,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   >();
   private stdoutReaderActive = false;
   private activeEmbeds = 0;
+  /** Release the worker once idle. {@link forModel} withdraws the request. */
   private disposeRequested = false;
+  /** Set by {@link shutdown}. The process is exiting, so nothing reopens this. */
+  private processExiting = false;
 
   private readonly initGuard = new PromiseGuard<void>();
   private initInFlight: Promise<void> | null = null;
@@ -130,7 +134,67 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   /** Overridable so tests can exercise the escalation path without the wait. */
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
-  constructor(model: string) {
+  /**
+   * Every backend this process has handed out, one per model.
+   *
+   * {@link reclaimOwnedWorkers} terminates a same-model worker parented to this
+   * process that the instance holds no handle for. That is sound only while no
+   * other instance in this process can hold that worker, so instances come from
+   * {@link forModel} and are never constructed by callers.
+   *
+   * This is also the complete list of workers the process owns. The backend
+   * cache is not: it forgets a backend whose disposal is still pending.
+   */
+  private static readonly byModel = new Map<string, LocalEmbeddingBackend>();
+
+  /**
+   * The backend for `model`. A pending {@link dispose} is withdrawn, so embeds
+   * still running on the instance keep their worker.
+   */
+  static forModel(model: string): LocalEmbeddingBackend {
+    let backend = LocalEmbeddingBackend.byModel.get(model);
+    if (!backend) {
+      backend = new LocalEmbeddingBackend(model);
+      LocalEmbeddingBackend.byModel.set(model, backend);
+    }
+    if (!backend.processExiting) {
+      backend.disposeRequested = false;
+    }
+    return backend;
+  }
+
+  /** {@link shutdown} every backend, then reap any worker still parented here. */
+  static async shutdownAll(): Promise<void> {
+    await Promise.all(
+      [...LocalEmbeddingBackend.byModel.values()].map(async (backend) => {
+        try {
+          await backend.shutdown();
+          await backend.sweepOwnedWorkers();
+        } catch (err) {
+          log.warn(
+            { err, model: backend.model },
+            "Failed to shut down local embedding backend",
+          );
+        }
+      }),
+    );
+  }
+
+  /** {@link terminateNow} every backend. */
+  static terminateAllNow(): void {
+    for (const backend of LocalEmbeddingBackend.byModel.values()) {
+      try {
+        backend.terminateNow();
+      } catch (err) {
+        log.warn(
+          { err, model: backend.model },
+          "Failed to terminate local embedding worker",
+        );
+      }
+    }
+  }
+
+  private constructor(model: string) {
     this.model = model;
   }
 
@@ -193,19 +257,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       }
       this.pendingRequests.set(id, { resolve });
 
-      // Writing to a worker that has already exited raises EPIPE. That must
-      // surface as an ordinary embed failure the caller can fall back from:
-      // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
-      // which tears down the whole process (JARVIS-1125).
-      //
-      // The guard covers `write` as well as `flush`: both are synchronous on
-      // Bun's FileSink, and `write` is the call that raises the broken pipe.
-      try {
-        proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
-        proc.stdin.flush();
-      } catch (err) {
-        this.failPendingRequest(id, err);
-      }
+      writeWorkerLine(proc.stdin, JSON.stringify({ id, texts }), (err) =>
+        this.failPendingRequest(id, err),
+      );
     });
   }
 
@@ -929,6 +983,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * the OS confirms the worker is gone.
    */
   async shutdown(): Promise<void> {
+    this.processExiting = true;
     this.disposeRequested = true;
 
     // An initialization already in flight has not necessarily assigned

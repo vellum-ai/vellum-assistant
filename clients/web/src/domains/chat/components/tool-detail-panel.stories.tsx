@@ -23,6 +23,8 @@ import {
   mcpSqlDetail,
   minimalDetail,
   recallDetail,
+  recallNothingFoundDetail,
+  recallTextOnlyDetail,
   recordListDetail,
   rememberDetail,
   riskVariant,
@@ -35,8 +37,11 @@ import {
   thinkingDetail,
   unknownToolDetail,
   webFetchDetail,
+  webSearchDeniedDetail,
   webSearchDetail,
   webSearchErrorDetail,
+  webSearchNoSourcesDetail,
+  webSearchRunningDetail,
 } from "@/domains/chat/components/tool-detail-story-fixtures";
 
 import { ToolDetailPanel } from "./tool-detail-panel";
@@ -77,8 +82,8 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | --- | --- | --- | --- | --- |
  * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | changing tools purpose-built, reading tools generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` and `file_write` share one body: an edit renders a unified diff, a write renders the file under its path, and both label the section by whether the call succeeded. `file_read` stays generic because its file comes back in the result, which the Output section already renders as text. |
  * | Shell (`bash`, `host_bash`) | purpose-built | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | The command and its output as two labelled blocks, rather than a JSON object quoting one. |
- * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
- * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
+ * | Memory (`remember`, `recall`) | purpose-built | 3 | Remember, Recall, RecallTextOnly, RecallNothingFound | Read from each tool's structured result: `remember` lists the facts saved, `recall` the query, the answer and the evidence, each piece opening the file or conversation it came from. A recall recorded without a structured result shows its text as written. |
+ * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchRunning, WebSearchDenied, WebSearchNoSources, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A running or refused search says so; only a finished one with no results says it found none. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
  * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields in a bordered group, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
@@ -215,11 +220,25 @@ export const MinimalOutput: Story = { args: { detail: minimalDetail } };
 // Memory and search
 // ---------------------------------------------------------------------------
 
-/** `remember`. Full section chrome around a one-line acknowledgement. */
+/** `remember`: the facts it saved, as a list under whether they were saved. */
 export const Remember: Story = { args: { detail: rememberDetail } };
 
-/** `recall`. A ranked result list flattened into preformatted text. */
+/**
+ * `recall`: what it searched for and where, the answer, and the evidence the
+ * answer stands on.
+ */
 export const Recall: Story = { args: { detail: recallDetail } };
+
+/**
+ * `recall` from history recorded before it reported a structured result. Its
+ * text reads as the markdown it was written as.
+ */
+export const RecallTextOnly: Story = { args: { detail: recallTextOnlyDetail } };
+
+/** `recall` that found nothing, and says which place it could not search. */
+export const RecallNothingFound: Story = {
+  args: { detail: recallNothingFoundDetail },
+};
 
 /** `code_search`, the widest native input shape. */
 export const CodeSearch: Story = { args: { detail: codeSearchDetail } };
@@ -414,6 +433,21 @@ export const WebSearchKind: Story = { args: { detail: webSearchDetail } };
  * body on purpose, so the error reads the way any other failed tool's does.
  */
 export const WebSearchError: Story = { args: { detail: webSearchErrorDetail } };
+
+/** A search still running says so, rather than that it found no sources. */
+export const WebSearchRunning: Story = {
+  args: { detail: webSearchRunningDetail },
+};
+
+/** A refused search says it did not run, never the note to the model. */
+export const WebSearchDenied: Story = {
+  args: { detail: webSearchDeniedDetail },
+};
+
+/** Only a search that finished with no results says it found no sources. */
+export const WebSearchNoSources: Story = {
+  args: { detail: webSearchNoSourcesDetail },
+};
 
 /** `web_fetch`. The fetched page, not the header-and-marker envelope. */
 export const WebFetch: Story = { args: { detail: webFetchDetail } };

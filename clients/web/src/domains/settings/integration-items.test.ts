@@ -6,6 +6,7 @@ import {
   buildIntegrationItems,
   connectionsForOAuthProvider,
   filterIntegrationItems,
+  isMcpPluginMethodConfigured,
   type McpPluginDefinition,
   type OAuthProvider,
   summarizeIntegrationConnections,
@@ -97,6 +98,7 @@ describe("integration items", () => {
           source: "plugin",
           pluginName: "notion-mcp",
           status: "needs-auth",
+          hasOAuth: true,
         }),
       ],
     };
@@ -106,6 +108,125 @@ describe("integration items", () => {
       needsAttention: true,
       configured: true,
     });
+  });
+
+  test("leaves a plugin nobody ever signed in to out of the connected list", () => {
+    // One remote server and no credentials: what a cancelled sign-in leaves,
+    // and the one state a tile can finish by itself.
+    const method = {
+      definition: plugin({ installed: {} }),
+      servers: [
+        server({
+          source: "plugin",
+          pluginName: "notion-mcp",
+          status: "needs-auth",
+        }),
+      ],
+    };
+
+    // A cancelled sign-in leaves exactly this: the plugin installed, its
+    // server declared, nothing authorized. It is still on offer, and there is
+    // nothing for the user to attend to.
+    expect(summarizeIntegrationConnections([], [method])).toEqual({
+      connectedCount: 0,
+      needsAttention: false,
+      configured: false,
+    });
+    expect(isMcpPluginMethodConfigured(method)).toBe(false);
+  });
+
+  test("counts a plugin with stored credentials as configured", () => {
+    const declared = server({
+      source: "plugin",
+      pluginName: "notion-mcp",
+      status: "declared",
+      hasOAuth: true,
+    });
+    expect(
+      isMcpPluginMethodConfigured({
+        definition: plugin({ installed: {} }),
+        servers: [declared],
+      }),
+    ).toBe(true);
+    expect(
+      isMcpPluginMethodConfigured({
+        definition: plugin({ installed: {} }),
+        servers: [
+          server({
+            source: "plugin",
+            pluginName: "notion-mcp",
+            status: "needs-auth",
+            hasStaticAuth: true,
+          }),
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("trusts the install while the server list is unknown", () => {
+    const method = {
+      definition: plugin({ installed: {} }),
+      servers: [],
+    };
+    // A server list that failed to load is the same empty array as a plugin
+    // whose servers are all unauthorized. Until the real answer arrives, a
+    // connected integration stays where the user last saw it, with nothing
+    // asking to be attended to.
+    expect(isMcpPluginMethodConfigured(method, false)).toBe(true);
+    expect(summarizeIntegrationConnections([], [method], false)).toEqual({
+      connectedCount: 0,
+      needsAttention: false,
+      configured: true,
+    });
+    expect(
+      buildIntegrationItems(
+        [],
+        [],
+        [],
+        [plugin({ oauthProvider: undefined, installed: {} })],
+        false,
+      ),
+    ).toMatchObject([{ id: "plugin:notion-mcp", configured: true }]);
+  });
+
+  test("keeps what a tile cannot finish out of the available list", () => {
+    const definition = plugin({ installed: {} });
+    // Nothing is authorized in any of these, and none of them has a single
+    // remote server a tile could sign in to, so each one keeps the dialog
+    // that can deal with it.
+    expect(isMcpPluginMethodConfigured({ definition, servers: [] })).toBe(true);
+    expect(
+      isMcpPluginMethodConfigured({
+        definition,
+        servers: [
+          server({
+            id: "a",
+            source: "plugin",
+            pluginName: "notion-mcp",
+            status: "needs-auth",
+          }),
+          server({
+            id: "b",
+            source: "plugin",
+            pluginName: "notion-mcp",
+            status: "needs-auth",
+          }),
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      isMcpPluginMethodConfigured({
+        definition,
+        servers: [
+          server({
+            source: "plugin",
+            pluginName: "notion-mcp",
+            status: "declared",
+            transport: { type: "stdio", command: "notion-mcp" },
+          }),
+        ],
+      }),
+    ).toBe(true);
   });
 
   test("keeps active and inactive exact accounts for one provider", () => {

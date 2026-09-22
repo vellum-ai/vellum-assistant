@@ -44,7 +44,7 @@ const CLIENT_CONTROL_LINES: Record<LiveVoiceSessionControl, string> = {
 const LOOK_FRAME_CONTROL_LINES: Partial<
   Record<LiveVoiceSessionControl, string>
 > = {
-  look_screen: `- To look at their screen (for example "take a look at my screen", or "can you see it now?" after something on it changed), say in a few words that you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Use it even when their screen is already shared with you, to see it as it is now. You get a fresh view right after you finish speaking and answer from that, so do not describe the screen yet and do not ask them to say anything more.`,
+  look_screen: `- To look at their screen (for example "take a look at my screen", or "can you see it now?" after something on it changed), say in a few words that you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Use it even when their screen is already shared with you, to see it as it is now. You get a fresh view right after you finish speaking, so do not describe the screen yet or ask them to say anything more. This only obtains a view; showing them where to click still needs screen annotation after the view arrives.`,
   look_camera: `- To look through their camera (for example "look at this" or "can you see this?" while they hold something up), say in a few words that you are taking a look, then end your reply with ${LOOK_CAMERA_MARKER}. Use it even when the camera is already on, to see what it shows now. You get a fresh view right after you finish speaking and answer from that, so do not describe it yet and do not ask them to say anything more.`,
 };
 
@@ -60,6 +60,11 @@ export type LookSessionControl = Extract<
   LiveVoiceSessionControl,
   "look_screen" | "look_camera"
 >;
+
+export interface LookFollowUp {
+  action: LookSessionControl;
+  callerUtterance: string;
+}
 
 export function isLookSessionControl(
   action: string,
@@ -78,9 +83,12 @@ export const LOOK_FOLLOW_UP_CONTENT = "(fresh view taken; answer from it now)";
  * Appended to the control prompt of the turn that answers a look: the reply
  * that asked for it only acknowledged, and the frame it asked for has landed.
  */
-export function lookFollowUpNote(action: LookSessionControl): string {
+export function lookFollowUpNote({
+  action,
+  callerUtterance,
+}: LookFollowUp): string {
   const what = action === "look_screen" ? "their screen" : "their camera";
-  return `You just took a fresh look at ${what}, and the newest image in the conversation is what it shows right now. Answer what they wanted you to look at, out loud, in a few spoken sentences. If the image does not show what they meant, say briefly what you do see and ask. You have already said you were taking a look, so do not say it again and do not end with a look marker.`;
+  return `You just took a fresh look at ${what}, and the newest image in the conversation is what it shows right now. Resume the caller's request ${JSON.stringify(callerUtterance)} using that view and the latest conversation context. Complete any requested action, not just a spoken description.${action === "look_screen" ? " Showing or pointing out where to click needs the screen-annotation tools." : ""} If the request needs tools and this leg has none, escalate. Otherwise answer in a few spoken sentences. If the image does not show what they meant, say briefly what you do see and ask. You have already said you were taking a look, so do not say it again and do not end with a look marker.`;
 }
 
 // Always taught: narration is the session's own, so no client has to be able

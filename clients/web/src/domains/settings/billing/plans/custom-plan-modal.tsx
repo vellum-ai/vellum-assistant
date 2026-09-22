@@ -21,7 +21,7 @@ import type {
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
-import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { Button } from "@vellumai/design-library/components/button";
 import {
   Select,
@@ -113,16 +113,15 @@ function PickerLabel({
       <span className="text-[11px] font-medium text-[var(--content-secondary)]">
         {label}
       </span>
-      <a
+      <ExternalAnchor
         href={docsUrl}
-        target="_blank"
-        rel="noopener noreferrer"
         aria-label={docsLabel}
-        onClick={(e) => handleNativeAnchorClick(e, docsUrl)}
-        className="text-[11px] font-medium text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
+        tone="quiet"
+        glyph={false}
+        className="text-[11px] font-medium text-[var(--content-tertiary)]"
       >
         {learnMore}
-      </a>
+      </ExternalAnchor>
     </div>
   );
 }

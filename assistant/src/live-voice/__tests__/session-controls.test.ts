@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { VoiceProgressConfig } from "../../config/schemas/voice.js";
 import {
   FEWER_UPDATES_INTERVAL_MS,
+  lookFollowUpNote,
   progressConfigForCadence,
   requestedSessionControl,
   sessionControlTeaching,
@@ -17,6 +18,28 @@ const CONFIG: VoiceProgressConfig = {
   minGapMs: 6_000,
   generationTimeoutMs: 1_500,
 };
+
+describe("lookFollowUpNote", () => {
+  test("quotes the caller request and preserves annotation intent", () => {
+    const callerUtterance = 'Show me the "New page" button.\nWhere is it?';
+    const note = lookFollowUpNote({ action: "look_screen", callerUtterance });
+    expect(note).toContain(JSON.stringify(callerUtterance));
+    expect(note).toContain("screen-annotation tools");
+    expect(note).toContain(
+      "If the request needs tools and this leg has none, escalate",
+    );
+  });
+
+  test("camera follow-ups resume their request without screen annotation guidance", () => {
+    const note = lookFollowUpNote({
+      action: "look_camera",
+      callerUtterance: "What is this plant?",
+    });
+    expect(note).toContain("fresh look at their camera");
+    expect(note).toContain(JSON.stringify("What is this plant?"));
+    expect(note).not.toContain("screen-annotation");
+  });
+});
 
 describe("progressConfigForCadence", () => {
   test("normal is the configured cadence, untouched", () => {

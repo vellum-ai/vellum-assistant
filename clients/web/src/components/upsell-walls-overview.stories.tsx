@@ -21,13 +21,13 @@
  *   - **Every non-credit upsell in the app routes to `routes.plans`**, the
  *     plans takeover. There is no second upsell destination.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CalendarClock, KeyRound, Sparkles } from "lucide-react";
 
 import type { DiskPressureStatus } from "@vellumai/assistant-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 import { DiskPressureBanner } from "@/components/disk-pressure-banner";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
@@ -64,13 +64,12 @@ const NOT_ENTITLED: SubscriptionResponse = {
   entitlements: { managed_email: false, phone_number: false },
 };
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+const withNotEntitledSubscription = withQueryCache((client) => {
+  client.setQueryData(
+    organizationsBillingSubscriptionRetrieveOptions().queryKey,
+    NOT_ENTITLED,
+  );
 });
-queryClient.setQueryData(
-  organizationsBillingSubscriptionRetrieveOptions().queryKey,
-  NOT_ENTITLED,
-);
 
 const DISK_STATUS: DiskPressureStatus = {
   enabled: true,
@@ -269,120 +268,115 @@ export const CreditWalls: Story = {
 
 /** Storage, entitlement and plan walls, all of which route to the takeover. */
 export const ResourceAndEntitlementWalls: Story = {
+  // The seeded cache is only for the entitlement wall's subscription read;
+  // every other case on this page is pure props.
+  decorators: [withNotEntitledSubscription],
   render: () => (
-    // The seeded client is only for the entitlement wall's subscription read;
-    // every other case on this page is pure props.
-    <QueryClientProvider client={queryClient}>
-      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 py-4">
-        <Group heading="Storage wall">
-          <WallCase
-            wall="Storage almost full"
-            trigger="Disk usage crosses the warn threshold on a platform-hosted assistant."
-            cta="Manage Storage + Upgrade"
-            destination="/workspace?sort=size · /assistant/plans"
-          >
-            <DiskPressureBanner
-              status={DISK_STATUS}
-              mode="warning"
-              onAcknowledge={() => {}}
-              onDismissWarning={() => {}}
-              onReviewWorkspaceData={() => {}}
-              onUpgradeStorage={() => {}}
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 py-4">
+      <Group heading="Storage wall">
+        <WallCase
+          wall="Storage almost full"
+          trigger="Disk usage crosses the warn threshold on a platform-hosted assistant."
+          cta="Manage Storage + Upgrade"
+          destination="/workspace?sort=size · /assistant/plans"
+        >
+          <DiskPressureBanner
+            status={DISK_STATUS}
+            mode="warning"
+            onAcknowledge={() => {}}
+            onDismissWarning={() => {}}
+            onReviewWorkspaceData={() => {}}
+            onUpgradeStorage={() => {}}
+          />
+        </WallCase>
+
+        <WallCase
+          wall="Storage almost full (no upgrade path)"
+          trigger="Same, but self-hosted. The Upgrade CTA is dropped and the copy stops offering more storage."
+          cta="Manage Storage"
+          destination="/workspace?sort=size"
+        >
+          <DiskPressureBanner
+            status={DISK_STATUS}
+            mode="warning"
+            onAcknowledge={() => {}}
+            onDismissWarning={() => {}}
+            onReviewWorkspaceData={() => {}}
+            onUpgradeStorage={null}
+          />
+        </WallCase>
+
+        <WallCase
+          wall="Storage critically low"
+          trigger="Disk usage crosses the critical threshold; the assistant will lock if it runs out."
+          cta="Review (the Upgrade CTA lives in the modal it opens)"
+          destination="/assistant/plans"
+        >
+          <DiskPressureBanner
+            status={{ ...DISK_STATUS, state: "critical", usagePercent: 99 }}
+            mode="acknowledgement-required"
+            onAcknowledge={() => {}}
+            onUpgradeStorage={() => {}}
+          />
+        </WallCase>
+      </Group>
+
+      <Group heading="Entitlement wall">
+        <WallCase
+          wall="Managed email not included"
+          trigger="entitlements.managed_email is false on the subscription. Read off the entitlement, not the plan. An admin override can grant it to a Base org."
+          cta="Upgrade"
+          destination="/assistant/plans"
+        >
+          <EmailManagedContent
+            assistantId="story-assistant"
+            assistantHandle="ada"
+            emailRootDomain="vellum.ai"
+          />
+        </WallCase>
+      </Group>
+
+      <Group heading="Plan management upsell">
+        <WallCase
+          wall="Next plan tile"
+          trigger="A higher package exists in the catalog and the relation is not a lateral switch. A Pro user at the top of the catalog, or one whose tiers match no package, gets no tile at all; the plans takeover keeps the customize path."
+          cta={POWER_UP_LABEL}
+          destination="Stripe checkout (base) or package-switch confirm (pro)"
+        >
+          <div className="w-[360px]">
+            <PlanTile
+              theme="dark"
+              tierKey={SUPER_PACKAGE.key}
+              name={SUPER_PACKAGE.name}
+              tag={
+                <Tag
+                  className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
+                  leftIcon={
+                    <Sparkles
+                      className="text-[var(--credits-accent)]"
+                      aria-hidden
+                    />
+                  }
+                >
+                  Next Plan
+                </Tag>
+              }
+              specs={packageSpecs(SUPER_PACKAGE, "Super usage, reset monthly")}
+              footer={
+                <Button
+                  variant="primary"
+                  fullWidth
+                  tintColor="var(--aux-white)"
+                  className="h-10 border-transparent bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] hover:opacity-90 active:bg-[var(--system-positive-strong)]"
+                  onClick={() => {}}
+                >
+                  {POWER_UP_LABEL}
+                </Button>
+              }
             />
-          </WallCase>
-
-          <WallCase
-            wall="Storage almost full (no upgrade path)"
-            trigger="Same, but self-hosted. The Upgrade CTA is dropped and the copy stops offering more storage."
-            cta="Manage Storage"
-            destination="/workspace?sort=size"
-          >
-            <DiskPressureBanner
-              status={DISK_STATUS}
-              mode="warning"
-              onAcknowledge={() => {}}
-              onDismissWarning={() => {}}
-              onReviewWorkspaceData={() => {}}
-              onUpgradeStorage={null}
-            />
-          </WallCase>
-
-          <WallCase
-            wall="Storage critically low"
-            trigger="Disk usage crosses the critical threshold; the assistant will lock if it runs out."
-            cta="Review (the Upgrade CTA lives in the modal it opens)"
-            destination="/assistant/plans"
-          >
-            <DiskPressureBanner
-              status={{ ...DISK_STATUS, state: "critical", usagePercent: 99 }}
-              mode="acknowledgement-required"
-              onAcknowledge={() => {}}
-              onUpgradeStorage={() => {}}
-            />
-          </WallCase>
-        </Group>
-
-        <Group heading="Entitlement wall">
-          <WallCase
-            wall="Managed email not included"
-            trigger="entitlements.managed_email is false on the subscription. Read off the entitlement, not the plan. An admin override can grant it to a Base org."
-            cta="Upgrade"
-            destination="/assistant/plans"
-          >
-            <EmailManagedContent
-              assistantId="story-assistant"
-              assistantHandle="ada"
-              emailRootDomain="vellum.ai"
-            />
-          </WallCase>
-        </Group>
-
-        <Group heading="Plan management upsell">
-          <WallCase
-            wall="Next plan tile"
-            trigger="A higher package exists in the catalog and the relation is not a lateral switch. A Pro user at the top of the catalog, or one whose tiers match no package, gets no tile at all; the plans takeover keeps the customize path."
-            cta={POWER_UP_LABEL}
-            destination="Stripe checkout (base) or package-switch confirm (pro)"
-          >
-            <div className="w-[360px]">
-              <PlanTile
-                theme="dark"
-                tierKey={SUPER_PACKAGE.key}
-                name={SUPER_PACKAGE.name}
-                tag={
-                  <Tag
-                    className="bg-[var(--feed-digest-weak)] text-[var(--credits-accent)]"
-                    leftIcon={
-                      <Sparkles
-                        className="text-[var(--credits-accent)]"
-                        aria-hidden
-                      />
-                    }
-                  >
-                    Next Plan
-                  </Tag>
-                }
-                specs={packageSpecs(
-                  SUPER_PACKAGE,
-                  "Super usage, reset monthly",
-                )}
-                footer={
-                  <Button
-                    variant="primary"
-                    fullWidth
-                    tintColor="var(--aux-white)"
-                    className="h-10 border-transparent bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] hover:opacity-90 active:bg-[var(--system-positive-strong)]"
-                    onClick={() => {}}
-                  >
-                    {POWER_UP_LABEL}
-                  </Button>
-                }
-              />
-            </div>
-          </WallCase>
-        </Group>
-
-      </div>
-    </QueryClientProvider>
+          </div>
+        </WallCase>
+      </Group>
+    </div>
   ),
 };

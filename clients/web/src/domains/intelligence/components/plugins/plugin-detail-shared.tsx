@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import {
   PLUGIN_INSTALL_ERROR,
   PLUGIN_REMOVE_ERROR,
@@ -148,16 +149,15 @@ export function PluginDetailMetadata({
             style={{ color: "var(--content-secondary)" }}
           >
             {row.href ? (
-              <a
+              <ExternalAnchor
                 href={row.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 underline"
-                style={{ color: "var(--primary-base, #60a5fa)" }}
+                tone="default"
+                className="inline-flex items-center gap-1"
+                glyph={false}
               >
                 {row.value}
                 <ExternalLink className="h-3 w-3" aria-hidden />
-              </a>
+              </ExternalAnchor>
             ) : (
               row.value
             )}
@@ -281,13 +281,8 @@ export function PluginDetailActions({
               onClick={handleUpgrade}
               disabled={isUpgrading}
               title={upgradeTitle}
-              leftIcon={
-                isUpgrading ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <ArrowUpCircle aria-hidden />
-                )
-              }
+              loading={isUpgrading}
+              leftIcon={<ArrowUpCircle aria-hidden />}
             >
               {t("pluginDetailShared.upgrade")}
             </Button>
@@ -297,13 +292,8 @@ export function PluginDetailActions({
             variant="dangerOutline"
             onClick={() => setConfirmingRemove(true)}
             disabled={isRemoving}
-            leftIcon={
-              isRemoving ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Trash2 aria-hidden />
-              )
-            }
+            loading={isRemoving}
+            leftIcon={<Trash2 aria-hidden />}
           >
             {t("pluginDetailShared.remove")}
           </Button>
@@ -313,13 +303,8 @@ export function PluginDetailActions({
           type="button"
           onClick={onInstall}
           disabled={isInstalling}
-          leftIcon={
-            isInstalling ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <ArrowDownToLine aria-hidden />
-            )
-          }
+          loading={isInstalling}
+          leftIcon={<ArrowDownToLine aria-hidden />}
         >
           {t("pluginDetailShared.install")}
         </Button>
@@ -407,7 +392,7 @@ export function PluginDetailActionError({
     <div
       className="mb-3 flex items-center gap-2 rounded px-3 py-2 text-body-small-default"
       style={{
-        backgroundColor: "var(--surface-secondary)",
+        backgroundColor: "var(--surface-active)",
         color: "var(--content-warning, var(--content-tertiary))",
       }}
       role="alert"

@@ -1,5 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+
+import { withQueryCache } from "@/lib/story-query-cache";
 
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
@@ -12,13 +13,9 @@ import { CacheDiffCard } from "./cache-diff-card";
  * block that diverged — the answer to "why did my cache bust this turn?".
  *
  * Both calls carry their `requestSections` inline, so the on-demand
- * previous-call fetch stays disabled; the wrapping `QueryClientProvider`
+ * previous-call fetch stays disabled; the query cache decorator
  * only satisfies the hook the card calls before its early returns.
  */
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-});
-
 const meta: Meta<typeof CacheDiffCard> = {
   title: "Chat/Inspector/CacheDiffCard",
   component: CacheDiffCard,
@@ -27,12 +24,11 @@ const meta: Meta<typeof CacheDiffCard> = {
   },
   decorators: [
     (Story) => (
-      <QueryClientProvider client={queryClient}>
-        <div className="w-[440px]">
-          <Story />
-        </div>
-      </QueryClientProvider>
+      <div className="w-[440px]">
+        <Story />
+      </div>
     ),
+    withQueryCache(),
   ],
 };
 

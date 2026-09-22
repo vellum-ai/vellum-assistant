@@ -1,7 +1,6 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
 import { DesktopAutomationLease } from "./desktop-automation-lease.js";
-import { DesktopDependencyInstaller } from "./desktop-dependencies.js";
 import type { DesktopSessionManager } from "./desktop-session-manager.js";
 
 const context = {
@@ -21,17 +20,6 @@ afterEach(async () => {
 function fixture() {
   let enabled = true;
   let ready = true;
-  const setup = Promise.withResolvers<void>();
-  const install = mock(() => setup.promise);
-  const installer = new DesktopDependencyInstaller({
-    supported: () => true,
-    ready: () => ready,
-    install,
-    notify: async () => {},
-  });
-  const ensureReady = mock((signal: AbortSignal) =>
-    installer.ensureReady(signal),
-  );
   const started = mock(async () => {});
   const released = mock(() => {});
   const releaseBrowser = mock(async () => {});
@@ -40,7 +28,6 @@ function fixture() {
     notify,
     enabled: () => enabled,
     ready: () => ready,
-    ensureReady,
     manager: () =>
       ({
         browser: { release: releaseBrowser },
@@ -53,12 +40,8 @@ function fixture() {
   return {
     lease,
     notify,
-    ensureReady,
-    install,
-    failSetup: () => setup.reject(new Error("download failed")),
-    completeSetup: () => {
+    restoreComponents: () => {
       ready = true;
-      setup.resolve();
     },
     started,
     released,
@@ -66,7 +49,7 @@ function fixture() {
     disable: () => {
       enabled = false;
     },
-    uninstall: () => {
+    removeComponents: () => {
       ready = false;
     },
   };
@@ -86,13 +69,10 @@ test("browser session reuses one automation slot and isolates conversations", as
   expect(f.released).toHaveBeenCalledTimes(1);
 });
 
-for (const lose of ["disable", "uninstall"] as const) {
+for (const lose of ["disable", "removeComponents"] as const) {
   test(`${lose} blocks startup, reuse and startup races`, async () => {
     const unavailable = fixture();
     unavailable[lose]();
-    if (lose === "uninstall") {
-      unavailable.ensureReady.mockRejectedValueOnce(new Error("setup failed"));
-    }
     await expect(
       unavailable.lease.runBrowser(context, operation),
     ).rejects.toThrow();
@@ -151,51 +131,9 @@ test("failed browser cleanup retains ownership until release succeeds", async ()
   expect(f.released).toHaveBeenCalledTimes(1);
 });
 
-test("first browser call waits for one shared install then executes exactly once", async () => {
+test("disabled, unidentified, cancelled and released browser calls cannot start the desktop", async () => {
   const f = fixture();
-  f.uninstall();
-  const callback = mock(operation);
-  const first = f.lease.runBrowser(context, callback);
-  await Bun.sleep(0);
-  expect(f.install).toHaveBeenCalledTimes(1);
-  expect(f.started).not.toHaveBeenCalled();
-  expect(callback).not.toHaveBeenCalled();
-  f.completeSetup();
-  expect((await first).isError).toBe(false);
-  expect(callback).toHaveBeenCalledTimes(1);
-  await f.lease.runBrowser(context, callback);
-  expect(f.install).toHaveBeenCalledTimes(1);
-  expect(f.started).toHaveBeenCalledTimes(1);
-});
-
-for (const interrupt of ["cancel", "disable", "failure"] as const) {
-  test(`${interrupt} during setup prevents a delayed browser action`, async () => {
-    const f = fixture();
-    f.uninstall();
-    const abort = new AbortController();
-    const callback = mock(operation);
-    const result = f.lease
-      .runBrowser({ ...context, signal: abort.signal }, callback)
-      .catch((error: unknown) => error);
-    await Bun.sleep(0);
-    if (interrupt === "cancel") {
-      abort.abort();
-    } else if (interrupt === "disable") {
-      f.disable();
-    } else {
-      f.failSetup();
-    }
-    expect(await result).toBeInstanceOf(Error);
-    f.completeSetup();
-    await Bun.sleep(0);
-    expect(f.started).not.toHaveBeenCalled();
-    expect(callback).not.toHaveBeenCalled();
-  });
-}
-
-test("disabled, unidentified, cancelled and released browser calls cannot install", async () => {
-  const f = fixture();
-  f.uninstall();
+  f.removeComponents();
   const cancelled = new AbortController();
   cancelled.abort();
   for (const caller of [
@@ -208,7 +146,7 @@ test("disabled, unidentified, cancelled and released browser calls cannot instal
   await f.lease.runBrowser(context, operation, true);
   f.disable();
   await expect(f.lease.runBrowser(context, operation)).rejects.toThrow();
-  expect(f.ensureReady).not.toHaveBeenCalled();
+  expect(f.started).not.toHaveBeenCalled();
 });
 
 test("activity follows the browser lease and clears before failed cleanup", async () => {
@@ -435,4 +373,74 @@ test("ending human help retries failed input cleanup without another turn", asyn
   expect(f.released).toHaveBeenCalledTimes(1);
   await f.lease.runBrowser(context, operation);
   expect(f.lease.isActive).toBe(true);
+});
+
+for (const interrupt of ["browser", "handoff", "release", "cancel"] as const) {
+  test(`${interrupt} invalidates native observations`, async () => {
+    const f = fixture();
+    const abort = new AbortController();
+    const ownerContext = { ...context, signal: abort.signal };
+    let id = "";
+    await f.lease.runBrowser(ownerContext, async () => {
+      id = f.lease.recordObservation();
+      return operation();
+    });
+    if (interrupt === "browser") {
+      await f.lease.runBrowser(ownerContext, operation);
+    } else if (interrupt === "handoff") {
+      const resume = await f.lease.reserveForHuman(ownerContext);
+      await resume(true);
+    } else if (interrupt === "release") {
+      await f.lease.runBrowser(ownerContext, operation, true);
+    } else {
+      abort.abort();
+    }
+    const input = mock(operation);
+    await expect(
+      f.lease.runBrowser(context, input, false, { id }),
+    ).rejects.toThrow("stale");
+    expect(input).not.toHaveBeenCalled();
+  });
+}
+
+test("queued actions cannot consume the same observation twice", async () => {
+  const f = fixture();
+  let id = "";
+  await f.lease.runBrowser(context, async () => {
+    id = f.lease.recordObservation();
+    return operation();
+  });
+  const input = mock(operation);
+  const actions = await Promise.allSettled([
+    f.lease.runBrowser(context, input, false, { id }),
+    f.lease.runBrowser(context, input, false, { id }),
+  ]);
+  expect(actions.map((action) => action.status)).toEqual([
+    "fulfilled",
+    "rejected",
+  ]);
+  expect(input).toHaveBeenCalledTimes(1);
+});
+
+test("a stale observation cannot start or reserve an unowned desktop", async () => {
+  const f = fixture();
+  const input = mock(operation);
+  f.removeComponents();
+  await expect(
+    f.lease.runBrowser(context, input, false, { id: "stale" }),
+  ).rejects.toThrow("stale");
+  expect(f.started).not.toHaveBeenCalled();
+  expect(f.lease.isActive).toBe(false);
+  expect(input).not.toHaveBeenCalled();
+  f.restoreComponents();
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+  );
+  expect(f.started).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(
+    { ...context, conversationId: "conv-456" },
+    operation,
+    true,
+  );
 });

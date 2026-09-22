@@ -57,6 +57,10 @@ function stubProviderWithErrors(errors: unknown[]): {
 const CHAT_TEMPLATE_400 =
   "Failed to apply chat template: invalid operation: object is not callable (in chat:22)";
 
+// Fireworks' renderer error for DeepSeek, verbatim.
+const FIREWORKS_STR_JOIN_400 =
+  "sequence item 0: expected str instance, list found";
+
 function rejection(message: string, status = 400): Error {
   return Object.assign(new Error(message), { status });
 }
@@ -101,6 +105,26 @@ describe("chat-template rejection flatten fallback", () => {
       | { type: "text"; text: string }
       | undefined;
     expect(text?.text).toBe("ok");
+  });
+
+  test("retries with flattened content on Fireworks' str-join template error", async () => {
+    const { provider, requests } = stubProviderWithErrors([
+      rejection(FIREWORKS_STR_JOIN_400),
+    ]);
+
+    await provider.sendMessage([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "[Image: a cat]" },
+          { type: "text", text: "what is this?" },
+        ],
+      },
+    ]);
+
+    expect(requests).toHaveLength(2);
+    const retry = requests[1] as { messages: Array<{ content: unknown }> };
+    expect(retry.messages[0].content).toBe("[Image: a cat]\n\nwhat is this?");
   });
 
   test("does not retry when a content-parts array carries media (never silently drop an image)", async () => {

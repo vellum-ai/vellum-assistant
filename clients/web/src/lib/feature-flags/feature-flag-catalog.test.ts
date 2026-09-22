@@ -155,6 +155,13 @@ describe("feature flag catalog", () => {
     expect("stripeLinkOauth" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
     expect("stripeLinkOauth" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
+
+  test("does not expose GA teleport as a feature flag", () => {
+    expect("teleport" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("teleport" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("teleport" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("teleport" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+  });
 });
 
 describe("readEnvFlagOverrides", () => {

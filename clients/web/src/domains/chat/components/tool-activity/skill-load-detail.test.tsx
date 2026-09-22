@@ -36,7 +36,7 @@ const { SkillLoadDetail } =
   await import("@/domains/chat/components/tool-activity/skill-load-detail");
 const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-import { stubOverflow, stubResizeObserver } from "@/hooks/overflow.test-helper";
+import { stubOverflow } from "@/hooks/overflow.test-helper";
 
 const LONG_PARAGRAPH = "Detailed guidance about the skill. ".repeat(40);
 
@@ -89,6 +89,7 @@ function renderDetail(overrides: Partial<DetailProps> = {}) {
       detail={makeDetail()}
       result={loadResult}
       streamedOutput={undefined}
+      activityMetadata={undefined}
       isRunning={false}
       isError={false}
       isDenied={false}
@@ -133,19 +134,33 @@ describe("SkillLoadDetail", () => {
     expect(state.activeSkillDetailId).toBe("app-builder");
   });
 
-  test("shows the instructions cleanly and the verbatim body under Raw", () => {
-    const { container, getByText } = renderDetail();
+  test("shows the instructions readably, with no view switch of its own", () => {
+    const { container, getByText, queryByRole } = renderDetail();
 
     expect(getByText("Output")).toBeDefined();
-    // Clean strips the daemon's header lines and the tool manifest.
+    expect(container.textContent).toContain(
+      "Detailed guidance about the skill.",
+    );
+    // The readable view strips the daemon's header lines and tool manifest;
+    // the verbatim body is the drawer's Raw output, not a switch here.
     expect(container.textContent).not.toContain("Path: /skills/app-builder");
+    expect(queryByRole("radiogroup")).toBeNull();
+  });
 
-    act(() => {
-      fireEvent.click(getByText("Raw"));
-    });
+  test("shows a body of only its header and tools verbatim, as the output", () => {
+    const manifestOnly = [
+      "Skill: App Builder",
+      "ID: app-builder",
+      "Path: /skills/app-builder/SKILL.md",
+      "",
+      "## Available Tools",
+      "",
+      "### app_create",
+      "Create a new app in the user's Library.",
+    ].join("\n");
+    const { container } = renderDetail({ result: manifestOnly });
 
     expect(container.textContent).toContain("Path: /skills/app-builder");
-    expect(container.textContent).toContain("## Available Tools");
   });
 
   test("folds a body taller than the fold behind Show more", () => {
@@ -162,37 +177,6 @@ describe("SkillLoadDetail", () => {
 
     expect(getByText("Show less")).toBeDefined();
     expect(queryByText("Show more")).toBeNull();
-  });
-
-  test("drops Show less when the view switched to fits the fold", () => {
-    // Only the Raw body, which carries the tool manifest, is taller than the
-    // fold; the clean instructions fit.
-    const restore = stubOverflow((el) =>
-      (el.textContent ?? "").includes("## Available Tools"),
-    );
-    const observer = stubResizeObserver();
-    try {
-      const { getByText, queryByText } = renderDetail();
-      act(() => {
-        fireEvent.click(getByText("Raw"));
-      });
-      act(observer.resize);
-      act(() => {
-        fireEvent.click(getByText("Show more"));
-      });
-      expect(getByText("Show less")).toBeDefined();
-
-      act(() => {
-        fireEvent.click(getByText("Clean"));
-      });
-      act(observer.resize);
-
-      expect(queryByText("Show less")).toBeNull();
-      expect(queryByText("Show more")).toBeNull();
-    } finally {
-      observer.restore();
-      restore();
-    }
   });
 
   test("reports a failed load once, with no Output section", () => {

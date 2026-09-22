@@ -119,6 +119,7 @@ export function BundleConfirmPage() {
             type="button"
             className="text-muted-foreground text-xs font-medium hover:underline"
             onClick={() => setWarningsOpen((v) => !v)}
+            aria-expanded={warningsOpen}
           >
             {warningsOpen
               ? t("bundleConfirmPage.hideWarnings", { count: warnings.length })

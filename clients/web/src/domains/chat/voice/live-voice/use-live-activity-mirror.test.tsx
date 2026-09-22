@@ -157,6 +157,7 @@ const { useAssistantIdentityStore } =
 const { BUNDLED_COMPONENTS } =
   await import("@/utils/avatar-bundled-components");
 const { changeLocale, currentLocale } = await import("@/i18n");
+const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -605,6 +606,89 @@ describe("updating the activity", () => {
     });
   });
 
+  test("a tool step reads as Working… on both surfaces", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    await settled(() =>
+      useLiveVoiceStore.getState().setActivityLabel("Searching the web"),
+    );
+    expect(lastUpdatePayload()?.label).toBe("Working on that…");
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].label).toBe(
+      "Working on that…",
+    );
+  });
+
+  test("an approval wait is not a tool step: no Working…, no turn on the list", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    await settled(() =>
+      useLiveVoiceStore
+        .getState()
+        .setActivityLabel("Waiting for approval", "approval-123"),
+    );
+    expect(lastUpdatePayload()?.label).toBe("Thinking…");
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].work).toEqual([]);
+  });
+
+  // The iOS island has no room for the list, so it goes to the desktop alone.
+  test("hands the call's work to the desktop surface and not the island", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    await settled(() =>
+      useLiveVoiceStore.getState().setActivityLabel("Searching the web"),
+    );
+
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].work).toEqual([
+      {
+        id: "turn",
+        kind: "turn",
+        title: "Ada",
+        step: "Searching the web",
+        state: "running",
+        startedAt: expect.any(Number),
+      },
+    ]);
+    expect(lastUpdatePayload()).not.toHaveProperty("work");
+  });
+
+  test("a sub-agent moving updates the desktop surface alone", async () => {
+    renderMirror();
+    await settled(() => {
+      const store = useLiveVoiceStore.getState();
+      store.setConversationId("conv-1");
+      store.setState("listening");
+    });
+    updateVoiceLiveActivity.mockClear();
+    updateVoiceActivity.mockClear();
+
+    await settled(() => {
+      useSubagentStore.setState((state) => ({
+        byId: {
+          ...state.byId,
+          "sub-1": {
+            subagentId: "sub-1",
+            label: "Flights to Lisbon",
+            objective: "Find flights",
+            status: "running",
+            isFork: false,
+            inputTokens: 0,
+            outputTokens: 0,
+            spawnedAt: 1_000,
+            events: [],
+            history: null,
+            parentConversationId: "conv-1",
+          },
+        },
+      }));
+    });
+
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0].work).toMatchObject([
+      { id: "sub-1", title: "Flights to Lisbon", state: "running" },
+    ]);
+    expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
+    useSubagentStore.setState({ byId: {} });
+  });
+
   // The island and the macOS companion render the label the mirror hands them
   // verbatim, so a label resolved in English would leave both reading a
   // language the app is not in. Nothing in the session moves on a switch, so
@@ -996,15 +1080,16 @@ describe("registering the activity for server-driven updates", () => {
  * which are sink-agnostic by construction.
  */
 describe("the desktop panel sink", () => {
-  test("start reaches both sinks with the identical payload", async () => {
+  test("start reaches both sinks with one payload, the panel's with the work added", async () => {
     renderMirror();
 
     await setPhase("connecting");
 
     expect(startVoiceActivity).toHaveBeenCalledTimes(1);
-    expect(startVoiceActivity.mock.calls.at(-1)?.[0]).toEqual(
-      lastStartPayload() as VoiceActivityStart,
-    );
+    expect(startVoiceActivity.mock.calls.at(-1)?.[0]).toEqual({
+      ...(lastStartPayload() as VoiceActivityStart),
+      work: [],
+    });
   });
 
   test("updates are pushed to the panel on the island's schedule", async () => {
@@ -1014,9 +1099,10 @@ describe("the desktop panel sink", () => {
     await setPhase("listening");
 
     expect(updateVoiceActivity).toHaveBeenCalledTimes(1);
-    expect(updateVoiceActivity.mock.calls.at(-1)?.[0]).toEqual(
-      lastUpdatePayload() as VoiceActivityContent,
-    );
+    expect(updateVoiceActivity.mock.calls.at(-1)?.[0]).toEqual({
+      ...(lastUpdatePayload() as VoiceActivityContent),
+      work: [],
+    });
   });
 
   test("content that would not move the island does not reach the panel either", async () => {

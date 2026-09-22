@@ -35,10 +35,7 @@ import {
 } from "@vellumai/design-library";
 
 import { ConversationStarterChip } from "@/components/conversation-starter-chip";
-import {
-  ExternalAnchor,
-  EXTERNAL_LINK_CLASS,
-} from "@/components/external-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { LocalFileCard } from "@/components/local-file/local-file-card";
 import { artifactFileCardProps } from "@/components/local-file/workspace-artifact";
 import { useTranslation } from "@/i18n";
@@ -165,7 +162,8 @@ export function ActivationTaskRow({
   const callToAction = link ? (
     <ExternalAnchor
       href={link.url}
-      className={cn(EXTERNAL_LINK_CLASS, "text-label-medium-default")}
+      tone="default"
+      className="text-label-medium-default"
     >
       {link.label}
     </ExternalAnchor>

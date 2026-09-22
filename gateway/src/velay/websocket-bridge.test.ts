@@ -104,65 +104,95 @@ describe("VelayWebSocketBridge", () => {
     ]);
   });
 
-  test("desktop bytes and closure stay isolated from existing tunnel streams", async () => {
-    const routes = [
-      "/v1/desktop/stream",
-      "/v1/live-voice",
-      "/v1/stt/stream",
-      "/v1/watch/stream",
-      "/webhooks/twilio/media-stream",
-      "/webhooks/twilio/speech-relay",
-    ];
-    const sockets = routes.map(() => new FakeWebSocket());
-    let nextSocket = 0;
-    WebSocketMock.mockImplementation(() => sockets[nextSocket++]!);
-    for (const [index, path] of routes.entries()) {
-      bridge.open(makeOpenFrame({ connection_id: `stream-${index}`, path }));
-      sockets[index]!.readyState = WS_OPEN;
-      sockets[index]!.emit("open");
-    }
-    expect(bridge.getConnectionCount()).toBe(routes.length);
-    sentFrames.length = 0;
+  test.each([false, true])(
+    "desktop negotiation=%s stays isolated from existing tunnel streams",
+    async (binaryMessages) => {
+      const routes = [
+        "/v1/desktop/stream",
+        "/v1/live-voice",
+        "/v1/stt/stream",
+        "/v1/watch/stream",
+        "/webhooks/twilio/media-stream",
+        "/webhooks/twilio/speech-relay",
+      ];
+      const sockets = routes.map(() => new FakeWebSocket());
+      let nextSocket = 0;
+      WebSocketMock.mockImplementation(() => sockets[nextSocket++]!);
+      for (const [index, path] of routes.entries()) {
+        bridge.open(
+          makeOpenFrame({
+            connection_id: `stream-${index}`,
+            path,
+            binary_messages: binaryMessages,
+          }),
+        );
+        sockets[index]!.readyState = WS_OPEN;
+        sockets[index]!.emit("open");
+      }
+      expect(bridge.getConnectionCount()).toBe(routes.length);
+      sentFrames.length = 0;
 
-    const desktopBytes = new Uint8Array([0, 128, 255, 13, 10]);
-    sockets[0]!.emit("message", { data: desktopBytes });
-    sockets[1]!.emit("message", { data: '{"type":"ready"}' });
-    await flushPromises();
-    expect(sentFrames).toHaveLength(2);
-    expect(sentFrames).toContainEqual({
-      type: VELAY_FRAME_TYPES.websocketMessage,
-      connection_id: "stream-0",
-      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
-      body_base64: base64(desktopBytes),
-    });
-    expect(sentFrames).toContainEqual({
-      type: VELAY_FRAME_TYPES.websocketMessage,
-      connection_id: "stream-1",
-      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
-      body_base64: base64('{"type":"ready"}'),
-    });
-
-    bridge.close({
-      type: VELAY_FRAME_TYPES.websocketClose,
-      connection_id: "stream-0",
-      code: 4011,
-      reason: "Viewer too slow",
-    });
-    expect(bridge.getConnectionCount()).toBe(routes.length - 1);
-    expect(sockets[0]!.closes).toEqual([
-      { code: 4011, reason: "Viewer too slow" },
-    ]);
-    for (let index = 1; index < routes.length; index++) {
-      bridge.message({
+      const desktopBytes = new Uint8Array([0, 128, 255, 13, 10]);
+      sockets[0]!.emit("message", { data: desktopBytes });
+      sockets[1]!.emit("message", { data: '{"type":"ready"}' });
+      await flushPromises();
+      expect(sentFrames).toHaveLength(2);
+      expect(sentFrames).toContainEqual(
+        binaryMessages
+          ? {
+              type: "websocket_binary",
+              connection_id: "stream-0",
+              payload: desktopBytes,
+            }
+          : {
+              type: VELAY_FRAME_TYPES.websocketMessage,
+              connection_id: "stream-0",
+              message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
+              body_base64: base64(desktopBytes),
+            },
+      );
+      expect(sentFrames).toContainEqual({
         type: VELAY_FRAME_TYPES.websocketMessage,
-        connection_id: `stream-${index}`,
+        connection_id: "stream-1",
         message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
-        body_base64: base64("still connected"),
+        body_base64: base64('{"type":"ready"}'),
       });
-      expect(sockets[index]!.closes).toEqual([]);
-      expect(sockets[index]!.sent).toEqual(["still connected"]);
-    }
-  });
+
+      bridge.close({
+        type: VELAY_FRAME_TYPES.websocketClose,
+        connection_id: "stream-0",
+        code: 4011,
+        reason: "Viewer too slow",
+      });
+      expect(bridge.getConnectionCount()).toBe(routes.length - 1);
+      expect(sockets[0]!.closes).toEqual([
+        { code: 4011, reason: "Viewer too slow" },
+      ]);
+      for (let index = 1; index < routes.length; index++) {
+        bridge.message({
+          type: "websocket_binary",
+          connection_id: `stream-${index}`,
+          payload: desktopBytes,
+        });
+        sockets[index]!.emit("message", { data: desktopBytes });
+        await flushPromises();
+        expect(sentFrames.at(-1)).toEqual({
+          type: VELAY_FRAME_TYPES.websocketMessage,
+          connection_id: `stream-${index}`,
+          message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
+          body_base64: base64(desktopBytes),
+        });
+        bridge.message({
+          type: VELAY_FRAME_TYPES.websocketMessage,
+          connection_id: `stream-${index}`,
+          message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+          body_base64: base64("still connected"),
+        });
+        expect(sockets[index]!.closes).toEqual([]);
+        expect(sockets[index]!.sent).toEqual(["still connected"]);
+      }
+    },
+  );
 
   test("sends websocket_open_error when the local upgrade fails before open", () => {
     bridge.open(makeOpenFrame());
@@ -473,4 +503,99 @@ describe("VelayWebSocketBridge", () => {
     ]);
     expect(bridge.getConnectionCount()).toBe(0);
   });
+});
+
+describe("negotiated desktop binary messages", () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  test("buffers raw bytes until local open, then forwards both directions and preserves text", async () => {
+    bridge.handleFrame(
+      makeOpenFrame({
+        connection_id: id,
+        path: "/v1/desktop/stream",
+        binary_messages: true,
+      }),
+    );
+    const payload = new Uint8Array([0, 255, 128]);
+    bridge.handleFrame({
+      type: "websocket_binary",
+      connection_id: id,
+      payload,
+    });
+    expect(fakeSocket.sent).toEqual([]);
+    fakeSocket.readyState = WS_OPEN;
+    fakeSocket.emit("open");
+    expect(fakeSocket.sent).toEqual([payload]);
+    fakeSocket.emit("message", { data: payload.buffer });
+    fakeSocket.emit("message", { data: new ArrayBuffer(0) });
+    await flushPromises();
+    expect(sentFrames.slice(1)).toEqual([
+      { type: "websocket_binary", connection_id: id, payload },
+      {
+        type: "websocket_binary",
+        connection_id: id,
+        payload: new Uint8Array(),
+      },
+    ]);
+    fakeSocket.emit("message", { data: "text" });
+    await flushPromises();
+    expect(sentFrames.at(-1)).toEqual({
+      type: "websocket_message",
+      connection_id: id,
+      message_type: "text",
+      body_base64: base64("text"),
+    });
+    bridge.handleFrame({
+      type: "websocket_close",
+      connection_id: id,
+      code: 4013,
+      reason: "busy",
+    });
+    expect(fakeSocket.closes).toEqual([{ code: 4013, reason: "busy" }]);
+    expect(bridge.getConnectionCount()).toBe(0);
+  });
+
+  for (const args of [
+    { path: "/v1/desktop/stream" },
+    { path: "/v1/live-voice", binary_messages: true },
+    { path: "/v1/stt/stream", binary_messages: true },
+    { path: "/v1/watch/stream", binary_messages: true },
+    { path: "/webhooks/twilio/media-stream", binary_messages: true },
+    { path: "/webhooks/twilio/speech-relay", binary_messages: true },
+  ]) {
+    test(`retains JSON/base64 without desktop negotiation: ${args.path}`, async () => {
+      bridge.handleFrame(makeOpenFrame({ connection_id: id, ...args }));
+      fakeSocket.readyState = WS_OPEN;
+      fakeSocket.emit("open");
+      const payload = new Uint8Array([0, 255]);
+      fakeSocket.emit("message", { data: payload.buffer });
+      await flushPromises();
+      expect(sentFrames.at(-1)).toEqual({
+        type: "websocket_message",
+        connection_id: id,
+        message_type: "binary",
+        body_base64: base64(payload),
+      });
+      bridge.handleFrame({
+        type: "websocket_binary",
+        connection_id: id,
+        payload,
+      });
+      expect(fakeSocket.sent).toEqual([]);
+      expect(fakeSocket.closes).toEqual([]);
+      expect(bridge.getConnectionCount()).toBe(1);
+      bridge.handleFrame({
+        type: "websocket_message",
+        connection_id: id,
+        message_type: "binary",
+        body_base64: base64(payload),
+      });
+      bridge.handleFrame({
+        type: "websocket_message",
+        connection_id: id,
+        message_type: "text",
+        body_base64: base64("still connected"),
+      });
+      expect(fakeSocket.sent).toEqual([payload, "still connected"]);
+    });
+  }
 });

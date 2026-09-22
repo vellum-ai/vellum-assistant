@@ -25,7 +25,10 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { ByoServiceCard } from "@/components/byo-service-card";
 import { ResetButton, SaveButton } from "@/components/service-form-controls";
 import { LS_WEB_FETCH_PROVIDER } from "@/utils/local-settings-keys";
-import { getWebFetchProviderKeyStorage } from "@/domains/settings/ai/utils";
+import {
+  allowsKeylessCustomWebProviderBase,
+  getWebFetchProviderKeyStorage,
+} from "@/domains/settings/ai/utils";
 import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
@@ -111,12 +114,16 @@ export function WebFetchCard() {
   const hasNewApiKey = webFetchApiKey.trim().length > 0;
   const trimmedApiBase = webFetchApiBase.trim();
   const hasCustomApiBase = showsApiBase && trimmedApiBase.length > 0;
+  const allowsKeylessCustomBase = allowsKeylessCustomWebProviderBase(
+    webFetchProvider,
+    hasCustomApiBase,
+  );
   const configChanged =
     webFetchProvider !== serverWebFetchProvider ||
     (showsApiBase && trimmedApiBase !== serverApiBase.trim());
   const needsKeyBeforeSave =
     requiresProviderCredential &&
-    !hasCustomApiBase &&
+    !allowsKeylessCustomBase &&
     !webFetchHasStoredKey &&
     !hasNewApiKey;
   const saveDisabled =
