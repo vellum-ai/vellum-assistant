@@ -83,8 +83,11 @@ describe("config: hardcoded defaults", () => {
       process.env.RUNTIME_PROXY_REQUIRE_AUTH = "true";
       expect(loadConfig().runtimeProxyRequireAuth).toBe(true);
     } finally {
-      if (saved !== undefined) process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
-      else delete process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+      if (saved !== undefined) {
+        process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
+      } else {
+        delete process.env.RUNTIME_PROXY_REQUIRE_AUTH;
+      }
     }
   });
 
@@ -99,7 +102,9 @@ describe("config: hardcoded defaults", () => {
     try {
       expect(loadConfig().runtimeProxyRequireAuth).toBe(true);
     } finally {
-      if (saved !== undefined) process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
+      if (saved !== undefined) {
+        process.env.RUNTIME_PROXY_REQUIRE_AUTH = saved;
+      }
       writeFileSync(join(testWorkspaceDir, "config.json"), "{}");
     }
   });
