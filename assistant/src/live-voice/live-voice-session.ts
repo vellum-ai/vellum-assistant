@@ -1217,6 +1217,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private releaseModeSessionResidency?: () => void;
   private cameraModeSessions?: CameraModeSessionProducer;
   private sightFrameSequence: Promise<void> = Promise.resolve();
+  private screenSharing = false;
   /**
    * Mirrors phase changes to the iOS Live Activity through the platform, for
    * the case the client cannot cover: an app backgrounded long enough for iOS
@@ -2084,13 +2085,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Apply a mid-session `update_config` frame: retune the live turn detector's
-   * pause ("pause before reply") and/or the barge-in guard ("interrupt
-   * sensitivity") without reconnecting. Each field is optional and independent;
-   * changes take effect from the next utterance. A no-op on manual (non-
-   * server_vad) sessions, which have no turn detector.
+   * Apply screen-sharing state and turn-detection tuning independently.
+   * Changes take effect from the next utterance.
    */
   private applyConfigUpdate(frame: LiveVoiceClientUpdateConfigFrame): void {
+    if (frame.screenSharing !== undefined) {
+      this.screenSharing = frame.screenSharing;
+    }
     if (frame.silenceThresholdMs !== undefined) {
       this.turnDetector?.setSilenceThresholdMs(frame.silenceThresholdMs);
       this.silenceThresholdMs = frame.silenceThresholdMs;
@@ -6602,7 +6603,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
         ...(this.context.startFrame.client === "macos"
-          ? { macosDesktopSession: true }
+          ? { macosDesktopSession: true, screenSharing: this.screenSharing }
           : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,

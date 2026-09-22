@@ -30,6 +30,7 @@ import {
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceMinimizeRoomServerFrame,
   type LiveVoiceSessionControl,
+  type LiveVoiceSessionConfig,
   type LiveVoiceSessionControlServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSpeechStartedServerFrame,
@@ -468,21 +469,19 @@ export class LiveVoiceChannelClient {
   }
 
   /**
-   * Retune the running session's turn-detection knobs ("pause before reply" /
-   * "interrupt sensitivity") without reconnecting. No-op unless the session is
-   * active; each field is optional. The daemon applies changes from the next
-   * utterance.
+   * Update screen-sharing state or turn-detection tuning without reconnecting.
+   * No-op unless active; each field applies independently from the next turn.
    */
-  updateConfig(config: {
-    silenceThresholdMs?: number;
-    bargeInMinSpeechMs?: number;
-  }): void {
+  updateConfig(config: LiveVoiceSessionConfig): void {
     if (this.state !== "active" || this.configUpdatesUnsupported) {
       return;
     }
     this.trySend(
       JSON.stringify({
         type: "update_config",
+        ...(config.screenSharing !== undefined
+          ? { screenSharing: config.screenSharing }
+          : {}),
         ...(config.silenceThresholdMs !== undefined
           ? { silenceThresholdMs: config.silenceThresholdMs }
           : {}),

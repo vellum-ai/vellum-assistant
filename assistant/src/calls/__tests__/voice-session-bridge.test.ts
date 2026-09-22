@@ -143,6 +143,10 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   recordConversationPersistedSeq: () => {},
 }));
 
+import {
+  clearHubClients,
+  registerHubClient,
+} from "../../__tests__/helpers/hub-clients.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type { PreparedModelCall } from "../../agent/loop.js";
 import { selectWinningProfile } from "../../config/llm-resolver.js";
@@ -2326,21 +2330,30 @@ describe("front-door leg tool suppression", () => {
 });
 
 describe("desktop skill preactivation", () => {
+  afterEach(() => clearHubClients(assistantEventHub));
+
   async function preactivatedFor(turn: Record<string, unknown>): Promise<{
     skillIds: string[];
     proxyInterfaces: unknown[];
     skillIdsDuringLoop: string[];
+    promptDuringLoop: string | null;
   }> {
     const skillIds: string[] = [];
     const proxyInterfaces: unknown[] = [];
     let skillIdsDuringLoop: string[] = [];
+    let prompt: string | null = null;
+    let promptDuringLoop: string | null = null;
     const fake = makeFakeConversation({
       processing: false,
       runAgentLoop: async () => {
         skillIdsDuringLoop = [...skillIds];
+        promptDuringLoop = prompt;
       },
     });
     Object.assign(fake.conversation, {
+      setVoiceCallControlPrompt: (value: string | null) => {
+        prompt = value;
+      },
       addPreactivatedSkillId: (id: string) => {
         skillIds.push(id);
       },
@@ -2356,8 +2369,57 @@ describe("desktop skill preactivation", () => {
       ...turn,
     });
     await flushMicrotasks();
-    return { skillIds, proxyInterfaces, skillIdsDuringLoop };
+    return { skillIds, proxyInterfaces, skillIdsDuringLoop, promptDuringLoop };
   }
+
+  test("a shared-screen turn receives the annotation instructions and schemas before inference", async () => {
+    registerHubClient({
+      hub: assistantEventHub,
+      clientId: "annotation-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-123",
+      capabilities: ["host_cu", "host_cu_annotate"],
+    });
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+      screenSharing: true,
+      actorPrincipalId: "user-123",
+    });
+    expect(result.skillIdsDuringLoop).toContain("screen-annotation");
+    expect(result.promptDuringLoop).toContain("ID: screen-annotation");
+    expect(result.promptDuringLoop).toContain("Name the thing.");
+    expect(result.promptDuringLoop).toContain("screen_point_at");
+    expect(result.promptDuringLoop).toContain("screen_clear_marks");
+    expect(result.promptDuringLoop).toContain('"target"');
+    expect(result.promptDuringLoop).toContain("skill_execute");
+  });
+
+  test.each([
+    { screenSharing: false },
+    { actorPrincipalId: "other-user" },
+    { routingLeg: "front-door" },
+    { macosDesktopSession: false },
+  ])(
+    "does not preload annotation for an ineligible turn: %j",
+    async (override) => {
+      registerHubClient({
+        hub: assistantEventHub,
+        clientId: "annotation-client",
+        interfaceId: "macos",
+        actorPrincipalId: "user-123",
+        capabilities: ["host_cu", "host_cu_annotate"],
+      });
+      const result = await preactivatedFor({
+        routingLeg: "escalated",
+        macosDesktopSession: true,
+        screenSharing: true,
+        actorPrincipalId: "user-123",
+        ...override,
+      });
+      expect(result.promptDuringLoop).not.toContain("ID: screen-annotation");
+    },
+  );
 
   test("an escalated leg of a macOS desktop session starts with computer use active", async () => {
     const result = await preactivatedFor({
