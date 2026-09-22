@@ -72,6 +72,23 @@ export type PermissionsState = Record<PermissionKind, PermissionStateItem>;
 
 const permissionKindSchema = z.enum(PERMISSION_KINDS);
 
+const presentationListeners = new Set<() => void>();
+
+export const onPermissionPresentation = (
+  listener: () => void,
+): (() => void) => {
+  presentationListeners.add(listener);
+  return () => {
+    presentationListeners.delete(listener);
+  };
+};
+
+const preparePermissionPresentation = (): void => {
+  for (const listener of presentationListeners) {
+    listener();
+  }
+};
+
 interface NotificationPermissionPresentation {
   presentation: "assistant";
   identity: NotificationIdentity;
@@ -274,6 +291,7 @@ const initialNotificationStatus = (): PermissionStatus =>
 
 export class PermissionsService {
   private lastStateJson: string | null = null;
+  private helperRequests = new Set<PermissionKind>();
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
   private automationStatus: PermissionStatus = "unknown";
   private notificationStatus: PermissionStatus = initialNotificationStatus();
@@ -298,6 +316,7 @@ export class PermissionsService {
     sender?: WebContents,
     presentation?: NotificationPermissionPresentation,
   ): Promise<PermissionStateItem> {
+    preparePermissionPresentation();
     try {
       switch (kind) {
         case "accessibility":
@@ -308,12 +327,14 @@ export class PermissionsService {
           break;
         case "screen":
           await requestMacHelperScreenRecordingPermission();
+          this.helperRequests.add(kind);
           break;
         case "speechRecognition":
           await requestMacHelperSpeechRecognitionPermission();
           break;
         case "inputMonitoring":
           await requestMacHelperInputMonitoringPermission();
+          this.helperRequests.add(kind);
           break;
         case "automation":
           await this.requestAutomation();
@@ -338,15 +359,22 @@ export class PermissionsService {
     kind: PermissionKind,
     sender?: WebContents,
   ): Promise<PermissionStateItem> {
-    // Asking first is what lists the helper in the pane, so there is a row
-    // to turn on when it opens.
-    if (kind === "inputMonitoring") {
-      await requestMacHelperInputMonitoringPermission();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    } else if (kind === "screen") {
-      await requestMacHelperScreenRecordingPermission();
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    if (kind === "inputMonitoring" || kind === "screen") {
+      const item = await this.item(kind, sender);
+      if (item.status === "granted") {
+        return item;
+      }
+      // Native alerts own their Settings button and can outlive the helper.
+      // Only a separate user action opens Settings directly.
+      const canShowNativeAlert =
+        kind === "screen" ||
+        item.status === "unknown" ||
+        item.status === "not-determined";
+      if (canShowNativeAlert && !this.helperRequests.has(kind)) {
+        return this.request(kind, sender);
+      }
     }
+    preparePermissionPresentation();
     await shell.openExternal(settingsPaneUrl(kind));
     this.startPolling(kind, sender);
     return this.item(kind, sender);
@@ -413,9 +441,11 @@ export class PermissionsService {
   }
 
   private canRequest(kind: PermissionKind, status: PermissionStatus): boolean {
-    if (status === "restricted" || status === "granted") return false;
+    if (status === "restricted" || status === "granted") {
+      return false;
+    }
     if (kind === "screen") {
-      return status === "not-determined" || status === "unknown";
+      return !this.helperRequests.has(kind);
     }
     return true;
   }

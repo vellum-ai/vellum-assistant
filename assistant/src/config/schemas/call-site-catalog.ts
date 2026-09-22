@@ -307,7 +307,7 @@ const CATALOG_RECORD: CatalogRecord = {
     id: "voiceEscalationJudge",
     displayName: "Voice Escalation Judge",
     description:
-      "Second opinion on the voice front door's escalate decision. Runs only when pinned to a TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
+      "Second opinion on the voice front door's escalate decision. Uses managed Jev when Vellum-managed inference is available, or an explicitly configured TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
     domain: "agentLoop",
   },
   voiceContinuationJudge: {

@@ -5,6 +5,7 @@ import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
+  getConversationProfilesForProvider,
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
@@ -59,6 +60,37 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Jev profile routes jev-latest through TypeSafe and is managed-only", () => {
+    const jev = CODE_DEFAULT_PROFILE_ENTRIES["jev-managed"];
+    expect(jev.model).toBe("jev-latest");
+    expect(jev.provider_connection).toBeUndefined();
+    expect(resolveRoutingIdentity(jev.provider, jev.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "typesafe",
+    });
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", null),
+    ).toBeDefined();
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("the conversation view drops the managed Jev profile but keeps it selectable for call sites", () => {
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).not.toContain("jev-managed");
+    expect(
+      Object.keys(getUserSelectableProfilesForProvider(undefined, null)),
+    ).toContain("jev-managed");
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).toContain("balanced");
+  });
+
   test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
     expect(balanced.model).toBe("accounts/fireworks/models/glm-5p3-flash");
@@ -80,7 +112,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS, "jev-managed"].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

@@ -29,7 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface UseVoiceInputOptions {
-  /** Current assistant ID — required for dictation cleanup via the assistant. */
+  /** Current assistant ID, used to resolve explicit dictation replacements. */
   assistantId: string | null;
   /** Ref to the composer textarea for cursor-position reads and resize. */
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -58,7 +58,7 @@ export interface UseVoiceInputReturn {
   handleVoiceBeforeStart: () => boolean | Promise<boolean>;
   /**
    * Called when `VoiceInputButton` delivers a final transcript.
-   * Runs dictation cleanup via the assistant, then inserts into the
+   * Applies explicit dictation replacements, then inserts into the
    * focused front app when Vellum is backgrounded, or the composer when
    * Vellum is focused.
    */

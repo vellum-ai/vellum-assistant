@@ -1,7 +1,9 @@
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
-  "native-model" | "provider-request-option" | "unsupported";
+  | "native-model"
+  | "provider-request-option"
+  | "unsupported";
 
 export interface CatalogModelPricingTier {
   /**
@@ -2603,6 +2605,16 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
   }));
 
 /**
+ * Providers that are routing identities rather than catalog owners. Mirrors
+ * `ROUTING_IDENTITY_PROVIDERS` in `inference/auth.ts`, which cannot be
+ * imported here without a cycle.
+ */
+const ROUTING_IDENTITY_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  "vellum",
+  "chatgpt",
+]);
+
+/**
  * Whether a catalog model produces free-form chat text. Unlisted providers
  * and model ids default to true so custom endpoints and unknown snapshots
  * stay usable as conversation models.
@@ -2614,9 +2626,16 @@ export function catalogModelSupportsText(
   if (typeof provider !== "string" || typeof modelId !== "string") {
     return true;
   }
-  const model = PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
-    (m) => m.id === modelId,
-  );
+  // A routing identity ("vellum", "chatgpt") owns no catalog models of the
+  // upstream it dispatches to, so judge the model by its catalog owner: a
+  // managed Jev profile is `vellum` + `jev-latest`, and `jev-latest` opts out
+  // of text under `typesafe`.
+  const catalogProvider = ROUTING_IDENTITY_PROVIDER_IDS.has(provider)
+    ? (getCatalogProviderForModel(modelId) ?? provider)
+    : provider;
+  const model = PROVIDER_CATALOG.find(
+    (p) => p.id === catalogProvider,
+  )?.models.find((m) => m.id === modelId);
   return model?.supportsText !== false;
 }
 

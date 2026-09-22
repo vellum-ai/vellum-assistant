@@ -628,6 +628,22 @@ export function resolveDefaultProfileKey(
 }
 
 /**
+ * Returns the code-owned profile tier for catalog display when that tier is
+ * available through the workspace's default provider. Workspace call-site
+ * pins do not affect this value. A managed-only tier on a BYOK install returns
+ * undefined so clients do not report a profile that cannot run there.
+ */
+export function resolveShippedDefaultProfileKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+): string | undefined {
+  const intent = CALL_SITE_DEFAULTS[callSite]?.profile ?? "balanced";
+  return usableDefaultIntent(intent, llm, {}, () => undefined) == null
+    ? undefined
+    : intent;
+}
+
+/**
  * Returns the profile key that `resolveCallSiteConfig` treats as the winning
  * (highest-precedence) profile for a turn — the profile whose fragment supplies
  * the resolved provider/model. Accounts for the per-turn `overrideProfile`, so

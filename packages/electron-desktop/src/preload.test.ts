@@ -6,6 +6,7 @@ import type {
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 import {
+  COMPANION_SET_UNPLACED_DICTATION_OFFER,
   NOTIFICATIONS_ACTION,
   NOTIFICATIONS_PREPARE_IDENTITY,
   NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
@@ -17,9 +18,26 @@ import {
 import {
   createBundleConfirmBridge,
   createDownloadsBridge,
+  createDictationOfferBridge,
   createNotificationsBridge,
   createWindowAttentionSubscriber,
 } from "./preload";
+
+test("sends recovery offers and clears over the companion IPC channel", () => {
+  const send = mock((_channel: string, _offer: unknown) => undefined);
+  const ipc = { send } as unknown as IpcRenderer;
+  const bridge = createDictationOfferBridge(ipc);
+  const offer = {
+    text: "make this friendlier",
+    reason: "paste-failed" as const,
+  };
+  bridge.setUnplacedDictationOffer(offer);
+  bridge.setUnplacedDictationOffer(null);
+  expect(send.mock.calls).toEqual([
+    [COMPANION_SET_UNPLACED_DICTATION_OFFER, offer],
+    [COMPANION_SET_UNPLACED_DICTATION_OFFER, null],
+  ]);
+});
 
 test("creates the notification bridge with optional identity methods", async () => {
   const handlers = new Map<string, (event: unknown, payload: unknown) => void>();

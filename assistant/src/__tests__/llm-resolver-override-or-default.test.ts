@@ -225,6 +225,49 @@ describe("composeCallSiteTweak", () => {
 });
 
 describe("shipped call-site tuning", () => {
+  test("the escalation judge uses managed Jev by default", () => {
+    const resolved = resolveCallSiteConfig(
+      "voiceEscalationJudge",
+      LLMSchema.parse({}),
+    );
+
+    expect(resolved.provider).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
+    expect(resolved.model).toBe("jev-latest");
+  });
+
+  test("the escalation judge falls through on a BYOK default provider", () => {
+    const resolved = resolveCallSiteConfig(
+      "voiceEscalationJudge",
+      LLMSchema.parse(anthropicDp),
+    );
+
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).not.toBe("jev-latest");
+  });
+
+  test("a BYOK Jev call-site override replaces the managed default", () => {
+    const llm = LLMSchema.parse({
+      ...anthropicDp,
+      profiles: {
+        jev: {
+          ...completeCustom,
+          provider: "typesafe",
+          provider_connection: "typesafe-personal",
+          model: "jev-latest",
+        },
+      },
+      callSites: {
+        voiceEscalationJudge: { profile: "jev" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("voiceEscalationJudge", llm);
+
+    expect(resolved.provider).toBe("typesafe");
+    expect(resolved.provider_connection).toBe("typesafe-personal");
+    expect(resolved.model).toBe("jev-latest");
+  });
+
   // A workspace entry that only repoints the profile must not cost the call
   // site the tuning it ships with. `recall` carries a full set: a token
   // budget, effort, sampling, thinking, and cache posture.

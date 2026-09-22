@@ -40,6 +40,13 @@ describe("getModelProfiles", () => {
     writeFixtureConfig({});
   });
 
+  test("omits the managed Jev profile, whose model returns verdicts rather than text", () => {
+    writeFixtureConfig({});
+    const keys = getModelProfiles().map((p) => p.key);
+    expect(keys).toContain("balanced");
+    expect(keys).not.toContain("jev-managed");
+  });
+
   test("orders profiles by profileOrder then the remaining keys alphabetically", () => {
     // GIVEN a workspace whose profileOrder names some keys, with a duplicate
     // ("balanced") and a key that resolves to no profile ("ghost").

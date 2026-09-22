@@ -412,6 +412,12 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   the `up` says why it closed, which is how the renderer tells a hold from a
   double tap. `helper.hotkey.readFrontSelection()` reads what is highlighted
   in the application in front, which a hold asks for once it has armed.
+  The result distinguishes no selection (`null`) from an unavailable capture
+  (`{ unavailable: true }`). Chromium activation uses Electron's manual AX
+  flag with Chrome's enhanced UI flag as fallback. Main retries reads with a
+  three-second wait budget without reactivating the tree or blocking the native event
+  loop. Retries are bound to the original hold and foreground process. An
+  unavailable capture preserves the transcript for copying and never pastes.
 - `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.

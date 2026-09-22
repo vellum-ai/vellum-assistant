@@ -28,12 +28,18 @@ export interface TypesafeNoulResult {
   latencyMs: number;
 }
 
-/** The call site's provider when it resolves to TypeSafe, else null. */
+/**
+ * The call site's provider when it resolves to TypeSafe, else null. Judged
+ * on the dispatched adapter's name rather than the configured provider: a
+ * managed profile is configured as `vellum` and only substitutes the
+ * TypeSafe upstream at dispatch, so the configured name alone would report
+ * the managed Jev profile as unavailable.
+ */
 export async function resolveTypesafeProvider(
   callSite: LLMCallSite,
 ): Promise<Provider | null> {
   const resolved = await resolveConfiguredProvider(callSite);
-  return resolved?.configuredProviderName === TYPESAFE_PROVIDER_NAME
+  return resolved?.provider.name === TYPESAFE_PROVIDER_NAME
     ? resolved.provider
     : null;
 }

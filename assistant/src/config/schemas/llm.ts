@@ -14,12 +14,14 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
-  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   FALLBACK_PROFILE_BY_KEY,
-  isBackupProfileKey,
   isDefaultProfileKey,
+  isManagedOnlyProfileKey,
+  JEV_MANAGED_PROFILE_CALL_SITES,
+  JEV_MANAGED_PROFILE_KEY,
+  MANAGED_ONLY_PROFILE_KEYS,
 } from "../default-profile-names.js";
 import { InputModalitiesSchema } from "../input-modalities.js";
 
@@ -766,10 +768,12 @@ function unresolvableProfileReason(
   name: string,
   backupsResolve: boolean,
 ): string {
-  return !backupsResolve &&
-    (BACKUP_PROFILE_KEYS as readonly string[]).includes(name)
-    ? "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider"
-    : "is not defined in llm.profiles";
+  if (backupsResolve || !isManagedOnlyProfileKey(name)) {
+    return "is not defined in llm.profiles";
+  }
+  return name === JEV_MANAGED_PROFILE_KEY
+    ? "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider"
+    : "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
 }
 
 /**
@@ -800,7 +804,7 @@ function referenceableProfileKeys(
 ): string[] {
   return Object.entries(profiles ?? {})
     .filter(([name, value]) => {
-      if (backupsResolve || !isBackupProfileKey(name)) {
+      if (backupsResolve || !isManagedOnlyProfileKey(name)) {
         return true;
       }
       const entry =
@@ -854,7 +858,7 @@ export function collectFallbackProfileIssues(
   const profileNames = new Set([
     ...referenceableProfileKeys(profiles, backupsResolve),
     ...DEFAULT_PROFILE_KEYS,
-    ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
+    ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
   ]);
   const mixProfileNames = new Set(
     entries
@@ -1004,6 +1008,8 @@ export const LLMSchema = z
     // they join the set only under a managed `llm.defaultProvider`: on a BYOK
     // or ChatGPT default provider they have no body to resolve to, and
     // keeping the reference would strand a selection the picker cannot show.
+    // The managed Jev profile (`JEV_MANAGED_PROFILE_KEY`) is scoped the same
+    // way, as a pin target for the judge call sites.
     // The flag-gated `os-beta` is excluded: it resolves only while a
     // workspace entry exists, so a reference to it is valid only when that
     // entry is present in `config.profiles`. A backup name materialized as a
@@ -1018,9 +1024,23 @@ export const LLMSchema = z
         backupsResolve,
       ),
       ...DEFAULT_PROFILE_KEYS,
-      ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
+      ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      // The Jev profile answers with structured verdicts, so only the sites
+      // built to read one may pin it; a text-producing site would receive
+      // output it cannot use. (Mix arms are covered by the profile-level
+      // mix validation below, which bars the profile from any mix.)
+      if (
+        siteConfig?.profile === JEV_MANAGED_PROFILE_KEY &&
+        !(JEV_MANAGED_PROFILE_CALL_SITES as readonly string[]).includes(siteId)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["callSites", siteId, "profile"],
+          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" returns structured answers rather than chat text, so it can only be pinned to ${JEV_MANAGED_PROFILE_CALL_SITES.join(", ")}`,
+        });
+      }
       if (siteConfig?.profile == null) {
         continue;
       }
@@ -1051,6 +1071,20 @@ export const LLMSchema = z
         path: ["advisorProfile"],
         message: `Profile "${config.advisorProfile}" referenced by llm.advisorProfile ${unresolvableProfileReason(config.advisorProfile, backupsResolve)}`,
       });
+    }
+    // The managed Jev profile is a valid reference target for call-site pins
+    // only. Its model returns structured verdicts rather than chat text, so
+    // the conversation positions reject it here as well as at the write
+    // routes, which keeps a raw config write from handing the main agent or
+    // the advisor a model that cannot answer in prose.
+    for (const field of ["activeProfile", "advisorProfile"] as const) {
+      if (config[field] === JEV_MANAGED_PROFILE_KEY) {
+        ctx.addIssue({
+          code: "custom",
+          path: [field],
+          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" referenced by llm.${field} returns structured answers rather than chat text, so it cannot be the conversation or advisor profile`,
+        });
+      }
     }
 
     // --- Mix profile validation --------------------------------------------
@@ -1102,6 +1136,17 @@ export const LLMSchema = z
             code: "custom",
             path: ["profiles", name, "mix", index, "profile"],
             message: `Mix profile "${name}" references profile "${arm.profile}" which ${unresolvableProfileReason(arm.profile, backupsResolve)}.`,
+          });
+          continue;
+        }
+        // A mix is a conversation profile, so an arm that returns structured
+        // verdicts rather than text would hand a chat turn to the decision
+        // model whenever the seeded pick lands on it.
+        if (arm.profile === JEV_MANAGED_PROFILE_KEY) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, "mix", index, "profile"],
+            message: `Mix profile "${name}" references "${JEV_MANAGED_PROFILE_KEY}", which returns structured answers rather than chat text and cannot be a mix constituent.`,
           });
           continue;
         }
