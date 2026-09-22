@@ -13,6 +13,8 @@ import {
   useState,
 } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -1075,6 +1077,193 @@ export interface MarkdownMessageProps {
    * so leave this off for settled content that may rely on them.
    */
   incremental?: boolean;
+  /**
+   * What the content is. `message` (the default) is chat: the transcript's
+   * scale, maths, and no raw HTML. `document` is file content: a document
+   * scale, embedded HTML parsed and sanitised, frontmatter stripped, and `$`
+   * left as a dollar sign.
+   */
+  variant?: MarkdownVariant;
+}
+
+/**
+ * Markdown file content: a README, a skill's instructions, a note. It carries
+ * its own document structure (a title, headed sections, embedded HTML for
+ * layout), so it reads at a document scale rather than a message one.
+ */
+function buildDocumentComponents(
+  LinkComponent: MarkdownLinkComponent,
+): Components {
+  return {
+    h1: ({ node: _node, children, ...rest }) => (
+      <h1
+        {...rest}
+        className="mb-3 mt-4 text-title-large first:mt-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ node: _node, children, ...rest }) => (
+      <h2
+        {...rest}
+        className="mb-2 mt-5 border-b pb-1 text-title-medium first:mt-0"
+        style={{
+          color: "var(--content-default)",
+          borderColor: "var(--border-base)",
+        }}
+      >
+        {children}
+      </h2>
+    ),
+    h3: ({ node: _node, children, ...rest }) => (
+      <h3
+        {...rest}
+        className="mb-2 mt-4 text-title-small first:mt-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </h3>
+    ),
+    h4: ({ node: _node, children, ...rest }) => (
+      <h4
+        {...rest}
+        className="mb-1 mt-3 text-body-medium-default first:mt-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </h4>
+    ),
+    p: ({ node: _node, children, ...rest }) => (
+      <p
+        {...rest}
+        className="mb-3 text-body-medium-lighter last:mb-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </p>
+    ),
+    ul: ({ children }) => (
+      <ul
+        className="mb-3 list-disc pl-6 text-body-medium-lighter last:mb-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </ul>
+    ),
+    ol: ({ children }) => (
+      <ol
+        className="mb-3 list-decimal pl-6 text-body-medium-lighter last:mb-0"
+        style={{ color: "var(--content-default)" }}
+      >
+        {children}
+      </ol>
+    ),
+    li: ({ children }) => <li className="mb-0.5">{children}</li>,
+    a: ({ href, children }) => (
+      <LinkComponent href={href}>{children}</LinkComponent>
+    ),
+    strong: ({ children }) => (
+      <strong style={{ color: "var(--content-default)" }}>{children}</strong>
+    ),
+    em: ({ children }) => (
+      <em style={{ color: "var(--content-default)" }}>{children}</em>
+    ),
+    code: ({ node: _node, className, children, ...rest }) => {
+      const isBlock = className?.startsWith("language-");
+      if (isBlock) {
+        return (
+          <code
+            {...rest}
+            className={`block overflow-x-auto rounded p-3 font-mono text-body-small-default ${className ?? ""}`}
+            style={{
+              backgroundColor:
+                "color-mix(in oklab, var(--content-default) 8%, transparent)",
+              color: "var(--content-default)",
+            }}
+          >
+            {children}
+          </code>
+        );
+      }
+      return (
+        <code
+          className="rounded px-1 py-0.5 font-mono text-[0.85em]"
+          style={{
+            backgroundColor:
+              "color-mix(in oklab, var(--content-default) 8%, transparent)",
+            color: "var(--content-default)",
+          }}
+        >
+          {children}
+        </code>
+      );
+    },
+    pre: ({ children }) => (
+      <pre
+        className="mb-3 overflow-x-auto rounded-md p-3 text-body-small-default last:mb-0"
+        style={{
+          backgroundColor:
+            "color-mix(in oklab, var(--content-default) 8%, transparent)",
+        }}
+      >
+        {children}
+      </pre>
+    ),
+    blockquote: ({ children }) => (
+      <blockquote
+        className="mb-3 border-l-2 pl-3 italic last:mb-0"
+        style={{
+          borderColor: "var(--primary-base, #3b82f6)",
+          color: "var(--content-secondary, var(--content-tertiary))",
+        }}
+      >
+        {children}
+      </blockquote>
+    ),
+    table: ({ children }) => (
+      <div className="mb-3 overflow-x-auto last:mb-0">
+        <table className="min-w-full border-collapse text-body-small-default">
+          {children}
+        </table>
+      </div>
+    ),
+    th: ({ node: _node, children, ...rest }) => (
+      <th
+        {...rest}
+        className="border px-2 py-1 text-left text-body-small-emphasised"
+        style={{
+          borderColor: "var(--border-base)",
+          color: "var(--content-default)",
+        }}
+      >
+        {children}
+      </th>
+    ),
+    td: ({ node: _node, children, ...rest }) => (
+      <td
+        {...rest}
+        className="border px-2 py-1"
+        style={{
+          borderColor: "var(--border-base)",
+          color: "var(--content-default)",
+        }}
+      >
+        {children}
+      </td>
+    ),
+    hr: () => (
+      <hr className="my-4" style={{ borderColor: "var(--border-base)" }} />
+    ),
+  };
+}
+
+/**
+ * Strip a leading YAML frontmatter block. It is metadata for the surrounding
+ * system, not content for whoever opened the file.
+ */
+function stripFrontmatter(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
 const REMARK_PLUGINS: PluggableList = [
@@ -1084,12 +1273,25 @@ const REMARK_PLUGINS: PluggableList = [
   remarkDisplayMathBlocks,
 ];
 
+/**
+ * A document carries no maths: a shell README's `$VAR` and a price list's
+ * `$40` are dollars, and reading them as maths would rewrite what the file
+ * plainly says.
+ */
+const DOCUMENT_REMARK_PLUGINS: PluggableList = [
+  remarkGfm,
+  remarkPreserveOrderedListNumbers,
+];
+
+export type MarkdownVariant = "message" | "document";
+
 interface MarkdownBlockProps {
   content: string;
   hardLineBreaks: boolean | undefined;
   components: Components;
   rehypePlugins: Pluggable[];
   urlTransform: ((url: string) => string) | undefined;
+  variant: MarkdownVariant;
 }
 
 /**
@@ -1104,17 +1306,24 @@ function MarkdownBlock({
   components,
   rehypePlugins,
   urlTransform,
+  variant,
 }: MarkdownBlockProps) {
   const processed = useMemo(() => {
+    // A document has no maths, so none of the maths rewrites apply to it.
+    if (variant === "document") {
+      return hardLineBreaks ? hardBreakNewlines(content) : content;
+    }
     const escaped = escapeCurrencyDollars(content);
     const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
     // Last: currency escaping would otherwise read a converted `\(5\)` as an
     // amount and escape the `$` it just introduced.
     return convertLatexDelimiters(broken);
-  }, [content, hardLineBreaks]);
+  }, [content, hardLineBreaks, variant]);
   return (
     <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
+      remarkPlugins={
+        variant === "document" ? DOCUMENT_REMARK_PLUGINS : REMARK_PLUGINS
+      }
       rehypePlugins={rehypePlugins}
       components={components}
       urlTransform={urlTransform}
@@ -1154,18 +1363,26 @@ export function MarkdownMessage({
   extraRehypePlugins,
   extraComponents,
   incremental = false,
+  variant = "message",
 }: MarkdownMessageProps) {
-  const blocks = useIncrementalMarkdownBlocks(incremental ? content : "");
+  const isDocument = variant === "document";
+  // Frontmatter is metadata for the system around the file, so it is stripped
+  // before the split as well as before the parse: a block boundary inside it
+  // would otherwise leave half of it on screen.
+  const source = isDocument ? stripFrontmatter(content) : content;
+  const blocks = useIncrementalMarkdownBlocks(incremental ? source : "");
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(
     () =>
       ({
-        ...buildMarkdownComponents(Link, imageComponent),
+        ...(isDocument
+          ? buildDocumentComponents(Link)
+          : buildMarkdownComponents(Link, imageComponent)),
         // Custom tag names from consumer rehype plugins are not part of
         // react-markdown's intrinsic `Components` key set, hence the cast.
         ...extraComponents,
       }) as Components,
-    [Link, imageComponent, extraComponents],
+    [Link, imageComponent, extraComponents, isDocument],
   );
   // Loosest possible trigger on purpose: every construct remark-math can
   // treat as math contains a dollar sign, or one of the `\(` / `\[` openers
@@ -1174,19 +1391,31 @@ export function MarkdownMessage({
   // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
   // reverse, and the only cost of a false positive is a lazy chunk load.
   const needsMath =
-    content.includes("$") || content.includes("\\(") || content.includes("\\[");
+    !isDocument &&
+    (content.includes("$") ||
+      content.includes("\\(") ||
+      content.includes("\\["));
   const katexPlugin = useRehypeKatex(needsMath);
   const rehypePlugins = useMemo(
     () => [
+      // A document's embedded HTML is reparsed into real elements and then
+      // sanitised, in that order so sanitising sees elements rather than text.
+      // Without it react-markdown prints the tags a README uses for layout.
+      ...(isDocument ? [rehypeRaw, rehypeSanitize] : []),
       ...(katexPlugin === null ? [] : [katexPlugin]),
       ...(extraRehypePlugins ?? []),
     ],
-    [katexPlugin, extraRehypePlugins],
+    [isDocument, katexPlugin, extraRehypePlugins],
   );
   return (
     <div
       data-slot="markdown-message"
-      className={cn("text-chat text-[var(--content-default)]", className)}
+      className={cn(
+        isDocument
+          ? "text-[var(--content-default)]"
+          : "text-chat text-[var(--content-default)]",
+        className,
+      )}
       onCopy={handleSelectionCopy}
     >
       {incremental ? (
@@ -1201,15 +1430,17 @@ export function MarkdownMessage({
             components={components}
             rehypePlugins={rehypePlugins}
             urlTransform={urlTransform}
+            variant={variant}
           />
         ))
       ) : (
         <MemoizedMarkdownBlock
-          content={content}
+          content={source}
           hardLineBreaks={hardLineBreaks}
           components={components}
           rehypePlugins={rehypePlugins}
           urlTransform={urlTransform}
+          variant={variant}
         />
       )}
     </div>
