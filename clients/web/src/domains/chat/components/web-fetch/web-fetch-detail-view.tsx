@@ -18,7 +18,11 @@ import { CardRoot, Notice, Typography } from "@vellumai/design-library";
 
 import { ExternalAnchor, isWebUrl } from "@/components/external-anchor";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
+import {
+  ClampedContent,
+  CodeBlock,
+  SectionLabel,
+} from "@/components/detail-primitives";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
@@ -299,7 +303,9 @@ export function WebFetchDetailView({
           // the page had supplied them. Local-file references keep degrading
           // to an inert card here; a remote page has no business naming a
           // file in the user's workspace.
-          <ChatMarkdownMessage content={parsed.content} />
+          <ClampedContent label={t("toolDetailPanel.output")}>
+            <ChatMarkdownMessage content={parsed.content} />
+          </ClampedContent>
         ) : (
           <ToolOutputBody
             text=""

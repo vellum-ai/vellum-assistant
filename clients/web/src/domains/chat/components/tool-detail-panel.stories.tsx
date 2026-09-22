@@ -33,6 +33,7 @@ import {
   skillLoadDetail,
   skillLoadErrorDetail,
   skillLoadLongDetail,
+  skillLoadManyToolsDetail,
   skillLoadRunningDetail,
   subagentSpawnDetail,
   thinkingDetail,
@@ -44,6 +45,7 @@ import {
   webFetchDetail,
   webFetchErrorDetail,
   webFetchLegacyDetail,
+  webFetchLongPageDetail,
   webFetchNoticesDetail,
   webFetchRunningDetail,
   webSearchDeniedDetail,
@@ -410,6 +412,11 @@ export const SkillLoadLongBody: Story = {
 };
 
 /** A failed `skill_load`, whose error reads as prose rather than raw output. */
+/** A skill advertising many tools: the list folds, one control for all of it. */
+export const SkillLoadManyTools: Story = {
+  args: { detail: skillLoadManyToolsDetail },
+};
+
 export const SkillLoadError: Story = { args: { detail: skillLoadErrorDetail } };
 
 /** `skill_load` still in flight, before the instruction body lands. */
@@ -518,6 +525,11 @@ export const AskQuestionOutstanding: Story = {
 
 /** `web_fetch`. The fetched page, not the header-and-marker envelope. */
 export const WebFetch: Story = { args: { detail: webFetchDetail } };
+
+/** A long page folds, so the rest of the panel stays reachable. */
+export const WebFetchLongPage: Story = {
+  args: { detail: webFetchLongPageDetail },
+};
 
 /** A fetch recorded before the metadata existed reads as it always has. */
 export const WebFetchLegacy: Story = { args: { detail: webFetchLegacyDetail } };

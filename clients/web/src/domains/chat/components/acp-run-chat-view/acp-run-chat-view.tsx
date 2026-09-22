@@ -1,4 +1,4 @@
-import { SectionLabel } from "@/components/detail-primitives";
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { useTranslation } from "@/i18n";
 /**
  * Devin-style chat view for an ACP run. Assembles the projected chat blocks
@@ -470,13 +470,15 @@ function ObjectiveSection({ task }: { task: string | undefined }) {
   return (
     <div data-testid="acp-chat-objective">
       <SectionLabel as="h3">{t("acpRunChatView.objective")}</SectionLabel>
-      <Typography
-        variant="body-medium-lighter"
-        as="p"
-        className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
-      >
-        {task}
-      </Typography>
+      <ClampedContent label={t("acpRunChatView.objective")}>
+        <Typography
+          variant="body-medium-lighter"
+          as="p"
+          className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
+        >
+          {task}
+        </Typography>
+      </ClampedContent>
       <div className="mt-4 h-px w-full bg-[var(--border-hover)]" />
     </div>
   );
