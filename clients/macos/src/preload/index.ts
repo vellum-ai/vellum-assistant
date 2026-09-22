@@ -23,6 +23,7 @@ import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
   CompanionIntroAction,
+  CompanionIntroAnnouncementAction,
   CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
@@ -534,6 +535,24 @@ const bridge: VellumBridge = {
       ipcRenderer.on("vellum:companion:state", handler);
       return () => {
         ipcRenderer.off("vellum:companion:state", handler);
+      };
+    },
+    getIntroAnnouncement: (): Promise<boolean> =>
+      ipcRenderer.invoke(
+        "vellum:companion:getIntroAnnouncement",
+      ) as Promise<boolean>,
+    answerIntroAnnouncement: (
+      action: CompanionIntroAnnouncementAction,
+    ): void => {
+      ipcRenderer.send("vellum:companion:answerIntroAnnouncement", action);
+    },
+    onIntroAnnouncement: (callback) => {
+      const handler = (_event: IpcRendererEvent, open: boolean) => {
+        callback(open);
+      };
+      ipcRenderer.on("vellum:companion:introAnnouncement", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:introAnnouncement", handler);
       };
     },
     getIntroStage: (): Promise<boolean> =>

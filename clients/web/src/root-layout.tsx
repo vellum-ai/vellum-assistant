@@ -100,6 +100,7 @@ import {
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { CompanionIntroScrim } from "@/components/companion-intro-scrim";
+import { CompanionTourEntry } from "@/components/companion-tour-entry-lazy";
 import { useCompanionIntroFunnel } from "@/domains/onboarding/companion-intro-funnel";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
@@ -731,6 +732,8 @@ export function RootLayout() {
           focus/zone change. No-ops until an assistant id resolves. */}
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
+
+      <CompanionTourEntry />
 
       {/* The app dimmed while the companion introduces itself over this
           window. Inert off Electron and on the shells with no surface. */}

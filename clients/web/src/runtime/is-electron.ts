@@ -29,6 +29,7 @@ import type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroAnnouncementAction,
   CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
@@ -403,6 +404,12 @@ declare global {
       companion?: {
         getState(): Promise<CompanionSurfaceState | null>;
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
+        /** Optional: shells that predate the app-side announcement have none. */
+        getIntroAnnouncement?(): Promise<boolean>;
+        answerIntroAnnouncement?(
+          action: CompanionIntroAnnouncementAction,
+        ): void;
+        onIntroAnnouncement?(callback: (open: boolean) => void): () => void;
         /** Optional: shells that predate the staged introduction have none. */
         getIntroStage?(): Promise<boolean>;
         onIntroStage?(callback: (staged: boolean) => void): () => void;
