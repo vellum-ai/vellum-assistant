@@ -230,15 +230,21 @@ export function WebFetchDetailView({
         }
       : null;
 
-  // The metadata flags the two warnings a reader acts on. Its other notices
-  // (a redirect, `max_chars`) are for the model: the card already shows the
-  // final url, and a cut-short page is a cut-short page whatever cut it.
+  // The metadata carries the warnings a reader acts on: a page cut short, one
+  // that may need JavaScript, a start past the end of the page, and a hosted
+  // provider's own warning (its words, so shown as sent). Its other notices (a
+  // redirect, `max_chars`) are for the model: the card already shows the final
+  // url, and a cut-short page is a cut-short page whatever cut it.
   const notices = meta
     ? [
         ...(meta.truncated ? [t("webFetchDetailView.truncated")] : []),
         ...(meta.mayRequireJavaScript
           ? [t("webFetchDetailView.mayRequireJavaScript")]
           : []),
+        ...(meta.startIndexPastEnd
+          ? [t("webFetchDetailView.startIndexPastEnd")]
+          : []),
+        ...(meta.providerWarning ? [meta.providerWarning] : []),
       ]
     : parsed.notices;
 

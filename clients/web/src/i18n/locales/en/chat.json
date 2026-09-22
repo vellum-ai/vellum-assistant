@@ -1979,6 +1979,7 @@
   "webFetchDetailView": {
     "fetchFailed": "Fetch failed.",
     "mayRequireJavaScript": "This page may need JavaScript to show everything, so some of it may be missing.",
+    "startIndexPastEnd": "The fetch started past the end of this page, so nothing was read.",
     "truncated": "Only part of this page was read."
   },
   "webSearchDetailView": {

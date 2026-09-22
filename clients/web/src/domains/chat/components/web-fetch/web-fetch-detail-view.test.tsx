@@ -291,6 +291,21 @@ describe("WebFetchDetailView", () => {
       expect(getByText("404")).toBeDefined();
     });
 
+    test("warns of a start past the end and shows a provider's warning as sent", () => {
+      const { getAllByRole, getByText } = renderView(payload({}), {
+        ...META,
+        startIndexPastEnd: true,
+        providerWarning: "The page was served from cache.",
+      });
+      expect(getAllByRole("status")).toHaveLength(2);
+      expect(
+        getByText(
+          "The fetch started past the end of this page, so nothing was read.",
+        ),
+      ).toBeDefined();
+      expect(getByText("The page was served from cache.")).toBeDefined();
+    });
+
     test("an empty title leaves the card named by its domain", () => {
       const { getByText } = renderView(payload({}), { ...META, title: "" });
       expect(getByText("www.cnbc.com")).toBeDefined();

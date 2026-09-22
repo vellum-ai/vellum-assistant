@@ -1038,6 +1038,7 @@ export async function executeWebFetch(
       redirectCount,
       durationMs: Date.now() - startedAt,
       mayRequireJavaScript: mayRequireJavaScript || undefined,
+      startIndexPastEnd: startIndex > processed.length || undefined,
     };
 
     if (!response.ok) {
@@ -1429,6 +1430,8 @@ export async function executeFirecrawlCompatScrape(
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: 0,
         durationMs: Date.now() - startedAt,
+        startIndexPastEnd: startIndex > processed.length || undefined,
+        providerWarning: warning || undefined,
       };
 
       return {
@@ -1706,6 +1709,7 @@ export async function executeTinyfishFetch(
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: finalUrl === safeRequestedUrl ? 0 : 1,
         durationMs: Date.now() - startedAt,
+        startIndexPastEnd: startIndex > processed.length || undefined,
       };
       return {
         content,

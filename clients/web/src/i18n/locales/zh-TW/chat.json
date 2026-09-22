@@ -1968,6 +1968,7 @@
   "webFetchDetailView": {
     "fetchFailed": "擷取失敗。",
     "mayRequireJavaScript": "此頁面可能需要 JavaScript 才能完整顯示，因此部分內容可能缺失。",
+    "startIndexPastEnd": "讀取起點超出了此頁面的結尾，因此沒有讀取到任何內容。",
     "truncated": "只讀取了此頁面的一部分。"
   },
   "webSearchDetailView": {

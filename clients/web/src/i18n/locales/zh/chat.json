@@ -1968,6 +1968,7 @@
   "webFetchDetailView": {
     "fetchFailed": "获取失败。",
     "mayRequireJavaScript": "此页面可能需要 JavaScript 才能完整显示，因此部分内容可能缺失。",
+    "startIndexPastEnd": "读取起点超出了此页面的末尾，因此没有读取到任何内容。",
     "truncated": "只读取了此页面的一部分。"
   },
   "webSearchDetailView": {
