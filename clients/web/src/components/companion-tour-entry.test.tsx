@@ -33,6 +33,22 @@ describe("CompanionTourEntryModal", () => {
     });
   });
 
+  test("opens without putting the ring on the close button", async () => {
+    const view = render(
+      <CompanionTourEntryModal open onStart={() => {}} onDismiss={() => {}} />,
+    );
+
+    // The dialog itself holds the opening focus. The close button is the
+    // first tabbable node in the card, so an unguarded open would ring the
+    // one control that throws the tour away.
+    // Identity compared as a boolean: a failed `toBe` on two DOM nodes
+    // serialises the whole tree into the diff, which takes minutes.
+    await waitFor(() => {
+      expect(document.activeElement === view.getByRole("dialog")).toBe(true);
+    });
+    expect(document.activeElement === view.getByLabelText("Close")).toBe(false);
+  });
+
   test("starts the tour from the announcement", () => {
     const onStart = mock(() => {});
     const view = render(
