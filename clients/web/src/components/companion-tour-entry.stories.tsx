@@ -7,7 +7,13 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Button, Modal } from "@vellumai/design-library";
 import {
@@ -16,6 +22,7 @@ import {
   companionBoxFor,
   companionIntroCallControlFor,
   type CompanionIntroBeat,
+  type CompanionIntroCallControl,
 } from "@vellumai/ipc-contract";
 
 import {
@@ -25,6 +32,7 @@ import {
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
+import { containsPoint } from "@/components/companion-layout";
 import { CompanionSurface } from "@/components/companion-surface";
 import { useTranslation } from "@/i18n";
 
@@ -260,7 +268,57 @@ function DesktopTour({ onRestart }: { onRestart: () => void }): ReactNode {
   const [beat, setBeat] = useState<CompanionIntroBeat>(
     COMPANION_INTRO_BEATS[0],
   );
+  const [hovered, setHovered] = useState(false);
+  const [greeted, setGreeted] = useState(false);
+  const [voiceKeyTaps, setVoiceKeyTaps] = useState(0);
+  const [chordPresses, setChordPresses] = useState(0);
+  const [chordControl, setChordControl] =
+    useState<CompanionIntroCallControl>();
+  const avatarRef = useRef<HTMLDivElement | null>(null);
   const demo = introDemoState(beat, t("companionIntro.call.line"));
+
+  useEffect(() => {
+    setGreeted(false);
+  }, [beat]);
+
+  const takeChord = useCallback(
+    (control: CompanionIntroCallControl): void => {
+      setChordControl(control);
+      setChordPresses((total) => total + 1);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Fn" || event.code === "Fn") {
+        setVoiceKeyTaps((total) => total + 1);
+        return;
+      }
+      if (!event.altKey) {
+        return;
+      }
+      const control =
+        event.key.toLowerCase() === "s"
+          ? "share"
+          : event.key.toLowerCase() === "d"
+            ? "draw"
+            : event.key.toLowerCase() === "m"
+              ? "mute"
+              : undefined;
+      if (
+        control !== undefined &&
+        control === companionIntroCallControlFor(beat)
+      ) {
+        event.preventDefault();
+        takeChord(control);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [beat, takeChord]);
 
   const advance = (action: "next" | "back" | "dismiss" | "try"): void => {
     if (action === "dismiss") {
@@ -287,6 +345,21 @@ function DesktopTour({ onRestart }: { onRestart: () => void }): ReactNode {
       data-theme="dark"
       className="absolute inset-0 overflow-hidden bg-[#20242b]"
       data-testid="desktop-tour"
+      onMouseMove={(event) => {
+        const avatar = avatarRef.current;
+        const onAvatar =
+          avatar !== null &&
+          containsPoint(
+            avatar.getBoundingClientRect(),
+            event.clientX,
+            event.clientY,
+          );
+        setHovered(onAvatar);
+        if (onAvatar && beat === "idle") {
+          setBeat("meet");
+        }
+      }}
+      onMouseLeave={() => setHovered(false)}
     >
       <div
         className="absolute inset-0"
@@ -323,6 +396,7 @@ function DesktopTour({ onRestart }: { onRestart: () => void }): ReactNode {
       </div>
       <CompanionSurface
         phase={introPhase(beat) ?? "resting"}
+        hovered={hovered}
         spotlight={introSpotlight(beat)}
         avatarStaged={beat === "talk" || beat === "try"}
         avatarTucked={beat === "idle"}
@@ -335,6 +409,21 @@ function DesktopTour({ onRestart }: { onRestart: () => void }): ReactNode {
         sharing={demo?.sharing}
         shareEnabled={demo !== null}
         shortcuts={demo !== null ? INTRO_DEMO_SHORTCUTS : undefined}
+        avatarRef={avatarRef}
+        onAvatarClick={() => {
+          if (beat === "talk") {
+            setGreeted(true);
+          } else if (beat === "try") {
+            onRestart();
+          }
+        }}
+        onShare={() => takeChord("share")}
+        onAnnotate={() => takeChord("draw")}
+        onControl={(action) => {
+          if (action === "muteMicrophone" || action === "unmuteMicrophone") {
+            takeChord("mute");
+          }
+        }}
         intro={
           <CompanionIntro
             beat={beat}
@@ -342,7 +431,10 @@ function DesktopTour({ onRestart }: { onRestart: () => void }): ReactNode {
             accentHex={ACCENT_HEX}
             avatarBox={AVATAR_BOX}
             optionsBox={OPTIONS_BOX}
-            chordControl={companionIntroCallControlFor(beat)}
+            greeted={greeted}
+            voiceKeyTaps={voiceKeyTaps}
+            chordPresses={chordPresses}
+            chordControl={chordControl}
             onAdvance={advance}
           />
         }
