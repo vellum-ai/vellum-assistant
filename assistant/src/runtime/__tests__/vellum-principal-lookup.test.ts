@@ -49,6 +49,8 @@ const {
   resolveVellumPrincipal,
   resolveVellumPrincipalFresh,
   __resetVellumPrincipalCacheForTest,
+  __vellumPrincipalCacheSizeForTest,
+  MAX_ENTRIES,
 } = await import("../vellum-principal-lookup.js");
 
 const PRINCIPAL = "11111111-2222-3333-4444-555555555555";
@@ -280,5 +282,24 @@ describe("resolveVellumPrincipalFresh", () => {
 
     expect(cached.trustClass).toBe("guardian");
     expect(readCalls).toHaveLength(1);
+  });
+});
+
+describe("cache bounds", () => {
+  test("a burst past the limit is trimmed once the reads settle", async () => {
+    nextResult = verdict({ trustClass: "guardian" });
+    const burst = Array.from({ length: MAX_ENTRIES + 50 }, (_, i) =>
+      resolveVellumPrincipal(`burst-principal-${i}`),
+    );
+
+    // Nothing was evictable on insert: every entry is mid-read.
+    expect(__vellumPrincipalCacheSizeForTest()).toBeGreaterThan(MAX_ENTRIES);
+    await Promise.all(burst);
+
+    await resolveVellumPrincipal("after-the-burst");
+
+    expect(__vellumPrincipalCacheSizeForTest()).toBeLessThanOrEqual(
+      MAX_ENTRIES,
+    );
   });
 });

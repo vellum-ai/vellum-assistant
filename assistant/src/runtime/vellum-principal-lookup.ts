@@ -31,7 +31,7 @@ const log = getLogger("vellum-principal-lookup");
 const CACHE_TTL_MS = 30_000;
 
 /** Keeps the map from growing without limit across principals. */
-const MAX_ENTRIES = 2000;
+export const MAX_ENTRIES = 2000;
 
 export interface VellumPrincipalTrust {
   trustClass: TrustClass;
@@ -72,14 +72,24 @@ function prune(principalId: string): void {
   }
 }
 
-/** Evicts the oldest idle principal once the map is full. */
+/**
+ * Evicts oldest-first until the map is back under the limit.
+ *
+ * A burst of distinct principals can push the map past MAX_ENTRIES: every
+ * entry is mid-read, so nothing is evictable, and the insert happens anyway
+ * rather than refusing the caller. Trimming to the limit rather than by one
+ * entry is what brings the map back down once those reads settle.
+ */
 function evictIfFull(principalId: string): void {
   if (states.size < MAX_ENTRIES || states.has(principalId)) {
     return;
   }
   for (const [key, state] of states) {
-    if (state.active === 0) {
-      states.delete(key);
+    if (state.active > 0) {
+      continue;
+    }
+    states.delete(key);
+    if (states.size < MAX_ENTRIES) {
       return;
     }
   }
@@ -195,6 +205,11 @@ export function resolveVellumPrincipalFresh(
   principalId: string,
 ): Promise<VellumPrincipalTrust> {
   return read(principalId, true);
+}
+
+/** Test-only: number of principals currently held. */
+export function __vellumPrincipalCacheSizeForTest(): number {
+  return states.size;
 }
 
 /** Test-only: reset cache + in-flight state for deterministic test runs. */
