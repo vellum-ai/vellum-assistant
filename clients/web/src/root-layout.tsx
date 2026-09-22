@@ -100,7 +100,7 @@ import {
 } from "@/stores/page-surface-store";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { CompanionIntroScrim } from "@/components/companion-intro-scrim";
-import { CompanionTourEntry } from "@/components/companion-tour-entry";
+import { CompanionTourEntry } from "@/components/companion-tour-entry-lazy";
 import { useCompanionIntroFunnel } from "@/domains/onboarding/companion-intro-funnel";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";

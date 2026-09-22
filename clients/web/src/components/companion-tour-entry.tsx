@@ -16,10 +16,6 @@ import {
 
 import { CompanionSurface } from "@/components/companion-surface";
 import { useTranslation } from "@/i18n";
-import {
-  answerCompanionIntroAnnouncement,
-  useCompanionIntroAnnouncement,
-} from "@/runtime/companion-intro-announcement";
 
 const AVATAR_BOX = companionBoxFor("avatar", DEFAULT_COMPANION_SIZE);
 const OPTIONS_BOX = companionBoxFor("options", DEFAULT_COMPANION_SIZE);
@@ -224,16 +220,5 @@ function TourValueCard({
         </span>
       </span>
     </div>
-  );
-}
-
-export function CompanionTourEntry(): ReactNode {
-  const open = useCompanionIntroAnnouncement();
-  return (
-    <CompanionTourEntryModal
-      open={open}
-      onStart={() => answerCompanionIntroAnnouncement("start")}
-      onDismiss={() => answerCompanionIntroAnnouncement("dismiss")}
-    />
   );
 }

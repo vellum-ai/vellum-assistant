@@ -5,14 +5,19 @@ import { isElectron } from "@/runtime/is-electron";
 
 const bridge = () => (isElectron() ? window.vellum?.companion : undefined);
 
-const announcement = createBooleanBridgeStore({
-  getInitial: async () => (await bridge()?.getIntroAnnouncement?.()) ?? false,
-  subscribe: (callback) =>
-    bridge()?.onIntroAnnouncement?.(callback) ?? (() => undefined),
-});
+let announcement: ReturnType<typeof createBooleanBridgeStore> | undefined;
+
+function announcementStore(): ReturnType<typeof createBooleanBridgeStore> {
+  announcement ??= createBooleanBridgeStore({
+    getInitial: async () => (await bridge()?.getIntroAnnouncement?.()) ?? false,
+    subscribe: (callback) =>
+      bridge()?.onIntroAnnouncement?.(callback) ?? (() => undefined),
+  });
+  return announcement;
+}
 
 export function useCompanionIntroAnnouncement(): boolean {
-  return announcement.useValue();
+  return announcementStore().useValue();
 }
 
 export function answerCompanionIntroAnnouncement(
