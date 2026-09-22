@@ -104,18 +104,18 @@ export function skillUpdateReceiptDedupeKey(jobId: string): string {
  * The `sourceContextId` a receipt is announced with. The home feed's "Go to
  * Conversation" and the vellum delivery's body append both resolve it to a
  * conversation, so a receipt whose rewrites all came from one conversation
- * names it; one spanning several passes a sentinel that resolves to nothing,
- * and the receipt's own entries carry the links.
+ * names it; one spanning several, or with a rewrite of unknown lineage,
+ * passes a sentinel that resolves to nothing, and the receipt's own entries
+ * carry the links.
  */
 export function skillUpdateReceiptSourceContextId(
   jobId: string,
   entries: SkillUpdateReceiptEntry[],
 ): string {
-  const sources = new Set(
-    entries.flatMap((entry) =>
-      entry.sourceConversationId ? [entry.sourceConversationId] : [],
-    ),
-  );
+  // An entry with no lineage counts as its own source: linking the whole
+  // receipt to the one known conversation would attribute that rewrite
+  // there too.
+  const sources = new Set(entries.map((entry) => entry.sourceConversationId));
   const [only] = sources;
   return sources.size === 1 && only ? only : `skill-update-receipt:${jobId}`;
 }
@@ -191,6 +191,30 @@ async function isRunFinished(runConversationId: string): Promise<boolean> {
 }
 
 /**
+ * The entries whose source conversation still exists. An entry with no
+ * lineage has nothing to check and stays.
+ */
+async function dropEntriesOfDeletedSources(
+  entries: SkillUpdateReceiptEntry[],
+): Promise<SkillUpdateReceiptEntry[]> {
+  const sources = new Set(
+    entries.flatMap((entry) =>
+      entry.sourceConversationId ? [entry.sourceConversationId] : [],
+    ),
+  );
+  const gone = new Set<string>();
+  for (const source of sources) {
+    if (!(await getConversation(source))) {
+      gone.add(source);
+    }
+  }
+  return entries.filter(
+    (entry) =>
+      !entry.sourceConversationId || !gone.has(entry.sourceConversationId),
+  );
+}
+
+/**
  * Job handler for `skill_update_receipt` (registered in `job-handlers.ts`).
  * A malformed payload is dropped with a warning. A pipeline failure returns
  * `retryable` so the worker's budget covers it.
@@ -242,8 +266,20 @@ export async function skillUpdateReceiptJob(
     return undefined;
   }
 
-  const { title, body } = composeSkillUpdateReceiptCopy(payload.entries);
-  const skillIds = new Set(payload.entries.map((entry) => entry.skillId));
+  // The claimed payload is a snapshot: a source conversation deleted while
+  // this row was evaluated was purged from pending rows only. Announce
+  // nothing distilled from a conversation that is gone.
+  const entries = await dropEntriesOfDeletedSources(payload.entries);
+  if (entries.length === 0) {
+    log.info(
+      { jobId: job.id },
+      "skill-update receipt: every entry's source conversation was deleted; nothing to announce",
+    );
+    return undefined;
+  }
+
+  const { title, body } = composeSkillUpdateReceiptCopy(entries);
+  const skillIds = new Set(entries.map((entry) => entry.skillId));
   const [onlySkillId] = skillIds;
   const result = await emitNotificationSignal({
     // A tool's work reported after the fact, not the scheduler's:
@@ -258,7 +294,7 @@ export async function skillUpdateReceiptJob(
       body,
       // The typed list the receipt panel renders; the feed maps it onto the
       // item and strips it from the free-form metadata.
-      updates: payload.entries.map((entry) => ({
+      updates: entries.map((entry) => ({
         skillId: entry.skillId,
         name: entry.name,
         summary: entry.changeSummary,
@@ -287,7 +323,7 @@ export async function skillUpdateReceiptJob(
     {
       jobId: job.id,
       sealedBy: decision.seal,
-      entryCount: payload.entries.length,
+      entryCount: entries.length,
       skillCount: skillIds.size,
       deduplicated: result.deduplicated,
       dispatched: result.dispatched,

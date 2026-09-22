@@ -30,8 +30,10 @@ let emitOutcomes: Array<{ pipelineFailed?: boolean; reason?: string }> = [];
 const emits: Array<
   Parameters<typeof realEmitSignal.emitNotificationSignal>[0]
 > = [];
-/** Runs: present and processing, present and idle, or absent (gone). */
+/** Runs that are processing; any other conversation reads as idle. */
 const runs = new Map<string, "live" | "idle">();
+/** Conversations, run or source, that no longer exist. */
+const gone = new Set<string>();
 /** Runs inside a liveness read, so a test can land an entry mid-evaluation. */
 let onLivenessRead: (() => void) | null = null;
 
@@ -61,7 +63,7 @@ mock.module("../../../../notifications/emit-signal.js", () => ({
 mock.module("@vellumai/plugin-api", () => ({
   ...realPluginApi,
   getConversation: async (id: string) =>
-    active ? (runs.has(id) ? { id } : null) : realPluginApi.getConversation(id),
+    active ? (gone.has(id) ? null : { id }) : realPluginApi.getConversation(id),
   isConversationProcessing: async (id: string) => {
     if (!active) {
       return realPluginApi.isConversationProcessing(id);
@@ -97,6 +99,7 @@ beforeEach(() => {
   emitOutcomes = [];
   emits.length = 0;
   runs.clear();
+  gone.clear();
   onLivenessRead = null;
 });
 
@@ -332,6 +335,13 @@ describe("copy and source context", () => {
         { ...entries[1]!, sourceConversationId: "conv-2" },
       ]),
     ).toBe("skill-update-receipt:job");
+    // A rewrite of unknown lineage cannot be attributed to the known one.
+    expect(
+      skillUpdateReceiptSourceContextId("job", [
+        { ...entries[0]!, sourceConversationId: "conv-1" },
+        entries[1]!,
+      ]),
+    ).toBe("skill-update-receipt:job");
   });
 });
 
@@ -368,6 +378,34 @@ describe("skillUpdateReceiptJob", () => {
       { skillId: "a", name: "Skill a", summary: "summary e3" },
     ]);
     expect(payload.skillId).toBeUndefined();
+    expect(pending()).toHaveLength(0);
+  });
+
+  test("a source conversation deleted while the row was claimed is left out of the announcement", async () => {
+    const start = Date.now() - SKILL_UPDATE_RECEIPT_QUIET_MS - 10;
+    record("e1", "a", start, { source: "conv-deleted" });
+    record("e2", "b", start + 1, { source: "conv-kept" });
+    record("e3", "c", start + 2);
+    onLivenessRead = () => gone.add("conv-deleted");
+
+    await runClaimed();
+
+    expect(emits).toHaveLength(1);
+    const payload = emits[0]!.contextPayload as Record<string, unknown>;
+    expect(
+      (payload.updates as Array<{ skillId: string }>).map((u) => u.skillId),
+    ).toEqual(["b", "c"]);
+  });
+
+  test("a receipt whose every source was deleted announces nothing", async () => {
+    record("e1", "a", Date.now() - SKILL_UPDATE_RECEIPT_QUIET_MS - 10, {
+      source: "conv-deleted",
+    });
+    gone.add("conv-deleted");
+
+    await runClaimed();
+
+    expect(emits).toHaveLength(0);
     expect(pending()).toHaveLength(0);
   });
 
@@ -408,7 +446,7 @@ describe("skillUpdateReceiptJob", () => {
       SKILL_UPDATE_RECEIPT_LIVE_RUN_RECHECK_MS,
     );
 
-    runs.delete("run-1");
+    gone.add("run-1");
     await runClaimed();
     expect(emits).toHaveLength(1);
   });
@@ -440,7 +478,8 @@ describe("skillUpdateReceiptJob", () => {
 
     expect(emits).toHaveLength(0);
     expect(pending()).toHaveLength(1);
-    expect(entryIds(pending()[0]!).sort()).toEqual(["e1", "late"]);
+    // Chronological, although the sibling held the later entry first.
+    expect(entryIds(pending()[0]!)).toEqual(["e1", "late"]);
     // The merged row keeps the burst's earliest stamp, so its cap is not
     // pushed out by the late entry.
     expect(
@@ -494,16 +533,29 @@ describe("skillUpdateReceiptJob", () => {
 });
 
 describe("removeSkillUpdateReceiptEntriesForConversation", () => {
-  test("drops a deleted conversation's entries as source or as run, and the row once it is empty", () => {
-    record("e1", "a", 1, { run: "run-1", source: "conv-gone" });
-    record("e2", "b", 2, { run: "run-gone" });
-    record("e3", "c", 3, { run: "run-2", source: "conv-kept" });
+  test("drops a deleted source conversation's entries, recomputes the bounds, and deletes an emptied row", () => {
+    record("e1", "a", 1_000, { source: "conv-gone" });
+    record("e2", "b", 2_000, { source: "conv-kept" });
+    record("e3", "c", 3_000, { source: "conv-gone" });
 
     removeSkillUpdateReceiptEntriesForConversation("conv-gone");
-    removeSkillUpdateReceiptEntriesForConversation("run-gone");
-    expect(entryIds(pending()[0]!)).toEqual(["e3"]);
+
+    expect(entryIds(pending()[0]!)).toEqual(["e2"]);
+    // Both edge entries went, so the burst's window is now e2's alone.
+    expect(parseSkillUpdateReceiptPayload(pending()[0]!.payload)).toMatchObject(
+      { firstEntryAt: 2_000, lastEntryAt: 2_000 },
+    );
 
     removeSkillUpdateReceiptEntriesForConversation("conv-kept");
     expect(rows()).toHaveLength(0);
+  });
+
+  test("a garbage-collected run conversation is not a purge key: its entries stay", () => {
+    record("e1", "a", 1, { run: "run-gc" });
+    record("e2", "b", 2, { run: "run-2" });
+
+    removeSkillUpdateReceiptEntriesForConversation("run-gc");
+
+    expect(entryIds(pending()[0]!)).toEqual(["e1", "e2"]);
   });
 });

@@ -544,15 +544,25 @@ function mergeSkillUpdateReceiptEntries(
         : {}),
     });
   }
-  return merged;
+  // Rewrite order is the receipt's order, and a merge into a sibling puts
+  // the older payload behind the newer one; the stamp restores it, with
+  // the id as a deterministic tie-break.
+  return merged.sort(
+    (a, b) => a.createdAt - b.createdAt || a.entryId.localeCompare(b.entryId),
+  );
 }
 
 /**
- * Drop a deleted conversation's entries, as source or as run, from every
- * pending `skill_update_receipt` row, deleting a row left with none. The
- * plugin's `conversation-deleted` hook calls this beside its other
- * per-conversation purges; the entries carry that conversation's id and a
- * summary distilled from it.
+ * Drop a deleted source conversation's entries from every pending
+ * `skill_update_receipt` row, deleting a row left with none. The plugin's
+ * `conversation-deleted` hook calls this beside its other per-conversation
+ * purges; the entries carry that conversation's id and a summary distilled
+ * from it. The run conversation is never a purge key: a run is an ephemeral
+ * fork that the next successful retrospective garbage-collects, and the
+ * handler reads a missing run as finished precisely so its entries still
+ * get announced. The burst's bounds are recomputed from what remains, so a
+ * dropped edge entry neither holds the rest past their quiet window nor
+ * caps them early.
  */
 export function removeSkillUpdateReceiptEntriesForConversation(
   conversationId: string,
@@ -574,9 +584,7 @@ export function removeSkillUpdateReceiptEntriesForConversation(
       continue;
     }
     const kept = payload.entries.filter(
-      (entry) =>
-        entry.sourceConversationId !== conversationId &&
-        entry.runConversationId !== conversationId,
+      (entry) => entry.sourceConversationId !== conversationId,
     );
     if (kept.length === payload.entries.length) {
       continue;
@@ -585,9 +593,14 @@ export function removeSkillUpdateReceiptEntriesForConversation(
       db.delete(memoryJobs).where(eq(memoryJobs.id, row.id)).run();
       continue;
     }
+    const stamps = kept.map((entry) => entry.createdAt);
     db.update(memoryJobs)
       .set({
-        payload: JSON.stringify({ ...payload, entries: kept }),
+        payload: JSON.stringify({
+          firstEntryAt: Math.min(...stamps),
+          lastEntryAt: Math.max(...stamps),
+          entries: kept,
+        } satisfies SkillUpdateReceiptJobPayload),
         updatedAt: Date.now(),
       })
       .where(eq(memoryJobs.id, row.id))
