@@ -66,7 +66,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "Marcar todo como hecho",
-    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Chats antiguos, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Chats antiguos, donde puedes reabrirlas.}}",
+    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Todos los chats, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Todos los chats, donde puedes reabrirlas.}}",
     "title": "Marcar todo como hecho"
   },
   "mobileDetailSheet": {
@@ -124,7 +124,7 @@
     "navigate": "Navegando",
     "terminal": "Ejecutando un comando"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "Últimos 30 días",
       "previous7Days": "Últimos 7 días",
@@ -144,7 +144,7 @@
     "noMatches": "Ningún chat coincide con «{query}».",
     "retry": "Reintentar",
     "searchPlaceholder": "Buscar chats",
-    "title": "Chats antiguos"
+    "title": "Todos los chats"
   },
   "sessionGroupRow": {
     "mode": {

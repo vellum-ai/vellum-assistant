@@ -1,5 +1,5 @@
 /**
- * The Old chats page's rows: the whole history, paged on scroll, with a
+ * The All chats page's rows: the whole history, paged on scroll, with a
  * fallback for an assistant that cannot serve it in one read.
  *
  * The page reads `conversationType=all&archiveStatus=all`, which is one
@@ -60,7 +60,7 @@ export function isUnsupportedCombinedRead(error: Error | null): boolean {
   return error instanceof ApiError && error.status === 400;
 }
 
-export interface OldChatsData {
+export interface AllChatsData {
   conversations: Conversation[];
   /** Whether the server holds rows past the loaded window. */
   hasMore: boolean;
@@ -78,10 +78,10 @@ export interface OldChatsData {
  * gates this on the feature flag, since hooks run before its redirect and a
  * flag-off visit must not spend a whole-history request on its way out.
  */
-export function useOldChatsData(
+export function useAllChatsData(
   assistantId: string | null,
   enabled: boolean = true,
-): OldChatsData {
+): AllChatsData {
   const queryClient = useQueryClient();
 
   /* Which assistant refused the combined read, so the refusal survives the
@@ -167,7 +167,7 @@ export function useOldChatsData(
           /* Best effort: the page asks again as the window grows, so daemon
              transients filter out and only unexpected failures are reported. */
           captureError(error, {
-            context: "useOldChatsData.loadMore",
+            context: "useAllChatsData.loadMore",
             bestEffort: true,
           });
         },

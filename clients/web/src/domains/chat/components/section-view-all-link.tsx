@@ -2,7 +2,7 @@
  * "View all chats" on a sidebar section header, under `sidebar-done`.
  *
  * A section shows a window onto its chats, and a chat marked done leaves that
- * window without leaving the assistant. This is where it went: the Old chats
+ * window without leaving the assistant. This is where it went: the All chats
  * page, opened on the section's own filter.
  *
  * It stands beside the section's "…" in the header's trailing cell and wears

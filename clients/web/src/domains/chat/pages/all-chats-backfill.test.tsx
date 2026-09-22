@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { useBackfillUntilMatch } from "@/domains/chat/pages/old-chats-page";
+import { useBackfillUntilMatch } from "@/domains/chat/pages/all-chats-page";
 
 afterEach(cleanup);
 

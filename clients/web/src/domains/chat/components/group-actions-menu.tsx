@@ -93,7 +93,7 @@ export interface GroupMenuItemsProps {
   /** Whether channel grouping is on, which decides the toggle's label. */
   isGroupedByChannel?: boolean;
   /**
-   * Open the Old chats page on this section's filter. Under `sidebar-done`
+   * Open the All chats page on this section's filter. Under `sidebar-done`
    * the header carries a hover-only icon for it, and a touch header, which
    * has no hover, carries this item instead so the destination is reachable
    * by thumb.

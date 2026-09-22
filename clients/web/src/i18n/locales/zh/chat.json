@@ -66,7 +66,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "全部标记为已完成",
-    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“旧聊天”中，您可以在那里重新打开它们。}}",
+    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“所有聊天”中，您可以在那里重新打开它们。}}",
     "title": "全部标记为已完成"
   },
   "mobileDetailSheet": {
@@ -124,7 +124,7 @@
     "navigate": "导航",
     "terminal": "运行命令"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "过去 30 天",
       "previous7Days": "过去 7 天",
@@ -144,7 +144,7 @@
     "noMatches": "没有与“{query}”匹配的聊天。",
     "retry": "重试",
     "searchPlaceholder": "搜索聊天",
-    "title": "旧聊天"
+    "title": "所有聊天"
   },
   "sessionGroupRow": {
     "mode": {

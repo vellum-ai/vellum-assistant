@@ -1,5 +1,5 @@
 /**
- * The Old chats page's narrowing: which chip is selected, how that chip
+ * The All chats page's narrowing: which chip is selected, how that chip
  * reads off the URL, and which rows it leaves.
  *
  * Pure, so the page renders what these return and a test asserts the same
@@ -16,9 +16,9 @@ import {
   isCustomGroupId,
 } from "@/utils/conversation-predicates";
 import {
-  OLD_CHATS_CHANNEL_PARAM,
-  OLD_CHATS_FILTER_PARAM,
-  OLD_CHATS_GROUP_PARAM,
+  ALL_CHATS_CHANNEL_PARAM,
+  ALL_CHATS_FILTER_PARAM,
+  ALL_CHATS_GROUP_PARAM,
 } from "@/utils/routes";
 
 /**
@@ -26,17 +26,17 @@ import {
  * every view but `background` hides the automated rows, which is the whole
  * reason this page is readable at all.
  */
-export type OldChatsFilter =
+export type AllChatsFilter =
   | { kind: "all" }
   | { kind: "done" }
   | { kind: "background" }
   | { kind: "channel"; channelId: string }
   | { kind: "group"; groupId: string };
 
-export const ALL_CHATS_FILTER: OldChatsFilter = { kind: "all" };
+export const ALL_CHATS_FILTER: AllChatsFilter = { kind: "all" };
 
 /** Identity for a chip's React key and its `selected` comparison. */
-export function oldChatsFilterKey(filter: OldChatsFilter): string {
+export function allChatsFilterKey(filter: AllChatsFilter): string {
   switch (filter.kind) {
     case "channel":
       return `channel:${filter.channelId}`;
@@ -62,16 +62,16 @@ export function oldChatsFilterKey(filter: OldChatsFilter): string {
 export function filterFromSearchParams(
   params: URLSearchParams,
   available: { groupIds: readonly string[] },
-): OldChatsFilter {
-  const channelId = params.get(OLD_CHATS_CHANNEL_PARAM);
+): AllChatsFilter {
+  const channelId = params.get(ALL_CHATS_CHANNEL_PARAM);
   if (channelId && isExternalChannelOrigin(channelId)) {
     return { kind: "channel", channelId };
   }
-  const groupId = params.get(OLD_CHATS_GROUP_PARAM);
+  const groupId = params.get(ALL_CHATS_GROUP_PARAM);
   if (groupId && available.groupIds.includes(groupId)) {
     return { kind: "group", groupId };
   }
-  const named = params.get(OLD_CHATS_FILTER_PARAM);
+  const named = params.get(ALL_CHATS_FILTER_PARAM);
   if (named === "done") {
     return { kind: "done" };
   }
@@ -86,20 +86,20 @@ export function filterFromSearchParams(
  * empty string for the default view. The one producer of these links: the
  * page's own chip row rewrites the URL through it, and anything linking into
  * a preselected view (a sidebar section header) builds its href from
- * `routes.oldChats` plus this.
+ * `routes.allChats` plus this.
  */
-export function oldChatsSearchFor(filter: OldChatsFilter): string {
+export function allChatsSearchFor(filter: AllChatsFilter): string {
   const params = new URLSearchParams();
   switch (filter.kind) {
     case "channel":
-      params.set(OLD_CHATS_CHANNEL_PARAM, filter.channelId);
+      params.set(ALL_CHATS_CHANNEL_PARAM, filter.channelId);
       break;
     case "group":
-      params.set(OLD_CHATS_GROUP_PARAM, filter.groupId);
+      params.set(ALL_CHATS_GROUP_PARAM, filter.groupId);
       break;
     case "done":
     case "background":
-      params.set(OLD_CHATS_FILTER_PARAM, filter.kind);
+      params.set(ALL_CHATS_FILTER_PARAM, filter.kind);
       break;
     case "all":
       break;
@@ -115,7 +115,7 @@ export function isDoneConversation(conversation: Conversation): boolean {
 
 function matchesFilter(
   conversation: Conversation,
-  filter: OldChatsFilter,
+  filter: AllChatsFilter,
 ): boolean {
   switch (filter.kind) {
     case "all":
@@ -138,9 +138,9 @@ function matchesFilter(
  * surfaced into Recents is not one of them ({@link isBackgroundConversation}
  * already makes that distinction).
  */
-export function filterOldChats(
+export function filterAllChats(
   conversations: readonly Conversation[],
-  filter: OldChatsFilter,
+  filter: AllChatsFilter,
 ): Conversation[] {
   const wantsBackground = filter.kind === "background";
   return conversations.filter((conversation) => {
@@ -155,7 +155,7 @@ export function filterOldChats(
  * Case-insensitive title match over the rows already loaded, against both the
  * persisted title and the label an untitled row renders as.
  */
-export function searchOldChats(
+export function searchAllChats(
   conversations: readonly Conversation[],
   searchText: string,
   displayTitle: (title: string | null | undefined) => string,
@@ -188,11 +188,11 @@ export function searchOldChats(
  * view whose chats are all older than the loaded window still shows the chip
  * it selected rather than a row of chips with none of them pressed.
  */
-export function oldChatsFilters(
+export function allChatsFilters(
   conversations: readonly Conversation[],
   groups: readonly ConversationGroup[],
-  selected: OldChatsFilter = ALL_CHATS_FILTER,
-): OldChatsFilter[] {
+  selected: AllChatsFilter = ALL_CHATS_FILTER,
+): AllChatsFilter[] {
   const channelIds = new Set<string>();
   const groupIds = new Set<string>();
   if (selected.kind === "channel") {
@@ -217,10 +217,10 @@ export function oldChatsFilters(
     { kind: "done" },
     ...[...channelIds]
       .sort()
-      .map((channelId): OldChatsFilter => ({ kind: "channel", channelId })),
+      .map((channelId): AllChatsFilter => ({ kind: "channel", channelId })),
     ...groups
       .filter((group) => groupIds.has(group.id))
-      .map((group): OldChatsFilter => ({ kind: "group", groupId: group.id })),
+      .map((group): AllChatsFilter => ({ kind: "group", groupId: group.id })),
     { kind: "background" },
   ];
 }

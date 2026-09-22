@@ -1,5 +1,5 @@
 /**
- * The Old chats row's trailing cell: one slot holding the timestamp and the
+ * The All chats row's trailing cell: one slot holding the timestamp and the
  * Done check, with both ends flush right.
  *
  * jsdom lays nothing out, so this pins the structure the alignment rests on
@@ -19,7 +19,7 @@ import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import {
   META_SLOT_CLASSES,
   ROW_META_CLASSES,
-} from "@/domains/chat/pages/old-chats-page";
+} from "@/domains/chat/pages/all-chats-page";
 
 afterEach(cleanup);
 
@@ -41,7 +41,7 @@ function renderRow() {
   return container;
 }
 
-describe("the Old chats row's trailing cell", () => {
+describe("the All chats row's trailing cell", () => {
   test("stacks the timestamp and the check in one shared slot", () => {
     const slots = renderRow().querySelectorAll('[data-slot="crossfade-stack"]');
     expect(slots).toHaveLength(1);
