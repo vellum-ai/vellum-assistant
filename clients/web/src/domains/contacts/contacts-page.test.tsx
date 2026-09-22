@@ -876,6 +876,59 @@ describe("ContactsPage overlapping mutations", () => {
     await releaseUpsert(ALICE.id);
   });
 
+  test("two overlapping saves each hold their own contact's form", async () => {
+    holdUpsert = true;
+    contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+    fireEvent.change(getInputByPlaceholder("Give this human a name"), {
+      target: { value: "Renamed Alice" },
+    });
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => getButton("Saving…"));
+
+    fireEvent.click(getButtonByText(BOB.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${BOB.id}`);
+    });
+    fireEvent.change(getInputByPlaceholder("Give this human a name"), {
+      target: { value: "Renamed Bob" },
+    });
+    fireEvent.click(getButton("Save"));
+    await waitFor(() => getButton("Saving…"));
+
+    // The observer describes only Bob's call, so Alice's open request has to
+    // be read from her own id: her form stays frozen, and a re-edit here would
+    // otherwise race the request already carrying her name.
+    fireEvent.click(getButtonByText(ALICE.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(
+        `/assistant/contacts/${ALICE.id}`,
+      );
+    });
+    expect(getButton("Saving…")).toBeDefined();
+    expect(getInputByPlaceholder("Give this human a name").disabled).toBe(true);
+
+    await releaseUpsert(ALICE.id);
+
+    expect(getButton("Save")).toBeDefined();
+    expect(getInputByPlaceholder("Give this human a name").disabled).toBe(
+      false,
+    );
+
+    // Bob's request outlives Alice's and is still his alone.
+    fireEvent.click(getButtonByText(BOB.displayName));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${BOB.id}`);
+    });
+    expect(getButton("Saving…")).toBeDefined();
+
+    await releaseUpsert(BOB.id);
+  });
+
   test("a permissions save in flight leaves another contact's picker enabled", async () => {
     holdUpsert = true;
     contactsFixture = [GUARDIAN, ALICE, BOB, PEER];
