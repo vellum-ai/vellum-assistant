@@ -112,6 +112,19 @@ describe("classifyAttachment", () => {
       ),
     ).toBe("image");
   });
+
+  test("reads every workbook the preview opens as a spreadsheet", () => {
+    expect(classifyAttachment("", "budget.xlsx")).toBe("spreadsheet");
+    // A macro-enabled workbook opens the same preview, so it draws the same
+    // icon.
+    expect(classifyAttachment("", "budget.xlsm")).toBe("spreadsheet");
+    expect(
+      classifyAttachment(
+        "application/vnd.ms-excel.sheet.macroEnabled.12",
+        "budget.xlsm",
+      ),
+    ).toBe("spreadsheet");
+  });
 });
 
 describe("ATTACHMENT_ICON_BY_KIND", () => {

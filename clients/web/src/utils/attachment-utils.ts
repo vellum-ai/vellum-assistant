@@ -181,7 +181,7 @@ export function classifyAttachment(
     mime === "application/vnd.ms-excel" ||
     mime ===
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    ["csv", "xlsx", "xls", "numbers"].includes(ext)
+    ["csv", "xlsx", "xlsm", "xls", "numbers"].includes(ext)
   ) {
     return "spreadsheet";
   }
