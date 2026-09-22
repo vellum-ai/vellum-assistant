@@ -4,7 +4,9 @@
  * new "Assistant Inbox" entry is seen where it will live: directly above
  * Preferences at the foot of the rail.
  *
- * 0. An upgrade that has just landed: the provisioning takeover finishes its
+ * 0. The upgrade itself: the takeover's status copy with the character
+ *    stream flowing around it, the test bed for that animation.
+ * 0b. An upgrade that has just landed: the provisioning takeover finishes its
  *    celebration and hands off to the setup card, which is where the wizard
  *    now goes instead of its own domain step.
  * 1. On a plan without managed email, the inbox is an upgrade card that still
@@ -26,13 +28,22 @@ import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { saveViewMode } from "@/domains/chat/utils/sidebar-view-mode";
-import { ProvisioningState } from "@/domains/settings/billing/pro-onboarding/provisioning-state";
+import { SERIF_HEADING_STYLE } from "@/domains/settings/billing/pro-onboarding/primitives";
+import {
+  ProvisioningState,
+  TAKEOVER_SURFACE,
+} from "@/domains/settings/billing/pro-onboarding/provisioning-state";
+import { takeoverCopy } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
 import {
   TAKEOVER_AVATARS,
   TAKEOVER_CONSTANT_PROPS,
   TAKEOVER_SCENARIOS,
   TakeoverStage,
 } from "@/domains/settings/billing/pro-onboarding/takeover-story-support";
+import {
+  UpgradeStream,
+  type StreamFlow,
+} from "@/domains/settings/billing/pro-onboarding/upgrade-stream";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useAuthStore } from "@/stores/auth-store";
@@ -117,6 +128,14 @@ function seedStores(): void {
 interface InboxStoryArgs {
   /** Collapse the rail, to see the entry as a tile above Preferences. */
   collapsed: boolean;
+  /** "0 · Upgrading" only: which way the character stream flows. */
+  streamFlow?: StreamFlow;
+  /** "0 · Upgrading" only: pace multiplier on the stream. */
+  streamSpeed?: number;
+  /** "0 · Upgrading" only: characters across the stream. */
+  streamLanes?: number;
+  /** "0 · Upgrading" only: hold the stream where it is. */
+  streamPaused?: boolean;
 }
 
 /**
@@ -190,6 +209,84 @@ const meta: Meta<InboxStoryArgs> = {
 export default meta;
 type Story = StoryObj<InboxStoryArgs>;
 
+/**
+ * The upgrade in progress, as the takeover will draw it: the WAITING status
+ * on the takeover's surface with the character stream flowing around it. A
+ * test bed for the stream, so its pace, direction, and width are controls;
+ * nothing else from the takeover is on this screen.
+ */
+function UpgradingScreen({
+  streamFlow,
+  streamSpeed,
+  streamLanes,
+  streamPaused,
+}: InboxStoryArgs) {
+  return (
+    <div className="fixed inset-0 z-50">
+      <TakeoverStage assistantId={TAKEOVER_AVATARS.creature}>
+        <div
+          className="relative flex h-full min-h-[420px] w-full flex-col items-center justify-center overflow-hidden"
+          style={{ backgroundColor: TAKEOVER_SURFACE }}
+        >
+          <UpgradeStream
+            className="absolute inset-0"
+            flow={streamFlow}
+            speed={streamSpeed}
+            lanes={streamLanes}
+            paused={streamPaused}
+          />
+          <h1
+            className="relative z-10 text-center text-[var(--content-emphasised)]"
+            style={SERIF_HEADING_STYLE}
+          >
+            {takeoverCopy("upgrade").waitingStatus}
+          </h1>
+        </div>
+      </TakeoverStage>
+    </div>
+  );
+}
+
+/**
+ * The upgrade animation's test bed. The stream drops in through the top,
+ * sweeps around the copy, and pours off the bottom; the controls set its
+ * direction, pace, and how many characters sit across it.
+ */
+export const Upgrading: Story = {
+  name: "0 · Upgrading",
+  argTypes: {
+    streamFlow: {
+      name: "flow",
+      description: "Which way the characters move along the stream.",
+      control: "radio",
+      options: ["down", "up"],
+    },
+    streamSpeed: {
+      name: "speed",
+      description: "Pace multiplier; 1 is the gentle roll, 0 holds still.",
+      control: { type: "range", min: 0, max: 4, step: 0.25 },
+    },
+    streamLanes: {
+      name: "lanes",
+      description: "How many characters sit across the stream.",
+      control: { type: "range", min: 1, max: 5, step: 1 },
+    },
+    streamPaused: {
+      name: "paused",
+      description: "Hold every character where it is.",
+      control: "boolean",
+    },
+    collapsed: { table: { disable: true } },
+  },
+  args: {
+    streamFlow: "down",
+    streamSpeed: 1,
+    streamLanes: 3,
+    streamPaused: false,
+  },
+  render: (args) => <UpgradingScreen {...args} />,
+};
+
 /** How long the takeover's "All done!" holds before the hand-off. */
 const STORY_CELEBRATION_MS = 2500;
 
@@ -244,7 +341,7 @@ function UpgradeHandoff() {
  * setup card is what is left on screen. Remount the story to replay it.
  */
 export const ArrivingFromUpgrade: Story = {
-  name: "0 · Arriving from an upgrade",
+  name: "0b · Arriving from an upgrade",
   render: () => <UpgradeHandoff />,
 };
 
