@@ -60,6 +60,7 @@ describe("buildMcpPluginDefinitions", () => {
         description: "Example tools",
         documentationUrl: "https://example.com/docs",
         logo: "example.png",
+        logoRevision: "1.0.0",
         oauthProvider: undefined,
         category: undefined,
         setup: { mode: "oauth", instructions: "Sign in to Example." },
