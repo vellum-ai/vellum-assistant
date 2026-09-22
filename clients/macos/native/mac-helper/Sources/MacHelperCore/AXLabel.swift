@@ -14,6 +14,17 @@ import Foundation
 /// accessibility attribute is synchronous IPC into another process, so the
 /// attributes behind the first one that answers must not be read at all.
 public enum AXLabel {
+    /// Description-only text can name a custom-drawn control. Keep its
+    /// accessibility name separate from text actually displayed on screen.
+    public static func textDescription(
+        title: String?,
+        value: String?,
+        readDescription: () -> String?
+    ) -> String? {
+        guard nonBlank(title) == nil, nonBlank(value) == nil else { return nil }
+        return nonBlank(readDescription())
+    }
+
     /// `text`, or nil when it carries nothing a person could read.
     ///
     /// Whitespace-only counts as nothing for the same reason empty does: a
