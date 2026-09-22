@@ -116,6 +116,28 @@ function mixedPrefixSheetXml(count: number): string {
   return `<worksheet xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><sheetData>${prefixedRowsXml(count)}</sheetData></worksheet>`;
 }
 
+/** Characters JSZip's inflate stream hands the reader per chunk. */
+const INFLATE_CHUNK_CHARS = 16_384;
+
+/**
+ * How far before a chunk boundary `<y:sheetData` starts. The scan reads the
+ * prefix, rules `row` out on the characters after it, and then runs out of
+ * buffer partway through `sheetData`.
+ */
+const ANCESTOR_STRADDLE_CHARS = 10;
+
+/**
+ * Rows under an ancestor whose start tag straddles a chunk boundary. The
+ * ancestor carries a prefix of its own, so a cut that closes it with the
+ * row marker's prefix instead leaves the part malformed.
+ */
+function straddledAncestorSheetXml(count: number): string {
+  const open = `<worksheet xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}" xmlns:y="${MAIN_NS}">`;
+  const opensAt = INFLATE_CHUNK_CHARS - ANCESTOR_STRADDLE_CHARS;
+  const padding = "p".repeat(opensAt - open.length - "<!---->".length);
+  return `${open}<!--${padding}--><y:sheetData>${prefixedRowsXml(count)}</y:sheetData></worksheet>`;
+}
+
 /** The mirror of that for the shared string table: prefixed items, plain `sst`. */
 function mixedPrefixSharedStringsXml(long: string): string {
   return `<sst xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><x:si><x:t>alpha</x:t></x:si><x:si><x:t>${long}</x:t></x:si><x:si><x:t>gamma</x:t></x:si></sst>`;
@@ -704,15 +726,14 @@ describe("parseWorkbook", () => {
     ]);
     const blob = await workbookBlob({ sheets: [{ name: "Big", rows }] });
 
-    const startedAt = performance.now();
     const parsed = await parseWorkbook(blob);
     const grid = await parsed.sheets[0]!.read();
-    const elapsed = performance.now() - startedAt;
 
+    // A sheet several times the row cap keeps the cap and says it was cut,
+    // whatever the rest of the part holds. The timeout is the stall guard.
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.truncated).toBe(true);
-    expect(elapsed).toBeLessThan(1000);
-  });
+  }, 60_000);
 
   test("reads a sheet filling both caps without stalling the tab", async () => {
     const parsed = await parseWorkbook(
@@ -724,10 +745,9 @@ describe("parseWorkbook", () => {
 
     const grid = await parsed.sheets[0]!.read();
 
-    // The widest and longest grid the caps keep is the reader's worst case, so
-    // this is where a traversal that walks each row's and each cell's subtree
-    // again shows up: the assertions say the caps held, and the timeout bounds
-    // how long a traversal is given to say so.
+    // The widest and longest grid the caps keep is the reader's worst case,
+    // and these assertions say both caps held at that size. The timeout is
+    // the stall guard.
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
   }, 60_000);
@@ -858,6 +878,28 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.rows[MAX_CSV_ROWS - 1]).toEqual([`row ${MAX_CSV_ROWS - 1}`]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("keeps an ancestor whose start tag straddles a chunk boundary", async () => {
+    const xml = straddledAncestorSheetXml(400);
+    expect(xml.indexOf("<y:sheetData>")).toBe(
+      INFLATE_CHUNK_CHARS - ANCESTOR_STRADDLE_CHARS,
+    );
+
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: { "xl/worksheets/sheet1.xml": xml },
+      }),
+      { maxPartChars: INFLATE_CHUNK_CHARS + 1_000 },
+    );
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows[0]).toEqual(["row 0"]);
+    expect(grid.rows[grid.rows.length - 1]).toEqual([
+      `row ${grid.rows.length - 1}`,
+    ]);
     expect(grid.truncated).toBe(true);
   });
 

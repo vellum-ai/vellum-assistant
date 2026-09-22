@@ -83,7 +83,7 @@ const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
  * What a built-in `numFmtId` renders. The date ids spell a calendar day, the
  * time ids a clock reading, 22 is the one built-in that spells both, and 46
  * (`[h]:mm:ss`) is the one that counts elapsed hours. Ids 45 (`mm:ss`) and 47
- * (`mm:ss.0`) read the minutes and seconds of a time of day, so they stay
+ * (`mmss.0`) read the minutes and seconds of a time of day, so they stay
  * clock readings.
  */
 function builtInFormatKind(id: number): NumberFormatKind {
@@ -542,17 +542,28 @@ function readMarkedPart(
         }
         searchFrom = at + 1;
         if (match.kind === "other") {
-          // Only a tag the marker has already ruled out can be an ancestor,
-          // and ruling it out took its whole name, so a name that does not
-          // match this ancestor belongs to something else.
+          // A tag the marker ruled out may still be an ancestor: the marker's
+          // shorter name settles against a buffer that stops partway through
+          // the longer one. A pending ancestor leaves this `<` for the next
+          // chunk to decide, rather than losing the spelling a cut closes it
+          // with.
+          let pendingAncestor = false;
           for (let index = 0; index < unseen.length; index += 1) {
             const name = unseen[index]!;
             const opened = matchStartTag(buffer, at, name);
             if (opened.kind === "match") {
               openedAs.set(name, `${opened.prefix}${name}`);
               unseen.splice(index, 1);
+              pendingAncestor = false;
               break;
             }
+            if (opened.kind === "pending") {
+              pendingAncestor = true;
+            }
+          }
+          if (pendingAncestor) {
+            searchFrom = at;
+            break;
           }
           continue;
         }
