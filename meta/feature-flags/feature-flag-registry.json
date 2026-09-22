@@ -551,6 +551,14 @@
       "label": "Assistant Inbox",
       "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. Off hides the entry and redirects the route to chat.",
       "defaultEnabled": false
+    },
+    {
+      "id": "vellum-trusted-contacts",
+      "scope": "both",
+      "key": "vellum-trusted-contacts",
+      "label": "Vellum Trusted Contacts",
+      "description": "Lets a guardian give another person access to talk to their assistant in the Vellum UI as a trusted contact. Gates contact-role token minting in the gateway, trusted-contact trust resolution for `vellum` channel principals in the daemon, and the daemon's trusted-contact route allowlist. Off: none of those surfaces admit a contact, and the assistant stays reachable only by its guardian.",
+      "defaultEnabled": false
     }
   ]
 }
