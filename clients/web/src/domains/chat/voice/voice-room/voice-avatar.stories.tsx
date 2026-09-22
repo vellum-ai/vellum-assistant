@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -10,6 +9,7 @@ import "@/index.css";
 
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { withQueryCache } from "@/lib/story-query-cache";
 import type { CharacterTraits } from "@/types/avatar";
 
 import { toneForBg } from "@/utils/avatar-tone";
@@ -59,12 +59,6 @@ const SAMPLE_ACCENT =
   "#A665C9";
 const SAMPLE_ASSISTANT_ID = "story-assistant";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
-  },
-});
-
 // Seed a real bundled character so `realAvatar` renders without the daemon: a
 // blob with the sample color, so its accent resolves and the waves tint to
 // match. Seed both manifest-flag key variants so it resolves regardless of how
@@ -78,12 +72,14 @@ const seededAvatar = {
   } as CharacterTraits,
   customImageUrl: null,
 };
-for (const supportsManifest of [false, true]) {
-  queryClient.setQueryData(
-    [...avatarQueryKey(SAMPLE_ASSISTANT_ID), supportsManifest],
-    seededAvatar,
-  );
-}
+const withSeededAvatar = withQueryCache((client) => {
+  for (const supportsManifest of [false, true]) {
+    client.setQueryData(
+      [...avatarQueryKey(SAMPLE_ASSISTANT_ID), supportsManifest],
+      seededAvatar,
+    );
+  }
+});
 
 const VISUALS: VoiceAvatarVisual[] = [
   "idle",
@@ -435,12 +431,11 @@ const meta: Meta<typeof ColorLookScene> = {
   args: colorArgs,
   decorators: [
     (Story) => (
-      <QueryClientProvider client={queryClient}>
-        <div style={{ padding: 24 }}>
-          <Story />
-        </div>
-      </QueryClientProvider>
+      <div style={{ padding: 24 }}>
+        <Story />
+      </div>
     ),
+    withSeededAvatar,
   ],
   argTypes: colorArgTypes,
 };

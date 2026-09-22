@@ -48,6 +48,31 @@ export function getExistingGuardianBinding(
 }
 
 /**
+ * Every address actively linked as the guardian's identity on a channel. The
+ * guardian is one person with at most one identity per channel, so this is
+ * normally zero or one address; a caller refusing to swap that identity reads
+ * them all.
+ */
+export function activeGuardianAddresses(channel: string): string[] {
+  return getGatewayDb()
+    .select({ address: gwContactChannels.address })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .all()
+    .map((row) => row.address);
+}
+
+/**
  * Return the most recent `contact_channels.updated_at` across any guardian
  * binding for a channel — active OR revoked. Returns `null` when no binding
  * has ever existed.

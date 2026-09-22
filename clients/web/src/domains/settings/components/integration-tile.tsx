@@ -1,16 +1,22 @@
 import {
-  ChevronDown,
   ExternalLink,
   Loader2,
   Plus,
   RefreshCw,
   TriangleAlert,
+  X,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ActionMenu } from "@vellumai/design-library/components/action-menu";
-import { Button } from "@vellumai/design-library/components/button";
+import {
+  Button,
+  buttonVariants,
+} from "@vellumai/design-library/components/button";
 import { SplitButton } from "@vellumai/design-library/components/split-button";
+import { Tooltip } from "@vellumai/design-library/components/tooltip";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { useHoverCapable } from "@vellumai/design-library/utils/hover-capability";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { useTranslation } from "@/i18n";
@@ -48,11 +54,11 @@ export type TileConnectState =
   | { phase: "connecting" }
   | {
       phase: "failed";
-      /** The provider's own words. Shown only while they stay one line. */
+      /** The provider's own words. Shown in place of the description. */
       error: string;
       /**
-       * The method that failed. "Try another way" offers every other method
-       * still open to the plan, so the way out of a failed alternative
+       * The method that failed. The chevron on the retry offers every other
+       * method still open to the plan, so the way out of a failed alternative
        * includes the recommended path the user skipped to get here.
        */
       methodId: string;
@@ -96,6 +102,20 @@ export interface IntegrationTileProps {
  * modal is for the two jobs that need a page of their own, the manual
  * allowlisting steps and the bring-your-own OAuth form.
  *
+ * The tile is the same height in every one of those states, and that is the
+ * point. These are grid cells, and a grid row stretches to its tallest cell,
+ * so a line of status text on one tile puts empty space into every neighbour
+ * beside it. Nothing a connect attempt has to say is allowed to add a line:
+ * the progress and the way to call it off live in the action slot the connect
+ * button already occupies, and a failure spends the description's two
+ * reserved lines rather than asking for lines of its own.
+ *
+ * Where the device cannot hover there is no tooltip to carry the progress, so
+ * the attempt spends those same two lines the way a failure does. The
+ * description is what the user reads to decide whether to connect, and they
+ * have decided; on a phone it is worth less than knowing there is a sign-in
+ * waiting for them in another tab.
+ *
  * On a platform-hosted assistant the other ways to connect stay out of sight
  * until the recommended one fails: offering the choice up front asks every
  * user to understand our plumbing to answer a question that answers itself
@@ -118,7 +138,10 @@ export function IntegrationTile({
 }: IntegrationTileProps) {
   const { t } = useTranslation("settings");
   const methodLabel = useConnectMethodLabel(plan.name);
+  const hoverCapable = useHoverCapable();
   const inFlight = state.phase === "waiting" || state.phase === "connecting";
+  // Only one of the two says it, so neither is read out twice.
+  const progressInBody = inFlight && !hoverCapable;
 
   function startMethod(method: ConnectMethod) {
     if (method.availability === "login-required") {
@@ -164,69 +187,26 @@ export function IntegrationTile({
       />
     );
 
-  const action = inFlight ? (
-    // The spinner keeps the action's footprint so the tile does not resize
-    // under the pointer that just clicked it.
-    <span className="flex size-8 items-center justify-center">
-      <Loader2
-        aria-hidden="true"
-        className="size-4 animate-spin text-[var(--content-tertiary)]"
-      />
-    </span>
-  ) : state.phase === "failed" ? (
-    <Button
-      variant="dangerOutline"
-      className={INTEGRATION_ACTION_SIZING}
-      iconOnly={<RefreshCw />}
-      aria-label={t("integrationTile.retryLabel", { name: plan.name })}
-      disabled={disabled}
-      onClick={onRetry}
-    />
-  ) : (
-    connectButton
-  );
-
-  let footer: ReactNode = null;
-  if (state.phase === "failed") {
-    // Every way in that is still open but the one that just failed. The method
-    // that failed can be an alternative the user picked, so the menu has to be
-    // able to offer the recommended path they skipped to get here, which
-    // `plan.alternatives` by itself never contains.
-    const otherMethods = connectableMethods(plan).filter(
-      (method) => method.id !== state.methodId,
-    );
-    footer = (
-      <FailureLine
+  let action: ReactNode = connectButton;
+  if (inFlight) {
+    action = (
+      <ProgressAction
         name={plan.name}
         state={state}
-        menu={
-          otherMethods.length > 0 ? (
-            <ActionMenu.Root>
-              <ActionMenu.Trigger asChild>
-                <Button
-                  variant="ghost"
-                  size="compact"
-                  rightIcon={<ChevronDown />}
-                >
-                  {t("integrationTile.tryAnother")}
-                </Button>
-              </ActionMenu.Trigger>
-              <ActionMenu.Content
-                title={t("integrationTile.tryAnotherLabel", {
-                  name: plan.name,
-                })}
-              >
-                {methodItems(otherMethods)}
-              </ActionMenu.Content>
-            </ActionMenu.Root>
-          ) : null
-        }
-        onOpenSetupGuide={onOpenSetupGuide}
+        announce={!progressInBody}
+        onCancel={onCancel}
       />
     );
-  } else if (inFlight) {
-    footer = (
-      <ProgressLine name={plan.name} state={state} onCancel={onCancel} />
+  } else if (state.phase === "failed") {
+    action = (
+      <RetryAction
+        plan={plan}
+        state={state}
+        disabled={disabled}
+        methodItems={methodItems}
+        onRetry={onRetry}
+        onOpenSetupGuide={onOpenSetupGuide}
+      />
     );
   }
 
@@ -242,100 +222,310 @@ export function IntegrationTile({
         />
       }
       title={plan.name}
-      subtitle={plan.description ?? undefined}
+      subtitle={
+        state.phase === "failed" ? (
+          <FailureText name={plan.name} state={state} />
+        ) : progressInBody && inFlight ? (
+          <span role="status">{progressMessage(t, plan.name, state)}</span>
+        ) : (
+          (plan.description ?? undefined)
+        )
+      }
       primaryAction={action}
-      footer={footer}
     />
   );
 }
 
-function ProgressLine({
+/**
+ * How long an X a finger revealed stays up before the spinner comes back.
+ * Long enough to read the square and press it again, short enough that a tile
+ * armed by a stray tap is not still armed when the user comes back to it.
+ */
+const TOUCH_ARMED_MS = 4000;
+
+/** What an attempt in this phase has to say for itself. */
+function progressMessage(
+  t: ReturnType<typeof useTranslation<"settings">>["t"],
+  name: string,
+  state: Extract<TileConnectState, { phase: "waiting" | "connecting" }>,
+): string {
+  return state.phase === "waiting"
+    ? t("integrationTile.waiting", { name })
+    : t("integrationTile.connecting", { name });
+}
+
+/**
+ * A failure in the space the description was using.
+ *
+ * The description is the one thing on the tile the user no longer needs: they
+ * have already decided to connect this integration, and what they need now is
+ * why it did not. Swapping one for the other buys the message two lines that
+ * were reserved anyway, at no cost in height to the row of tiles beside it.
+ * The rest of a long message is on the `title`, and the colour and the glyph
+ * together say which kind of line this is, so the state does not rest on
+ * colour alone.
+ */
+function FailureText({
   name,
   state,
-  onCancel,
 }: {
   name: string;
-  state: Extract<TileConnectState, { phase: "waiting" | "connecting" }>;
-  onCancel: () => void;
+  state: Extract<TileConnectState, { phase: "failed" }>;
 }) {
   const { t } = useTranslation("settings");
+  // Whatever the provider said, in its own words. It is the only thing on
+  // screen that can tell the user why, and often the only thing that tells
+  // them what to do instead. The generic sentence is for a failure that
+  // arrived with no message at all.
+  const message = state.error || t("integrationTile.failedGeneric", { name });
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-1">
-      <p
-        role="status"
-        className="min-w-0 text-body-small-lighter text-[var(--content-secondary)]"
-      >
-        {state.phase === "waiting"
-          ? t("integrationTile.waiting", { name })
-          : t("integrationTile.connecting", { name })}
-      </p>
-      {state.phase === "waiting" && state.canCancel ? (
-        <Button variant="ghost" size="compact" onClick={onCancel}>
-          {t("integrationTile.cancel")}
-        </Button>
-      ) : null}
-    </div>
+    <span
+      role="alert"
+      title={state.error || undefined}
+      className="font-medium text-[var(--system-negative-strong)]"
+    >
+      <TriangleAlert
+        aria-hidden="true"
+        className="mr-1 inline size-3.5 shrink-0 align-[-0.15em]"
+      />
+      {message}
+    </span>
   );
 }
 
 /**
- * A failure costs the tile a few lines, not a dialog.
+ * The retry, with every other way in a chevron away.
  *
- * A boxed notice inside a 15rem tile is most of the tile, and six of them on
- * one page is a wall. The state is carried by the colour of the text and by
- * the retry sitting where the connect action was, so the room that buys goes
- * to the message itself: three lines of it, the rest on the title attribute,
- * and the provider's own setup guide beside it.
+ * The menu holds the provider's own setup guide, then the methods this plan
+ * still has that are not the one that just failed. It is a menu rather than a
+ * row of buttons because a row of buttons is two more lines, and two more
+ * lines on one tile is empty space on every tile in the row. With nothing
+ * behind it the chevron is not drawn, so a managed sign-in that has nowhere
+ * else to go keeps a plain square retry.
  */
-function FailureLine({
-  name,
+function RetryAction({
+  plan,
   state,
-  menu,
+  disabled,
+  methodItems,
+  onRetry,
   onOpenSetupGuide,
 }: {
-  name: string;
+  plan: ConnectPlan;
   state: Extract<TileConnectState, { phase: "failed" }>;
-  menu: ReactNode;
+  disabled: boolean;
+  methodItems: (methods: ConnectMethod[]) => ReactNode[];
+  onRetry: () => void;
   onOpenSetupGuide: (url: string) => void;
 }) {
   const { t } = useTranslation("settings");
   const setupGuideUrl = isMcpMethodKind(state.methodKind)
     ? state.setupGuideUrl
     : undefined;
-  // Whatever the provider said, in its own words. It is the only thing on
-  // screen that can tell the user why, and often the only thing that tells
-  // them what to do instead, so the tile gives it the height it needs and
-  // clamps what is left over rather than trading it for a line that says
-  // nothing. The generic sentence is for a failure that arrived with no
-  // message at all.
-  const message = state.error || t("integrationTile.failedGeneric", { name });
+  // Every way in that is still open but the one that just failed. The method
+  // that failed can be an alternative the user picked, so the menu has to be
+  // able to offer the recommended path they skipped to get here, which
+  // `plan.alternatives` by itself never contains.
+  const otherMethods = connectableMethods(plan).filter(
+    (method) => method.id !== state.methodId,
+  );
+  const menuItems: ReactNode[] = [
+    ...(setupGuideUrl
+      ? [
+          <ActionMenu.Item
+            key="setup-guide"
+            icon={ExternalLink}
+            label={t("integrationTile.setupGuide")}
+            onSelect={() => onOpenSetupGuide(setupGuideUrl)}
+          />,
+        ]
+      : []),
+    ...methodItems(otherMethods),
+  ];
+  const label = t("integrationTile.retryLabel", { name: plan.name });
+
+  if (menuItems.length === 0) {
+    return (
+      <Button
+        variant="dangerOutline"
+        className={INTEGRATION_ACTION_SIZING}
+        iconOnly={<RefreshCw />}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onRetry}
+      />
+    );
+  }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1">
-      <p
-        role="alert"
-        className="flex min-w-0 items-start gap-1.5 text-body-small-default text-[var(--system-negative-strong)]"
-      >
-        <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-        <span
-          title={state.error || undefined}
-          className="line-clamp-3 min-w-0 [overflow-wrap:anywhere]"
-        >
-          {message}
-        </span>
-      </p>
-      {setupGuideUrl ? (
-        <Button
-          variant="ghost"
-          size="compact"
-          leftIcon={<ExternalLink />}
-          onClick={() => onOpenSetupGuide(setupGuideUrl)}
-        >
-          {t("integrationTile.setupGuide")}
-        </Button>
-      ) : null}
-      {menu}
-    </div>
+    <SplitButton
+      variant="dangerOutline"
+      className={INTEGRATION_ACTION_SIZING}
+      iconOnly={<RefreshCw />}
+      aria-label={label}
+      menuTitle={t("connectMethod.otherWaysLabel", { name: plan.name })}
+      menuTriggerLabel={t("connectMethod.otherWaysLabel", { name: plan.name })}
+      menuItems={menuItems}
+      disabled={disabled}
+      onClick={onRetry}
+    />
+  );
+}
+
+/**
+ * An attempt in flight, drawn entirely inside the action slot.
+ *
+ * The slot is the one place on a tile with room to spare, so the spinner goes
+ * where the plus was and what the attempt has to say goes on its tooltip. A
+ * wait that can be called off makes the spinner a button that turns into an
+ * X; a wait that cannot is the same square with nothing to click, since a
+ * control that looks live and does nothing is worse than no control.
+ */
+function ProgressAction({
+  name,
+  state,
+  announce,
+  onCancel,
+}: {
+  name: string;
+  state: Extract<TileConnectState, { phase: "waiting" | "connecting" }>;
+  /**
+   * Put the message in a live region here. False where the tile body already
+   * carries it visibly, so it is not announced twice.
+   */
+  announce: boolean;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("settings");
+  const hoverCapable = useHoverCapable();
+  /**
+   * Whether the slot is showing the X rather than the spinner.
+   *
+   * A pointer that hovers reveals it on arrival, and the tooltip comes up
+   * with it, so the click that follows is aimed at a control that has already
+   * said what it does. A pointer that does not gets no such warning, so its
+   * first press only reveals and the second one cancels: a sign-in thrown
+   * away by a mis-aimed thumb cannot be had back by pressing again.
+   */
+  const [revealed, setRevealed] = useState(false);
+  /** Runs out an X a finger revealed. Never set for a pointer that hovers. */
+  const disarm = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canCancel = state.phase === "waiting" && state.canCancel;
+  const status = progressMessage(t, name, state);
+
+  function clearDisarm() {
+    if (disarm.current) {
+      clearTimeout(disarm.current);
+      disarm.current = null;
+    }
+  }
+
+  function reveal(byTouch: boolean) {
+    clearDisarm();
+    setRevealed(true);
+    // A hovering pointer takes the X back when it leaves. A finger has no
+    // such moment, and a tile left armed turns the next curious tap into a
+    // cancel, so the reveal runs out on its own instead.
+    if (byTouch) {
+      disarm.current = setTimeout(() => setRevealed(false), TOUCH_ARMED_MS);
+    }
+  }
+
+  function conceal() {
+    clearDisarm();
+    setRevealed(false);
+  }
+
+  useEffect(() => clearDisarm, []);
+
+  /**
+   * Whether this pointer arriving is a warning the user has had.
+   *
+   * Both halves are needed. The device has to be able to hover at all, or the
+   * tooltip was never mounted and there was nothing to read. And the pointer
+   * that arrived has to be one that hovers rather than one that reports
+   * itself on contact: a finger, or a stylus on a tablet that answers
+   * `hover: none`, enters and clicks in the same touch.
+   */
+  function warned(pointerType: string) {
+    return hoverCapable && pointerType !== "touch";
+  }
+
+  const announcement = announce ? (
+    <span role="status" className="sr-only">
+      {status}
+    </span>
+  ) : null;
+
+  if (!canCancel) {
+    return (
+      <>
+        <Tooltip content={status}>
+          {/*
+           * Styled as the button it is not, so the slot holds one square
+           * through idle, waiting, connecting, and failed rather than
+           * flickering a border on and off between them.
+           */}
+          <span
+            className={cn(
+              buttonVariants({ variant: "outlined", iconOnly: true }),
+              INTEGRATION_ACTION_SIZING,
+              // The square is borrowed, the button's behaviour is not: a
+              // pointer over it must not light it up as though it did
+              // something.
+              "cursor-default hover:bg-transparent",
+            )}
+          >
+            <Loader2
+              aria-hidden="true"
+              className="size-3.5 animate-spin text-[var(--content-tertiary)]"
+            />
+          </span>
+        </Tooltip>
+        {announcement}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Button
+        variant="outlined"
+        className={INTEGRATION_ACTION_SIZING}
+        iconOnly={revealed ? <X /> : <Loader2 className="animate-spin" />}
+        aria-label={t("integrationTile.cancelLabel", { name })}
+        tooltip={t("integrationTile.waitingCancel", { name })}
+        onPointerEnter={(event) => {
+          if (warned(event.pointerType)) {
+            reveal(false);
+          }
+        }}
+        // A pointer that lands on contact sends its leave before its click,
+        // so taking the X back here would take it back between the press that
+        // revealed it and the press that meant it, and the sign-in could
+        // never be called off at all. Only a pointer that was hovering has a
+        // leave worth acting on.
+        onPointerLeave={(event) => {
+          if (warned(event.pointerType)) {
+            conceal();
+          }
+        }}
+        onBlur={conceal}
+        onClick={(event) => {
+          // A keyboard press and an assistive-technology activation carry no
+          // pointer, so `detail` is 0. There is no mis-aimed thumb to guard
+          // against and the control is already announced by what it does, so
+          // the first activation is the one that means it.
+          if (revealed || event.detail === 0) {
+            conceal();
+            onCancel();
+            return;
+          }
+          reveal(true);
+        }}
+      />
+      {announcement}
+    </>
   );
 }

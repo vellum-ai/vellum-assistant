@@ -1,22 +1,32 @@
 /**
- * A scheduled, heartbeat, or background turn runs its document tools in a
- * sidecar worker, whose local hub has no SSE subscriber. The documents-changed
- * broadcast has to be handed to the daemon there, or the document edited while
- * the user was not looking stays invisible on every client.
+ * A scheduled, heartbeat, or background turn runs its document tools and its
+ * conversation writes in a sidecar worker, whose local hub has no SSE
+ * subscriber. Those broadcasts have to be handed to the daemon there, or the
+ * document edited and the conversation changed while the user was not looking
+ * stay invisible on every client.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let notifyCount = 0;
+const listHandoffs: Array<{ reason: string; conversationIds: string[] }> = [];
 
 mock.module("./worker-daemon-notify.js", () => ({
   NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD:
     "notify_conversation_persisted_externally",
+  NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD:
+    "notify_conversation_list_changed_externally",
   NOTIFY_DOCUMENTS_CHANGED_IPC_METHOD: "notify_documents_changed_externally",
   NOTIFY_ACTIVATION_PROGRESS_CHANGED_IPC_METHOD:
     "notify_activation_progress_changed_externally",
   notifyDaemonActivationProgressChanged: async () => {},
   notifyDaemonConversationPersisted: async () => {},
+  notifyDaemonConversationListChanged: async (
+    reason: string,
+    conversationIds: string[],
+  ) => {
+    listHandoffs.push({ reason, conversationIds });
+  },
   notifyDaemonDocumentsChanged: async () => {
     notifyCount++;
   },
@@ -30,6 +40,7 @@ import {
 } from "../assistant-stream-state.js";
 import {
   DOCUMENTS_CHANGED_COALESCE_MS,
+  publishConversationListAndMetadataChanged,
   publishDocumentsChanged,
 } from "./resource-sync-events.js";
 
@@ -66,6 +77,7 @@ describe("publishDocumentsChanged in a sidecar worker", () => {
   beforeEach(async () => {
     await settle();
     notifyCount = 0;
+    listHandoffs.length = 0;
     _resetStreamStateForTesting();
   });
 
@@ -100,5 +112,39 @@ describe("publishDocumentsChanged in a sidecar worker", () => {
     expect(notifyCount).toBe(0);
     expect(events).toHaveLength(1);
     expect(events[0].message).toMatchObject({ type: "sync_changed" });
+  });
+});
+
+describe("publishConversationListAndMetadataChanged in a sidecar worker", () => {
+  beforeEach(async () => {
+    await settle();
+    listHandoffs.length = 0;
+    _resetStreamStateForTesting();
+  });
+
+  test("hands the list invalidation to the daemon instead of publishing into a void", async () => {
+    disableStreamSeqStamping();
+
+    const events = await captureLocalPublishes(() => {
+      publishConversationListAndMetadataChanged("reordered", "conv-1");
+    });
+
+    expect(listHandoffs).toEqual([
+      { reason: "reordered", conversationIds: ["conv-1"] },
+    ]);
+    expect(events).toEqual([]);
+  });
+
+  test("publishes on the local hub in the daemon, where subscribers live", async () => {
+    const events = await captureLocalPublishes(() => {
+      publishConversationListAndMetadataChanged("reordered", "conv-1");
+    });
+
+    expect(listHandoffs).toEqual([]);
+    expect(events).toHaveLength(1);
+    expect(events[0].message).toMatchObject({
+      type: "sync_changed",
+      tags: ["conversations:list", "conversation:conv-1:metadata"],
+    });
   });
 });

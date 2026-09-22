@@ -6,7 +6,7 @@
  * more, and every named value copies from its label.
  */
 
-import { Typography } from "@vellumai/design-library";
+import { CardRoot, Typography } from "@vellumai/design-library";
 import type { ReactNode } from "react";
 
 import { CopyButton } from "@/components/copy-button";
@@ -182,12 +182,6 @@ function FieldValue({
   }
 }
 
-const VARIANT_CLASSES = {
-  section: "gap-3 rounded-lg border border-[var(--border-base)] p-4",
-  nested:
-    "mt-1 gap-2.5 rounded-lg border border-[var(--border-base)] px-3 py-2.5",
-} as const;
-
 interface ValueFieldsProps {
   list: ValueFieldList;
   /** The sentence counting what the layout left out, naming its raw section. */
@@ -196,7 +190,7 @@ interface ValueFieldsProps {
    * `section` is the bordered box a whole input or output sits in; `nested`
    * is the group a list or object inside it draws.
    */
-  variant?: keyof typeof VARIANT_CLASSES;
+  variant?: "section" | "nested";
   /**
    * Names a value with no name of its own, a whole output that is one list or
    * table, after the section it fills.
@@ -216,7 +210,13 @@ export function ValueFields({
   const unnamed = list.fields.filter((field) => field.label === "");
 
   return (
-    <div className={cn("flex min-w-0 flex-col", VARIANT_CLASSES[variant])}>
+    <CardRoot
+      padding={variant === "nested" ? "sm" : "md"}
+      className={cn(
+        "flex min-w-0 flex-col",
+        variant === "nested" ? "mt-1 gap-2.5" : "gap-3",
+      )}
+    >
       {/* A value with no name is a whole output that is a list; its copy is
           the raw output beneath it, so it draws with no label row. */}
       {unnamed.map((field, index) => (
@@ -266,6 +266,6 @@ export function ValueFields({
         </dl>
       )}
       {list.more > 0 && <MoreCount label={moreLabel(list.more)} />}
-    </div>
+    </CardRoot>
   );
 }

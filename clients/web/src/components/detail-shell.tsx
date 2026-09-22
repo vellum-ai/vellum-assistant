@@ -21,6 +21,7 @@ import type { ReactNode } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { MidlineDot } from "@/components/midline-dot";
+import { useTranslation } from "@/i18n";
 
 /**
  * Horizontal inset of `DetailShell`'s header, body, and footer, in px. A host
@@ -85,12 +86,14 @@ export interface DetailShellHeaderProps {
   headerTrailing?: ReactNode;
   /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
   headerActions?: ReactNode;
+  /**
+   * Close-button accessible name. Defaults to the shared catalog's "Close
+   * panel"; pass one to name what the panel is ("Close tool details").
+   */
   closeLabel?: string;
   /**
-   * Close-button hover tooltip. Defaults to the untranslated "Close": fine
-   * for domains outside the i18n cutover, but callers whose path is on the
-   * `local/no-untranslated-strings` allowlist (see `eslint.config.mjs`) must
-   * pass their own `t()`'d copy here instead.
+   * Close-button hover tooltip. Defaults to the shared catalog's "Close";
+   * pass one only to say something different.
    */
   closeTooltip?: string;
   /** Close-button style. Every current caller uses the bordered "outlined" X. */
@@ -105,11 +108,12 @@ export function DetailShellHeader({
   titleNode,
   headerTrailing,
   headerActions,
-  closeLabel = "Close panel",
-  closeTooltip = "Close",
+  closeLabel,
+  closeTooltip,
   closeVariant = "outlined",
   onClose,
 }: DetailShellHeaderProps) {
+  const { t } = useTranslation();
   return (
     // Divider uses `--border-hover` (the Figma sidepanel divider, #F6F5F4 in
     // light) rather than `--border-base`, which equals the drawer's
@@ -156,8 +160,8 @@ export function DetailShellHeader({
         variant={closeVariant === "outlined" ? "outlined" : "ghost"}
         iconOnly={<X />}
         onClick={onClose}
-        aria-label={closeLabel}
-        tooltip={closeTooltip}
+        aria-label={closeLabel ?? t("detailShell.closePanel")}
+        tooltip={closeTooltip ?? t("detailShell.close")}
         // `-ml-1` trims the row's `gap-3` (12px) down to 8px specifically
         // between Close and whatever `headerActions` renders right before it
         // (a Stop button, "Go to Convo", …). Every other header gap stays at
@@ -187,7 +191,10 @@ export function DetailShell({
   ...headerProps
 }: DetailShellProps) {
   return (
-    <div data-slot="detail-shell" className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
+    <div
+      data-slot="detail-shell"
+      className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]"
+    >
       {headerAbove}
       <DetailShellHeader {...headerProps} />
 

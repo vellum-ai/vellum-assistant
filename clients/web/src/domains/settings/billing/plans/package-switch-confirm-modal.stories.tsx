@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useLayoutEffect } from "react";
 
@@ -9,23 +8,11 @@ import {
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { withQueryCache } from "@/lib/story-query-cache";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 const STORY_ASSISTANT_ID = "story-assistant";
-
-// The header tile draws the assistant avatar through `useAssistantAvatar`,
-// which has no daemon to fetch from here. Seeding the cache under both
-// manifest-gate values renders the creature instead of an empty square.
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
-for (const supportsManifest of [false, true]) {
-  queryClient.setQueryData(
-    [...avatarQueryKey(STORY_ASSISTANT_ID), supportsManifest],
-    { components: BUNDLED_COMPONENTS, traits: null, customImageUrl: null },
-  );
-}
 
 const SUPER_PACKAGE = makeSuperPackage();
 
@@ -67,12 +54,23 @@ const meta: Meta<typeof PackageSwitchConfirmModal> = {
           });
         };
       }, []);
-      return (
-        <QueryClientProvider client={queryClient}>
-          <Story />
-        </QueryClientProvider>
-      );
+      return <Story />;
     },
+    // The header tile draws the assistant avatar through `useAssistantAvatar`,
+    // which has no daemon to fetch from here. Seeding the cache under both
+    // manifest-gate values renders the creature instead of an empty square.
+    withQueryCache((client) => {
+      for (const supportsManifest of [false, true]) {
+        client.setQueryData(
+          [...avatarQueryKey(STORY_ASSISTANT_ID), supportsManifest],
+          {
+            components: BUNDLED_COMPONENTS,
+            traits: null,
+            customImageUrl: null,
+          },
+        );
+      }
+    }),
   ],
 };
 

@@ -3376,7 +3376,9 @@ function WorkChip({
       aria-expanded={onToggle === undefined ? undefined : open}
       data-control="work"
       disabled={onToggle === undefined}
-      className={`group flex size-7 shrink-0 items-center justify-center rounded-full transition-colors enabled:hover:bg-white/15 ${
+      // The same 32 by 28 capsule as the call's other controls, a 16pt icon
+      // in `px-2`, so its hover and open background is the same shape theirs is.
+      className={`group flex h-7 shrink-0 items-center justify-center rounded-full px-1.5 transition-colors enabled:hover:bg-white/15 ${
         open ? "bg-white/15" : ""
       }`}
       style={callWorkAccent(accentHex)}

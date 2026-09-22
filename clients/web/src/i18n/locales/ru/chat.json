@@ -1081,12 +1081,12 @@
     "workflowFinished": "Рабочий процесс завершён"
   },
   "wakeDetailPanel": {
-    "close": "Закрыть",
     "details": "Подробности",
     "result": "Результат",
     "runStatus": "Статус запуска",
     "title": "Разговор возобновлён",
-    "workflow": "Рабочий процесс"
+    "workflow": "Рабочий процесс",
+    "closeAria": "Закрыть подробности"
   },
   "watchRetroSurface": {
     "doneDiscarded": "Не сохранено",
@@ -1153,5 +1153,8 @@
   "recallLabels": {
     "source": "{source, select, memory {Память} conversations {Беседы} workspace {Файлы рабочей области} other {{source}}}",
     "depth": "{depth, select, fast {Быстрый поиск} standard {Обычный поиск} deep {Глубокий поиск} other {Поиск}}"
+  },
+  "skillExecuteDetail": {
+    "unnamedTool": "Инструмент навыка"
   }
 }

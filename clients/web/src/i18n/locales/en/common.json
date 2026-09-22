@@ -996,5 +996,9 @@
     "title": "Assistant handle",
     "description": "Your assistant's public name. It is also the name its email address is built on.",
     "helper": "Lowercase letters, numbers, hyphens, underscores."
+  },
+  "detailShell": {
+    "close": "Close",
+    "closePanel": "Close panel"
   }
 }

@@ -32,8 +32,10 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ToolDetailPanel } =
+const { ToolDetailBody, ToolDetailPanel } =
   await import("@/domains/chat/components/tool-detail-panel");
+const { SNAPSHOT_TOOL_CALL_SOURCE } =
+  await import("@/domains/chat/hooks/use-live-tool-call");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { buildSubagentStepDetails } =
@@ -682,6 +684,19 @@ describe("ToolDetailPanel", () => {
 
       expect(container.textContent).toContain('"label": "toronto-location"');
     });
+  });
+
+  test("the body is one element, so a host's own gap cannot add to its spacing", () => {
+    const { getByTestId } = render(
+      <div data-testid="host" className="flex flex-col gap-4">
+        <ToolDetailBody
+          detail={makeDetail()}
+          source={SNAPSHOT_TOOL_CALL_SOURCE}
+        />
+      </div>,
+    );
+
+    expect(getByTestId("host").children).toHaveLength(1);
   });
 
   test("omits the Technical details label", () => {

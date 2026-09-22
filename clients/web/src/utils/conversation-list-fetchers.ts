@@ -124,12 +124,14 @@ export type ConversationGroupId = ConversationListQuery["groupId"];
  * Closed set of list labels carried by the `client_list.drain` watchdog event
  * and by every conversation-list ring entry. One label per real caller, so the
  * archive page and the channel sections stay distinguishable from the sidebar's
- * foreground drain in both rails.
+ * foreground drain in both rails. `"all"` is the whole-history read, which
+ * spans every conversation type in one cursor rather than draining a bucket.
  */
 type DrainListKind =
   | "foreground"
   | "background"
   | "scheduled"
+  | "all"
   | "archived"
   | "origin_channel"
   | "section";

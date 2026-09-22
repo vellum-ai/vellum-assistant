@@ -73,6 +73,7 @@ describe("vellum-model-routing", () => {
       "gemini",
       "openai",
       "together",
+      "typesafe",
       "vellum",
     ]);
   });

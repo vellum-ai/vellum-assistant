@@ -83,9 +83,8 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
     },
   },
 }));
-const daemonReactQueryActual = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
+const daemonReactQueryActual =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...daemonReactQueryActual,
   oauthProvidersGetOptions: () => ({
@@ -153,9 +152,8 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     isError: false,
   }),
 }));
-const apiReactQueryActual = await import(
-  "@/generated/api/@tanstack/react-query.gen"
-);
+const apiReactQueryActual =
+  await import("@/generated/api/@tanstack/react-query.gen");
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   ...apiReactQueryActual,
   assistantsOauthConnectionsListOptions: () => ({
@@ -267,6 +265,30 @@ async function settle() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+/**
+ * Call off the sign-in from the tile's action slot.
+ *
+ * The slot spends the wait as a spinner and turns into an X once a mouse
+ * arrives on it, so a test that means to cancel arrives the same way a mouse
+ * does. A finger gets a second press instead, which is the whole point of it
+ * on a touch screen.
+ */
+function cancelFromTile(name: string) {
+  const button = screen.getByRole("button", {
+    name: `Cancel connecting ${name}`,
+  });
+  fireEvent.pointerEnter(button, { pointerType: "mouse" });
+  fireEvent.click(button, { detail: 1 });
+}
+
+/** Radix opens a menu on pointer-down, not on a synthetic click. */
+function openTileMenu(name: string) {
+  fireEvent.pointerDown(
+    screen.getByRole("button", { name: `Other ways to connect ${name}` }),
+    { button: 0, ctrlKey: false },
+  );
 }
 
 function ProviderNavigationButton() {
@@ -524,14 +546,12 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
 
     await screen.findByText("Finish signing in to Example in your browser.");
-    screen.getByRole("button", { name: "Cancel" });
+    screen.getByRole("button", { name: "Cancel connecting Example" });
     // The page-level notice is for attempts a custom server card started.
-    expect(
-      screen.queryByText(/Waiting for you to authorize/),
-    ).toBeNull();
+    expect(screen.queryByText(/Waiting for you to authorize/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop waiting" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    cancelFromTile("Example");
     await waitFor(() =>
       expect(
         screen.queryByText("Finish signing in to Example in your browser."),
@@ -549,7 +569,7 @@ describe("IntegrationsPage", () => {
     await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
     await screen.findByText("Finish signing in to Example in your browser.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    cancelFromTile("Example");
 
     // The install only happened to reach a sign-in that never did, so the
     // integration goes back to how it was found: on offer, with nothing to
@@ -573,7 +593,7 @@ describe("IntegrationsPage", () => {
     // request has not settled yet. The removal waits for it rather than
     // missing it.
     fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    cancelFromTile("Example");
 
     await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
@@ -618,7 +638,7 @@ describe("IntegrationsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
     await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
     await screen.findByText("Finish signing in to Example in your browser.");
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    cancelFromTile("Example");
 
     // The removal is in flight. A connect over it would be handed the plugin
     // that removal is on its way to taking, so the tile waits for it.
@@ -689,8 +709,11 @@ describe("IntegrationsPage", () => {
     await screen.findByText("Example");
     fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
 
-    await screen.findByRole("button", { name: "Setup guide" });
-    screen.getByRole("button", { name: "Retry connecting Example" });
+    await screen.findByRole("button", { name: "Retry connecting Example" });
+    // The guide is behind the retry's chevron, where it costs the tile no
+    // height and the row of tiles beside it none either.
+    openTileMenu("Example");
+    await screen.findByRole("menuitem", { name: "Setup guide" });
     await settle();
   });
 
@@ -825,20 +848,18 @@ describe("IntegrationsPage", () => {
 
     await screen.findByText("Notion");
     fireEvent.click(screen.getByRole("button", { name: "Connect Notion" }));
-    await screen.findByRole("button", { name: "Setup guide" });
+    await screen.findByRole("button", { name: "Retry connecting Notion" });
 
-    // Radix opens a menu on pointer-down, not on a synthetic click.
-    fireEvent.pointerDown(
-      screen.getByRole("button", { name: "Try another way" }),
-      { button: 0, ctrlKey: false },
-    );
+    openTileMenu("Notion");
     fireEvent.click(
       await screen.findByRole("menuitem", { name: "Sign in through Vellum" }),
     );
 
     await waitFor(() => expect(managedConnect).toHaveBeenCalledTimes(1));
     await screen.findByText("Finish signing in to Notion in your browser.");
-    expect(screen.queryByRole("button", { name: "Setup guide" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Retry connecting Notion" }),
+    ).toBeNull();
     await settle();
   });
 
@@ -937,7 +958,9 @@ describe("IntegrationsPage", () => {
     const chips = screen.getByRole("group", { name: "Filter by category" });
     // The catalog's order, not the page's, and only what it files something under.
     expect(
-      Array.from(chips.querySelectorAll("button")).map((chip) => chip.textContent),
+      Array.from(chips.querySelectorAll("button")).map(
+        (chip) => chip.textContent,
+      ),
     ).toEqual(["Productivity1", "Meetings1"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
@@ -946,7 +969,9 @@ describe("IntegrationsPage", () => {
     // A custom server is filed nowhere, so a chip hides it too.
     expect(screen.queryByText("example-integration")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Meetings 1" }).getAttribute("aria-pressed"),
+      screen
+        .getByRole("button", { name: "Meetings 1" })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Meetings 1" }));
@@ -1265,7 +1290,9 @@ describe("IntegrationsPage", () => {
     // so the dialog keeps the per-server sign-ins reachable.
     await screen.findByRole("heading", { name: /Your integrations/ });
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
-    expect(await screen.findAllByRole("button", { name: "Reconnect" })).toHaveLength(2);
+    expect(
+      await screen.findAllByRole("button", { name: "Reconnect" }),
+    ).toHaveLength(2);
     await settle();
   });
 
@@ -1432,9 +1459,11 @@ describe("IntegrationsPage", () => {
     render(<IntegrationsPage />, { wrapper: Wrapper });
     await screen.findByText("No integrations are available.");
     expect(
-      (screen.getByRole("button", {
-        name: "Add custom integration",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add custom integration",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 });

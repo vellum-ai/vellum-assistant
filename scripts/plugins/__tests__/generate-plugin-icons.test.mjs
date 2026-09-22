@@ -82,9 +82,24 @@ function pluginEntry(name, repo, extra = {}) {
   };
 }
 
+function localEntry(name, path = `plugins/mcp-catalog/${name}`) {
+  return {
+    name,
+    source: { source: "local", path, version: "1.0.0" },
+  };
+}
+
+/** Write a local package's icon.png under the temp repo root. */
+function writeLocalIcon(name, bytes) {
+  const pkgDir = join(dir, "plugins", "mcp-catalog", name);
+  mkdirSync(pkgDir, { recursive: true });
+  writeFileSync(join(pkgDir, "icon.png"), bytes);
+}
+
 const run = (fetch) =>
   generatePluginIcons({
     fetch,
+    repoRoot: dir,
     marketplacePath,
     assetsDir,
     manifestPath,
@@ -93,6 +108,8 @@ const run = (fetch) =>
   });
 
 const check = () => checkPluginIcons({ assetsDir, manifestPath });
+const checkWithLocal = () =>
+  checkPluginIcons({ repoRoot: dir, assetsDir, manifestPath, marketplacePath });
 
 const readManifest = () => JSON.parse(readFileSync(manifestPath, "utf-8"));
 
@@ -145,17 +162,12 @@ describe("isTransientUpstreamStatus mirrors the assistant classifier", () => {
 });
 
 describe("generatePluginIcons (write mode)", () => {
-  test("skips local sources without fetching them", async () => {
+  test("vendors local sources from disk without fetching them", async () => {
     const png = makePng(32, 32);
+    const localPng = makePng(48, 48);
+    writeLocalIcon("local-plugin", localPng);
     writeMarketplace([
-      {
-        name: "local-plugin",
-        source: {
-          source: "local",
-          path: "plugins/mcp-catalog/local-plugin",
-          version: "1.0.0",
-        },
-      },
+      localEntry("local-plugin"),
       pluginEntry("github-plugin", "owner/github-plugin"),
     ]);
 
@@ -175,8 +187,56 @@ describe("generatePluginIcons (write mode)", () => {
 
     expect(requested).toHaveLength(1);
     expect(requested[0]).toContain("/repos/owner/github-plugin/");
-    expect(result).toEqual({ vendored: ["github-plugin"], skipped: [] });
+    expect(result).toEqual({
+      vendored: ["github-plugin", "local-plugin"],
+      skipped: [],
+    });
+    expect(
+      readFileSync(join(assetsDir, "local-plugin", "icon.png")).equals(localPng),
+    ).toBe(true);
+    expect(readManifest().plugins["local-plugin"]).toEqual({
+      iconVersion: sha16(localPng),
+    });
   });
+
+  test("local source without an icon.png is skipped", async () => {
+    writeMarketplace([localEntry("no-icon")]);
+
+    const result = await run(stubFetch({}));
+
+    expect(result).toEqual({ vendored: [], skipped: ["no-icon"] });
+    expect(readManifest().plugins).toEqual({});
+  });
+
+  test("local source with an invalid icon.png is skipped", async () => {
+    writeLocalIcon("bad-icon", makePng(256, 256));
+    writeMarketplace([localEntry("bad-icon")]);
+
+    const result = await run(stubFetch({}));
+
+    expect(result).toEqual({ vendored: [], skipped: ["bad-icon"] });
+  });
+
+  test("local source with an oversized icon.png is skipped and not vendored", async () => {
+    writeLocalIcon("huge-icon", makePng(64, 64, { padTo: 32 * 1024 + 1 }));
+    writeMarketplace([localEntry("huge-icon")]);
+
+    const result = await run(stubFetch({}));
+
+    expect(result).toEqual({ vendored: [], skipped: ["huge-icon"] });
+    expect(readManifest().plugins).toEqual({});
+    expect(checkWithLocal()).toEqual({ ok: true, errors: [] });
+  });
+
+  test.each([["../escape"], ["/abs/path"], ["plugins//x"], ["./x"]])(
+    "aborts on a local source.path %p, writing nothing",
+    async (badPath) => {
+      writeMarketplace([localEntry("sneaky", badPath)]);
+
+      await expect(run(stubFetch({}))).rejects.toThrow("invalid local source.path");
+      expect(() => readManifest()).toThrow();
+    },
+  );
 
   test("oversized Content-Length skips+prunes only that plugin, without buffering", async () => {
     // Pre-seed a stale vendored icon for the plugin that will report oversized —
@@ -439,6 +499,61 @@ describe("checkPluginIcons (check mode)", () => {
     await run(stubFetch({ "owner/good": { bytes: makePng(64, 64) } }));
 
     expect(check()).toEqual({ ok: true, errors: [] });
+  });
+
+  test("passes when local package icons are vendored", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+
+    expect(checkWithLocal()).toEqual({ ok: true, errors: [] });
+  });
+
+  test("fails when a local package icon changed without re-vendoring", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+    writeLocalIcon("local-plugin", makePng(64, 64));
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("differs from");
+  });
+
+  test("fails when a local package icon was deleted but its asset remains", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+    rmSync(join(dir, "plugins", "mcp-catalog", "local-plugin", "icon.png"));
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("is stale");
+  });
+
+  test("fails when a local package icon became invalid but its asset remains", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+    writeLocalIcon("local-plugin", makePng(256, 256));
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("is stale");
+  });
+
+  test("fails when a local package icon was never vendored", async () => {
+    mkdirSync(assetsDir, { recursive: true });
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({ version: 1, plugins: {} }, null, 2)}\n`,
+    );
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("is not vendored");
   });
 
   test("fails on a hand-mutated manifest iconVersion", async () => {

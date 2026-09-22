@@ -15,7 +15,7 @@
  * Not a `.stories.tsx` file, so Storybook does not index it.
  */
 import type { Decorator } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { type CSSProperties } from "react";
 
 import {
@@ -31,6 +31,7 @@ import type {
 } from "@/generated/api/types.gen";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -130,9 +131,7 @@ const STORY_PLANS: PlanListResponse = {
  * One client for every story: distinct assistant ids let a single cache serve
  * the creature, the uploaded image, and the assistant nothing was seeded for.
  */
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const queryClient = createStoryQueryClient();
 
 queryClient.setQueryData(
   organizationsBillingPlansRetrieveQueryKey(),

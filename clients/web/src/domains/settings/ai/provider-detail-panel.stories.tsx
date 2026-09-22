@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ProviderConnection } from "@/generated/daemon/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 
 import { ProviderDetailPanel } from "./provider-detail-panel";
 
@@ -28,16 +29,14 @@ const CONNECTIONS: ProviderConnection[] = [
 ];
 
 function seededClient() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return createStoryQueryClient((client) => {
+    client.setQueryData(
+      inferenceProviderconnectionsGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+      }),
+      { connections: CONNECTIONS },
+    );
   });
-  client.setQueryData(
-    inferenceProviderconnectionsGetQueryKey({
-      path: { assistant_id: ASSISTANT_ID },
-    }),
-    { connections: CONNECTIONS },
-  );
-  return client;
 }
 
 function withClient(client: QueryClient) {
