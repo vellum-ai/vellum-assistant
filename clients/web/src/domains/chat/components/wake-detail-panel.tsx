@@ -116,7 +116,7 @@ function ResultBody({ result }: { result: string }) {
         >
           {rows.map((row) => (
             <div key={row.key} className="flex flex-col gap-0.5">
-              <span className="text-body-small-default text-[var(--content-tertiary)]">
+              <span className="text-label-medium-default text-[var(--content-tertiary)]">
                 {row.key}
               </span>
               <span className="whitespace-pre-wrap break-words">

@@ -17,7 +17,8 @@
  * - **Windowed**: one page on mount, more on scroll
  *   (`loadMoreConversations`), sync and settle refreshes merge a
  *   fresh first page over the window (`mergeListFirstPage`). Every
- *   section (a filter on the group or channel axis) is windowed.
+ *   section (a filter on the group or channel axis) is windowed, as is
+ *   the whole-history read, which spans more rows than any bucket.
  * - **Drained**: every page fetched serially, `hasMore: false` at rest.
  *   The four bucket reads (foreground, background, scheduled, archived)
  *   drain because their readers assume a complete list; a bucket becomes
@@ -47,6 +48,7 @@ import {
   FOREGROUND_FILTER,
   isPinnedInjectedFilter,
   isSectionFilter,
+  isWholeHistoryFilter,
 } from "@/utils/conversation-list-keys";
 import {
   type ConversationListPage,
@@ -84,7 +86,7 @@ export function conversationListOptions(
     path: { assistant_id: assistantId },
     query: filter,
   }).queryKey;
-  if (isSectionFilter(filter)) {
+  if (isSectionFilter(filter) || isWholeHistoryFilter(filter)) {
     return queryOptions({
       queryKey,
       queryFn: async ({ client }) => {

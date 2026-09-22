@@ -334,7 +334,12 @@ async function restorePlatform(
     );
 
     try {
-      await rollbackPlatformAssistant(token, opts.version, entry.runtimeUrl);
+      await rollbackPlatformAssistant(
+        token,
+        entry.assistantId,
+        opts.version,
+        entry.runtimeUrl,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
@@ -628,14 +633,7 @@ async function runLocalRestore(opts: {
   stagedRelativePath: string | undefined;
   bundleData: Buffer | undefined;
 }): Promise<void> {
-  const {
-    entry,
-    name,
-    version,
-    dryRun,
-    stagedRelativePath,
-    bundleData,
-  } = opts;
+  const { entry, name, version, dryRun, stagedRelativePath, bundleData } = opts;
   let accessToken = opts.accessToken;
 
   if (dryRun) {
@@ -762,18 +760,15 @@ async function runLocalRestore(opts: {
             accessToken,
             stagedRelativePath,
           )
-        : await loopbackSafeFetch(
-            `${entry.runtimeUrl}/v1/migrations/import`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/octet-stream",
-              },
-              body: bundleData ? new Uint8Array(bundleData) : undefined,
-              signal: AbortSignal.timeout(120_000),
+        : await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/octet-stream",
             },
-          );
+            body: bundleData ? new Uint8Array(bundleData) : undefined,
+            signal: AbortSignal.timeout(120_000),
+          });
       if (!response.ok) {
         const body = await response.text();
         console.error(`Error: Import failed (${response.status}): ${body}`);

@@ -1,3 +1,4 @@
+import { SectionLabel } from "@/components/detail-primitives";
 import { useTranslation } from "@/i18n";
 /**
  * Devin-style chat view for an ACP run. Assembles the projected chat blocks
@@ -468,13 +469,7 @@ function ObjectiveSection({ task }: { task: string | undefined }) {
   }
   return (
     <div data-testid="acp-chat-objective">
-      <Typography
-        variant="body-medium-default"
-        as="h3"
-        className="mb-1 text-[var(--content-emphasised)]"
-      >
-        {t("acpRunChatView.objective")}
-      </Typography>
+      <SectionLabel as="h3">{t("acpRunChatView.objective")}</SectionLabel>
       <Typography
         variant="body-medium-lighter"
         as="p"

@@ -16,6 +16,10 @@ import {
 } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { unsignedThoughtSignatureFallback } from "../gemini-thought-signature.js";
+import {
+  isMalformedToolCallFinishReason,
+  malformedToolCallError,
+} from "../malformed-tool-call.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
@@ -577,6 +581,18 @@ export class GeminiProvider implements Provider {
         cleanupTimeout();
       }
 
+      if (isMalformedToolCallFinishReason(finishReason)) {
+        log.warn(
+          {
+            model: responseModel,
+            finishReason,
+            streamedTextLength: fullText.length,
+          },
+          "Gemini response ended on a malformed tool call",
+        );
+        throw malformedToolCallError("gemini", finishReason);
+      }
+
       // Build content blocks
       const content: ContentBlock[] = [];
       if (fullText) {
@@ -649,7 +665,7 @@ export class GeminiProvider implements Provider {
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent
           // and short-circuits classification/retry (mirrors the Anthropic client).
-        abortReason
+          abortReason
             ? { abortReason, rawRequest: inspectableRequest }
             : {
                 reason: deriveGeminiReason(error),

@@ -1,4 +1,8 @@
 {
+  "conversationDoneToast": {
+    "message": "Hecho",
+    "undo": "Deshacer"
+  },
   "documentChat": {
     "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
     "viewConversation": "Ver conversación",
@@ -61,6 +65,11 @@
     "takingLonger": "Tu asistente está tardando más de lo esperado.",
     "tryAgain": "Reintentar"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "Marcar todo como hecho",
+    "message": "{count, plural, one {¿Marcar como hecha la conversación en “{groupName}”? Sale de la barra lateral y te espera en Chats antiguos, donde puedes reabrirla.} other {¿Marcar como hechas las # conversaciones en “{groupName}”? Salen de la barra lateral y te esperan en Chats antiguos, donde puedes reabrirlas.}}",
+    "title": "Marcar todo como hecho"
+  },
   "mobileDetailSheet": {
     "title": "Detalles de la actividad"
   },
@@ -116,6 +125,28 @@
     "observe": "Observando",
     "navigate": "Navegando",
     "terminal": "Ejecutando un comando"
+  },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "Últimos 30 días",
+      "previous7Days": "Últimos 7 días",
+      "today": "Hoy",
+      "yesterday": "Ayer"
+    },
+    "chip": {
+      "all": "Todos",
+      "background": "En segundo plano",
+      "done": "Hecho"
+    },
+    "doneMeta": "Hecho · {time}",
+    "empty": "Aún no hay chats aquí.",
+    "filterAria": "Filtrar chats",
+    "loadError": "No se pudieron cargar tus chats.",
+    "loading": "Cargando chats",
+    "noMatches": "Ningún chat coincide con «{query}».",
+    "retry": "Reintentar",
+    "searchPlaceholder": "Buscar chats",
+    "title": "Chats antiguos"
   },
   "sessionGroupRow": {
     "mode": {
@@ -455,6 +486,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
+    "done": "[Hecho]",
     "newChat": "Chat nuevo"
   },
   "chatInfoPanel": {
@@ -695,8 +727,10 @@
     "copyConversation": "Copiar conversación completa",
     "copyConversationId": "Copiar ID de conversación",
     "delete": "Eliminar",
+    "done": "Hecho",
     "forkConversation": "Bifurcar conversación",
     "inspect": "Analizar conversación",
+    "markAsDone": "Marcar como hecho",
     "markRead": "Marcar como leída",
     "markUnread": "Marcar como no leída",
     "moveToGroup": "Mover al grupo",
@@ -708,6 +742,7 @@
     "refresh": "Actualizar",
     "removeFromGroup": "Quitar del grupo",
     "rename": "Cambiar nombre",
+    "reopen": "Reabrir",
     "shareFeedback": "Enviar comentarios",
     "triggerAriaLabel": "Acciones de conversación",
     "unarchive": "Desarchivar",
@@ -907,6 +942,7 @@
     "deleteGroup": "Eliminar grupo",
     "deleteGroupWithConversations": "Eliminar grupo…",
     "groupByChannel": "Agrupar por canal",
+    "markAllAsDone": "Marcar todo como hecho…",
     "markAllRead": "Marcar todas como leídas",
     "moveSectionDown": "Bajar sección",
     "moveSectionUp": "Subir sección",
@@ -1637,6 +1673,9 @@
   "sidebarListContextMenu": {
     "newGroup": "Grupo nuevo…"
   },
+  "sidebarSectionViewAll": {
+    "label": "Ver todos los chats"
+  },
   "singleActivity": {
     "webSearch": "Búsqueda web"
   },
@@ -1692,8 +1731,6 @@
     "noEventsYet": "Aún no hay eventos",
     "objective": "Objetivo",
     "output": "Salida",
-    "showLess": "Mostrar menos",
-    "showMore": "Mostrar más",
     "stopSubagentAria": "Detener subagente",
     "timeline": "Línea de tiempo"
   },

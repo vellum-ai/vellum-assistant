@@ -1,3 +1,4 @@
+import { SectionLabel } from "@/components/detail-primitives";
 import {
   CUSTOM_SENTINEL,
   isDraftActive,
@@ -77,10 +78,7 @@ export function OverridesCallSiteList({
       ) : (
         groups.map(({ domain, sites }) => (
           <div key={domain.id}>
-            {/* typography: off-scale. Domain section label uses semibold+tracking for visual grouping */}
-            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              {domain.displayName}
-            </p>
+            <SectionLabel>{domain.displayName}</SectionLabel>
             <div className="space-y-1">
               {sites.map((cs) => {
                 const profileVal = (() => {

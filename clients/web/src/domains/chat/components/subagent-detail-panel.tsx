@@ -2,7 +2,6 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Bolt,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -18,6 +17,7 @@ import {
 
 import { motion, useReducedMotion } from "motion/react";
 
+import { ClampedContent, SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
@@ -58,7 +58,6 @@ import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projectio
 import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
-import { useOverflows } from "@/hooks/use-overflows";
 
 /**
  * The icon name for a nested step detail — the same glyph its timeline pill
@@ -209,26 +208,15 @@ export function SubagentDetailPanel({
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<Set<string>>(
     new Set(),
   );
-
-  // Objective collapse/expand. The toggle only appears when the clamped body
-  // actually overflows, so short objectives show no affordance.
+  // Whether the objective is open, lifted for the same reason: the objective
+  // unmounts with the timeline while a nested detail is shown.
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
-  // Measured against the collapsed clamp, and held while expanded so "Show
-  // less" stays. Keyed on the subagent as well as the text, so a switch
-  // between two subagents with the same objective still re-measures.
-  const { ref: objectiveBodyRef, overflows: objectiveOverflows } =
-    useOverflows<HTMLParagraphElement>({
-      contentKey: `${entry.subagentId}:${entry.objective}`,
-      paused: objectiveExpanded,
-    });
 
-  // Reset objective collapse state when the subagent changes. The desktop
-  // parent reuses this instance across subagent switches (no `key`), so without
-  // this an objective expanded for one subagent leaks onto the next, and since
-  // the measurement holds while expanded, the new (possibly short) objective
-  // would render stale-expanded with a spurious "Show less". Resetting during
-  // render (React's "store previous prop" pattern) collapses it before paint
-  // (no flash), which resumes the measurement for the new objective.
+  // Reset per-subagent view state when the subagent changes. The desktop
+  // parent reuses this instance across subagent switches (no `key`), so
+  // without this one subagent's open step, expanded groups and open objective
+  // leak onto the next. Resetting during render (React's "store previous
+  // prop" pattern) lands before paint, so nothing flashes.
   const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
   if (prevSubagentId !== entry.subagentId) {
     setPrevSubagentId(entry.subagentId);
@@ -439,66 +427,34 @@ export function SubagentDetailPanel({
               {/* Objective section */}
               {entry.objective && (
                 <div className="mb-5">
-                  <Typography
-                    variant="body-medium-default"
-                    as="h3"
-                    className="mb-2 text-[var(--content-emphasised)]"
-                  >
+                  <SectionLabel as="h3">
                     {t("subagentDetailPanel.objective")}
-                  </Typography>
-                  <Typography
-                    ref={objectiveBodyRef}
-                    variant="body-medium-lighter"
-                    as="p"
-                    // When expanded the text becomes its own scroll container, so
-                    // make it a focusable, labelled region — otherwise keyboard
-                    // users can't reach the overflowed objective content.
-                    tabIndex={objectiveExpanded ? 0 : undefined}
-                    role={objectiveExpanded ? "region" : undefined}
-                    aria-label={objectiveExpanded ? t("subagentDetailPanel.objective") : undefined}
-                    className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                      objectiveExpanded
-                        ? "max-h-[280px] overflow-y-auto"
-                        : "line-clamp-5"
-                    }`}
+                  </SectionLabel>
+                  {/* Keyed by subagent so the next subagent's objective is
+                      measured afresh; its open state resets with the switch. */}
+                  <ClampedContent
+                    key={entry.subagentId}
+                    label={t("subagentDetailPanel.objective")}
+                    expanded={objectiveExpanded}
+                    onExpandedChange={setObjectiveExpanded}
                   >
-                    {entry.objective}
-                  </Typography>
-                  {objectiveOverflows && (
-                    <Button
-                      variant="link"
-                      onClick={() => setObjectiveExpanded((prev) => !prev)}
-                      aria-expanded={objectiveExpanded}
-                      rightIcon={
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 transition-transform ${
-                            objectiveExpanded ? "rotate-180" : ""
-                          }`}
-                          aria-hidden
-                        />
-                      }
-                      // no-underline: this is a disclosure toggle, not a link.
-                      // border-0: see the breadcrumb crumb above.
-                      className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
+                    <Typography
+                      variant="body-medium-lighter"
+                      as="p"
+                      className="whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)]"
                     >
-                      <Typography variant="label-small-default">
-                        {objectiveExpanded ? t("subagentDetailPanel.showLess") : t("subagentDetailPanel.showMore")}
-                      </Typography>
-                    </Button>
-                  )}
+                      {entry.objective}
+                    </Typography>
+                  </ClampedContent>
                   <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
                 </div>
               )}
 
               {/* Timeline section */}
               <div>
-                <Typography
-                  variant="title-medium"
-                  as="h3"
-                  className="mb-4 text-[var(--content-emphasised)]"
-                >
+                <SectionLabel as="h3">
                   {t("subagentDetailPanel.timeline")}
-                </Typography>
+                </SectionLabel>
                 {/*
                  * Key by subagent id so the timeline remounts on subagent switch,
                  * resetting the expand/collapse state it holds. The drawer keeps this

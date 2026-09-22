@@ -1,4 +1,8 @@
 {
+  "conversationDoneToast": {
+    "message": "Done",
+    "undo": "Undo"
+  },
   "documentChat": {
     "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
     "viewConversation": "View conversation",
@@ -61,6 +65,11 @@
     "takingLonger": "Your assistant is taking longer than expected.",
     "tryAgain": "Try again"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "Mark all as done",
+    "message": "{count, plural, one {Mark the conversation in “{groupName}” as done? It leaves the sidebar and waits for you under Old chats, where you can reopen it.} other {Mark all # conversations in “{groupName}” as done? They leave the sidebar and wait for you under Old chats, where you can reopen them.}}",
+    "title": "Mark all as done"
+  },
   "mobileDetailSheet": {
     "title": "Activity details"
   },
@@ -116,6 +125,28 @@
     "observe": "Observing",
     "navigate": "Navigating",
     "terminal": "Running a command"
+  },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "Previous 30 days",
+      "previous7Days": "Previous 7 days",
+      "today": "Today",
+      "yesterday": "Yesterday"
+    },
+    "chip": {
+      "all": "All",
+      "background": "Background",
+      "done": "Done"
+    },
+    "doneMeta": "Done · {time}",
+    "empty": "No chats here yet.",
+    "filterAria": "Filter chats",
+    "loadError": "Could not load your chats.",
+    "loading": "Loading chats",
+    "noMatches": "No chats match “{query}”.",
+    "retry": "Try again",
+    "searchPlaceholder": "Search chats",
+    "title": "Old chats"
   },
   "sessionGroupRow": {
     "mode": {
@@ -463,6 +494,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
+    "done": "[Done]",
     "newChat": "New Chat"
   },
   "chatInfoPanel": {
@@ -703,8 +735,10 @@
     "copyConversation": "Copy Full Conversation",
     "copyConversationId": "Copy conversation ID",
     "delete": "Delete",
+    "done": "Done",
     "forkConversation": "Fork Conversation",
     "inspect": "Analyze Conversation",
+    "markAsDone": "Mark as done",
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
@@ -716,6 +750,7 @@
     "refresh": "Refresh",
     "removeFromGroup": "Remove from group",
     "rename": "Rename",
+    "reopen": "Reopen",
     "shareFeedback": "Share Feedback",
     "triggerAriaLabel": "Conversation actions",
     "unarchive": "Unarchive",
@@ -955,6 +990,7 @@
     "deleteGroup": "Delete group",
     "deleteGroupWithConversations": "Delete group…",
     "groupByChannel": "Group by channel",
+    "markAllAsDone": "Mark all as done…",
     "markAllRead": "Mark All as Read",
     "moveSectionDown": "Move Section Down",
     "moveSectionUp": "Move Section Up",
@@ -1686,6 +1722,9 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
+  "sidebarSectionViewAll": {
+    "label": "View all chats"
+  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1741,8 +1780,6 @@
     "noEventsYet": "No events yet",
     "objective": "Objective",
     "output": "Output",
-    "showLess": "Show less",
-    "showMore": "Show more",
     "stopSubagentAria": "Stop subagent",
     "timeline": "Timeline"
   },

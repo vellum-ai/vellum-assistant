@@ -37,6 +37,7 @@ import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useTranslation } from "@/i18n";
+import { SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -468,10 +469,7 @@ export function OverridesDetailPanel({
             catalog fails to load. */}
         {daemonConfigLoaded && advisorMatchesSearch && (
           <div className="mb-4">
-            {/* typography: off-scale. Matches the domain section label below */}
-            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              {t("overridesDetailPanel.advisorSection")}
-            </p>
+            <SectionLabel>{t("overridesDetailPanel.advisorSection")}</SectionLabel>
             <AdvisorProfileRow
               value={advisorProfile}
               profileOptions={advisorOptions}

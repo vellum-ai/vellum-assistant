@@ -4,6 +4,7 @@ import { useTranslation } from "@/i18n";
 
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
+import { useConversationDoneLabels } from "@/utils/done-labels";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import {
@@ -50,6 +51,7 @@ export function ChatConversationHeader({
   // act on too, so its rows may advertise them.
   const shortcuts = useConversationMenuShortcuts(true);
   const { t } = useTranslation("chat");
+  const doneLabels = useConversationDoneLabels();
   const displayTitle = useDisplayConversationTitle();
   const supportsDocumentCreate = useSupportsDocumentCreate(assistantId);
   const newDocument = useNewDocumentInConversation(assistantId);
@@ -199,7 +201,7 @@ export function ChatConversationHeader({
             <span className="min-w-0 max-w-[220px] truncate leading-6">
               {isArchived && (
                 <span className="mr-1 text-[var(--content-tertiary)]">
-                  {t("chatConversationHeader.archived")}
+                  {doneLabels.headerBadge}
                 </span>
               )}
               {displayTitle(activeConversation.title)}
