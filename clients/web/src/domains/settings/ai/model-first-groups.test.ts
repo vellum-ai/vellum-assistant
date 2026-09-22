@@ -261,6 +261,7 @@ describe("collapseSectionRows", () => {
     // carrying on rather than as a second list.
     expect(hidden.map((option) => option.displayName)).toEqual([
       "Claude Fable 5",
+      "Claude Opus 5",
       "Claude Opus 4.8",
       "Claude Opus 4.7",
       "Claude Opus 4.6",
