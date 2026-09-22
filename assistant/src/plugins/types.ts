@@ -239,6 +239,17 @@ export interface TurnContext {
    */
   readonly isBackgroundConversation?: boolean;
   /**
+   * The active conversation's `conversationType` and `source` as stored on
+   * its row (`standard` / `background` / `scheduled`; `user`,
+   * `memory_v2_consolidation`, …), copied from the live conversation's cached
+   * fields. Read together by the `memory-capture-guidance` injector, which
+   * classifies the conversation for the retrospective exactly as the enqueue
+   * gate does. Absent when no live conversation backs the turn; the injector
+   * then makes no claim.
+   */
+  readonly conversationType?: string;
+  readonly conversationSource?: string;
+  /**
    * Active documents open in this conversation — surfaced by the
    * `active-documents` injector so the assistant can target existing docs
    * with `document_update` instead of creating duplicates.

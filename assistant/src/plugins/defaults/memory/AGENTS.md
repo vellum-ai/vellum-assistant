@@ -87,6 +87,16 @@ Everything else under the plugin root is **spine**:
   pending job collects a burst of background skill rewrites and announces it
   once it settles), whose upstream producers only fire when
   `isV3TierActive()` holds (memory on and v3 live).
+  `memory-retrospective-eligibility.ts` is the one statement of which
+  conversations a later pass can review (`classifyRetrospectiveEligibility`)
+  and of what a turn can do about it (`resolveMemoryCaptureGuidance`, which
+  folds in `resolveCapabilities(trustClass).canAccessMemory`, the authority
+  `remember` refuses under). The enqueue funnel reads the first; the
+  `memory-capture-guidance` injector in `injectors.ts` renders the second on
+  every turn. Do not add a second copy of either rule: a prompt line that
+  re-checks `conversationType` or a trust class on its own is how the funnel
+  and the prompt drift apart. The sweep's SQL filter mirrors the type and
+  source reasons and is pinned to the classifier by a parity test.
 - The rest of the spine: `startup.ts`, `jobs-worker.ts`, `job-handlers.ts`,
   `job-handler-registration.ts`, `indexer.ts`, `injectors.ts`, `tools.ts`,
   `hooks/`, `src/` (HTTP routes), `context-search/`.

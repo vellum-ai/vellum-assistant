@@ -39,6 +39,10 @@ import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
 import { getMemoryConfig } from "./config.js";
 import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
 import { getLogger } from "./logging.js";
+import {
+  renderMemoryCaptureGuidance,
+  resolveMemoryCaptureGuidance,
+} from "./memory-retrospective-eligibility.js";
 import { getSandboxWorkingDir } from "./paths.js";
 // SUBSTRATE (v2+v3) — feeds `memoryV2StaticInjector`.
 import { readMemoryV2StaticContent } from "./substrate/static-context.js";
@@ -52,6 +56,7 @@ import { getPkbRoot } from "./v1/pkb/types.js";
 import { memoryV3Injector, memoryV3PointerInjector } from "./v3/injector.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
+const memoryCaptureGuidanceLog = getLogger("memory-capture-guidance");
 
 /** Minimum hybrid-search score for a PKB path to surface as an injection hint. */
 const PKB_HINT_THRESHOLD = 0.5;
@@ -128,6 +133,61 @@ const pkbContextInjector: Injector = {
       id: "pkb-context",
       text: buildPkbContextBlock(content),
       placement: "after-memory-prefix",
+    };
+  },
+};
+
+/**
+ * `memory-capture-guidance` injector, order 16, prepend-user-tail.
+ *
+ * Tells the model, on every turn, what a later memory pass will and will not
+ * do for this conversation and whether this turn can write memory at all. The
+ * verdict is `resolveMemoryCaptureGuidance` over the conversation's type and
+ * source, the actor's trust class, and the memory config: the same
+ * classification the retrospective enqueue funnel applies, so the prompt and
+ * the funnel cannot disagree, and the same capability authority `remember`
+ * refuses under, so a turn is never pointed at a tool it does not have.
+ *
+ * Not gated on injection mode: `minimal` sheds high-token optional blocks,
+ * and this is a one-line honesty warning. A context without the conversation
+ * fields (no live conversation behind the turn) yields nothing rather than a
+ * guess. An unreadable memory config counts memory as on, as the tool surface
+ * does, and the retrospective as off, as the enqueue funnel's fail-closed
+ * read does, so the copy can only err toward "save it now".
+ */
+const memoryCaptureGuidanceInjector: Injector = {
+  name: "memory-capture-guidance",
+  order: DEFAULT_INJECTOR_ORDER.memoryCaptureGuidance,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    if (
+      ctx.conversationType === undefined ||
+      ctx.conversationSource === undefined
+    ) {
+      return null;
+    }
+    let memoryEnabled = true;
+    let retrospectiveEnabled = false;
+    try {
+      const memory = getMemoryConfig();
+      memoryEnabled = memory.enabled !== false;
+      retrospectiveEnabled = memory.retrospective.enabled;
+    } catch (err) {
+      memoryCaptureGuidanceLog.debug(
+        { err, conversationId: ctx.conversationId },
+        "memory config unreadable; capture guidance assumes memory on, retrospective off",
+      );
+    }
+    const guidance = resolveMemoryCaptureGuidance({
+      conversationType: ctx.conversationType,
+      source: ctx.conversationSource,
+      memoryEnabled,
+      retrospectiveEnabled,
+      trustClass: ctx.trust.trustClass,
+    });
+    return {
+      id: "memory-capture-guidance",
+      text: `<memory_capture>\n${renderMemoryCaptureGuidance(guidance)}\n</memory_capture>`,
+      placement: "prepend-user-tail",
     };
   },
 };
@@ -419,6 +479,9 @@ function buildMemoryV2StaticBlock(content: string): string {
  * literal order is only a readability convenience.
  */
 export const memoryInjectors: Injector[] = [
+  // All tiers: the per-turn capture guidance, derived from the retrospective
+  // eligibility classifier the enqueue funnel shares.
+  memoryCaptureGuidanceInjector,
   // V1 — delete with v1. The PKB pair is the legacy engine's entire injection
   // surface; both self-silence through `isPkbInjectionSilenced` whenever v1 is
   // not the live tier.

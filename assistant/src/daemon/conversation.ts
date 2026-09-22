@@ -1793,6 +1793,16 @@ export class Conversation {
             ];
           }
 
+          // `<memory_capture>` lands between `<background_turn>` and
+          // `<turn_context>` (injector order 16), so prepend it AFTER
+          // turnContextBlock and BEFORE backgroundTurnBlock.
+          if (!isTail && typeof meta.memoryCaptureGuidanceBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.memoryCaptureGuidanceBlock },
+              ...content,
+            ];
+          }
+
           // `<background_turn>` lands between `<workspace>` and `<turn_context>`
           // (injector order 15, between workspace 10 and unified-turn-context
           // 20), so prepend it AFTER turnContextBlock and BEFORE workspaceBlock.

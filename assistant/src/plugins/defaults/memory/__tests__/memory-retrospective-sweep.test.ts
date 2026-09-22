@@ -22,7 +22,10 @@ import { eq } from "drizzle-orm";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../../persistence/conversation-types.js";
+import {
+  type ConversationCreateType,
+  MEMORY_V2_CONSOLIDATION_SOURCE,
+} from "../../../../persistence/conversation-types.js";
 import {
   getDb,
   getMemorySqlite,
@@ -34,9 +37,11 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
   MEMORY_RETROSPECTIVE_SOURCE,
   SKILL_CARD_MESSAGE_KIND,
 } from "../memory-retrospective-constants.js";
+import { classifyRetrospectiveEligibility } from "../memory-retrospective-eligibility.js";
 import { upsertRetrospectiveState } from "../memory-retrospective-state.js";
 import {
   listSweepCandidateConversationIds,
@@ -355,6 +360,52 @@ describe("runRetrospectiveSweep", () => {
 describe("listSweepCandidateConversationIds", () => {
   beforeEach(() => {
     resetTables();
+  });
+
+  test("admits exactly the rows the eligibility classifier calls conditional", () => {
+    // The sweep's SQL filter and `classifyRetrospectiveEligibility` are two
+    // spellings of one rule over the row's type and source. Both switches are
+    // on here: the config reasons are the funnel's, not the query's.
+    const rows: Array<{
+      id: string;
+      conversationType?: ConversationCreateType;
+      source?: string;
+    }> = [
+      { id: "parity-standard-user" },
+      { id: "parity-background-user", conversationType: "background" },
+      {
+        id: "parity-background-heartbeat",
+        conversationType: "background",
+        source: "heartbeat",
+      },
+      { id: "parity-scheduled", conversationType: "scheduled" },
+      { id: "parity-retro", source: MEMORY_RETROSPECTIVE_SOURCE },
+      { id: "parity-retro-fork", source: MEMORY_RETROSPECTIVE_FORK_SOURCE },
+      {
+        id: "parity-consolidate",
+        conversationType: "background",
+        source: MEMORY_V2_CONSOLIDATION_SOURCE,
+      },
+      { id: "parity-auto", source: AUTO_ANALYSIS_SOURCE },
+    ];
+    for (const row of rows) {
+      createConversation(row);
+      setLastMessageAt(row.id, 5_000);
+    }
+
+    const admitted = new Set(listSweepCandidateConversationIds("", 100, 0));
+    for (const row of rows) {
+      const verdict = classifyRetrospectiveEligibility({
+        conversationType: row.conversationType ?? "standard",
+        source: row.source ?? "user",
+        memoryEnabled: true,
+        retrospectiveEnabled: true,
+      });
+      expect([row.id, admitted.has(row.id)]).toEqual([
+        row.id,
+        verdict.status === "conditional",
+      ]);
+    }
   });
 
   test("excludes retrospective, consolidation, auto-analysis, and scheduled sources; orders by id", () => {

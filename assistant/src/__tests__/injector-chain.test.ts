@@ -325,6 +325,7 @@ describe("injector chain", () => {
       "disk-pressure-warning",
       "workspace-context",
       "background-turn",
+      "memory-capture-guidance",
       "unified-turn-context",
       "config-quarantine-notice",
       "config-validation-reset-notice",

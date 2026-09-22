@@ -51,6 +51,7 @@ const EXPECTED_ORDER = [
   "disk-pressure-warning", // 5
   "workspace-context", // 10
   "background-turn", // 15
+  "memory-capture-guidance", // 16
   "unified-turn-context", // 20
   "config-quarantine-notice", // 25
   "config-validation-reset-notice", // 26

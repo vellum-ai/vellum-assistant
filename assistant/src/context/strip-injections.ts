@@ -164,6 +164,7 @@ export const RUNTIME_INJECTION_PREFIXES: InjectionMatcher[] = [
   // NOTE: <turn_context> is intentionally NOT stripped — unified turn context
   // blocks persist in history so the assistant retains temporal/actor grounding.
   "<background_turn>",
+  "<memory_capture>",
   "<memory_context __injected>",
   "<memory_context>", // backward-compat: strip legacy blocks from pre-__injected history
   // The static `memory-v2-static` block (`<info>\n…</info>`) and the

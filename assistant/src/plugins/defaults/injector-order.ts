@@ -13,6 +13,7 @@
  * | `disk-pressure-warning`    | 5     | prepend-user-tail    |
  * | `workspace-context`        | 10    | prepend-user-tail    |
  * | `background-turn`          | 15    | prepend-user-tail    |
+ * | `memory-capture-guidance`  | 16    | prepend-user-tail    |
  * | `unified-turn-context`     | 20    | prepend-user-tail    |
  * | `config-quarantine-notice` | 25    | prepend-user-tail    |
  * | `pkb-context`              | 30    | after-memory-prefix  |
@@ -41,6 +42,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   diskPressureWarning: 5,
   workspaceContext: 10,
   backgroundTurn: 15,
+  memoryCaptureGuidance: 16,
   unifiedTurnContext: 20,
   configQuarantineNotice: 25,
   configValidationResetNotice: 26,

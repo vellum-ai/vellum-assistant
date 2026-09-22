@@ -1164,12 +1164,14 @@ describe("applyRuntimeInjections — injection mode", () => {
         surfaceState: new Map(),
         channelCapabilities,
         conversationType: "background",
+        source: "user",
       }),
     );
 
     const { blocks } = await applyRuntimeInjections(baseMessages, fullOptions);
 
     expect(blocks.backgroundTurnBlock).toContain("<background_turn>");
+    expect(blocks.memoryCaptureGuidanceBlock).toContain("<memory_capture>");
     expect(blocks.channelCapabilitiesBlock).toContain("<channel_capabilities>");
     expect(blocks.nonInteractiveContextBlock).toBe(
       NON_INTERACTIVE_CONTEXT_BLOCK,

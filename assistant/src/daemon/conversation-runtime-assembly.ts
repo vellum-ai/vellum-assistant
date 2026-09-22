@@ -1874,6 +1874,13 @@ export interface RuntimeInjectionBlocks {
    */
   backgroundTurnBlock?: string;
   /**
+   * The `<memory_capture>` line the `memory-capture-guidance` default injector
+   * attached this turn (every turn backed by a live conversation). Persisted
+   * under `metadata.memoryCaptureGuidanceBlock` for the same reload/fork
+   * cache-parity reason as {@link backgroundTurnBlock}.
+   */
+  memoryCaptureGuidanceBlock?: string;
+  /**
    * The `<channel_capabilities>` block injected this turn (non-default channel
    * capabilities). Persisted under `metadata.channelCapabilitiesBlock` for the
    * same reload/fork cache-parity reason as {@link backgroundTurnBlock}.
@@ -2507,6 +2514,8 @@ export async function applyRuntimeInjections(
     slackActiveThreadFocusBlock,
     isNonInteractive: options.isNonInteractive,
     isBackgroundConversation,
+    conversationType: liveConversation?.conversationType,
+    conversationSource: liveConversation?.source,
     activeDocuments,
     timestamp,
     interfaceName,
@@ -2575,6 +2584,7 @@ export async function applyRuntimeInjections(
   let memoryV3Captured: string | undefined;
   let memoryV3PointerCaptured: string | undefined;
   let backgroundTurnCaptured: string | undefined;
+  let memoryCaptureGuidanceCaptured: string | undefined;
   let channelCapabilitiesCaptured: string | undefined;
   let nonInteractiveContextCaptured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
@@ -2602,6 +2612,9 @@ export async function applyRuntimeInjections(
           break;
         case "background-turn":
           backgroundTurnCaptured = block.text;
+          break;
+        case "memory-capture-guidance":
+          memoryCaptureGuidanceCaptured = block.text;
           break;
         case MEMORY_V3_BLOCK_ID:
           // Captured and committed at its Step 2 splice, where the block's
@@ -2929,6 +2942,7 @@ export async function applyRuntimeInjections(
       memoryV3InjectedBlock: memoryV3Captured,
       memoryV3PointerBlock: memoryV3PointerCaptured,
       backgroundTurnBlock: backgroundTurnCaptured,
+      memoryCaptureGuidanceBlock: memoryCaptureGuidanceCaptured,
       channelCapabilitiesBlock: channelCapabilitiesCaptured,
       nonInteractiveContextBlock: nonInteractiveContextCaptured,
       memoryV3Active,

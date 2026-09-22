@@ -1513,11 +1513,14 @@ describe("loadFromDb metadata injection rehydration", () => {
     // Live assembly lands them at:
     //   - `<background_turn>` — prepend-user-tail injector order 15, between
     //     `<workspace>` (10) and `<turn_context>` (20).
+    //   - `<memory_capture>` — prepend-user-tail injector order 16, between
+    //     `<background_turn>` (15) and `<turn_context>` (20).
     //   - `<channel_capabilities>` — Step-3 prepend, just below `<turn_context>`
     //     and above the after-memory region.
     //   - `<non_interactive_context>` — Step-3 APPEND, the very last block.
     // Expected layout (cf. live `applyRuntimeInjections`):
-    //   [<workspace>, <background_turn>, <turn_context>, <channel_capabilities>,
+    //   [<workspace>, <background_turn>, <memory_capture>, <turn_context>,
+    //    <channel_capabilities>,
     //    <memory>dynamic</memory>, <info>v2static</info>, <memory>v3</memory>,
     //    <NOW.md>, <system_reminder>, <knowledge_base>, ...original,
     //    <non_interactive_context>]
@@ -1532,6 +1535,8 @@ describe("loadFromDb metadata injection rehydration", () => {
         metadata: JSON.stringify({
           workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
           backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          memoryCaptureGuidanceBlock:
+            "<memory_capture>\nguidance line\n</memory_capture>",
           turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
           channelCapabilitiesBlock:
             "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
@@ -1568,6 +1573,10 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([
       { type: "text", text: "<workspace>\nworkspace body\n</workspace>" },
       { type: "text", text: "<background_turn>\nbg body\n</background_turn>" },
+      {
+        type: "text",
+        text: "<memory_capture>\nguidance line\n</memory_capture>",
+      },
       { type: "text", text: "<turn_context>\nctx payload\n</turn_context>" },
       {
         type: "text",
@@ -1607,6 +1616,8 @@ describe("loadFromDb metadata injection rehydration", () => {
         content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({
           backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          memoryCaptureGuidanceBlock:
+            "<memory_capture>\nguidance line\n</memory_capture>",
           channelCapabilitiesBlock:
             "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
           nonInteractiveContextBlock:

@@ -29,6 +29,7 @@ const PASSTHROUGH_BLOCKS: ReadonlyArray<
   ["pkbContextBlock", "pkbContextBlock"],
   ["memoryV2StaticBlock", "memoryV2StaticBlock"],
   ["backgroundTurnBlock", "backgroundTurnBlock"],
+  ["memoryCaptureGuidanceBlock", "memoryCaptureGuidanceBlock"],
   ["channelCapabilitiesBlock", "channelCapabilitiesBlock"],
   ["nonInteractiveContextBlock", "nonInteractiveContextBlock"],
 ];

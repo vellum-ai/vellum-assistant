@@ -534,6 +534,9 @@ export const messageMetadataSchema = z
     /** `<background_turn>` block (background/scheduled non-interactive turns),
      *  rehydrated by `loadFromDb` for reload/fork prefix-cache parity. */
     backgroundTurnBlock: z.string().optional(),
+    /** `<memory_capture>` line (every turn backed by a live conversation),
+     *  rehydrated for the same reason. */
+    memoryCaptureGuidanceBlock: z.string().optional(),
     /** `<channel_capabilities>` block, rehydrated for the same reason. */
     channelCapabilitiesBlock: z.string().optional(),
     /** `<non_interactive_context>` block, rehydrated for the same reason. */

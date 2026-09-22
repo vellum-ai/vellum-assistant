@@ -5,11 +5,14 @@
 // Enqueue a `memory_retrospective` job for the given conversation. Gates on:
 //   - `memory.enabled` (the whole memory system) and
 //     `memory.retrospective.enabled` (this pass alone).
-//   - Source conversation isn't a memory-retrospective conversation itself
-//     (recursion guard — we never run a retrospective over reflective
-//     musings from the retrospective agent's own writes).
-//   - Source isn't a `scheduled` thread or a memory-consolidation background
-//     (low yield — see `isLowYieldRetrospectiveSource`).
+//   - The conversation is eligible under `classifyRetrospectiveEligibility`
+//     (`memory-retrospective-eligibility.ts`): not a memory-retrospective
+//     conversation (recursion guard: we never run a retrospective over
+//     reflective musings from the retrospective agent's own writes), not a
+//     `scheduled` thread, not a memory-consolidation background, and not a
+//     retired auto-analysis row (all low yield). The same classification is
+//     what the per-turn capture guidance tells the model, so the funnel and
+//     the prompt cannot disagree.
 //   - The unprocessed tail contains user activity, when
 //     `memory.retrospective.requireUserActivity` is on. Assistant-only
 //     stretches (proactive sends composed by turns running elsewhere) carry
@@ -37,7 +40,6 @@ import {
   getConversation,
   getConversationSource,
 } from "../../../persistence/conversation-crud.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
 import {
   isMemoryEnabled,
   upsertMemoryRetrospectiveJob,
@@ -48,6 +50,7 @@ import { getLogger } from "./logging.js";
 import { hasQualifyingUserMessageAfter } from "./memory-retrospective-accounting.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
+import { classifyRetrospectiveEligibility } from "./memory-retrospective-eligibility.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
 const log = getLogger("memory-retrospective-enqueue");
@@ -71,31 +74,46 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
 }): boolean {
   const { conversationId, trigger } = args;
 
-  if (!isMemoryEnabled()) {
-    return false;
-  }
-
-  if (!isRetrospectiveEnabled()) {
-    log.debug(
-      { conversationId, trigger },
-      "Skipping memory-retrospective enqueue: memory.retrospective.enabled is false",
-    );
-    return false;
-  }
-
-  if (isMemoryRetrospectiveConversation(conversationId)) {
-    log.debug(
-      { conversationId, trigger },
-      "Skipping memory-retrospective enqueue: source is a memory-retrospective conversation",
-    );
-    return false;
-  }
-
-  if (isLowYieldRetrospectiveSource(conversationId)) {
-    log.debug(
-      { conversationId, trigger },
-      "Skipping memory-retrospective enqueue: scheduled or consolidation source",
-    );
+  const memoryEnabled = isMemoryEnabled();
+  // A missing row classifies as an ordinary conversation, matching the
+  // per-row gates this replaces (each read "no row" as "no reason to skip").
+  const conversation = getConversation(conversationId);
+  const eligibility = classifyRetrospectiveEligibility({
+    conversationType: conversation?.conversationType ?? "standard",
+    source: conversation?.source ?? "user",
+    memoryEnabled,
+    retrospectiveEnabled: memoryEnabled && isRetrospectiveEnabled(),
+  });
+  if (eligibility.status === "ineligible") {
+    switch (eligibility.reason) {
+      case "memory_disabled":
+        break;
+      case "retrospective_disabled":
+        log.debug(
+          { conversationId, trigger },
+          "Skipping memory-retrospective enqueue: memory.retrospective.enabled is false",
+        );
+        break;
+      case "retrospective_conversation":
+        log.debug(
+          { conversationId, trigger },
+          "Skipping memory-retrospective enqueue: source is a memory-retrospective conversation",
+        );
+        break;
+      case "consolidation":
+      case "scheduled":
+        log.debug(
+          { conversationId, trigger },
+          "Skipping memory-retrospective enqueue: scheduled or consolidation source",
+        );
+        break;
+      case "auto_analysis":
+        log.debug(
+          { conversationId, trigger },
+          "Skipping memory-retrospective enqueue: auto-analysis source",
+        );
+        break;
+    }
     return false;
   }
 
@@ -173,33 +191,17 @@ function passesUserActivityGate(
 }
 
 /**
- * Recursion guard. The retrospective bootstraps its own background
- * conversation; without this check, that conversation's lifecycle would
- * enqueue another retrospective on top of it, recursing.
+ * Recursion guard for callers that only have a conversation id (the post-turn
+ * indexer): the retrospective bootstraps its own background conversation, and
+ * without this check that conversation's lifecycle would enqueue another
+ * retrospective on top of it. The funnel above reaches the same verdict
+ * through `classifyRetrospectiveEligibility`'s `retrospective_conversation`.
  */
 export function isMemoryRetrospectiveConversation(
   conversationId: string,
 ): boolean {
   const source = getConversationSource(conversationId);
   return source !== null && isMemoryRetrospectiveSource(source);
-}
-
-/**
- * Scheduled task threads (location/health pulses) rarely carry anything worth
- * remembering, and memory-consolidation conversations already persist their
- * output to the corpus — a retrospective over either burns an inference pass
- * for no unique gain (and, for consolidation, re-stores already-captured
- * content). Heartbeat (`background`) and standard conversations are unaffected.
- */
-function isLowYieldRetrospectiveSource(conversationId: string): boolean {
-  const conversation = getConversation(conversationId);
-  if (!conversation) {
-    return false;
-  }
-  return (
-    conversation.conversationType === "scheduled" ||
-    conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE
-  );
 }
 
 /**

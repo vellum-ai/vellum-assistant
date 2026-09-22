@@ -250,9 +250,21 @@ bit and its explanation are derived from one gate.
 
 ## Capture beyond `remember`
 
-- **Retrospective** (`memory-retrospective-*.ts`): periodic per-conversation
-  review pass that saves what wasn't captured in the moment (and, on v3-live
-  assistants, authors procedural skills).
+- **Retrospective** (`memory-retrospective-*.ts`): a conditional
+  per-conversation review pass that saves what inline `remember` calls did
+  not (and, on v3-live assistants, authors procedural skills). It is not a
+  guarantee. It runs only over conversations
+  `classifyRetrospectiveEligibility` (`memory-retrospective-eligibility.ts`)
+  admits: never over `scheduled` conversations, memory-consolidation runs,
+  its own retrospective conversations, or retired auto-analysis rows, and
+  never when memory or `memory.retrospective.enabled` is off. Even an
+  eligible conversation is reviewed only when a trigger fires (message
+  count, interval, compaction, or the sweep) past the per-conversation
+  cooldown and, by default, only when the unprocessed tail carries user
+  activity. Heartbeat (`background`) conversations are eligible on the same
+  conditional terms as standard ones. The `memory-capture-guidance` injector
+  tells the model the same verdict on every turn, so anything that must
+  survive a scheduled or otherwise ineligible conversation is saved inline.
 - **Sweep** (`substrate/sweep-job.ts`, `sweep_enabled` substrate tunable,
   default off): idle-debounced extraction of recent messages into the buffer.
 

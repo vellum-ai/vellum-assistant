@@ -755,8 +755,11 @@ export class SubagentManager {
     // interactive prompts (host attachment reads) fail fast.
     // Subagents are created as background conversations (see the
     // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
-    // the type on the live conversation directly for the runtime-assembly path.
+    // the type and source on the live conversation directly for the
+    // runtime-assembly path (the background-turn flag and the memory capture
+    // guidance both classify from them).
     conversation.conversationType = "background";
+    conversation.source = "subagent";
 
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without

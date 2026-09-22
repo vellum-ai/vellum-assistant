@@ -215,7 +215,7 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
   });
 
   test("recursion guard — source = 'memory-retrospective' skips enqueue", () => {
-    sourceTag = "memory-retrospective";
+    convSource = "memory-retrospective";
     enqueueMemoryRetrospectiveIfEnabled({
       conversationId: "c1",
       trigger: "interval",
@@ -239,6 +239,17 @@ describe("enqueueMemoryRetrospectiveIfEnabled", () => {
       conversationId: "c1",
       trigger: "interval",
     });
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  test("auto-analysis source — skips enqueue", () => {
+    convType = "standard";
+    convSource = "auto-analysis";
+    const result = enqueueMemoryRetrospectiveIfEnabled({
+      conversationId: "c-auto",
+      trigger: "interval",
+    });
+    expect(result).toBe(false);
     expect(upsertCalls).toHaveLength(0);
   });
 
