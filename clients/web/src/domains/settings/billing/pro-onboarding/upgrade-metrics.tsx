@@ -25,9 +25,9 @@ const STAGGER_MS = 220;
 /**
  * The resource chips of the provisioning takeover, set as a line of type
  * instead of a row of boxes: a small label over the move in the serif, the
- * columns parted by hairlines. The row arrives once the upgrade is under
- * way and stays for the rest of it, so it comes in column by column rather
- * than all at once.
+ * columns parted by hairlines, or stacked without them where a row would
+ * not fit. The row arrives once the upgrade is under way and stays for the
+ * rest of it, so it comes in column by column rather than all at once.
  */
 export function UpgradeMetrics({
   items,
@@ -39,14 +39,14 @@ export function UpgradeMetrics({
       aria-hidden={!visible}
       data-testid="upgrade-metrics"
       data-visible={visible ? "true" : "false"}
-      className={`flex items-stretch justify-center ${className}`}
+      className={`flex flex-col items-center gap-3 md:flex-row md:items-stretch md:gap-0 ${className}`}
     >
       {items.map((item, index) => (
         <div
           key={item.label}
           className={`flex flex-col items-center gap-1 px-6 transition-[opacity,transform] duration-500 ease-out motion-reduce:transition-none ${
             visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-          } ${index > 0 ? "border-l border-[var(--border-subtle)]" : ""}`}
+          } ${index > 0 ? "md:border-l md:border-[var(--border-subtle)]" : ""}`}
           style={{
             transitionDelay: visible ? `${index * STAGGER_MS}ms` : "0ms",
           }}

@@ -25,20 +25,21 @@ import {
  * the beat it was given at the head as it grows toward the tail, and the
  * thread trickles while the crowd rolls.
  *
- * Purely decorative and drawn on one canvas; `aria-hidden`.
+ * Purely decorative and drawn on one canvas; `aria-hidden`. Two layouts:
+ * around the copy where there is room beside it, below it where there is
+ * not.
  */
 
 /**
- * The stream's centerline against the takeover box, which centres its copy.
- * The thread enters through the top edge left of centre, climbs over the
- * copy's right shoulder, drops down its right-hand side, and comes back
- * under it as the crowd, leaving through the bottom edge on the left. Both
- * ends sit well off screen so a character's jump from tail to head is never
- * seen. `fs` is the size ramp, elevenfold head to tail, which reads as
- * depth; it runs large so the crowd is a few big characters rather than
- * many small ones.
+ * The stream's centerline against a box that centres its copy. The thread
+ * enters through the top edge left of centre, climbs over the copy's right
+ * shoulder, drops down its right-hand side, and comes back under it as the
+ * crowd, leaving through the bottom edge on the left. Both ends sit well
+ * off screen so a character's jump from tail to head is never seen. `fs` is
+ * the size ramp, elevenfold head to tail, which reads as depth; it runs
+ * large so the crowd is a few big characters rather than many small ones.
  */
-const STREAM: StreamPoint[] = [
+const AROUND_STREAM: StreamPoint[] = [
   { fx: 0.2, fy: -0.16, fs: 0.02 },
   { fx: 0.23, fy: 0.0, fs: 0.024 },
   { fx: 0.34, fy: 0.12, fs: 0.03 },
@@ -53,8 +54,43 @@ const STREAM: StreamPoint[] = [
   { fx: 0.24, fy: 1.28, fs: 0.22 },
 ];
 
-/** Keeps the widening tail from producing one absurdly large character. */
-const MAX_SIZE_FRACTION = 0.24;
+/**
+ * The stream against a box that sits below the copy, which is what a
+ * phone gives it: no room beside the copy, so the copy takes the top of
+ * the screen and the stream the rest. The thread enters through the right
+ * edge near the top of its box, switches back across it twice as it grows,
+ * and pours off the bottom. The box is shorter than a screen, so the ramp
+ * is steeper against it to reach the same sizes.
+ */
+const BELOW_STREAM: StreamPoint[] = [
+  { fx: 1.16, fy: 0.0, fs: 0.03 },
+  { fx: 0.95, fy: 0.06, fs: 0.036 },
+  { fx: 0.68, fy: 0.16, fs: 0.048 },
+  { fx: 0.4, fy: 0.3, fs: 0.065 },
+  { fx: 0.22, fy: 0.47, fs: 0.09 },
+  { fx: 0.32, fy: 0.64, fs: 0.125 },
+  { fx: 0.56, fy: 0.8, fs: 0.17 },
+  { fx: 0.58, fy: 0.98, fs: 0.22 },
+  { fx: 0.46, fy: 1.22, fs: 0.27 },
+  { fx: 0.36, fy: 1.5, fs: 0.3 },
+];
+
+/** Which composition the crowd flows in; see the two paths above. */
+export type StreamLayout = "around" | "below";
+
+const STREAMS: Record<StreamLayout, StreamPoint[]> = {
+  around: AROUND_STREAM,
+  below: BELOW_STREAM,
+};
+
+/**
+ * Keeps the widening tail from producing one absurdly large character, per
+ * layout: the box below the copy is shorter, so its cap is a larger share.
+ */
+const MAX_SIZE_FRACTION: Record<StreamLayout, number> = {
+  around: 0.24,
+  below: 0.32,
+};
 /** A row every this many local sizes along the stream. */
 const ROW_GAP = 0.95;
 /** Lane pitch across the stream, in local sizes. */
@@ -71,6 +107,11 @@ export type StreamFlow = "down" | "up";
 
 export interface UpgradeStreamProps {
   className?: string;
+  /**
+   * `around` fills a box the copy is centred in and flows around it;
+   * `below` fills a box under the copy and flows across it.
+   */
+  layout?: StreamLayout;
   /**
    * Which way the crowd moves. `down` follows the path, head to tail, so
    * the small ones at the top grow as they come down; `up` runs it back.
@@ -102,6 +143,7 @@ interface StreamItem {
 
 export function UpgradeStream({
   className = "",
+  layout = "around",
   flow = "down",
   speed = 1,
   lanes = 3,
@@ -163,7 +205,7 @@ export function UpgradeStream({
      * it; only the distances already travelled are carried across, so a
      * resize mid-stream does not snap everyone back to their seats.
      */
-    const layout = () => {
+    const seat = () => {
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) {
         return;
@@ -184,8 +226,8 @@ export function UpgradeStream({
       canvas.height = Math.round(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      path = buildStreamPath(STREAM, width, height);
-      maxSize = height * MAX_SIZE_FRACTION;
+      path = buildStreamPath(STREAMS[layout], width, height);
+      maxSize = height * MAX_SIZE_FRACTION[layout];
 
       const rng = mulberry32(SEED);
       const jitter = (amount: number) => (rng() * 2 - 1) * amount;
@@ -279,10 +321,10 @@ export function UpgradeStream({
       }
     };
 
-    layout();
+    seat();
 
     const resizeObserver = new ResizeObserver(() => {
-      layout();
+      seat();
       if (reduce) {
         draw(performance.now());
       }
@@ -304,7 +346,7 @@ export function UpgradeStream({
       cancelAnimationFrame(raf);
       resizeObserver.disconnect();
     };
-  }, [components, lanes]);
+  }, [components, lanes, layout]);
 
   return (
     <canvas

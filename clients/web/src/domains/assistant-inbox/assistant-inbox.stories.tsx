@@ -48,6 +48,7 @@ import {
 } from "@/domains/settings/billing/pro-onboarding/upgrade-stream";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -228,7 +229,8 @@ const METRICS_REVEAL_AFTER_MS = 1500;
  * on white with the character stream flowing around it, and beneath it,
  * once it is under way, the metrics of the change, which arrive column by
  * column and stay. The copy sits left of centre, where the stream's bend
- * leaves it room. A test bed for the stream and the row, so their pace,
+ * leaves it room; on a phone it takes the top of the screen and the stream
+ * flows beneath it. A test bed for the stream and the row, so their pace,
  * direction, width, and arrival are controls; nothing else from the
  * takeover is on this screen.
  */
@@ -250,6 +252,42 @@ function UpgradingScreen({
   }, [metrics]);
   const metricsVisible =
     metrics === "shown" || (metrics === "reveal" && revealed);
+  const mobile = useIsMobile();
+
+  const copy = (
+    <div className="relative z-10 flex flex-col items-center gap-7">
+      <h1
+        className="text-center text-[var(--content-emphasised)]"
+        style={SERIF_HEADING_STYLE}
+      >
+        {takeoverCopy("upgrade").waitingStatus}
+      </h1>
+      <UpgradeMetrics items={UPGRADE_METRICS} visible={metricsVisible} />
+    </div>
+  );
+
+  if (mobile) {
+    /* No room beside the copy: it takes the top of the screen, and the
+       stream the rest, flowing across its own box beneath. */
+    return (
+      <div
+        className="fixed inset-0 z-50 flex flex-col overflow-hidden"
+        style={{ backgroundColor: "#ffffff" }}
+      >
+        <div className="px-6 pb-8 pt-16">{copy}</div>
+        <div className="relative min-h-0 flex-1">
+          <UpgradeStream
+            className="absolute inset-0"
+            layout="below"
+            flow={streamFlow}
+            speed={streamSpeed}
+            lanes={streamLanes}
+            paused={streamPaused}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -258,21 +296,14 @@ function UpgradingScreen({
     >
       <UpgradeStream
         className="absolute inset-0"
+        layout="around"
         flow={streamFlow}
         speed={streamSpeed}
         lanes={streamLanes}
         paused={streamPaused}
       />
       {/* A right margin on the block moves its centre left by half of it. */}
-      <div className="relative z-10 mr-[16%] flex flex-col items-center gap-7">
-        <h1
-          className="text-center text-[var(--content-emphasised)]"
-          style={SERIF_HEADING_STYLE}
-        >
-          {takeoverCopy("upgrade").waitingStatus}
-        </h1>
-        <UpgradeMetrics items={UPGRADE_METRICS} visible={metricsVisible} />
-      </div>
+      <div className="mr-[16%]">{copy}</div>
     </div>
   );
 }
