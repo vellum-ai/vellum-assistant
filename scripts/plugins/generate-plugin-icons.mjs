@@ -191,6 +191,18 @@ export function isTransientUpstreamStatus(res) {
 const OVERSIZED_ICON = Symbol("oversized-icon");
 
 /**
+ * Read a local package's `icon.png` without buffering an oversized file.
+ * Returns the bytes, `null` when the file is missing, or {@link OVERSIZED_ICON}
+ * when its on-disk size exceeds the byte cap (checked before any read).
+ */
+function readLocalIconBytes(iconPath) {
+  const stat = statSync(iconPath, { throwIfNoEntry: false });
+  if (!stat?.isFile()) return null;
+  if (stat.size > MAX_ICON_BYTES) return OVERSIZED_ICON;
+  return readFileSync(iconPath);
+}
+
+/**
  * Fetch a plugin's raw `icon.png` bytes at its pinned ref. Returns the Buffer,
  * `null` for a missing file (404), or {@link OVERSIZED_ICON} when the advertised
  * Content-Length exceeds the byte cap — the two "no valid icon" outcomes the
@@ -302,7 +314,7 @@ export async function generatePluginIcons({
             `No assets or manifest were modified.`,
         );
       }
-      bytes = isFile(iconPath) ? readFileSync(iconPath) : null;
+      bytes = readLocalIconBytes(iconPath);
     } else if (entry.source?.source === "github") {
       try {
         bytes = await fetchIconBytes(fetchImpl, entry, token);
@@ -440,7 +452,7 @@ export function checkPluginIcons({
   }
 
   // Local packages are the source of truth for their own icon, and their bytes
-  // are on disk — so check mode can (network-free) assert every valid package
+  // are on disk, so check mode can (network-free) assert every valid package
   // icon is vendored byte-identically. Catches an icon.png edit committed
   // without re-running the generator.
   if (marketplacePath) {
@@ -456,9 +468,13 @@ export function checkPluginIcons({
         continue;
       }
       const iconPath = localIconPath(repoRoot, entry);
-      if (!iconPath || !isFile(iconPath)) continue;
-      const bytes = readFileSync(iconPath);
-      if (!validatePluginIconBytes(bytes).hasIcon) continue;
+      if (!iconPath) continue;
+      // Missing, oversized, or invalid package icons are never vendored (write
+      // mode skips them), and sync-local-plugin-icons.mjs --check reports them.
+      const bytes = readLocalIconBytes(iconPath);
+      if (!Buffer.isBuffer(bytes) || !validatePluginIconBytes(bytes).hasIcon) {
+        continue;
+      }
       const assetPath = join(assetsDir, entry.name, ICON_FILENAME);
       if (!isFile(assetPath)) {
         errors.push(`local plugin "${entry.name}" icon is not vendored`);

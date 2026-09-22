@@ -217,6 +217,17 @@ describe("generatePluginIcons (write mode)", () => {
     expect(result).toEqual({ vendored: [], skipped: ["bad-icon"] });
   });
 
+  test("local source with an oversized icon.png is skipped and not vendored", async () => {
+    writeLocalIcon("huge-icon", makePng(64, 64, { padTo: 32 * 1024 + 1 }));
+    writeMarketplace([localEntry("huge-icon")]);
+
+    const result = await run(stubFetch({}));
+
+    expect(result).toEqual({ vendored: [], skipped: ["huge-icon"] });
+    expect(readManifest().plugins).toEqual({});
+    expect(checkWithLocal()).toEqual({ ok: true, errors: [] });
+  });
+
   test.each([["../escape"], ["/abs/path"], ["plugins//x"], ["./x"]])(
     "aborts on a local source.path %p, writing nothing",
     async (badPath) => {
