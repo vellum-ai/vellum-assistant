@@ -55,7 +55,7 @@ describe("CompanionTourEntryModal", () => {
       <CompanionTourEntryModal open onStart={onStart} onDismiss={() => {}} />,
     );
 
-    fireEvent.click(view.getByText("Start the tour"));
+    fireEvent.click(view.getByText("Let’s go"));
 
     expect(onStart).toHaveBeenCalledTimes(1);
   });
