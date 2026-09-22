@@ -22,6 +22,7 @@ import {
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
+import { profileSupportsTextGeneration } from "./profile-text-generation.js";
 import {
   backupProfilesResolveUnderDefaultProvider,
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -965,6 +966,30 @@ export function getUserSelectableProfilesForProvider(
   );
   for (const name of BACKUP_PROFILE_KEYS) {
     delete selectable[name];
+  }
+  return selectable;
+}
+
+/**
+ * The profiles a conversation can run on: the user-selectable view minus any
+ * profile whose model returns structured answers rather than chat text (the
+ * managed Jev profile). Every surface that picks or validates a conversation
+ * profile (the `/model` command, a per-conversation pin, the plugin and
+ * workflow listings) reads this view; the call-site override pickers keep
+ * the wider selectable view, since the verdict sites are what Jev is for.
+ */
+export function getConversationProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const selectable = getUserSelectableProfilesForProvider(
+    workspaceProfiles,
+    defaultProvider,
+  );
+  for (const [name, entry] of Object.entries(selectable)) {
+    if (!profileSupportsTextGeneration(entry, selectable)) {
+      delete selectable[name];
+    }
   }
   return selectable;
 }

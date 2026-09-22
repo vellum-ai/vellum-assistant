@@ -1,17 +1,15 @@
-import { getUserSelectableProfilesForProvider } from "../config/default-profile-catalog.js";
+import { getConversationProfilesForProvider } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import { isDispatchableProfile } from "../config/profile-dispatchability.js";
 import { orderProfileKeys } from "../config/profile-order.js";
-import { profileSupportsTextGeneration } from "../config/profile-text-generation.js";
 import type { ModelProfileInfo } from "./types.js";
 
 /**
  * List the workspace inference profiles a plugin can route to, in the order a
  * user-facing model picker presents them (`llm.profileOrder` first, then the
- * rest alphabetically). Managed backup routes are internal and omitted, and
- * so is a profile whose model returns structured verdicts rather than chat
- * text (the managed Jev profile): a plugin routes conversation turns, and a
- * decision model cannot answer them.
+ * rest alphabetically). Managed backup routes and the managed Jev profile
+ * are omitted with the rest of the conversation view: a plugin routes
+ * conversation turns, and a decision model cannot answer them.
  * Metadata-only entries without a provider, model, or mix are not routing
  * targets, so plugins never see them. Disabled profiles are included and flagged via
  * {@link ModelProfileInfo.isDisabled}; weighted "mix" profiles are included and
@@ -24,7 +22,7 @@ import type { ModelProfileInfo } from "./types.js";
 export function getModelProfiles(): ModelProfileInfo[] {
   const { llm } = getConfig();
   const { activeProfile } = llm;
-  const profiles = getUserSelectableProfilesForProvider(
+  const profiles = getConversationProfilesForProvider(
     llm.profiles,
     llm.defaultProvider ?? null,
   );
@@ -34,10 +32,7 @@ export function getModelProfiles(): ModelProfileInfo[] {
     if (entry == null) {
       continue;
     }
-    if (
-      !isDispatchableProfile(entry) ||
-      !profileSupportsTextGeneration(entry, profiles)
-    ) {
+    if (!isDispatchableProfile(entry)) {
       continue;
     }
     result.push({

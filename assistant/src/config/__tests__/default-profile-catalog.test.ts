@@ -5,6 +5,7 @@ import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
+  getConversationProfilesForProvider,
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
@@ -76,6 +77,18 @@ describe("getEffectiveProfiles", () => {
         connectionName: "anthropic-personal",
       }),
     ).toBeUndefined();
+  });
+
+  test("the conversation view drops the managed Jev profile but keeps it selectable for call sites", () => {
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).not.toContain("jev-managed");
+    expect(
+      Object.keys(getUserSelectableProfilesForProvider(undefined, null)),
+    ).toContain("jev-managed");
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).toContain("balanced");
   });
 
   test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
