@@ -2065,6 +2065,13 @@
   "workspacePathLink": {
     "openTitle": "Open {path}"
   },
+  "xlsxPreview": {
+    "emptySheet": "This sheet is empty",
+    "sheetUnreadable": "This sheet could not be read",
+    "sheetsAria": "Sheets",
+    "summary": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}}",
+    "summaryTruncated": "{sheet}: {rows, plural, one {# row} other {# rows}} x {columns, plural, one {# column} other {# columns}} (truncated)"
+  },
   "transcript": {
     "noResponse": "Chose not to respond",
     "reactionAddedSelf": "Reacted with {emoji}",
