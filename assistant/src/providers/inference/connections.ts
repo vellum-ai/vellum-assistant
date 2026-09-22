@@ -148,6 +148,31 @@ export function getConnection(
   };
 }
 
+/**
+ * An openai-compatible row whose endpoint is opencode.ai is an OpenCode
+ * connection: zen/go rejects requests without the session headers only the
+ * opencode adapter and probe send, so the generic adapter can never dispatch
+ * against it. Stored as provider "opencode" so every provider-keyed path
+ * treats it as one.
+ */
+export function normalizeConnectionProvider(
+  provider: string,
+  baseUrl: string | null | undefined,
+): string {
+  if (provider !== "openai-compatible" || !baseUrl) {
+    return provider;
+  }
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return provider;
+  }
+  return host === "opencode.ai" || host.endsWith(".opencode.ai")
+    ? "opencode"
+    : provider;
+}
+
 // ---------------------------------------------------------------------------
 // Write
 // ---------------------------------------------------------------------------
@@ -207,7 +232,10 @@ export function createConnection(
     };
   }
   // Safe cast: VALID_CONNECTION_PROVIDERS.includes() guards above.
-  const provider = input.provider as ConnectionProvider;
+  const provider = normalizeConnectionProvider(
+    input.provider,
+    input.baseUrl,
+  ) as ConnectionProvider;
 
   const auth = parseAuth(input.auth);
   if (!auth) {
@@ -296,10 +324,12 @@ export function updateConnection(
       error: { code: "invalid_provider", provider: input.provider },
     };
   }
-  const nextProvider = input.provider ?? existing.provider;
-
   const nextBaseUrl =
     input.baseUrl !== undefined ? input.baseUrl : existing.baseUrl;
+  const nextProvider = normalizeConnectionProvider(
+    input.provider ?? existing.provider,
+    nextBaseUrl,
+  );
   const nextModels =
     input.models !== undefined ? input.models : existing.models;
 
@@ -321,8 +351,8 @@ export function updateConnection(
     baseUrl?: string | null;
     models?: string | null;
   } = { auth: JSON.stringify(auth), updatedAt: now };
-  if (input.provider !== undefined) {
-    setClause.provider = input.provider;
+  if (nextProvider !== existing.provider) {
+    setClause.provider = nextProvider;
   }
   if (input.label !== undefined) {
     setClause.label = input.label;
