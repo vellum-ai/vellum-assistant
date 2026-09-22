@@ -5,7 +5,7 @@
  * Preferences at the foot of the rail.
  *
  * 0. The upgrade itself: the status copy on white with the character
- *    stream flowing around it and the metrics of the change on a beat
+ *    stream flowing around it and the metrics of the change arriving
  *    beneath, the test bed for that animation.
  * 0b. An upgrade that has just landed: the provisioning takeover finishes its
  *    celebration and hands off to the setup card, which is where the wizard
@@ -138,8 +138,8 @@ interface InboxStoryArgs {
   streamLanes?: number;
   /** "0 · Upgrading" only: hold the stream where it is. */
   streamPaused?: boolean;
-  /** "0 · Upgrading" only: when the metrics row shows beneath the status. */
-  metrics?: "periodic" | "shown" | "hidden";
+  /** "0 · Upgrading" only: how the metrics row arrives beneath the status. */
+  metrics?: "reveal" | "shown" | "hidden";
 }
 
 /**
@@ -220,36 +220,36 @@ const UPGRADE_METRICS: UpgradeMetric[] = [
   { label: "Usage", from: "No extra usage", to: "Super Usage" },
 ];
 
-/** The metrics row shows for this long, then rests for as long again. */
-const METRICS_BEAT_MS = 6000;
+/** How long the status stands alone before the metrics come in under it. */
+const METRICS_REVEAL_AFTER_MS = 1500;
 
 /**
  * The upgrade in progress, as the takeover will draw it: the WAITING status
- * on white with the character stream flowing around it, and now and then
- * the metrics of the change beneath it. A test bed for the stream and the
- * row, so their pace, direction, width, and cadence are controls; nothing
- * else from the takeover is on this screen.
+ * on white with the character stream flowing around it, and beneath it,
+ * once it is under way, the metrics of the change, which arrive column by
+ * column and stay. The copy sits left of centre, where the stream's bend
+ * leaves it room. A test bed for the stream and the row, so their pace,
+ * direction, width, and arrival are controls; nothing else from the
+ * takeover is on this screen.
  */
 function UpgradingScreen({
   streamFlow,
   streamSpeed,
   streamLanes,
   streamPaused,
-  metrics = "periodic",
+  metrics = "reveal",
 }: InboxStoryArgs) {
-  const [beat, setBeat] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   useEffect(() => {
-    if (metrics !== "periodic") {
+    if (metrics !== "reveal") {
       return;
     }
-    const timer = setInterval(
-      () => setBeat((shown) => !shown),
-      METRICS_BEAT_MS,
-    );
-    return () => clearInterval(timer);
+    setRevealed(false);
+    const timer = setTimeout(() => setRevealed(true), METRICS_REVEAL_AFTER_MS);
+    return () => clearTimeout(timer);
   }, [metrics]);
   const metricsVisible =
-    metrics === "shown" || (metrics === "periodic" && beat);
+    metrics === "shown" || (metrics === "reveal" && revealed);
 
   return (
     <div
@@ -263,7 +263,8 @@ function UpgradingScreen({
         lanes={streamLanes}
         paused={streamPaused}
       />
-      <div className="relative z-10 flex flex-col items-center gap-8">
+      {/* A right margin on the block moves its centre left by half of it. */}
+      <div className="relative z-10 mr-[16%] flex flex-col items-center gap-7">
         <h1
           className="text-center text-[var(--content-emphasised)]"
           style={SERIF_HEADING_STYLE}
@@ -279,8 +280,8 @@ function UpgradingScreen({
 /**
  * The upgrade animation's test bed. The stream drops in through the top,
  * sweeps around the copy, and pours off the bottom, and the metrics row
- * comes and goes beneath the status; the controls set the stream's
- * direction, pace, and width, and the row's cadence.
+ * arrives beneath the status; the controls set the stream's direction,
+ * pace, and width, and the row's arrival.
  */
 export const Upgrading: Story = {
   name: "0 · Upgrading",
@@ -308,9 +309,9 @@ export const Upgrading: Story = {
     },
     metrics: {
       description:
-        "When the metrics row shows beneath the status: on a beat, always, or never.",
+        "How the metrics row arrives beneath the status: revealed column by column after a moment, pinned shown, or hidden.",
       control: "radio",
-      options: ["periodic", "shown", "hidden"],
+      options: ["reveal", "shown", "hidden"],
     },
     collapsed: { table: { disable: true } },
   },
@@ -319,7 +320,7 @@ export const Upgrading: Story = {
     streamSpeed: 1,
     streamLanes: 3,
     streamPaused: false,
-    metrics: "periodic",
+    metrics: "reveal",
   },
   render: (args) => <UpgradingScreen {...args} />,
 };
