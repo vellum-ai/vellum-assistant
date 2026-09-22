@@ -162,7 +162,7 @@ mock.module("../ipc/gateway-client.js", () => ({
   ipcCall: ipcCallMock,
 }));
 
-import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-busy-error.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";

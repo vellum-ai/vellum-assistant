@@ -75,6 +75,7 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import { CONVERSATION_BUSY_MESSAGE } from "./conversation-busy-error.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -1078,25 +1079,6 @@ export interface PersistMessageOptions {
 }
 
 // ── persistUserMessage ───────────────────────────────────────────────
-
-/**
- * Thrown by user-message persistence when the conversation's processing
- * lock is held. Callers (voice bridge retry, queue-drain requeue) match on
- * this exact string — keep it byte-stable.
- */
-export const CONVERSATION_BUSY_MESSAGE =
-  "Conversation is already processing a message";
-
-/**
- * True when `err` is the {@link CONVERSATION_BUSY_MESSAGE} processing-lock
- * rejection thrown by {@link persistUserMessage} (and by
- * `prepareConversationForMessage`) while a turn is already in flight. Channel
- * ingress uses this to route a lock-contended turn to the retry sweep as a
- * retryable failure instead of letting it dead-letter as a fatal error.
- */
-export function isConversationBusyError(err: unknown): boolean {
-  return err instanceof Error && err.message === CONVERSATION_BUSY_MESSAGE;
-}
 
 export async function persistUserMessage(
   ctx: MessagingConversationContext,

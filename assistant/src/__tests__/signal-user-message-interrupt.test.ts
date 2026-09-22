@@ -188,7 +188,7 @@ describe("CLI signal send after an interrupt", () => {
     // transition. The direct dispatch then refuses, and the CLI's message must
     // land on the queue rather than be lost to an internal error.
     const { CONVERSATION_BUSY_MESSAGE } =
-      await import("../daemon/conversation-messaging.js");
+      await import("../daemon/conversation-busy-error.js");
     interruptOutcome = "released";
     conversationProcessing = true;
     processingAfterInterrupt = false;

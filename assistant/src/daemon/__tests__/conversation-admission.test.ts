@@ -10,7 +10,7 @@ import {
   pendingAdmissionCount,
   runWhenConversationIdle,
 } from "../conversation-admission.js";
-import { CONVERSATION_BUSY_MESSAGE } from "../conversation-messaging.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../conversation-busy-error.js";
 import {
   clearConversations,
   removeSubagentConversation,

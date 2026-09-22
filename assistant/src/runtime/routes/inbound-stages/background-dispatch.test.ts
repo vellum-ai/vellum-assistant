@@ -167,7 +167,7 @@ mock.module("../../channel-reply-delivery.js", () => ({
 
 import type { Conversation } from "../../../daemon/conversation.js";
 import { __resetConversationAdmissionForTests } from "../../../daemon/conversation-admission.js";
-import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-messaging.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../../../daemon/conversation-busy-error.js";
 import {
   clearConversations,
   setConversation,

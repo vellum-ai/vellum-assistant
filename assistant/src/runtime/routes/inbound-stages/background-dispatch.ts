@@ -21,7 +21,7 @@ import {
   AdmissionOverflowError,
   runWhenConversationIdle,
 } from "../../../daemon/conversation-admission.js";
-import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
+import { isConversationBusyError } from "../../../daemon/conversation-busy-error.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
 import {

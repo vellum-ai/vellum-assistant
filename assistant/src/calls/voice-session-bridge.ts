@@ -28,7 +28,7 @@ import {
   ABORT_WATCHDOG_MS,
   resolveTurnCommitWaitMs,
 } from "../daemon/abort-watchdog.js";
-import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-busy-error.js";
 import type { ModeSessionSourceHandle } from "../daemon/conversation-mode-session.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";

@@ -13,11 +13,9 @@
  */
 import { describe, expect, test } from "bun:test";
 
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-busy-error.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import {
-  CONVERSATION_BUSY_MESSAGE,
-  persistUserMessage,
-} from "../daemon/conversation-messaging.js";
+import { persistUserMessage } from "../daemon/conversation-messaging.js";
 
 interface ContextBehavior {
   /** Answered in place of taking the flag. `undefined` takes it for real. */

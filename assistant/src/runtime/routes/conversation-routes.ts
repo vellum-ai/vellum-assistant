@@ -50,14 +50,12 @@ import { consolidateMessageRows } from "../../conversations/message-consolidatio
 import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import { isConversationBusyError } from "../../daemon/conversation-busy-error.js";
 import {
   classifyInterruptEligibility,
   interruptRunningTurn,
 } from "../../daemon/conversation-interrupt.js";
-import {
-  isConversationBusyError,
-  persistQueuedMessageBody,
-} from "../../daemon/conversation-messaging.js";
+import { persistQueuedMessageBody } from "../../daemon/conversation-messaging.js";
 import {
   buildModelInfoEvent,
   formatCleanResult,

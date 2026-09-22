@@ -43,9 +43,9 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
+import { CONVERSATION_BUSY_MESSAGE } from "./conversation-busy-error.js";
 import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
 import {
-  CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";

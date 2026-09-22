@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-busy-error.js";
 import { drainQueue } from "../daemon/conversation-process.js";
 import {
   MessageQueue,

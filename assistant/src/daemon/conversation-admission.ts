@@ -42,7 +42,7 @@ import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { resolveTurnCommitWaitMs } from "./abort-watchdog.js";
-import { isConversationBusyError } from "./conversation-messaging.js";
+import { isConversationBusyError } from "./conversation-busy-error.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import {
   hasOpenTurnFinalization,

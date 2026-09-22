@@ -83,6 +83,11 @@ mock.module("../persistence/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+import { __resetConversationAdmissionForTests } from "../daemon/conversation-admission.js";
+import {
+  removeSubagentConversation,
+  setSubagentConversation,
+} from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
@@ -4178,5 +4183,111 @@ describe("subagent_status list-all bounds the terminal entries", () => {
 
     expect(ids).toContain("list-bound-active");
     expect(ids).toHaveLength(LISTED_TERMINAL_CAP + 1);
+  });
+});
+
+// ── Guidance deferred behind the child's own turn ────────────────────
+
+describe("subagent guidance while the child is mid-turn", () => {
+  const parent = "guidance-parent";
+
+  /**
+   * Put an injected subagent mid-turn and make it resolvable through the
+   * subagent registry, which is where the admission gate looks for a child.
+   * Returns the fake conversation, with `persistUserMessage` counted.
+   */
+  function busyChild(subagentId: string) {
+    __resetConversationAdmissionForTests();
+    const manager = getSubagentManager();
+    const state = injectSubagent(manager, subagentId, parent, "running");
+    const internals = manager as unknown as {
+      subagents: Map<
+        string,
+        {
+          conversation: {
+            processing: boolean;
+            persistUserMessage: () => Promise<{
+              id: string;
+              deduplicated: boolean;
+            }>;
+          } | null;
+          state: SubagentState;
+        }
+      >;
+    };
+    const managed = internals.subagents.get(subagentId)!;
+    const child = managed.conversation!;
+    child.processing = true;
+    let persists = 0;
+    child.persistUserMessage = async () => {
+      persists += 1;
+      return { id: `msg-${persists}`, deduplicated: false };
+    };
+    setSubagentConversation(
+      state.conversationId,
+      child as unknown as Parameters<typeof setSubagentConversation>[1],
+    );
+    return {
+      manager,
+      managed,
+      child,
+      conversationId: state.conversationId,
+      persists: () => persists,
+      release: () => {
+        child.processing = false;
+      },
+      cleanup: () => {
+        removeSubagentConversation(
+          state.conversationId,
+          child as unknown as Parameters<typeof removeSubagentConversation>[1],
+        );
+        __resetConversationAdmissionForTests();
+      },
+    };
+  }
+
+  /** Long enough for the admission gate's idle poll to observe a release. */
+  const settle = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 60));
+
+  test("runs once the child's own turn ends", async () => {
+    const child = busyChild("guidance-runs");
+    try {
+      const result = await executeSubagentMessage(
+        { subagent_id: "guidance-runs", content: "keep going" },
+        makeContext(parent),
+      );
+      expect(result.isError).toBe(false);
+      await settle();
+      expect(child.persists()).toBe(0); // held behind the child's turn
+
+      child.release();
+      await settle();
+      expect(child.persists()).toBe(1);
+    } finally {
+      child.cleanup();
+    }
+  });
+
+  test("is dropped when the child is aborted before it runs", async () => {
+    const child = busyChild("guidance-aborted");
+    try {
+      await executeSubagentMessage(
+        { subagent_id: "guidance-aborted", content: "keep going" },
+        makeContext(parent),
+      );
+      await settle();
+      expect(child.persists()).toBe(0);
+
+      // The send is registered outside the conversation, so the abort's own
+      // teardown cannot reach it: it has to decline on the way in, or an
+      // explicitly stopped subagent starts another turn and runs tools.
+      child.managed.state.status = "aborted";
+      child.release();
+      await settle();
+      expect(child.persists()).toBe(0);
+    } finally {
+      child.cleanup();
+    }
   });
 });

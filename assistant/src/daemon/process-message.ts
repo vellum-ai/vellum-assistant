@@ -37,10 +37,10 @@ import {
 } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
+import { CONVERSATION_BUSY_MESSAGE } from "./conversation-busy-error.js";
 import {
   buildProviderMetaForPersistence,
   buildSlackMetaForPersistence,
-  CONVERSATION_BUSY_MESSAGE,
   serializePersistedUserMessageContent,
 } from "./conversation-messaging.js";
 import {

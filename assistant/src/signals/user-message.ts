@@ -18,11 +18,11 @@ import { v7 as uuidv7 } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
+import { isConversationBusyError } from "../daemon/conversation-busy-error.js";
 import {
   classifyInterruptEligibility,
   interruptRunningTurn,
 } from "../daemon/conversation-interrupt.js";
-import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";

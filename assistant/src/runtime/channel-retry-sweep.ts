@@ -10,7 +10,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../channels/types.js";
-import { isConversationBusyError } from "../daemon/conversation-messaging.js";
+import { isConversationBusyError } from "../daemon/conversation-busy-error.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";

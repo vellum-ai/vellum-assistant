@@ -32,7 +32,11 @@ import {
 } from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  NotFoundError,
+  TooManyRequestsError,
+} from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("subagents-routes");
@@ -523,6 +527,12 @@ export const ROUTES: RouteDefinition[] = [
       if (result === "empty") {
         throw new BadRequestError(
           "Message content is empty or whitespace-only.",
+        );
+      } else if (result === "busy") {
+        // Running, and holding as many waiting messages as it may. Saying
+        // "not found" here would tell a caller to stop rather than retry.
+        throw new TooManyRequestsError(
+          `Subagent "${pathParams!.id}" already has as many messages waiting as it can hold. Try again shortly.`,
         );
       } else if (result !== "sent") {
         throw new NotFoundError(
