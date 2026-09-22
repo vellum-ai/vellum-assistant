@@ -341,6 +341,7 @@ describe("manage_workflows", () => {
     // The user-selectable view includes the code-catalog defaults and omits
     // managed backup routes.
     expect(parsed.profiles).toEqual([
+      "auto",
       "balanced",
       "cost-optimized",
       "latency-optimized",

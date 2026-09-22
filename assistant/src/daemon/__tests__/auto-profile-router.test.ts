@@ -10,6 +10,7 @@ import type {
 import {
   AUTO_PROFILE_FALLBACK,
   autoProfileCandidates,
+  autoProfileFallback,
   recentConversationForRouter,
   routeAutoProfile,
 } from "../auto-profile-router.js";
@@ -194,5 +195,34 @@ describe("routeAutoProfile", () => {
       outcome: "fallback",
       latencyMs: 0,
     });
+  });
+
+  test("falls back to an enabled candidate when Balanced is disabled", async () => {
+    const withoutBalanced = {
+      ...profiles,
+      balanced: managed("Balanced", "disabled"),
+    };
+    expect(autoProfileFallback(autoProfileCandidates(withoutBalanced))).toBe(
+      "quality-optimized",
+    );
+    const unavailable = await routeAutoProfile({
+      ...base,
+      profiles: withoutBalanced,
+      resolveProvider: async () => null,
+    });
+    expect(unavailable.profile).toBe("quality-optimized");
+    const single = await routeAutoProfile({
+      ...base,
+      profiles: {
+        auto: managed("Auto"),
+        balanced: managed("Balanced", "disabled"),
+        "cost-optimized": managed("Budget"),
+      },
+    });
+    expect(single).toMatchObject({
+      profile: "cost-optimized",
+      outcome: "fallback",
+    });
+    expect(autoProfileFallback([])).toBe(AUTO_PROFILE_FALLBACK);
   });
 });

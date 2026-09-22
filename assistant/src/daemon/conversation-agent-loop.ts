@@ -656,49 +656,64 @@ export async function runAgentLoopImpl(
   // the row.
   const config = getConfig();
 
-  // With no override the resolver runs a main-agent turn on
-  // `llm.activeProfile`; that selection is named here only when it is the
-  // Auto profile, so the router below covers every path that would
-  // otherwise dispatch the Auto body.
-  const readRequestedOverrideProfile = (): string | undefined =>
-    options?.overrideProfile ??
-    resolveOverrideProfile(ctx) ??
-    (inferenceCallSite === "mainAgent" &&
-    config.llm.activeProfile === AUTO_PROFILE_KEY
-      ? AUTO_PROFILE_KEY
-      : undefined);
+  // With no explicit override, the resolver's own chain (the active profile
+  // for the main agent, then the call site's pin) may still select the Auto
+  // profile. That winner is named here so the router below covers every path
+  // that would otherwise dispatch the Auto body.
+  const readRequestedOverrideProfile = (): string | undefined => {
+    const explicit = options?.overrideProfile ?? resolveOverrideProfile(ctx);
+    if (explicit !== undefined) {
+      return explicit;
+    }
+    const winner = selectWinningProfile(inferenceCallSite, config.llm, {
+      selectionSeed: ctx.conversationId,
+    }).profileName;
+    return winner === AUTO_PROFILE_KEY ? AUTO_PROFILE_KEY : undefined;
+  };
 
   // The Auto profile is a selection over the default profiles, made once per
   // turn: the routed profile stands in for the Auto name on every read, so
   // the whole turn (and any subagent inheriting the override) runs on one
   // profile. A user profile that shadows the managed name is a profile of
-  // its own and is not routed.
+  // its own and is not routed. Nothing here may throw: the turn's processing
+  // state is already held and its release lives in the loop's `finally`
+  // further down, so a routing failure degrades to the Auto body instead.
   const routeAutoProfileForTurn =
     async (): Promise<AutoProfileRoute | null> => {
-      const profiles = getConversationProfilesForProvider(
-        config.llm.profiles,
-        config.llm.defaultProvider ?? null,
-      );
-      if (profiles[AUTO_PROFILE_KEY]?.source !== "managed") {
+      try {
+        const profiles = getConversationProfilesForProvider(
+          config.llm.profiles,
+          config.llm.defaultProvider ?? null,
+        );
+        if (profiles[AUTO_PROFILE_KEY]?.source !== "managed") {
+          return null;
+        }
+        const route = await routeAutoProfile({
+          conversationId: ctx.conversationId,
+          history: ctx.messages,
+          userMessage: plainTextOf(
+            getMessageById(userMessageId)?.content ?? [],
+          ),
+          profiles,
+          signal: abortController.signal,
+        });
+        rlog.info(
+          {
+            outcome: route.outcome,
+            profile: route.profile,
+            confidence: route.confidence ?? null,
+            latencyMs: route.latencyMs,
+          },
+          "Auto profile routed the turn",
+        );
+        return route;
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Auto profile routing failed; running the Auto body",
+        );
         return null;
       }
-      const route = await routeAutoProfile({
-        conversationId: ctx.conversationId,
-        history: ctx.messages,
-        userMessage: plainTextOf(getMessageById(userMessageId)?.content ?? []),
-        profiles,
-        signal: abortController.signal,
-      });
-      rlog.info(
-        {
-          outcome: route.outcome,
-          profile: route.profile,
-          confidence: route.confidence ?? null,
-          latencyMs: route.latencyMs,
-        },
-        "Auto profile routed the turn",
-      );
-      return route;
     };
   const requestedOverrideProfile = readRequestedOverrideProfile();
   const autoRoute =

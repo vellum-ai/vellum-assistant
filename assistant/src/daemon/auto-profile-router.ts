@@ -26,6 +26,20 @@ const log = getLogger("auto-profile-router");
 export const AUTO_PROFILE_FALLBACK: DefaultProfileKey = "balanced";
 
 /**
+ * The profile a turn runs on when the router cannot judge it: Balanced while
+ * it is a candidate, else the first candidate the user left enabled, else
+ * Balanced (the Auto body itself) when nothing is enabled.
+ */
+export function autoProfileFallback(
+  candidates: readonly DefaultProfileKey[],
+): DefaultProfileKey {
+  if (candidates.includes(AUTO_PROFILE_FALLBACK)) {
+    return AUTO_PROFILE_FALLBACK;
+  }
+  return candidates[0] ?? AUTO_PROFILE_FALLBACK;
+}
+
+/**
  * Budget before the turn proceeds on Balanced. The router runs before the
  * turn's first provider call, so a Jev outage costs at most this much
  * time-to-first-token per Auto turn and never blocks the reply. Jev's
@@ -137,13 +151,10 @@ export async function routeAutoProfile(args: {
 }): Promise<AutoProfileRoute> {
   const userMessage = args.userMessage.trim();
   const candidates = autoProfileCandidates(args.profiles);
+  const fallback = autoProfileFallback(candidates);
   // A choice needs two options; with fewer there is nothing to route.
   if (userMessage.length === 0 || candidates.length < 2) {
-    return {
-      profile: AUTO_PROFILE_FALLBACK,
-      outcome: "fallback",
-      latencyMs: 0,
-    };
+    return { profile: fallback, outcome: "fallback", latencyMs: 0 };
   }
   const criteria = Object.fromEntries(
     candidates.map((key) => [
@@ -173,7 +184,7 @@ export async function routeAutoProfile(args: {
   });
   if (result.outcome !== "answered") {
     return {
-      profile: AUTO_PROFILE_FALLBACK,
+      profile: fallback,
       outcome: result.outcome,
       latencyMs: result.latencyMs,
     };
@@ -196,11 +207,7 @@ export async function routeAutoProfile(args: {
       { conversationId: args.conversationId, choice },
       "Auto profile router answered with no candidate profile",
     );
-    return {
-      profile: AUTO_PROFILE_FALLBACK,
-      outcome: "error",
-      latencyMs: result.latencyMs,
-    };
+    return { profile: fallback, outcome: "error", latencyMs: result.latencyMs };
   }
   // Argmax with no confidence floor. A floor belongs here if flat
   // distributions turn out to send trivial messages to Quality.
