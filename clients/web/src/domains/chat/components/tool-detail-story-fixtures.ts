@@ -1090,6 +1090,152 @@ export const webFetchRunningDetail: ToolDetailPayload = payload({
 });
 
 /**
+ * `ask_question`, answered. The record the daemon persists carries the
+ * questions as asked and the user's decision for each, which is what the
+ * drawer reads: an option, typed text, and one left unanswered.
+ */
+export const askQuestionDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-1",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: {
+    activity: "Checking which release to triage",
+    questions: [
+      {
+        question: "Which release should I triage first?",
+        options: [
+          { id: "latest", label: "The latest release" },
+          { id: "blocked", label: "The blocked release" },
+        ],
+      },
+    ],
+  },
+  result: "The user chose: The blocked release.",
+  answeredQuestion: {
+    requestId: "req-1",
+    overall: "completed",
+    questions: [
+      {
+        id: "q1",
+        question: "Which release should I triage first?",
+        description: "Both have failures waiting.",
+        options: [
+          {
+            id: "latest",
+            label: "The latest release",
+            description: "Cut this morning.",
+          },
+          {
+            id: "blocked",
+            label: "The blocked release",
+            description: "Held for two days.",
+          },
+        ],
+      },
+    ],
+    responses: [{ questionId: "q1", decision: "option", optionId: "blocked" }],
+  },
+  riskLevel: "low",
+});
+
+/** A batch, showing each way a question can be answered. */
+export const askQuestionBatchDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-2",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Confirming how to group the failures",
+  input: { activity: "Confirming how to group the failures" },
+  result: "The user answered 2 of 3 questions.",
+  answeredQuestion: {
+    requestId: "req-2",
+    overall: "completed",
+    questions: [
+      {
+        id: "q1",
+        question: "Group the failures by owning team or by file?",
+        options: [
+          { id: "team", label: "By owning team" },
+          { id: "file", label: "By file" },
+        ],
+      },
+      {
+        id: "q2",
+        question: "Where should the summary go?",
+        options: [
+          { id: "thread", label: "The release thread" },
+          { id: "issue", label: "A new issue" },
+        ],
+      },
+      {
+        id: "q3",
+        question: "Should I include the drafts?",
+        options: [
+          { id: "yes", label: "Include them" },
+          { id: "no", label: "Leave them out" },
+        ],
+      },
+    ],
+    responses: [
+      { questionId: "q1", decision: "option", optionId: "team" },
+      {
+        questionId: "q2",
+        decision: "free_text",
+        text: "Post it in the release thread and link the issue.",
+      },
+      { questionId: "q3", decision: "skipped" },
+    ],
+  },
+  riskLevel: "low",
+});
+
+/**
+ * A question answered before the daemon persisted answered records, so the
+ * call carries the questions it asked and the model-facing result, and no
+ * structured answer. The detail reads the input rather than showing nothing.
+ */
+export const askQuestionLegacyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-4",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: {
+    activity: "Checking which release to triage",
+    questions: [
+      {
+        question: "Which release should I triage first?",
+        description: "Both have failures waiting.",
+        options: [
+          {
+            id: "latest",
+            label: "The latest release",
+            description: "Cut this morning.",
+          },
+          {
+            id: "blocked",
+            label: "The blocked release",
+            description: "Held for two days.",
+          },
+        ],
+      },
+    ],
+  },
+  result: "The user chose: The blocked release.",
+  riskLevel: "low",
+});
+
+/** A question still waiting on the user. */
+export const askQuestionRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-ask-3",
+  toolName: "ask_question",
+  title: "Asking a question",
+  activity: "Checking which release to triage",
+  input: { activity: "Checking which release to triage" },
+  status: "running",
+  riskLevel: "low",
+});
+
+/**
  * A search that failed. There are no sources to lay out, so it deliberately
  * falls through to the generic body, where the error renders in full the way
  * any other failed tool's does.

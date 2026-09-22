@@ -14,6 +14,7 @@
 
 import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
 import { FileChangeDetail } from "@/domains/chat/components/tool-activity/file-change-detail";
+import { AskQuestionDetail } from "@/domains/chat/components/tool-activity/ask-question-detail";
 import { RecallDetail } from "@/domains/chat/components/tool-activity/recall-detail";
 import { RememberDetail } from "@/domains/chat/components/tool-activity/remember-detail";
 import { SkillExecuteDetail } from "@/domains/chat/components/tool-activity/skill-execute-detail";
@@ -49,6 +50,10 @@ const RENDERERS: Record<string, ToolActivityRenderer> = {
   remember: { Component: RememberDetail, output: "own" },
   // The answer and the evidence under it, read from the structured result.
   recall: { Component: RecallDetail, output: "own" },
+  // What was asked and what the user chose. The result is the answer written
+  // for the model, which the questions above already say, so it is offered
+  // raw rather than repeated.
+  ask_question: { Component: AskQuestionDetail, output: "own" },
 };
 
 /** A search presents its query and sources in place of input and output. */

@@ -397,6 +397,25 @@ describe("skillUpdateReceiptJob", () => {
     ).toEqual(["b", "c"]);
   });
 
+  test("a receipt whose surviving entries share one source still links to it", async () => {
+    // Two sources, one deleted during evaluation: the announcement is the
+    // survivor's rewrites alone, so its context is the survivor's
+    // conversation, not the multi-source sentinel.
+    const start = Date.now() - SKILL_UPDATE_RECEIPT_QUIET_MS - 10;
+    record("e1", "a", start, { source: "conv-deleted" });
+    record("e2", "b", start + 1, { source: "conv-kept" });
+    record("e3", "b", start + 2, { source: "conv-kept" });
+    onLivenessRead = () => gone.add("conv-deleted");
+
+    await runClaimed();
+
+    expect(emits).toHaveLength(1);
+    expect(emits[0]!.sourceContextId).toBe("conv-kept");
+    expect((emits[0]!.contextPayload as Record<string, unknown>).skillId).toBe(
+      "b",
+    );
+  });
+
   test("a receipt whose every source was deleted announces nothing", async () => {
     record("e1", "a", Date.now() - SKILL_UPDATE_RECEIPT_QUIET_MS - 10, {
       source: "conv-deleted",

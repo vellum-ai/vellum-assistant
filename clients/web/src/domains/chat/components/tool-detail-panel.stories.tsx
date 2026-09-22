@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
 import {
   bashDeniedDetail,
@@ -36,6 +37,10 @@ import {
   subagentSpawnDetail,
   thinkingDetail,
   unknownToolDetail,
+  askQuestionBatchDetail,
+  askQuestionDetail,
+  askQuestionLegacyDetail,
+  askQuestionRunningDetail,
   webFetchDetail,
   webFetchErrorDetail,
   webFetchLegacyDetail,
@@ -87,7 +92,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | changing tools purpose-built, reading tools generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` and `file_write` share one body: an edit renders a unified diff, a write renders the file under its path, and both label the section by whether the call succeeded. `file_read` stays generic because its file comes back in the result, which the Output section already renders as text. |
  * | Shell (`bash`, `host_bash`) | purpose-built | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | The command and its output as two labelled blocks, rather than a JSON object quoting one. |
  * | Memory (`remember`, `recall`) | purpose-built | 3 | Remember, Recall, RecallTextOnly, RecallNothingFound | Read from each tool's structured result: `remember` lists the facts saved, `recall` the query, the answer and the evidence, each piece opening the file or conversation it came from. A recall recorded without a structured result shows its text as written. |
- * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchRunning, WebSearchDenied, WebSearchNoSources, WebSearchError, WebFetch, WebFetchLegacy, WebFetchNotices, WebFetchError, WebFetchRunning | Registered like any other renderer, so a search reads the same from every panel. A running or refused search says so; only a finished one with no results says it found none. A failed search falls through to the generic body by design. |
+ * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchRunning, WebSearchDenied, WebSearchNoSources, WebSearchError, AskQuestion, AskQuestionBatch, AskQuestionLegacy, AskQuestionOutstanding, WebFetch, WebFetchLegacy, WebFetchNotices, WebFetchError, WebFetchRunning | Registered like any other renderer, so a search reads the same from every panel. A running or refused search says so; only a finished one with no results says it found none. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
  * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields in a bordered group, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
@@ -451,6 +456,64 @@ export const WebSearchDenied: Story = {
 /** Only a search that finished with no results says it found no sources. */
 export const WebSearchNoSources: Story = {
   args: { detail: webSearchNoSourcesDetail },
+};
+
+/**
+ * `ask_question`, answered: what was asked, and what the user chose. Read from
+ * the record the daemon persists, not the input the model wrote.
+ */
+export const AskQuestion: Story = { args: { detail: askQuestionDetail } };
+
+/** A batch: an option, typed text, and a question left unanswered. */
+export const AskQuestionBatch: Story = {
+  args: { detail: askQuestionBatchDetail },
+};
+
+/**
+ * A question recorded before answered records existed. There is no structured
+ * answer to read, so the questions come from the call's own input and the
+ * result says what the user chose.
+ */
+export const AskQuestionLegacy: Story = {
+  args: { detail: askQuestionLegacyDetail },
+};
+
+/**
+ * A question still waiting on the user. The options as offered come from the
+ * live prompt, the one the card above the composer is drawn from.
+ */
+export const AskQuestionOutstanding: Story = {
+  args: { detail: askQuestionRunningDetail },
+  beforeEach: () => {
+    useInteractionStore.setState({
+      pendingQuestion: {
+        requestId: "req-3",
+        toolUseId: askQuestionRunningDetail.toolCallId,
+        entries: [
+          {
+            id: "q1",
+            question: "Which release should I triage first?",
+            description: "Both have failures waiting.",
+            options: [
+              {
+                id: "latest",
+                label: "The latest release",
+                description: "Cut this morning.",
+              },
+              {
+                id: "blocked",
+                label: "The blocked release",
+                description: "Held for two days.",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    return () => {
+      useInteractionStore.setState({ pendingQuestion: null });
+    };
+  },
 };
 
 /** `web_fetch`. The fetched page, not the header-and-marker envelope. */

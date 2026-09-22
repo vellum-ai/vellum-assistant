@@ -55,7 +55,8 @@ Fields:
   isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
   assistantId         This assistant's platform UUID
-  hasAssistantApiKey  Whether a stored assistant API key is available
+  hasAssistantApiKey  Whether a stored assistant API key is available; null
+                      when the credential store could not be read
   hasWebhookSecret    Whether a stored webhook secret is available (needed
                       for email and other inbound webhook channels)
   available           Whether callback registration prerequisites are satisfied

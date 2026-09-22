@@ -1,4 +1,7 @@
 {
+  "askQuestionDetail": {
+    "heading": "{count, plural, one {Question} other {Questions}}"
+  },
   "documentChat": {
     "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
     "viewConversation": "View conversation",

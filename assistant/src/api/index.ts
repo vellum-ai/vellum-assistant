@@ -1,6 +1,11 @@
 import { z } from "zod";
 
 export {
+  type AskQuestionInput,
+  AskQuestionInputSchema,
+  type RecordedQuestion,
+} from "./ask-question-tool.js";
+export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";

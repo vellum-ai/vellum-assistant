@@ -130,6 +130,7 @@ function renderView(
       detail={detail}
       result={detail.result}
       streamedOutput={undefined}
+      answeredQuestion={undefined}
       activityMetadata={webFetch ? { webFetch } : undefined}
       isRunning={detail.status === "running"}
       isError={detail.status === "error"}
@@ -188,6 +189,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "denied", result: refusal })}
         result={refusal}
         streamedOutput={undefined}
+        answeredQuestion={undefined}
         activityMetadata={undefined}
         isRunning={false}
         isError
@@ -210,6 +212,7 @@ describe("WebFetchDetailView", () => {
         detail={payload({ status: "running", result: undefined })}
         result={payload({}).result}
         streamedOutput={undefined}
+        answeredQuestion={undefined}
         activityMetadata={undefined}
         isRunning={false}
         isError={false}

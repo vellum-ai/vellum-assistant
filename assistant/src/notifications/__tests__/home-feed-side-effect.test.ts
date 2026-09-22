@@ -20,7 +20,7 @@ const messageAppends: Array<{
   conversationId: string;
   role: string;
   content: string;
-  options?: { skipIndexing?: boolean };
+  options?: { skipIndexing?: boolean; skipResurface?: boolean };
 }> = [];
 const messageRewrites: Array<{ messageId: string; content: string }> = [];
 /** messageId -> the conversation it belongs to, for the scoped lookup. */
@@ -86,7 +86,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    options?: { skipIndexing?: boolean },
+    options?: { skipIndexing?: boolean; skipResurface?: boolean },
   ) => {
     if (messageAppendShouldThrow) {
       throw new Error("simulated message write failure");
@@ -1346,7 +1346,9 @@ describe("writeHomeFeedItemForSignal", () => {
         conversationId: "conv-source-1",
         role: "assistant",
         content: "Three things today.",
-        options: { skipIndexing: true },
+        // Bookkeeping about the conversation, so it never resurfaces a
+        // chat the user marked Done.
+        options: { skipIndexing: true, skipResurface: true },
       });
       expect(item?.metadata?.notificationConversationMessageId).toBe("msg-1");
       // A client with the conversation open refetches only on the messages

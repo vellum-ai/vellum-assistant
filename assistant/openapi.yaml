@@ -26971,7 +26971,12 @@ paths:
                   assistantId:
                     type: string
                   hasAssistantApiKey:
-                    type: boolean
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      Whether a managed assistant API key is stored. Null when the credential store could not be read, which is
+                      not evidence that no key is stored.
                   hasWebhookSecret:
                     type: boolean
                   clientInstallationId:

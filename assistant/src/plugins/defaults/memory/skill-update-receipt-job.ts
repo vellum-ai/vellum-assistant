@@ -285,7 +285,7 @@ export async function skillUpdateReceiptJob(
     // A tool's work reported after the fact, not the scheduler's:
     // `home-feed-side-effect` derives `fromAssistant` from the channel.
     sourceChannel: "assistant_tool",
-    sourceContextId: skillUpdateReceiptSourceContextId(job.id, payload.entries),
+    sourceContextId: skillUpdateReceiptSourceContextId(job.id, entries),
     sourceEventName: "activity.complete",
     dedupeKey: skillUpdateReceiptDedupeKey(job.id),
     contextPayload: {

@@ -25,15 +25,11 @@ import {
   getMessageById,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
-import {
-  ASSISTANT_INITIATED_SOURCE,
-  isBackgroundConversationType,
-} from "../persistence/conversation-types.js";
+import { ASSISTANT_INITIATED_SOURCE } from "../persistence/conversation-types.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
-import { readChannelAllowlist } from "./channel-allowlist.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -42,6 +38,7 @@ import {
   isGuardianRequestSignalEvent,
   receiptGuardianFeedItemIfRequestTerminal,
 } from "./guardian-feed-projection.js";
+import { signalMirrorsToHomeFeed } from "./home-feed-mirror.js";
 import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -360,6 +357,10 @@ async function appendSummaryToFeedTarget(
   try {
     const message = await addMessage(conversationId, "assistant", summary, {
       skipIndexing: true,
+      // The body is bookkeeping about the conversation, not activity in it:
+      // a receipt for work the conversation already saw must not bounce a
+      // chat the user just marked Done back into the sidebar.
+      skipResurface: true,
     });
     publishConversationMessagesChanged(conversationId);
     log.info(
@@ -591,19 +592,7 @@ function resolveHomeFeedMirror(
   if (isAssistantInitiatedThreadDelivery(fallbackConversationId)) {
     return { mirror: false };
   }
-  if (
-    signal.sourceChannel === "assistant_tool" ||
-    signal.sourceEventName === "chat.assistant_reply"
-  ) {
-    const allowlist = readChannelAllowlist(signal.contextPayload);
-    if (!allowlist || allowlist.includes("vellum")) {
-      return { mirror: true, sourceConversationId, sourceScheduleJobId };
-    }
-  }
-  if (signal.attentionHints.isAsyncBackground) {
-    return { mirror: true, sourceConversationId, sourceScheduleJobId };
-  }
-  if (isBackgroundConversationType(sourceRow?.conversationType)) {
+  if (signalMirrorsToHomeFeed(signal, sourceRow?.conversationType)) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   return { mirror: false };
