@@ -274,14 +274,14 @@ describe("collapseSectionRows", () => {
   });
 
   test("spends the three rows on three lines, not three versions of one", () => {
-    // Astra is its own line, then each 5.6 flavor is a line of its own, so
-    // the section leads with those rather than walking down through 5.5
-    // and 5.4.
+    // Astra, Sol, and Luna are each a line of their own, so the section
+    // leads with the GPT-6 member of each rather than walking down through
+    // the 5.6 versions.
     const { shown } = collapseSectionRows(optionsFor("openai"));
     expect(shown.map((option) => option.displayName)).toEqual([
       "GPT-6 Astra",
-      "GPT-5.6 Sol",
-      "GPT-5.6 Terra",
+      "GPT-6 Sol",
+      "GPT-6 Luna",
     ]);
   });
 
