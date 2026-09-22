@@ -2440,7 +2440,7 @@
         "url": "https://typesafe.ai",
         "linkLabel": "Open TypeSafe"
       },
-      "supportsPlatformAuth": false,
+      "supportsPlatformAuth": true,
       "defaultModel": "jev-latest",
       "models": [
         {

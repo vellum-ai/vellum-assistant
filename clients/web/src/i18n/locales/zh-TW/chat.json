@@ -1,4 +1,8 @@
 {
+  "conversationDoneToast": {
+    "message": "已完成",
+    "undo": "復原"
+  },
   "documentChat": {
     "saveFailed": "無法儲存文件。你的訊息仍在這裡。請重新傳送。",
     "viewConversation": "查看對話",
@@ -61,6 +65,11 @@
     "takingLonger": "您的助理回應時間超出預期。",
     "tryAgain": "再試一次"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "全部標記為已完成",
+    "message": "{count, plural, other {將「{groupName}」中的所有 {count} 個對話標記為已完成？它們將從側邊欄移除，並保留在「舊聊天」中，您可以在那裡重新開啟它們。}}",
+    "title": "全部標記為已完成"
+  },
   "mobileDetailSheet": {
     "title": "活動詳細資訊"
   },
@@ -116,6 +125,28 @@
     "observe": "查看",
     "navigate": "導覽",
     "terminal": "執行命令"
+  },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "過去 30 天",
+      "previous7Days": "過去 7 天",
+      "today": "今天",
+      "yesterday": "昨天"
+    },
+    "chip": {
+      "all": "全部",
+      "background": "背景",
+      "done": "已完成"
+    },
+    "doneMeta": "已完成 · {time}",
+    "empty": "這裡還沒有聊天。",
+    "filterAria": "篩選聊天",
+    "loadError": "無法載入你的聊天。",
+    "loading": "正在載入聊天",
+    "noMatches": "沒有與「{query}」相符的聊天。",
+    "retry": "重試",
+    "searchPlaceholder": "搜尋聊天",
+    "title": "舊聊天"
   },
   "sessionGroupRow": {
     "mode": {
@@ -455,6 +486,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已封存]",
+    "done": "[已完成]",
     "newChat": "新增聊天"
   },
   "chatInfoPanel": {
@@ -692,8 +724,10 @@
     "copyConversation": "複製完整對話",
     "copyConversationId": "複製對話 ID",
     "delete": "刪除",
+    "done": "完成",
     "forkConversation": "分支對話",
     "inspect": "分析對話",
+    "markAsDone": "標記為已完成",
     "markRead": "標示為已讀",
     "markUnread": "標示為未讀",
     "moveToGroup": "移至群組",
@@ -705,6 +739,7 @@
     "refresh": "重新整理",
     "removeFromGroup": "從群組中移除",
     "rename": "重新命名",
+    "reopen": "重新開啟",
     "shareFeedback": "分享意見回饋",
     "triggerAriaLabel": "對話動作",
     "unarchive": "取消歸檔",
@@ -944,6 +979,7 @@
     "deleteGroup": "刪除群組",
     "deleteGroupWithConversations": "刪除群組…",
     "groupByChannel": "依頻道分組",
+    "markAllAsDone": "全部標記為已完成…",
     "markAllRead": "全部標示為已讀",
     "moveSectionDown": "向下移動區段",
     "moveSectionUp": "向上移動區段",
@@ -1674,6 +1710,9 @@
   },
   "sidebarListContextMenu": {
     "newGroup": "新增群組…"
+  },
+  "sidebarSectionViewAll": {
+    "label": "查看所有聊天"
   },
   "singleActivity": {
     "webSearch": "網路搜尋"

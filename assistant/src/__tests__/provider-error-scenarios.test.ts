@@ -118,6 +118,7 @@ mock.module("../util/retry.js", () => {
   };
 });
 
+import { malformedToolCallError } from "../providers/malformed-tool-call.js";
 import { RetryProvider } from "../providers/retry.js";
 import { createStreamTimeout } from "../providers/stream-timeout.js";
 import {
@@ -939,6 +940,51 @@ describe("RetryProvider — streaming corruption retries", () => {
       const lastMessage = attempt[attempt.length - 1]!;
       expect(lastMessage.content).toHaveLength(2);
     }
+  });
+
+  test("malformed tool-call finishes retry once with a corrective note", async () => {
+    const providerError = malformedToolCallError(
+      "openrouter",
+      "MALFORMED_FUNCTION_CALL",
+    );
+    // Providers wrap stream-loop throws in their generic catch.
+    const wrapped = new ProviderError(
+      `OpenRouter request failed: ${providerError.message}`,
+      "openrouter",
+      undefined,
+      { cause: providerError },
+    );
+    const inner = makeCapturingFlaky(1, wrapped);
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(2);
+    expect(inner.seen[0]).toBe(MESSAGES);
+    const retried = inner.seen[1]!;
+    const lastMessage = retried[retried.length - 1]!;
+    expect(lastMessage.role).toBe("user");
+    expect(lastMessage.content).toHaveLength(2);
+    const hint = lastMessage.content[1] as { type: string; text: string };
+    expect(hint.type).toBe("text");
+    expect(hint.text).toContain("did not parse");
+    expect(MESSAGES[MESSAGES.length - 1]!.content).toHaveLength(1);
+  });
+
+  test("a malformed tool-call message with an HTTP status is not retried", async () => {
+    const inner = makeFailing(
+      new ProviderError(
+        malformedToolCallError("gemini", "MALFORMED_FUNCTION_CALL").message,
+        "gemini",
+        400,
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "malformed tool call",
+    );
+    expect(inner.calls).toBe(1);
   });
 
   test("other stream-corruption retries resend the messages untouched", async () => {

@@ -963,15 +963,14 @@
     "needsAttention": "Needs attention"
   },
   "integrationTile": {
-    "cancel": "Cancel",
+    "cancelLabel": "Cancel connecting {name}",
     "connect": "Connect {name}",
     "connecting": "Almost there. Waiting for {name} to become ready.",
     "failedGeneric": "Sign-in to {name} did not complete.",
     "retryLabel": "Retry connecting {name}",
     "setupGuide": "Setup guide",
-    "tryAnother": "Try another way",
-    "tryAnotherLabel": "Try another way to connect {name}",
-    "waiting": "Finish signing in to {name} in your browser."
+    "waiting": "Finish signing in to {name} in your browser.",
+    "waitingCancel": "Finish signing in to {name} in your browser. Click to cancel."
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} account connected successfully.",

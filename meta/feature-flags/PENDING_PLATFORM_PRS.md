@@ -20,5 +20,6 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `schedule-result-notify` | not opened; default on |
 | `session-groups` | [vellum-assistant-platform #10577](https://github.com/vellum-ai/vellum-assistant-platform/pull/10577); default off; scope both |
 | `shopify-oauth` | not opened; default off |
+| `sidebar-done` | not opened; default off; scope both |
 | `send-user-message` | vellum-assistant-platform #10475; default off; scope both |
 | `web-presence-suppression` | not opened; default on |

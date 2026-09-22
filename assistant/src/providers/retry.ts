@@ -36,6 +36,7 @@ import {
   tryAcquireRecoveryProbe,
 } from "./fallback-breaker.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
+import { MALFORMED_TOOL_CALL_MESSAGE } from "./malformed-tool-call.js";
 import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
@@ -165,18 +166,22 @@ const RETRYABLE_STREAM_PATTERNS = [
   // Anthropic client salvages most of these into a `_raw`-wrapped tool call
   // before they surface (see anthropic/stream-content-shadow.ts); ones that
   // still reach here retry with a corrective note
-  // (`withUnparseableToolArgsHint`) because the malformation can be
-  // conditioned on the request context — a byte-identical resend can
-  // reproduce it indefinitely.
+  // (`correctiveRetryHint`) because the malformation can be conditioned on
+  // the request context: a byte-identical resend can reproduce it
+  // indefinitely.
   UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE,
+  // The response ended on a tool call the model emitted but that did not
+  // parse (Gemini `MALFORMED_FUNCTION_CALL` / `UNEXPECTED_TOOL_CALL`). Its
+  // text is the broken call's tail, so it retries with a corrective note too.
+  MALFORMED_TOOL_CALL_MESSAGE,
 ];
 
 /**
- * One-shot note appended to the retried request after a tool-argument JSON
- * parse failure. Appended as a trailing text block on the latest user
- * message: the request tail sits after every prompt-cache anchor, so the
- * hint costs no cache reuse (a system-prompt edit would invalidate the whole
- * cached prefix).
+ * One-shot notes appended to a retried request after the model's output was
+ * malformed in a way a byte-identical resend can reproduce. Appended as a
+ * trailing text block on the latest user message: the request tail sits
+ * after every prompt-cache anchor, so the hint costs no cache reuse (a
+ * system-prompt edit would invalidate the whole cached prefix).
  */
 const UNPARSEABLE_TOOL_ARGS_RETRY_HINT =
   "[assistant runtime] The previous attempt at this response was discarded: " +
@@ -185,23 +190,51 @@ const UNPARSEABLE_TOOL_ARGS_RETRY_HINT =
   "every string value double-quoted, including values that begin with '[' " +
   "or '{'.";
 
-function isUnparseableToolArgsError(error: unknown): boolean {
+const MALFORMED_TOOL_CALL_RETRY_HINT =
+  "[assistant runtime] The previous attempt at this response was discarded: " +
+  "it ended on a tool call that did not parse. Respond again. To call a " +
+  "tool, emit one complete, well-formed tool call through the tool-calling " +
+  "interface, never as text.";
+
+const CORRECTIVE_RETRY_HINTS: ReadonlyArray<{
+  pattern: string;
+  hint: string;
+}> = [
+  {
+    pattern: UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE,
+    hint: UNPARSEABLE_TOOL_ARGS_RETRY_HINT,
+  },
+  {
+    pattern: MALFORMED_TOOL_CALL_MESSAGE,
+    hint: MALFORMED_TOOL_CALL_RETRY_HINT,
+  },
+];
+
+/**
+ * The corrective note a retry of `error` carries, or `undefined` when the
+ * error is not a request-conditioned output malformation. Only status-less
+ * provider errors qualify: those come from content the upstream streamed
+ * after accepting the request.
+ */
+function correctiveRetryHint(error: unknown): string | undefined {
   if (!(error instanceof ProviderError)) {
-    return false;
+    return undefined;
   }
   if (error.statusCode !== undefined) {
-    return false;
+    return undefined;
   }
-  return error.message.includes(UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE);
+  return CORRECTIVE_RETRY_HINTS.find(({ pattern }) =>
+    error.message.includes(pattern),
+  )?.hint;
 }
 
 /**
- * Copy of `messages` with the corrective note appended to the latest user
- * message. When the request doesn't end on a user message (assistant
- * prefill), returns `messages` unchanged — appending anything there would
- * change prefill semantics.
+ * Copy of `messages` with `hint` appended to the latest user message. When
+ * the request doesn't end on a user message (assistant prefill), returns
+ * `messages` unchanged, since appending anything there would change prefill
+ * semantics.
  */
-function withUnparseableToolArgsHint(messages: Message[]): Message[] {
+function withRetryHint(messages: Message[], hint: string): Message[] {
   const last = messages[messages.length - 1];
   if (last === undefined || last.role !== "user") {
     return messages;
@@ -210,10 +243,7 @@ function withUnparseableToolArgsHint(messages: Message[]): Message[] {
     ...messages.slice(0, -1),
     {
       ...last,
-      content: [
-        ...last.content,
-        { type: "text", text: UNPARSEABLE_TOOL_ARGS_RETRY_HINT },
-      ],
+      content: [...last.content, { type: "text", text: hint }],
     },
   ];
 }
@@ -1393,12 +1423,10 @@ export class RetryProvider implements Provider {
             // outage the route had nothing to do with. Skipped when the hint
             // has nowhere to go (an assistant prefill tail), since an
             // unchanged resend would only cost another round trip.
-            if (
-              !correctiveResendAttempted &&
-              isUnparseableToolArgsError(error)
-            ) {
+            const hint = correctiveRetryHint(error);
+            if (!correctiveResendAttempted && hint !== undefined) {
               correctiveResendAttempted = true;
-              const repaired = withUnparseableToolArgsHint(messages);
+              const repaired = withRetryHint(messages, hint);
               if (repaired !== messages) {
                 messagesForAttempt = repaired;
                 continue;
@@ -1522,12 +1550,13 @@ export class RetryProvider implements Provider {
         }
 
         if (retryAttempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
-          // Malformed tool-argument JSON is conditioned on the request, so
-          // resend with the corrective note. Built from the original
-          // `messages` each time — the note appears exactly once no matter
-          // how many attempts fail this way.
-          if (isUnparseableToolArgsError(error)) {
-            messagesForAttempt = withUnparseableToolArgsHint(messages);
+          // A malformed tool call is conditioned on the request, so resend
+          // with the corrective note. Built from the original `messages`
+          // each time, so the note appears exactly once no matter how many
+          // attempts fail this way.
+          const hint = correctiveRetryHint(error);
+          if (hint !== undefined) {
+            messagesForAttempt = withRetryHint(messages, hint);
           }
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const { delay, retryAfterHeader } = retryPlan(error, retryAttempt);
@@ -1587,9 +1616,11 @@ export class RetryProvider implements Provider {
         ) {
           fallbackAttempted = true;
           // What the failure indicts: the whole upstream for an outage, only
-          // this model for a retirement or rename.
+          // this model for a retirement or rename. A malformed output that
+          // takes a corrective hint indicts neither: it is conditioned on this
+          // request, so the backup may serve it without diverting the route.
           const failedRoute =
-            breakerRoute === null
+            breakerRoute === null || correctiveRetryHint(error) !== undefined
               ? null
               : failureBreakerRoute(breakerRoute, error);
           let failureObservation: BreakerObservation | undefined;
@@ -1730,8 +1761,9 @@ export class RetryProvider implements Provider {
         }
         // Built from the original `messages` each time, so the corrective note
         // appears exactly once however many attempts fail this way.
-        if (isUnparseableToolArgsError(error)) {
-          messagesForAttempt = withUnparseableToolArgsHint(messages);
+        const hint = correctiveRetryHint(error);
+        if (hint !== undefined) {
+          messagesForAttempt = withRetryHint(messages, hint);
         }
         const { delay, retryAfterHeader } = retryPlan(error, attempt);
         log.warn(

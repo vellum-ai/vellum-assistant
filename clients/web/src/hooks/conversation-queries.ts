@@ -52,6 +52,7 @@ import type {
   SidebarIndexSection,
 } from "@/utils/conversation-list-fetchers";
 import {
+  ALL_HISTORY_FILTER,
   ARCHIVED_BACKGROUND_FILTER,
   ARCHIVED_FILTER,
   BACKGROUND_FILTER,
@@ -251,6 +252,22 @@ export function useSectionConversationListQuery(
   enabled: boolean = true,
 ): ConversationListQueryResult {
   return useListQuery(assistantId, filter, enabled);
+}
+
+/**
+ * The whole history in one windowed cache: every conversation type, archived
+ * and active alike, recency-ordered, paged on scroll rather than drained.
+ *
+ * An assistant that does not know `conversationType=all` rejects the request
+ * with a 400, which surfaces here as an errored query. The caller decides what
+ * to do about that (the Old chats page falls back to the four bucket reads),
+ * which is how the read degrades without a version gate.
+ */
+export function useAllHistoryConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): ConversationListQueryResult {
+  return useListQuery(assistantId, ALL_HISTORY_FILTER, enabled);
 }
 
 /**
