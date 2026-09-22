@@ -71,16 +71,29 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
  */
 export function ClampedContent({
   label,
+  expanded,
+  onExpandedChange,
   children,
 }: {
   /** Names the value while it scrolls; defaults to a generic name. */
   label?: string;
+  /**
+   * Whether the value is open, for a host whose view unmounts the value and
+   * brings it back (a list swapped for a drill-in and back). Pair with
+   * `onExpandedChange`; without them the fold keeps its own state.
+   */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
   if (useContext(InsideFold)) {
     return children;
   }
-  return <Fold label={label}>{children}</Fold>;
+  return (
+    <Fold label={label} expanded={expanded} onExpandedChange={onExpandedChange}>
+      {children}
+    </Fold>
+  );
 }
 
 /** Whether content is already inside a fold, which owns folding it. */
@@ -88,13 +101,19 @@ const InsideFold = createContext(false);
 
 function Fold({
   label,
+  expanded: controlledExpanded,
+  onExpandedChange,
   children,
 }: {
   label: string | undefined;
+  expanded: boolean | undefined;
+  onExpandedChange: ((expanded: boolean) => void) | undefined;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [ownExpanded, setOwnExpanded] = useState(false);
+  const expanded = controlledExpanded ?? ownExpanded;
+  const setExpanded = onExpandedChange ?? setOwnExpanded;
   // Measured against the fold height rather than the box, so the measure holds
   // while expanded too and content swapped in that fits drops the control.
   const fold = useOverflows<HTMLDivElement>({ limit: CLAMP_HEIGHT });

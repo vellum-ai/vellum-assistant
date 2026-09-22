@@ -746,6 +746,27 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.queryByTestId("nested-detail-running")).toBeNull();
   });
 
+  test("an opened objective is still open after a step's detail and Back", () => {
+    const longObjective = "x ".repeat(400).trim();
+    const restore = stubOverflow((el) => el.textContent === longObjective);
+    try {
+      render(
+        <SubagentDetailPanel
+          entry={{ ...entryWithTool(true), objective: longObjective }}
+          onClose={noop}
+        />,
+      );
+      fireEvent.click(screen.getByText("Show more"));
+
+      fireEvent.click(screen.getByTestId("timeline-pill"));
+      fireEvent.click(screen.getByLabelText("Back to timeline"));
+
+      expect(screen.getByText("Show less")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
   test("'Back' restores the timeline view", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 

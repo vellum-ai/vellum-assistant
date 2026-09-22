@@ -208,15 +208,19 @@ export function SubagentDetailPanel({
   const [expandedSectionKeys, setExpandedSectionKeys] = useState<Set<string>>(
     new Set(),
   );
+  // Whether the objective is open, lifted for the same reason: the objective
+  // unmounts with the timeline while a nested detail is shown.
+  const [objectiveExpanded, setObjectiveExpanded] = useState(false);
 
   // Reset per-subagent view state when the subagent changes. The desktop
   // parent reuses this instance across subagent switches (no `key`), so
-  // without this one subagent's open step and expanded groups leak onto the
-  // next. Resetting during render (React's "store previous prop" pattern)
-  // lands before paint, so nothing flashes.
+  // without this one subagent's open step, expanded groups and open objective
+  // leak onto the next. Resetting during render (React's "store previous
+  // prop" pattern) lands before paint, so nothing flashes.
   const [prevSubagentId, setPrevSubagentId] = useState(entry.subagentId);
   if (prevSubagentId !== entry.subagentId) {
     setPrevSubagentId(entry.subagentId);
+    setObjectiveExpanded(false);
     // Switching subagents returns the panel to the timeline view and clears
     // the previous subagent's expanded groups.
     setSelectedDetailKey(null);
@@ -426,12 +430,13 @@ export function SubagentDetailPanel({
                   <SectionLabel as="h3">
                     {t("subagentDetailPanel.objective")}
                   </SectionLabel>
-                  {/* Keyed by subagent: the panel outlives a switch, and an
-                      objective opened for one subagent must not open the
-                      next one's. */}
+                  {/* Keyed by subagent so the next subagent's objective is
+                      measured afresh; its open state resets with the switch. */}
                   <ClampedContent
                     key={entry.subagentId}
                     label={t("subagentDetailPanel.objective")}
+                    expanded={objectiveExpanded}
+                    onExpandedChange={setObjectiveExpanded}
                   >
                     <Typography
                       variant="body-medium-lighter"
