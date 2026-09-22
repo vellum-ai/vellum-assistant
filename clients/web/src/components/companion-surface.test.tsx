@@ -256,33 +256,15 @@ describe("the companion surface's anchor in the canvas", () => {
     expect(avatarOf(container).style.top).toBe(avatarOf(explicit).style.top);
   });
 
-  /**
-   * The creature's visible bottom is the fixed point. The pill's bottom sits on
-   * it rather than on the avatar's box, which runs a further 8 points down to
-   * hold the bob's slack, and the mascot never moves whichever way the pill or the
-   * card grows.
-   */
-  test("sits the pill's bottom on the creature's visible bottom", () => {
+  test("centres the pill on the creature", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
-    // 54 from the canvas edge to the avatar's centre, 14 further to the bottom
-    // of the 28pt artwork inside its 44pt box.
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 40px)");
-    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 54px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
   });
 
   /**
-   * The pill's bottom is the avatar's bottom, and it hangs upward off that
-   * line in the ordinary direction.
-   */
-  test("hangs the pill off the creature's line when the canvas grows up", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 40px)");
-    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
-  });
-
-  /**
-   * Everything against the other edge: the avatar sits on the canvas's top
-   * line, and the pill keeps its bottom on the creature's.
+   * Everything against the other edge: the avatar and pill keep one centre
+   * line measured from the canvas's top.
    */
   test("anchors everything against the canvas's top edge when the card grows down", () => {
     const { container: resting } = render(
@@ -293,21 +275,24 @@ describe("the companion surface's anchor in the canvas", () => {
     const { container: hover } = render(
       <CompanionSurface phase="hover" cardGrowth="down" />,
     );
-    expect(surfaceOf(hover).style.top).toBe("68px");
-    expect(surfaceOf(hover).style.transform).toBe("translateY(-100%)");
+    expect(surfaceOf(hover).style.top).toBe("54px");
+    expect(surfaceOf(hover).style.transform).toBe("translateY(-50%)");
   });
 
   /**
-   * The two are siblings with a gap between them, which is what the host's
-   * union hit-test is built on. A pill that contained the avatar would make a
-   * bounding box the honest answer and take the gap's dead corners with it.
+   * The creature remains a sibling layer so it can leave the pill for intro
+   * choreography, but the pill reserves its leading row for the creature.
    */
-  test("draws the avatar beside the pill rather than inside it", () => {
-    const { container } = render(<CompanionSurface phase="hover" />);
-    expect(surfaceOf(container).contains(avatarOf(container))).toBe(false);
-    expect(avatarOf(container).parentElement).toBe(
-      surfaceOf(container).parentElement,
+  test("draws the avatar in the pill's leading slot", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching />,
     );
+    expect(surfaceOf(container).contains(avatarOf(container))).toBe(false);
+    expect(surfaceOf(container).style.left).toBe("calc(50% - 22px)");
+    expect(avatarOf(container).style.left).toBe("50%");
+    const row =
+      surfaceOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
+    expect(row?.style.paddingLeft).toBe("44px");
   });
 
   /**
@@ -346,9 +331,8 @@ describe("the companion surface's anchor in the canvas", () => {
  * The surface's own outermost box is scaled by the options size, so everything
  * inside it is stated in the units the layout is authored in and the creature
  * carries the difference between the two boxes itself. What has to hold is that
- * the pill still sits a gap off the creature's *visual* edge and still shares
- * its bottom line, whichever of the two is the larger, because that edge and
- * that line are what the host places the window by.
+ * the pill still reserves one options-sized slot around the creature's fixed
+ * centre, whichever of the two is larger.
  */
 describe("the companion surface at two sizes", () => {
   /** The outermost element, which is where the options scale is spent. */
@@ -401,35 +385,24 @@ describe("the companion surface at two sizes", () => {
     expect(box.contains(avatarOf(container))).toBe(true);
   });
 
-  /**
-   * 55 to a huge creature's edge, then the gap the smaller of the two earns.
-   * On its visible bottom as well: the near edge is 115 at this pair and the
-   * artwork stops 35 in from the centre, so the pill's bottom lands 80 from the
-   * canvas edge.
-   */
-  test("steps the pill off a larger creature's edge and onto its bottom", () => {
+  test("keeps an options-sized slot around a larger creature", () => {
     const { container } = render(
       <CompanionSurface phase="hover" avatarBox={110} optionsBox={44} />,
     );
-    expect(surfaceOf(container).style.left).toBe("calc(50% + 67px)");
+    expect(surfaceOf(container).style.left).toBe("calc(50% - 22px)");
     expect(avatarOf(container).style.top).toBe("calc(100% - 115px)");
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 80px)");
-    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 115px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
   });
 
-  /**
-   * The same rules the other way round, read in the pill's own units: 22 points
-   * to the creature's edge and 12 of gap, at a scale of two and a half, and the
-   * pill's bottom on the creature's visible bottom the same way.
-   */
-  test("steps it off a smaller creature and onto its bottom too", () => {
+  test("keeps the same authored slot around a smaller creature", () => {
     const { container } = render(
       <CompanionSurface phase="hover" avatarBox={44} optionsBox={110} />,
     );
-    expect(surfaceOf(container).style.left).toBe("calc(50% + 13.6px)");
+    expect(surfaceOf(container).style.left).toBe("calc(50% - 22px)");
     expect(avatarOf(container).style.top).toBe("calc(100% - 62.4px)");
-    expect(surfaceOf(container).style.top).toBe("calc(100% - 56.8px)");
-    expect(surfaceOf(container).style.transform).toBe("translateY(-100%)");
+    expect(surfaceOf(container).style.top).toBe("calc(100% - 62.4px)");
+    expect(surfaceOf(container).style.transform).toBe("translateY(-50%)");
   });
 
   test("mirrors that step when the pill grows the other way", () => {
@@ -441,7 +414,7 @@ describe("the companion surface at two sizes", () => {
         optionsBox={44}
       />,
     );
-    expect(surfaceOf(container).style.right).toBe("calc(50% + 67px)");
+    expect(surfaceOf(container).style.right).toBe("calc(50% + 22px)");
   });
 
   test("anchors both against the canvas's top edge when the card grows down", () => {
@@ -454,7 +427,7 @@ describe("the companion surface at two sizes", () => {
       />,
     );
     expect(avatarOf(container).style.top).toBe("115px");
-    expect(surfaceOf(container).style.top).toBe("150px");
+    expect(surfaceOf(container).style.top).toBe("115px");
   });
 
   /**
@@ -776,7 +749,7 @@ describe("the companion surface's Watch action", () => {
       [...container.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
-    ).toEqual(["Teach", "Mute microphone", "Mute Ziggy", "End session"]);
+    ).toEqual(["Teach", "Mute Ziggy", "Mute microphone", "End session"]);
   });
 
   test("reports the press", () => {
@@ -1115,7 +1088,7 @@ describe("the companion surface's call bar", () => {
     return creature;
   };
 
-  test("is centred on the creature's point rather than hung off its side", () => {
+  test("is centred on the host's point", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
@@ -1124,27 +1097,22 @@ describe("the companion surface's call bar", () => {
     expect(pill.style.transform).toBe("translate(-50%, -50%)");
   });
 
-  test("hangs off the creature's side in every other open phase", () => {
+  test("grows from the creature's leading slot in every other open phase", () => {
     const { container } = render(<CompanionSurface phase="hover" />);
     const pill = pillOf(container);
     expect(pill.style.left).not.toBe("50%");
-    expect(pill.style.transform).toBe("translateY(-100%)");
+    expect(pill.style.transform).toBe("translateY(-50%)");
   });
 
-  /**
-   * Half the bar back from the centre, then the gap and the creature's own
-   * half box: 12 and 22 at the base pair, the same step the pill takes off the
-   * creature in every other phase, read from the bar's side.
-   */
-  test("stands the creature beside the bar's leading end, across the gap", () => {
+  test("seats the creature in the bar's leading slot", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     const half = parseFloat(pillOf(container).style.width) / 2;
-    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 34}px)`);
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half - 22}px)`);
   });
 
-  test("steps the creature off the bar by the gap the pair earns", () => {
+  test("keeps the slot tied to the options size", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -1154,7 +1122,7 @@ describe("the companion surface's call bar", () => {
       />,
     );
     const half = parseFloat(pillOf(container).style.width) / 2;
-    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half + 67}px)`);
+    expect(creatureOf(container).style.left).toBe(`calc(50% - ${half - 22}px)`);
   });
 
   test("leaves the creature on its own point outside a call", () => {
@@ -1162,22 +1130,19 @@ describe("the companion surface's call bar", () => {
     expect(creatureOf(container).style.left).toBe("50%");
   });
 
-  test("keeps the same clearance ahead of the body as every other pill", () => {
+  test("reserves the avatar slot ahead of the body", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
     const row = pillOf(container).querySelector<HTMLElement>(".h-11.shrink-0");
-    expect(row?.style.paddingInline).toBe(`${INNER_GAP}px`);
+    expect(row?.style.paddingLeft).toBe("44px");
+    expect(row?.style.paddingRight).toBe(`${INNER_GAP}px`);
   });
 
-  /**
-   * The pill's own ring, as against the creature's: the creature burns its
-   * ring for a turn, and this one is the bar's for the call.
-   */
   const ringOf = (container: HTMLElement): HTMLElement | null =>
     pillOf(container).querySelector<HTMLElement>(".companion-working-ring");
 
-  test("carries a pulse on its edge in the call's own colour", () => {
+  test("draws no pulsing border around a live call", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -1185,15 +1150,10 @@ describe("the companion surface's call bar", () => {
         accentHex="#ff9f45"
       />,
     );
-    const ring = ringOf(container);
-    expect(ring).not.toBeNull();
-    expect(ring?.style.getPropertyValue("--companion-ring-accent")).toBe(
-      "#ff9f45",
-    );
-    expect(ring?.className).toContain("pointer-events-none");
+    expect(ringOf(container)).toBeNull();
   });
 
-  test("keeps the light on the edge and out of the bar", () => {
+  test("keeps the call bar's background plain", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} />,
     );
@@ -1211,11 +1171,11 @@ describe("the companion surface's call bar", () => {
     expect(ringOf(container)).toBeNull();
   });
 
-  test("pulses for the dial too, which is the call's first beat", () => {
+  test("keeps the dial free of the pulsing border too", () => {
     const { container } = render(
       <CompanionSurface phase="call" assistantName="Ziggy" />,
     );
-    expect(ringOf(container)).not.toBeNull();
+    expect(ringOf(container)).toBeNull();
     expect(pillOf(container).style.left).toBe("50%");
   });
 });
@@ -1327,7 +1287,7 @@ describe("the companion surface's call bar docked to a side", () => {
   const captionsOf = (container: HTMLElement): HTMLElement[] =>
     Array.from(container.querySelectorAll<HTMLElement>("[data-label='hover']"));
 
-  test("is a column centred on the creature's point", () => {
+  test("is a column centred on the host's point", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} dock="left" />,
     );
@@ -1359,18 +1319,14 @@ describe("the companion surface's call bar docked to a side", () => {
     expect(container.querySelector(".transition-\\[width\\]")).not.toBeNull();
   });
 
-  /**
-   * Half the column back from the centre, then the gap and the creature's
-   * own half box: the step the creature takes beside a row, read up.
-   */
-  test("stands the creature at the column's top end, across the gap", () => {
+  test("seats the creature in the column's first row", () => {
     const { container } = render(
       <CompanionSurface phase="call" call={LISTENING_CALL} dock="right" />,
     );
     const half = parseFloat(columnOf(container).style.height) / 2;
     const creature = creatureOf(container);
     expect(creature.style.left).toBe("50%");
-    expect(creature.style.top).toBe(`calc(50% - ${half + 34}px)`);
+    expect(creature.style.top).toBe(`calc(50% - ${half - 22}px)`);
   });
 
   test("stands the captions off the column toward the middle of the screen", () => {
@@ -1847,12 +1803,12 @@ describe("the companion surface's width ceiling", () => {
   });
 
   /**
-   * The ceiling is on the pill, not on the body inside it, so a body that fits
-   * with the clearance at either end left off is not one that fits.
+   * The ceiling is on the pill, not on the body inside it, so the leading
+   * avatar slot and trailing clearance both count.
    */
   test("holds for every measured body once the pill's own clearance is on it", () => {
     const over = Object.entries(FALLBACK_WIDTHS).filter(
-      ([, width]) => width + 2 * INNER_GAP > CANVAS_CEILING,
+      ([, width]) => 44 + width + INNER_GAP > CANVAS_CEILING,
     );
     expect(over).toEqual([]);
   });
@@ -1911,28 +1867,27 @@ describe("the companion surface's capture indicator across phases", () => {
  * Main positions the window by the *avatar's* centre and measures every later
  * drag, clamp and direction check from it. The renderer's half of that bargain
  * is to draw the avatar on the point the host aimed at, in both directions: the
- * avatar keeps its place and the pill swaps which of its edges is pinned to the
- * gap. A flip that moved the mascot instead would put it up to a card's width
+ * avatar keeps its place and the pill swaps which outside edge of its avatar
+ * slot is pinned to that point. A flip that moved the mascot instead would put it up to a card's width
  * from where main believes it is, so it would teleport at the threshold, the
  * labels would sweep under a held pointer, and the point main hands presses to
  * would land on a control that refuses them. The surface reads as dead
  * (JARVIS-1582).
  */
 describe("the companion surface growing leftward", () => {
-  test("anchors the pill by its right edge, a gap off the avatar", () => {
+  test("anchors the pill by the avatar slot's outside right edge", () => {
     const { container } = render(
       <CompanionSurface phase="hover" growth="left" />,
     );
-    expect(surfaceOf(container).style.right).toBe("calc(50% + 34px)");
+    expect(surfaceOf(container).style.right).toBe("calc(50% + 22px)");
     expect(surfaceOf(container).style.left).toBe("");
   });
 
-  /** The pill's avatar-facing edge: the avatar's half box, then the gap. */
-  test("anchors it by its left edge growing the ordinary way", () => {
+  test("anchors it by the avatar slot's outside left edge", () => {
     const { container } = render(
       <CompanionSurface phase="hover" growth="right" />,
     );
-    expect(surfaceOf(container).style.left).toBe("calc(50% + 34px)");
+    expect(surfaceOf(container).style.left).toBe("calc(50% - 22px)");
     expect(surfaceOf(container).style.right).toBe("");
   });
 
@@ -2377,8 +2332,8 @@ describe("the companion surface's Share action", () => {
     expect(labelsOf(container)).toEqual([
       "Teach",
       "Share",
-      "Mute microphone",
       "Mute Ziggy",
+      "Mute microphone",
       "End session",
     ]);
   });
@@ -2488,8 +2443,8 @@ describe("the companion surface's Draw action", () => {
     expect(labelsOf(container)).toEqual([
       "Share",
       "Draw",
-      "Mute microphone",
       "Mute Ziggy",
+      "Mute microphone",
       "End session",
     ]);
   });
