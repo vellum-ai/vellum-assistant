@@ -63,9 +63,6 @@ class FakeConversation {
   setForkPolicy() {}
   setForkParentMessageCount() {}
   setForkParentSystemPrompt() {}
-  enqueueMessage() {
-    return { rejected: false, queued: false };
-  }
   // Read by the admission gate, which resolves a child through the subagent
   // registry this spawn writes into.
   isProcessing() {

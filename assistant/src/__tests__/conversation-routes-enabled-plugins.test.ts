@@ -180,18 +180,9 @@ function makeConversation() {
     },
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
     persistUserMessage,
     runAgentLoop,
     setPreactivatedSkillIds: () => {},
-    drainQueue: async (_reason?: string) => {},
-    kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     warmPromptCache: () => {},
     getMessages: () => messages,
     assistantId: "self",

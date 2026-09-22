@@ -183,7 +183,6 @@ function injectSubagent(
     messages: [],
     sendToClient: () => {},
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    enqueueMessage: () => ({ queued: false }),
     persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
     runAgentLoop: async () => {},
     // The live counters a retained conversation keeps, seeded to agree with
@@ -208,11 +207,8 @@ function injectSubagent(
     isProcessing(): boolean {
       return this.processing;
     },
-    // A child conversation's only successor is parent guidance, which registers
-    // a deferred send rather than queueing.
-    hasQueuedMessages(): boolean {
-      return false;
-    },
+    // A child conversation's only successor is parent guidance, which
+    // registers a deferred send.
     hasPendingDeferredSends(): boolean {
       return this.pendingDeferredSends > 0;
     },

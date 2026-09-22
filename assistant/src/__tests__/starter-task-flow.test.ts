@@ -56,8 +56,6 @@ function makeContext(
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
   });
@@ -122,11 +120,11 @@ describe("starter task surface actions", () => {
     expect(forwarded[0]).toContain('"prompt":"keep this literal field"');
   });
 
-  test("consumes non-dynamic pending actions after forwarding", () => {
+  test("consumes non-dynamic pending actions after forwarding", async () => {
     const ctx = makeContext();
     ctx.pendingSurfaceActions.set("confirm-1", { surfaceType: "confirmation" });
 
-    handleSurfaceAction(ctx, "confirm-1", "confirm", {});
+    await handleSurfaceAction(ctx, "confirm-1", "confirm", {});
 
     expect(ctx.pendingSurfaceActions.has("confirm-1")).toBe(false);
   });

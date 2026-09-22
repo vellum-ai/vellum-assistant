@@ -117,8 +117,6 @@ function buildMockContext(
     transportInterface: "web",
     ensureHostProxiesForTurn,
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "r1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: createSurfaceMutex(),
   });

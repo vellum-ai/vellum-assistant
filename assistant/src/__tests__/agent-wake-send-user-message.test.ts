@@ -90,8 +90,6 @@ function makeTarget(onRun: (conv: Conversation) => void): {
     setTrustContext: () => {},
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
-    drainQueue: async () => {},
-    kickDrainQueue: async () => {},
     maybeCompact: async () => null,
     // The real prompt, keyed on the same snapshot the daemon reads, so the
     // gated section is present or absent for the real reason.

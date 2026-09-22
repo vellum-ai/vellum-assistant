@@ -77,7 +77,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+const realPendingInteractions =
+  await import("../runtime/pending-interactions.js");
 mock.module("../runtime/pending-interactions.js", () => ({
+  ...realPendingInteractions,
   register: (requestId: string, entry: PendingEntry) =>
     pending.set(requestId, entry),
   get: (requestId: string) => pending.get(requestId),
@@ -150,8 +153,6 @@ function buildContext(
     currentTurnSurfaces: [],
     hostAppControlProxy: proxy,
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "r1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: createSurfaceMutex(),
   });

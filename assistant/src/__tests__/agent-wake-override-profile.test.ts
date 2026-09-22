@@ -102,8 +102,6 @@ function makeTarget(): {
     setTrustContext: () => {},
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
-    drainQueue: async () => {},
-    kickDrainQueue: async () => {},
     // Pre-run auto-compaction gate — no-op for these tests.
     maybeCompact: async () => null,
     // The wake rebuilds the loop prompt under its per-turn stamps.

@@ -119,7 +119,6 @@ function makeIdleSession(opts?: {
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
-    enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (
@@ -183,7 +182,6 @@ function makeConfirmationEmittingSession(opts?: {
     setHostCuProxy: () => {},
     setHostAppControlProxy: () => {},
     addPreactivatedSkillId: () => {},
-    enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     hasAnyPendingConfirmation: () => false,
     modeSessions: mockUnownedModeSessions(),
     runAgentLoop: async (

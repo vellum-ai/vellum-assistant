@@ -247,7 +247,7 @@ function formatDiskPressureBlockedMessage(): string {
 /**
  * Synthetic fallback trust context used when the orchestrator fires a hook
  * before the per-turn trust snapshot has been captured (e.g. invocations that
- * bypass `processMessage` / `drainQueue`). We bias to `unknown` rather than
+ * bypass `processMessage`). We bias to `unknown` rather than
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
  * to a custom plugin reading `ctx.trust`.
  */
@@ -532,7 +532,7 @@ export async function runAgentLoopImpl(
 
   // Initialize per-turn persona snapshots for callers (subagent manager,
   // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
-  // without going through processMessage/drainQueue. This ensures the system
+  // without going through processMessage. This ensures the system
   // prompt callback always reads a valid snapshot rather than undefined.
   //
   // The invariant: a turn runs under the trust captured when that turn

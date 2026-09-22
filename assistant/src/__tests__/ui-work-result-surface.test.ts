@@ -31,8 +31,6 @@ function makeContext(sent: AssistantEvent[] = []): Conversation {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
   });

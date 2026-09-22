@@ -27,7 +27,6 @@ interface FakeManagedSubagent {
     sendToClient: (msg: AssistantEvent) => void;
     persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
-    enqueueMessage?: () => { rejected: boolean; queued: boolean };
     usageStats: {
       inputTokens: number;
       outputTokens: number;

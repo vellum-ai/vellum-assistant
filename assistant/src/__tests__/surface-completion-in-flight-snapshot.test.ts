@@ -117,8 +117,6 @@ function makeContext(): Conversation {
     pendingStandaloneSurfaces: new Map(),
     recentlyCompletedStandaloneSurfaces: new Map(),
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: true, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "msg-1",
     withSurface: createSurfaceMutex(),
   } as unknown as Conversation;

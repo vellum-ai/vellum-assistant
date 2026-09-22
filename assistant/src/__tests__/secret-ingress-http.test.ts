@@ -166,7 +166,6 @@ function makeSendMessageDeps() {
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
     persistUserMessage: persistUserMessageMock,
     runAgentLoop: runAgentLoopMock,
     getMessages: () => [] as unknown[],

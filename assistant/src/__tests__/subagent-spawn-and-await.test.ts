@@ -155,11 +155,6 @@ class FakeConversation {
     return { id: "msg-id", deduplicated: false };
   }
 
-  /** A busy child queues a follow-up; `sendMessage` reads `queued` off this. */
-  enqueueMessage() {
-    return { queued: true, rejected: false, requestId: "req-child" };
-  }
-
   async runAgentLoop() {
     runLoopInvoked = true;
     this.cfg.onLoopStart?.();

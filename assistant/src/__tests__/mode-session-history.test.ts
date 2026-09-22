@@ -39,7 +39,6 @@ function registerCoordinator(
   setConversation(conversationId, {
     modeSessions: coordinator,
     isProcessing: () => false,
-    snapshotQueuedMessages: () => [],
   } as unknown as Conversation);
 }
 

@@ -223,9 +223,6 @@ class FakeConversation {
   setForkPolicy() {}
   setForkParentMessageCount() {}
   setForkParentSystemPrompt() {}
-  enqueueMessage() {
-    return { rejected: false, queued: false };
-  }
   abort() {}
   dispose() {}
   messages = [];

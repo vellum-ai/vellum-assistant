@@ -345,7 +345,6 @@ function makeForkConversationDouble(): Conversation {
     isProcessing: () => false,
     setProcessing: (_on: boolean) => {},
     waitForIdle: async (_opts: { timeoutMs: number }) => true,
-    drainQueue: async () => {},
     maybeCompact: async () => null,
     // The wake rebuilds the loop prompt under its per-turn stamps.
     syncLoopSystemPrompt: () => {},

@@ -66,8 +66,6 @@ function makeTarget(onRun: (conv: Conversation) => void): {
     setTrustContext: () => {},
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
-    drainQueue: async () => {},
-    kickDrainQueue: async () => {},
     maybeCompact: async () => null,
     // The wake scope the allowlist is applied through, which is what the
     // delegation gate reads.

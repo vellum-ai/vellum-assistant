@@ -225,6 +225,9 @@ async function runDeferred(
   conversation: Conversation,
   options: SubmitUserTurnOptions,
 ): Promise<void> {
+  // No `onEvent`: admission reports a spent retry budget on the sink it is
+  // given, and this path already reports every failure itself. Passing one
+  // would tell the sender the send failed twice.
   await runWhenConversationIdle(
     conversation.conversationId,
     async () => {
@@ -233,11 +236,7 @@ async function runDeferred(
       });
       await options.run();
     },
-    {
-      origin: options.origin,
-      onEvent: options.onEvent,
-      requestId: options.requestId,
-    },
+    { origin: options.origin },
   );
 }
 

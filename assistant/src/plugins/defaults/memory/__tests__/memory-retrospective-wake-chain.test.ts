@@ -222,7 +222,6 @@ function makeForkConversationDouble(forkId: string): Conversation {
     getTurnInterfaceContext: () => null,
     buildCurrentSystemPrompt: () => "chain-test system prompt",
     modelOverride: undefined,
-    drainQueue: async () => {},
   };
   return conversation as unknown as Conversation;
 }
