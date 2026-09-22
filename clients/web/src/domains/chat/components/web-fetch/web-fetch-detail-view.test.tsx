@@ -237,6 +237,7 @@ describe("WebFetchDetailView", () => {
       faviconUrl: "https://favicons.example/cnbc.png",
       redirectCount: 1,
       durationMs: 820,
+      startIndexPastEnd: false,
     };
 
     test("the source card shows the page's title, final url, status and favicon", () => {
@@ -289,6 +290,22 @@ describe("WebFetchDetailView", () => {
       );
       expect(getByText("Error: HTTP 404")).toBeDefined();
       expect(getByText("404")).toBeDefined();
+    });
+
+    test("metadata from an assistant that predates the full warning set keeps the result's notices", () => {
+      // No `startIndexPastEnd`: the writer's remaining warnings are only in
+      // the result text, so that text's notices are what the reader sees.
+      const { startIndexPastEnd: _omitted, ...older } = META;
+      const { getByText } = renderView(payload({}), older);
+      expect(
+        getByText(
+          "Extracted only 5047 chars of text from 757146 bytes of HTML (0.7%). Content may be JavaScript-rendered.",
+        ),
+      ).toBeDefined();
+      // The card still reads the metadata it has.
+      expect(
+        getByText("Michelob Ultra is now America's top beer"),
+      ).toBeDefined();
     });
 
     test("warns of a start past the end and shows a provider's warning as sent", () => {

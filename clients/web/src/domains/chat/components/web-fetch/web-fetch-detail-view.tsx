@@ -231,23 +231,27 @@ export function WebFetchDetailView({
         }
       : null;
 
-  // The metadata carries the warnings a reader acts on: a page cut short, one
-  // that may need JavaScript, a start past the end of the page, and a hosted
-  // provider's own warning (its words, so shown as sent). Its other notices (a
-  // redirect, `max_chars`) are for the model: the card already shows the final
-  // url, and a cut-short page is a cut-short page whatever cut it.
-  const notices = meta
-    ? [
-        ...(meta.truncated ? [t("webFetchDetailView.truncated")] : []),
-        ...(meta.mayRequireJavaScript
-          ? [t("webFetchDetailView.mayRequireJavaScript")]
-          : []),
-        ...(meta.startIndexPastEnd
-          ? [t("webFetchDetailView.startIndexPastEnd")]
-          : []),
-        ...(meta.providerWarning ? [meta.providerWarning] : []),
-      ]
-    : parsed.notices;
+  // Metadata that carries `startIndexPastEnd` (true or false) carries every
+  // warning a reader acts on: a page cut short, one that may need JavaScript,
+  // a start past the end of the page, and a hosted provider's own warning (its
+  // words, so shown as sent). Its other notices (a redirect, `max_chars`) are
+  // for the model: the card already shows the final url, and a cut-short page
+  // is a cut-short page whatever cut it. Metadata without it came from an
+  // assistant that predates those fields, so the result text's notices stay
+  // what the reader sees, as they always have.
+  const notices =
+    meta?.startIndexPastEnd !== undefined
+      ? [
+          ...(meta.truncated ? [t("webFetchDetailView.truncated")] : []),
+          ...(meta.mayRequireJavaScript
+            ? [t("webFetchDetailView.mayRequireJavaScript")]
+            : []),
+          ...(meta.startIndexPastEnd
+            ? [t("webFetchDetailView.startIndexPastEnd")]
+            : []),
+          ...(meta.providerWarning ? [meta.providerWarning] : []),
+        ]
+      : parsed.notices;
 
   // A refused fetch never ran: its result is the daemon's note to the model,
   // which reads as a failed fetch if shown, so the refusal is what it says.

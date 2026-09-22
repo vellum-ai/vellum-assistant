@@ -161,7 +161,7 @@ describe("web_fetch activityMetadata", () => {
     expect(result.isError).toBe(false);
     const meta = result.activityMetadata?.webFetch;
     expect(meta?.truncated).toBe(true);
-    expect(meta?.startIndexPastEnd).toBeUndefined();
+    expect(meta?.startIndexPastEnd).toBe(false);
   });
 
   test("populates errorMessage and status on a 404 response", async () => {

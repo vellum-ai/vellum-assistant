@@ -58,6 +58,15 @@ const MAX_TIMEOUT_SECONDS = 60;
 const DEFAULT_MAX_CHARS = 12_000;
 const MAX_MAX_CHARS = 40_000;
 const MAX_DOWNLOAD_BYTES = 2_000_000;
+
+/**
+ * The metadata this assistant writes. `startIndexPastEnd` is optional on the
+ * wire because older records lack it; every writer here sets it, which is how
+ * a reader tells this metadata carries every reader-facing warning.
+ */
+type WrittenWebFetchMetadata = WebFetchMetadata & {
+  startIndexPastEnd: boolean;
+};
 const MAX_REDIRECTS = 10;
 
 const TEXT_LIKE_CONTENT_TYPES = [
@@ -672,7 +681,8 @@ export async function executeWebFetch(
           redirectCount: meta.redirectCount ?? 0,
           durationMs: Date.now() - startedAt,
           errorMessage,
-        },
+          startIndexPastEnd: false,
+        } satisfies WrittenWebFetchMetadata,
       },
     };
   };
@@ -1023,7 +1033,7 @@ export async function executeWebFetch(
     const truncated = body.truncated || safeEnd < processed.length;
     const parsedTitle = html ? parseHtmlTitle(body.text) : undefined;
     const finalDomain = extractDomain(currentUrl.href);
-    const meta: WebFetchMetadata = {
+    const meta: WrittenWebFetchMetadata = {
       url: safeRequestedUrl,
       finalUrl: sanitizeUrlForOutput(currentUrl),
       provider: "default",
@@ -1040,8 +1050,7 @@ export async function executeWebFetch(
       mayRequireJavaScript: mayRequireJavaScript || undefined,
       // Past the end of the page only when the whole page was downloaded: past
       // a capped prefix, the page may still have content at that offset.
-      startIndexPastEnd:
-        (!body.truncated && startIndex > processed.length) || undefined,
+      startIndexPastEnd: !body.truncated && startIndex > processed.length,
     };
 
     if (!response.ok) {
@@ -1227,7 +1236,8 @@ function hostedScrapeErrorResult(
         redirectCount: 0,
         durationMs: Date.now() - startedAt,
         errorMessage,
-      },
+        startIndexPastEnd: false,
+      } satisfies WrittenWebFetchMetadata,
     },
   };
 }
@@ -1419,7 +1429,7 @@ export async function executeFirecrawlCompatScrape(
       });
 
       const finalDomain = extractDomain(finalUrl);
-      const meta: WebFetchMetadata = {
+      const meta: WrittenWebFetchMetadata = {
         url: safeRequestedUrl,
         finalUrl,
         provider: options.provider,
@@ -1433,7 +1443,7 @@ export async function executeFirecrawlCompatScrape(
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: 0,
         durationMs: Date.now() - startedAt,
-        startIndexPastEnd: startIndex > processed.length || undefined,
+        startIndexPastEnd: startIndex > processed.length,
         providerWarning: warning || undefined,
       };
 
@@ -1698,7 +1708,7 @@ export async function executeTinyfishFetch(
         markdown: true,
       });
       const finalDomain = extractDomain(finalUrl);
-      const metadata: WebFetchMetadata = {
+      const metadata: WrittenWebFetchMetadata = {
         url: safeRequestedUrl,
         finalUrl,
         provider: "tinyfish",
@@ -1712,7 +1722,7 @@ export async function executeTinyfishFetch(
         faviconUrl: faviconUrlForDomain(finalDomain),
         redirectCount: finalUrl === safeRequestedUrl ? 0 : 1,
         durationMs: Date.now() - startedAt,
-        startIndexPastEnd: startIndex > processed.length || undefined,
+        startIndexPastEnd: startIndex > processed.length,
       };
       return {
         content,
