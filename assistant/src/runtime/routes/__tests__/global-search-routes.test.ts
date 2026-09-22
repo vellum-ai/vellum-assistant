@@ -8,7 +8,10 @@
  *
  * Also covers the search-query parser: `is:archived` and its synonyms in the
  * `q` string flip the conversation arm to `includeArchived: true`, and the
- * filter token is stripped from the term before any backend is called.
+ * filter token is stripped from the term before any backend is called. Under
+ * the `sidebar-done` flag the unfiltered default is `true` instead and
+ * `is:unarchived` is the opt-out, so the flag-on twins assert the mirror
+ * image of the default ones.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -30,9 +33,13 @@ const searchConversationsMock = mock(
   },
 );
 
+let sidebarDoneEnabled = false;
+
 const actualContactStore = await import("../../../contacts/contact-store.js");
 const actualConvQueries =
   await import("../../../persistence/conversation-queries.js");
+const actualSidebarDoneGate =
+  await import("../../../config/sidebar-done-gate.js");
 
 mock.module("../../../contacts/contact-store.js", () => ({
   ...actualContactStore,
@@ -41,6 +48,10 @@ mock.module("../../../contacts/contact-store.js", () => ({
 mock.module("../../../persistence/conversation-queries.js", () => ({
   ...actualConvQueries,
   searchConversations: searchConversationsMock,
+}));
+mock.module("../../../config/sidebar-done-gate.js", () => ({
+  ...actualSidebarDoneGate,
+  isSidebarDoneEnabled: () => sidebarDoneEnabled,
 }));
 
 const { ROUTES } = await import("../global-search-routes.js");
@@ -69,6 +80,7 @@ afterEach(() => {
   searchConversationsCalls = [];
   searchConversationsResult = [];
   searchConversationsMock.mockClear();
+  sidebarDoneEnabled = false;
 });
 
 describe("global-search contacts recency source", () => {
@@ -266,5 +278,66 @@ describe("global-search q parser", () => {
 
     expect(result.query).toBe("alpha,beta");
     expect(result.queryTokens).toEqual(["alpha", "beta"]);
+  });
+});
+
+describe("global-search q parser under sidebar-done", () => {
+  test("plain term reaches done chats by default", async () => {
+    sidebarDoneEnabled = true;
+
+    await handler({
+      queryParams: { q: "shema", categories: "conversations" },
+    });
+
+    expect(searchConversationsCalls[0]?.query).toBe("shema");
+    expect(searchConversationsCalls[0]?.opts).toMatchObject({
+      includeArchived: true,
+    });
+  });
+
+  test("is:unarchived (and archive:no / archive:false) narrows back to live chats", async () => {
+    for (const filter of ["is:unarchived", "archive:no", "archive:false"]) {
+      sidebarDoneEnabled = true;
+      searchConversationsCalls = [];
+      searchConversationsMock.mockClear();
+
+      await handler({
+        queryParams: {
+          q: `${filter} shema`,
+          categories: "conversations",
+        },
+      });
+
+      expect(searchConversationsCalls[0]?.query).toBe("shema");
+      expect(searchConversationsCalls[0]?.opts).toMatchObject({
+        includeArchived: false,
+      });
+    }
+  });
+
+  test("is:archived stays a no-op the term is still stripped of", async () => {
+    sidebarDoneEnabled = true;
+
+    await handler({
+      queryParams: { q: "is:archived shema", categories: "conversations" },
+    });
+
+    expect(searchConversationsCalls[0]?.query).toBe("shema");
+    expect(searchConversationsCalls[0]?.opts).toMatchObject({
+      includeArchived: true,
+    });
+  });
+
+  test("unknown filter tokens stay in the term and do not narrow the default", async () => {
+    sidebarDoneEnabled = true;
+
+    await handler({
+      queryParams: { q: "is:starred shema", categories: "conversations" },
+    });
+
+    expect(searchConversationsCalls[0]?.query).toBe("is:starred shema");
+    expect(searchConversationsCalls[0]?.opts).toMatchObject({
+      includeArchived: true,
+    });
   });
 });

@@ -232,6 +232,21 @@ export const CompletedRun: Story = {
 };
 
 /**
+ * A step opened from the timeline: the tool call's detail, spaced the same as
+ * it is in the tool drawer.
+ */
+export const StepDetail: Story = {
+  ...CompletedRun,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", {
+        name: /Fetching the example API/,
+      }),
+    );
+  },
+};
+
+/**
  * A still-running run — the trailing bash call has no terminal fields, so its
  * phase node renders the running indicator and the header ticks "Working…".
  */

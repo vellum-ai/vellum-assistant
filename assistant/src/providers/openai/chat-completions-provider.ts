@@ -13,6 +13,10 @@ import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import {
+  isMalformedToolCallFinishReason,
+  malformedToolCallError,
+} from "../malformed-tool-call.js";
+import {
   base64Source,
   mediaSourceByteLength,
   resolveMediaReferences,
@@ -1150,6 +1154,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       >();
       const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
+      let upstreamFinishReason: string | undefined;
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
       let completionTokens = 0;
@@ -1318,6 +1323,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (choice.finish_reason) {
               finishReason = choice.finish_reason;
             }
+            // OpenRouter normalizes upstream finish reasons and carries the
+            // raw value in `native_finish_reason`.
+            const nativeFinishReason = (
+              choice as { native_finish_reason?: string | null }
+            ).native_finish_reason;
+            if (nativeFinishReason) {
+              upstreamFinishReason = nativeFinishReason;
+            }
           }
 
           if (chunk.usage) {
@@ -1351,6 +1364,23 @@ export class OpenAIChatCompletionsProvider implements Provider {
         }
       } finally {
         cleanupTimeout();
+      }
+
+      const malformedFinishReason = [upstreamFinishReason, finishReason].find(
+        isMalformedToolCallFinishReason,
+      );
+      if (malformedFinishReason) {
+        log.warn(
+          {
+            provider: this.name,
+            model: responseModel,
+            finishReason,
+            upstreamFinishReason,
+            streamedTextLength: contentText.length,
+          },
+          "Response ended on a malformed tool call",
+        );
+        throw malformedToolCallError(this.name, malformedFinishReason);
       }
 
       if (this.parseThinkTags && pendingContent) {

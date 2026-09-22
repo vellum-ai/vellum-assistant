@@ -47,7 +47,7 @@ const WORKFLOW_HINT = [
   "Agents spawned: 1. Tokens: 608 in / 213 out.",
   'Result: [{"confidence":"low","email":"stub","evidence_note":"No useable ' +
     "evidence was provided. The email and prompts are placeholders " +
-    '("stub"), and tasks/tools arrays are empty. Onboarding selections and ' +
+    '(\\"stub\\"), and tasks/tools arrays are empty. Onboarding selections and ' +
     "setup chatter are absent, so no concrete usage can be observed. All " +
     'slots marked insufficient per instructions.","evidence_status":' +
     '"insufficient","use_case_1":"Insufficient observed usage","use_case_2":' +

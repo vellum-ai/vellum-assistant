@@ -6,6 +6,7 @@ import {
   AnimatedMetricCard,
   formatNumber,
 } from "@/domains/chat/components/metric-card";
+import { SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { useTranslation } from "@/i18n";
 
@@ -21,13 +22,7 @@ function DetailSection({
 }) {
   return (
     <div className="mb-5">
-      <Typography
-        variant="body-medium-default"
-        as="h3"
-        className="mb-2 text-[var(--content-emphasised)]"
-      >
-        {title}
-      </Typography>
+      <SectionLabel as="h3">{title}</SectionLabel>
       {body ? (
         <Typography
           variant="body-medium-lighter"

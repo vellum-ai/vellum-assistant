@@ -134,6 +134,7 @@ export function desktopChromeArguments(
     `--class=${DESKTOP_CHROME_WINDOW_CLASS}`,
     "--force-renderer-accessibility",
     "--disable-dev-shm-usage",
+    "--disable-features=Prerender2",
     ...(shouldRestoreDesktopChromeSession(profileDir)
       ? ["--restore-last-session", "--hide-crash-restore-bubble"]
       : []),

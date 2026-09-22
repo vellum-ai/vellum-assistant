@@ -183,7 +183,7 @@ Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these ac
 The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal type and `ingress.write` scope to prove the request originated from the gateway. This ensures channel messages can only arrive via the gateway (which performs webhook-level verification) and not via direct HTTP calls that bypass signature checks.
 
 - **JWT-based enforcement:** The route policy in `route-policy.ts` restricts `/channels/inbound` to the `svc_gateway` principal type with `ingress.write` scope. Actor and local principals are rejected with 403.
-- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), JWT verification is skipped and a synthetic context is used.
+- **Auth bypass:** When `DISABLE_HTTP_AUTH=true` is set (platform-managed deployments), a request that supplies no `Authorization` header gets a synthetic context. A request that supplies one is verified normally, and a token that fails verification is rejected.
 
 ## Twilio Setup Primitive
 
