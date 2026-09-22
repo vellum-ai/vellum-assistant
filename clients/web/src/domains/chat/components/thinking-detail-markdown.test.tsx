@@ -40,6 +40,8 @@ afterAll(() => {
   mock.restore();
 });
 
+const RECORDED_TEXT = "See [the notes][1].\n\n[1]: https://example.com/notes";
+
 const RECORDED: ToolDetailPayload = {
   toolCallId: "",
   toolName: "",
@@ -48,7 +50,7 @@ const RECORDED: ToolDetailPayload = {
   input: {},
   status: "completed",
   kind: "thinking",
-  thinkingText: "See [the notes][1].\n\n[1]: https://example.com/notes",
+  thinkingText: RECORDED_TEXT,
 };
 
 describe("ThinkingDetailMarkdown", () => {
@@ -57,7 +59,7 @@ describe("ThinkingDetailMarkdown", () => {
 
     const body = screen.getByTestId("markdown");
     expect(body.getAttribute("data-incremental")).toBe("false");
-    expect(body.textContent).toBe(RECORDED.thinkingText);
+    expect(body.textContent).toBe(RECORDED_TEXT);
   });
 
   test("renders live text block by block", () => {
