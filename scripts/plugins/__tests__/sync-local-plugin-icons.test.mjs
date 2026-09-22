@@ -126,7 +126,7 @@ describe("syncLocalPluginIcons", () => {
     writeLocalPlugin();
     run();
     writeFileSync(join(webAssetsDir, "example-mcp.png"), makePng(16, 16));
-    writeFileSync(join(webAssetsDir, "example-mcp-1.0.0.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "stale-mcp.png"), makePng(16, 16));
 
     const result = run(true);
 
@@ -135,7 +135,7 @@ describe("syncLocalPluginIcons", () => {
       "derived web logo example-mcp.png differs from example/icon.png",
     );
     expect(result.errors).toContain(
-      "stale derived local MCP logo example-mcp-1.0.0.png",
+      "stale derived local MCP logo stale-mcp.png",
     );
   });
 
@@ -163,13 +163,15 @@ describe("syncLocalPluginIcons", () => {
   test("removes stale derived copies while syncing", () => {
     writeLocalPlugin();
     mkdirSync(webAssetsDir, { recursive: true });
-    writeFileSync(join(webAssetsDir, "example-mcp-1.0.0.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "stale-mcp.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "stale-mcp-1.0.0.png"), makePng(16, 16));
 
     const result = run();
 
-    expect(result.removed).toEqual(["example-mcp-1.0.0.png"]);
+    expect(result.removed).toEqual(["stale-mcp-1.0.0.png", "stale-mcp.png"]);
+    expect(() => readFileSync(join(webAssetsDir, "stale-mcp.png"))).toThrow();
     expect(() =>
-      readFileSync(join(webAssetsDir, "example-mcp-1.0.0.png")),
+      readFileSync(join(webAssetsDir, "stale-mcp-1.0.0.png")),
     ).toThrow();
   });
 });

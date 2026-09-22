@@ -25,6 +25,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "../..");
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const FILENAME_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const DERIVED_LOGO_RE = /^[a-z0-9][a-z0-9_-]*-mcp(?:-[A-Za-z0-9][A-Za-z0-9_.-]*)?\.png$/;
 const LOCAL_MCP_ROOT = "plugins/mcp-catalog";
 const DERIVED_SUFFIX = "-mcp.png";
 
@@ -134,18 +135,12 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
   return { errors, icons };
 }
 
-function listDerivedLogos(webAssetsDir, pluginNames) {
+function listDerivedLogos(webAssetsDir) {
   if (!statSync(webAssetsDir, { throwIfNoEntry: false })?.isDirectory()) {
     return [];
   }
   return readdirSync(webAssetsDir)
-    .filter((filename) =>
-      pluginNames.some(
-        (name) =>
-          filename === `${name}${DERIVED_SUFFIX}` ||
-          (filename.startsWith(`${name}-mcp-`) && filename.endsWith(".png")),
-      ),
-    )
+    .filter((filename) => DERIVED_LOGO_RE.test(filename))
     .sort();
 }
 
@@ -162,10 +157,9 @@ export function syncLocalPluginIcons({
 } = {}) {
   const { errors, icons } = inspectLocalMcpIcons({ repoRoot, marketplacePath });
   const expectedLogos = new Set(icons.map(({ logo }) => logo));
-  const stale = listDerivedLogos(
-    webAssetsDir,
-    icons.map(({ name }) => name),
-  ).filter((name) => !expectedLogos.has(name));
+  const stale = listDerivedLogos(webAssetsDir).filter(
+    (name) => !expectedLogos.has(name),
+  );
 
   if (check && errors.length === 0) {
     for (const { name, bytes, logo } of icons) {
