@@ -30,6 +30,10 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
+import {
+  hasPersistedCompletionResult,
+  notificationConversationId,
+} from "./completion-policy.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import {
@@ -313,7 +317,7 @@ async function resolveOwnedConversationMessageId(
 ): Promise<string | undefined> {
   // The completed reply is already the source conversation's canonical row.
   // This signal's body is a compact push preview, not conversation content.
-  if (signal.sourceEventName === "chat.assistant_reply") {
+  if (hasPersistedCompletionResult(signal)) {
     return undefined;
   }
   if (vellumDelivery?.conversationId) {
@@ -566,20 +570,18 @@ function resolveHomeFeedMirror(
     conversationType?: string;
     scheduleJobId?: string | null;
   } | null = null;
-  if (signal.sourceContextId) {
+  const conversationId = notificationConversationId(signal);
+  if (conversationId) {
     try {
-      sourceRow = getConversation(signal.sourceContextId) ?? null;
+      sourceRow = getConversation(conversationId) ?? null;
     } catch {
       sourceRow = null;
     }
   }
-  // Prefer the producer's source context (e.g. the heartbeat / background
-  // job conversation that emitted the signal) for the "Go to Convo" target,
-  // since that's where the work actually happened. Fall back to the paired
-  // delivery conversation only when the source context didn't resolve —
-  // covers producers whose `sourceContextId` is a sentinel string.
+  // Link to the persisted result or producing conversation when it exists.
+  // Signals with non-conversation source IDs use the paired delivery.
   const sourceConversationId = sourceRow
-    ? signal.sourceContextId
+    ? conversationId
     : fallbackConversationId;
   const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 

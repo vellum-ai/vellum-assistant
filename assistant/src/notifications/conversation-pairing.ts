@@ -56,7 +56,10 @@ import {
 } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
-import { readCompletionContext } from "./completion-policy.js";
+import {
+  hasPersistedCompletionResult,
+  notificationConversationId,
+} from "./completion-policy.js";
 import {
   composeConversationSeed,
   isConversationSeedSane,
@@ -132,7 +135,6 @@ export interface PairingOptions {
  * transactional request or a system alert.
  */
 const ASSISTANT_SHARE_EVENT = "assistant.share";
-const ASSISTANT_REPLY_EVENT = "chat.assistant_reply";
 
 /**
  * Promote a background share into an assistant-initiated thread, under the
@@ -273,8 +275,7 @@ export async function pairDeliveryWithConversation(
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      (signal.sourceEventName === ASSISTANT_REPLY_EVENT ||
-        readCompletionContext(signal) !== undefined)
+      hasPersistedCompletionResult(signal)
     ) {
       return {
         conversationId: resolveSourceConversation(signal)?.id ?? null,
@@ -773,11 +774,12 @@ async function resolveChannelDeliveryHome(params: {
 function resolveSourceConversation(
   signal: NotificationSignal,
 ): { id: string; conversationType?: string } | null {
-  if (!signal.sourceContextId) {
+  const conversationId = notificationConversationId(signal);
+  if (!conversationId) {
     return null;
   }
   try {
-    const row = getConversation(signal.sourceContextId);
+    const row = getConversation(conversationId);
     return row ? { id: row.id, conversationType: row.conversationType } : null;
   } catch {
     return null;

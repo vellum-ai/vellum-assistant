@@ -210,6 +210,42 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────────────
 
 describe("NotificationBroadcaster completion delivery", () => {
+  test.each(["vellum", "platform"] as const)(
+    "%s links a typed completion to its persisted result conversation",
+    async (channel) => {
+      destinationGuardianPrincipalId = "principal-1";
+      knownConversations.add("conv-result");
+      knownConversations.add("conv-source");
+      const { adapter, sends } = makeCapturingAdapter(channel);
+      const broadcaster = new NotificationBroadcaster([adapter]);
+      const result = await broadcaster.broadcastDecision(
+        makeSignal({
+          sourceContextId: "conv-source",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDecision({
+          selectedChannels: [channel],
+          renderedCopy: {
+            [channel]: { title: "Result ready", body: "The report is ready." },
+          },
+        }),
+      );
+
+      expect(result[0]?.status).toBe("sent");
+      expect(sends[0]?.payload.deepLinkTarget?.conversationId).toBe(
+        "conv-result",
+      );
+    },
+  );
+
   test.each([undefined, "other-principal"])(
     "rejects a typed completion before either channel is paired or sent with recipient %s",
     async (guardianPrincipalId) => {

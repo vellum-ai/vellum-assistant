@@ -27,6 +27,7 @@ import {
   isCompletionNotification,
   isCompletionRecipientUnavailable,
   isLocalNotificationSilent,
+  notificationConversationId,
   resolveCompletionRecipient,
 } from "./completion-policy.js";
 import {
@@ -621,7 +622,7 @@ export class NotificationBroadcaster {
               : pairing;
           const deepLinkConversationId =
             deepLinkPairing.conversationId ??
-            resolveSourceConversationId(signal.sourceContextId) ??
+            resolveSourceConversationId(notificationConversationId(signal)) ??
             resolveDeepLinkConversationId(signal.contextPayload);
           if (deepLinkConversationId) {
             deepLinkTarget = {

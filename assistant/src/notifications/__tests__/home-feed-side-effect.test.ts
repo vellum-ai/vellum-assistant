@@ -183,6 +183,46 @@ beforeEach(() => {
 });
 
 describe("writeHomeFeedItemForSignal", () => {
+  test.each([true, false])(
+    "platform-only completion links only an existing declared result (%s) without appending a preview",
+    async (resultExists) => {
+      conversationRowsById.set("conv-source", { conversationType: "standard" });
+      if (resultExists) {
+        conversationRowsById.set("conv-result", {
+          conversationType: "standard",
+        });
+      }
+      const item = await writeHomeFeedItemForSignal(
+        makeSignal({
+          sourceChannel: "assistant_tool",
+          sourceContextId: "conv-source",
+          sourceEventName: "activity.complete",
+          contextPayload: {
+            completion: {
+              workId: "task-1",
+              conversationId: "conv-result",
+              recipientPrincipalId: "principal-1",
+              owner: "parent_continuation",
+            },
+          },
+        }),
+        makeDecision({
+          selectedChannels: ["platform"],
+          renderedCopy: {
+            platform: { title: "Result ready", body: "The report is ready." },
+          },
+        }),
+      );
+
+      expect(item).not.toBeNull();
+      expect(item?.conversationId).toBe(
+        resultExists ? "conv-result" : undefined,
+      );
+      expect(messageAppends).toEqual([]);
+      expect(conversationLookups).toEqual(["conv-result"]);
+    },
+  );
+
   test("background conversation signal writes a feed item with payload title + rendered body", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({

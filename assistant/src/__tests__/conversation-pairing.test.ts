@@ -936,7 +936,7 @@ describe("pairDeliveryWithConversation", () => {
     const result = await pairDeliveryWithConversation(
       makeSignal({
         requiresConversation: undefined,
-        sourceContextId: "conv-user-chat",
+        sourceContextId: "task-1",
         sourceEventName: "activity.complete",
         contextPayload: {
           completion: {
@@ -953,6 +953,35 @@ describe("pairDeliveryWithConversation", () => {
 
     expect(result.conversationId).toBe("conv-user-chat");
     expect(result.messageId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("a missing declared completion conversation does not fall back to unrelated source content", async () => {
+    mockExistingConversations["conv-source"] = {
+      id: "conv-source",
+      source: "user",
+      title: "Another chat",
+    };
+    const result = await pairDeliveryWithConversation(
+      makeSignal({
+        requiresConversation: undefined,
+        sourceContextId: "conv-source",
+        sourceEventName: "activity.complete",
+        contextPayload: {
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-missing",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      "vellum",
+      makeCopy({ body: "The report is ready." }),
+    );
+
+    expect(result.conversationId).toBeNull();
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).not.toHaveBeenCalled();
   });

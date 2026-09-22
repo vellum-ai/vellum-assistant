@@ -37,6 +37,19 @@ export function isCompletionNotification(event: CompletionEvent): boolean {
   );
 }
 
+export function hasPersistedCompletionResult(event: CompletionEvent): boolean {
+  return (
+    event.sourceEventName === "chat.assistant_reply" ||
+    readCompletionContext(event) !== undefined
+  );
+}
+
+export function notificationConversationId(
+  event: CompletionEvent & { sourceContextId?: string },
+): string | undefined {
+  return readCompletionContext(event)?.conversationId ?? event.sourceContextId;
+}
+
 /** Completion presentation is independent of urgency and channel routing. */
 export function isLocalNotificationSilent(
   event: CompletionEvent & { urgency: Urgency },
