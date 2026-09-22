@@ -16,6 +16,8 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  COMPANION_DICTATION_OFFER_MAX,
+  COMPANION_SET_UNPLACED_DICTATION_OFFER,
   companionPickerSchema,
   companionPopoverAnswerSchema,
   companionPopoverHasRow,
@@ -3993,6 +3995,21 @@ export const installCompanionWindow = (): void => {
       dispatchToMain({ kind: "answerWatchRetro", open: true });
     });
   });
+
+  on(
+    COMPANION_SET_UNPLACED_DICTATION_OFFER,
+    z.tuple([
+      z
+        .object({
+          text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+          reason: z.enum(["no-text-field", "paste-failed"]),
+        })
+        .nullable(),
+    ]),
+    ([offer]) => {
+      void dispatchWithoutRaising({ kind: "setUnplacedDictationOffer", offer });
+    },
+  );
 
   /**
    * The answer to the offer of a dictation's words. Never raises the app:

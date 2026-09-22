@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import type { DictationContext } from "@vellumai/assistant-api";
-import type { HotkeySelection } from "@vellumai/ipc-contract";
+import type {
+  HotkeySelection,
+  HotkeySelectionResult,
+} from "@vellumai/ipc-contract";
 
 import {
   VoiceInputButton,
@@ -47,6 +50,7 @@ import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { frontmostApp } from "@/runtime/running-apps";
 import { useConversationStore } from "@/stores/conversation-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -219,6 +223,10 @@ async function landInFrontApp(
       .flagDictationInsertionError("dictation-paste-blocked");
   }
 
+  saveTranscriptDraft(text, assistantId);
+}
+
+function saveTranscriptDraft(text: string, assistantId: string | null): void {
   if (assistantId) {
     useComposerStore
       .getState()
@@ -238,6 +246,21 @@ async function landInFrontApp(
 export function GlobalPushToTalkBridge({
   assistantId,
 }: GlobalPushToTalkBridgeProps) {
+  useVellumCommands({
+    setUnplacedDictationOffer: (command) => {
+      if (
+        command.kind !== "setUnplacedDictationOffer" ||
+        isPopoutWindowLifetime()
+      ) {
+        return;
+      }
+      if (command.offer) {
+        setUnplacedDictationOffer(command.offer.text, command.offer.reason);
+      } else {
+        clearDictationOffer();
+      }
+    },
+  });
   const fallbackVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
   const voicePhase = useVoiceRecordingStore.use.phase();
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
@@ -257,7 +280,7 @@ export function GlobalPushToTalkBridge({
   }, [navigate]);
   // What the hold in progress began over. Read when its transcript lands,
   // which decides whether the words go to the cursor or to the assistant.
-  const holdSelectionRef = useRef<Promise<HotkeySelection | null> | null>(null);
+  const holdSelectionRef = useRef<Promise<HotkeySelectionResult> | null>(null);
   // Which other dictation app, if any, was running when the hold began, and
   // so heard the same key. Asked at the start rather than at the end: it is
   // the app that pasted first that the offer names, and one launched while
@@ -420,6 +443,15 @@ export function GlobalPushToTalkBridge({
       const pendingFrontApp = holdFrontAppRef.current;
       holdFrontAppRef.current = null;
       const selection = pendingSelection ? await pendingSelection : null;
+      if (selection && "unavailable" in selection) {
+        setUnplacedDictationOffer(rawText, "paste-failed");
+        saveTranscriptDraft(rawText, assistantId);
+        showVoiceErrorToast("dictation-selection-unavailable");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-selection-unavailable");
+        return;
+      }
       if (selection !== null) {
         // Words over an editable selection may be asking for it changed. The
         // daemon reads them either way: an edit comes back to be put where

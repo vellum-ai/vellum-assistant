@@ -107,6 +107,15 @@ A subset of push signals — inbound deep links being the canonical case — can
 
 ---
 
+## Companion dictation recovery
+
+The main renderer exclusively publishes companion context. When a voice-key
+hold in a pop-out cannot place its transcript, the pop-out forwards a bounded
+recovery offer through the companion IPC channel to the main renderer without
+raising the app. That renderer owns the offer's copy/dismiss lifecycle and
+expiry. Starting another hold clears the forwarded offer, while the recording
+window retains the full transcript in its saved draft.
+
 ## Companion introduction permissions
 
 The macOS companion tour offers microphone setup on Talk, Input Monitoring on

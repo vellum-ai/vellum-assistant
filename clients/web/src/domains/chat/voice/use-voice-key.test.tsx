@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import type { HotkeySelection } from "@vellumai/ipc-contract";
+import type { HotkeySelectionResult } from "@vellumai/ipc-contract";
 
 import type { HotkeyEvent } from "@/runtime/hotkey";
 import type { VoiceKey } from "@/utils/voice-key";
@@ -9,7 +9,7 @@ import type { VoiceKey } from "@/utils/voice-key";
 let holdSupported = true;
 let registrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
-let frontSelection: HotkeySelection | null = null;
+let frontSelection: HotkeySelectionResult = null;
 const setModifierHold = mock(async (_hold: unknown) => ({
   ok: true as const,
   enabled: registrationSucceeds,
@@ -76,7 +76,7 @@ const tap = async () => {
 /** What the start the hook reported will resolve its selection to. */
 const startedOver = async (
   onHoldStart: ReturnType<typeof mock<(start: HoldStart) => void>>,
-): Promise<HotkeySelection | null> => {
+): Promise<HotkeySelectionResult> => {
   const start = onHoldStart.mock.calls[0]?.[0];
   if (!start) {
     throw new Error("the hold never started");

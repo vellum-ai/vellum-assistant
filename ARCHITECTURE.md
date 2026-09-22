@@ -775,6 +775,8 @@ Composer and global-shortcut dictation send the speech recognizer's transcript t
 
 When selected text is supplied, the same call site distinguishes a requested edit from a question about the selection and produces an edit only for that explicit flow. Dictation profiles remain persisted in `dictation-profiles.json`; their style prompts apply to selected-text edits.
 
+On macOS, the global voice key distinguishes an empty selection from an unavailable capture. The native helper activates Chromium accessibility, and Electron retries warmup reads against the original key hold and foreground process. An unavailable capture stops insertion and preserves the spoken words for copying; it cannot fall through to raw-transcript dictation. See [the macOS bridge contract](clients/macos/README.md).
+
 ## Live Voice Task Outcomes
 
 Subagent updates for a conversation with an active live-voice call are claimed by

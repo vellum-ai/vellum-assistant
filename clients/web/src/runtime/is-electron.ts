@@ -41,6 +41,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  UnplacedDictationOffer,
   CompanionPopoverAnswer,
   CompanionPopoverView,
   CompanionPicker,
@@ -57,7 +58,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -117,7 +118,7 @@ export type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -196,7 +197,7 @@ declare global {
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
           setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
-          readFrontSelection?(): Promise<HotkeySelection | null>;
+          readFrontSelection?(): Promise<HotkeySelectionResult>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;
@@ -457,6 +458,7 @@ declare global {
           target: WatchCaptureTarget,
         ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        setUnplacedDictationOffer?(offer: UnplacedDictationOffer | null): void;
         answerDictationOffer?(
           answer: DictationOfferAnswer,
           offerId: string,

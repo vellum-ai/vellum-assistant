@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 
-import type { HotkeySelection, KeyboardModifier } from "@vellumai/ipc-contract";
+import type {
+  HotkeySelectionResult,
+  KeyboardModifier,
+} from "@vellumai/ipc-contract";
 
 import {
   readFrontSelection,
@@ -24,10 +27,10 @@ export interface HoldStart {
    * waiting on the read; what was selected cannot change while the key is
    * held, and the transcript that needs it lands well after the read does.
    * The helper answers only while the hold is still open, so a read that
-   * lands after the keys are up resolves to nothing rather than to whatever
+   * lands after the keys are up resolves as unavailable rather than to whatever
    * the user has moved on to.
    */
-  selection: Promise<HotkeySelection | null>;
+  selection: Promise<HotkeySelectionResult>;
 }
 
 export interface VoiceKeyHandlers {

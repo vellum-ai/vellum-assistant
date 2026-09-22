@@ -42,7 +42,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
-  HotkeySelection,
+  HotkeySelectionResult,
   ChordBinding,
   ChordRegistrationResult,
   ModifierHold,
@@ -85,6 +85,7 @@ import {
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDictationOfferBridge,
   createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
@@ -218,10 +219,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_CHORDS,
           binding,
         ) as Promise<ChordRegistrationResult>,
-      readFrontSelection: (): Promise<HotkeySelection | null> =>
+      readFrontSelection: (): Promise<HotkeySelectionResult> =>
         ipcRenderer.invoke(
           HELPER_HOTKEY_READ_FRONT_SELECTION,
-        ) as Promise<HotkeySelection | null>,
+        ) as Promise<HotkeySelectionResult>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -680,6 +681,7 @@ const bridge: VellumBridge = {
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
+    ...createDictationOfferBridge(ipcRenderer),
     answerDictationOffer: (
       answer: DictationOfferAnswer,
       offerId: string,

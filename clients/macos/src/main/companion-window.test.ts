@@ -3609,6 +3609,34 @@ describe("the offer of Vellum's dictation on the surface", () => {
     expect(windowsRaised).toBe(0);
   });
 
+  test("forwards pop-out recovery offers and clears to main without raising the app", () => {
+    const popout = new EventEmitter();
+    const offer = {
+      reason: "paste-failed" as const,
+      text: "make this friendlier",
+    };
+    sendFrom(popout, "vellum:companion:setUnplacedDictationOffer", offer);
+    sendFrom(popout, "vellum:companion:setUnplacedDictationOffer", null);
+    expect(dispatched).toEqual([
+      { kind: "setUnplacedDictationOffer", offer },
+      { kind: "setUnplacedDictationOffer", offer: null },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("rejects malformed recovery offers", () => {
+    for (const offer of [
+      { reason: "claimed", text: "words" },
+      { reason: "paste-failed" },
+      { reason: "paste-failed", text: "x".repeat(2001) },
+    ]) {
+      expect(() =>
+        send("vellum:companion:setUnplacedDictationOffer", offer),
+      ).toThrow();
+    }
+    expect(dispatched).toEqual([]);
+  });
+
   /**
    * The one answer main acts on itself. It owns the pasteboard, and neither
    * window either side of it can write one: the surface's never takes focus,

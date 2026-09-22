@@ -2,6 +2,19 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { forwardRef, useImperativeHandle } from "react";
 import { MemoryRouter } from "react-router";
+import type { UnplacedDictationOffer } from "@vellumai/ipc-contract";
+import type { CommandHandlers } from "@/runtime/vellum-commands";
+
+let popout = false;
+let commandHandlers: CommandHandlers = {};
+mock.module("@/runtime/popout-window", () => ({
+  isPopoutWindowLifetime: () => popout,
+}));
+mock.module("@/runtime/vellum-commands", () => ({
+  useVellumCommands: (handlers: CommandHandlers) => {
+    commandHandlers = handlers;
+  },
+}));
 
 type TextInsertionStatus =
   | "inserted"
@@ -52,7 +65,10 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 }));
 
 type HoldStart = {
-  selection: { text: string; truncated: boolean; editable?: boolean } | null;
+  selection:
+    | { text: string; truncated: boolean; editable?: boolean }
+    | { unavailable: true }
+    | null;
 };
 let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
@@ -86,8 +102,10 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
  * the only thing that decides whether a tap is worth counting.
  */
 const advanceIntro = mock((_action: string) => {});
+const forwardOffer = mock((_offer: UnplacedDictationOffer | null) => true);
 mock.module("@/runtime/companion-surface", () => ({
   advanceCompanionIntro: advanceIntro,
+  forwardUnplacedDictationOffer: forwardOffer,
 }));
 let introStaged = false;
 mock.module("@/runtime/companion-intro-stage", () => ({
@@ -243,6 +261,9 @@ afterEach(() => {
   advanceIntro.mockClear();
   toastErrorMock.mockClear();
   runningClaimant = null;
+  popout = false;
+  commandHandlers = {};
+  forwardOffer.mockClear();
   clearDictationOffer();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
@@ -807,6 +828,70 @@ describe("a hold over an editable selection", () => {
   const withAssistantThatTellsEditsFromQuestions = () => {
     useAssistantIdentityStore.getState().setIdentity("asst", "0.11.9", "a1");
   };
+
+  test("preserves the transcript without pasting or asking when selection capture fails", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    const voiceInput = renderBridge("a1");
+    holdOver({ unavailable: true });
+    await act(async () => {
+      await voiceInput.onTranscript("make this friendlier");
+    });
+    expect(dictationCalls).toEqual([]);
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toEqual([]);
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "make this friendlier",
+    });
+    expect(useComposerStore.getState().input).toBe("make this friendlier");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      formatVoiceError("dictation-selection-unavailable"),
+      { id: "voice-error:dictation-selection-unavailable" },
+    );
+    expect(useVoiceRecordingStore.getState().dictationInsertionError).toBe(
+      "dictation-selection-unavailable",
+    );
+  });
+
+  test("routes a pop-out capture failure to the main offer and keeps the draft", async () => {
+    popout = true;
+    withAssistantThatTellsEditsFromQuestions();
+    const voiceInput = renderBridge("a1");
+    holdOver({ unavailable: true });
+    await act(async () => {
+      await voiceInput.onTranscript("make this friendlier");
+    });
+
+    const offer = forwardOffer.mock.calls.at(-1)?.[0];
+    expect(offer).toEqual({
+      reason: "paste-failed",
+      text: "make this friendlier",
+    });
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+    expect(useComposerStore.getState().input).toBe("make this friendlier");
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toEqual([]);
+    const command = {
+      kind: "setUnplacedDictationOffer" as const,
+      offer: offer!,
+    };
+    act(() => commandHandlers.setUnplacedDictationOffer?.(command));
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+
+    cleanup();
+    popout = false;
+    renderBridge("a1");
+    act(() => commandHandlers.setUnplacedDictationOffer?.(command));
+    expect(useDictationOfferStore.getState().offer).toMatchObject(offer!);
+    act(() =>
+      commandHandlers.setUnplacedDictationOffer?.({
+        kind: "setUnplacedDictationOffer",
+        offer: null,
+      }),
+    );
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
 
   test("pastes the edit over the selection", async () => {
     withAssistantThatTellsEditsFromQuestions();
