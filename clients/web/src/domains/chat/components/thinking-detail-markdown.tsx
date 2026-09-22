@@ -1,14 +1,14 @@
 /**
- * The reasoning markdown of a thinking detail, rendered live. Shared by the
- * drawers that show a reasoning step in full (`ToolDetailPanel`'s thinking
- * variant and the drill-in level of `ActivityStepsPanel`) so both resolve the
- * text and render it the same way.
+ * The reasoning markdown of a thinking detail, rendered live. The one body
+ * every panel that shows a reasoning step in full uses (`ToolDetailPanel`'s
+ * thinking variant, the drill-in level of `ActivityStepsPanel`, the subagent
+ * panel's nested step) so each resolves the text and renders it the same way.
  *
  * The text is re-derived from the chat-session store through the payload's
  * stable identity (`useLiveThinkingText`) so an open drawer streams as
  * `assistant_thinking_delta` events land, falling back to the open-time
  * `thinkingText` snapshot when the source can't be resolved (a message paged
- * out, or an identity-less payload).
+ * out, or a payload that names no chat message, such as a subagent's step).
  *
  * Rendered incrementally: a long reasoning phase can run to hundreds of
  * kilobytes and arrives as many small deltas, and re-parsing the whole text

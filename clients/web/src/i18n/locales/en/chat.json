@@ -72,7 +72,6 @@
     "screenshotFallbackAria": "Preview computer screenshot",
     "screenshotFallbackTitle": "Computer screenshot",
     "screenshotTitle": "Screenshot from {activity}",
-    "thinkingTitle": "Thinking",
     "viewThinkingAria": "View thinking"
   },
   "computerUseScreenshotPreview": {
@@ -1798,6 +1797,9 @@
   },
   "textSelectionPopover": {
     "reply": "Reply"
+  },
+  "thinkingDetail": {
+    "title": "Thinking"
   },
   "tiptapDocumentEditor": {
     "adding": "Adding…",

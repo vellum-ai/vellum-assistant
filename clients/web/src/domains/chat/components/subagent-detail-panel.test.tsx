@@ -854,6 +854,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     ).toBeDefined();
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("Output")).toBeNull();
+    // Headed "Thinking" (header and breadcrumb), as every panel heads a
+    // thinking step, not with the "Thought" its payload was built with.
+    expect(screen.getAllByText("Thinking")).toHaveLength(2);
+    expect(screen.queryByText("Thought")).toBeNull();
 
     // Back returns to the timeline.
     fireEvent.click(screen.getByLabelText("Back to timeline"));

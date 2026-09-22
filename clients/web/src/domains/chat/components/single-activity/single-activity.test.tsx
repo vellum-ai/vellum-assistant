@@ -85,7 +85,7 @@ describe("SingleActivity — thinking variant", () => {
 
     const detail = useViewerStore.getState().activeToolDetail;
     expect(detail?.kind).toBe("thinking");
-    expect(detail?.title).toBe("Thought process");
+    expect(detail?.title).toBe("Thinking");
     expect(detail?.thinkingText).toBe(CONTENT);
     expect(useViewerStore.getState().mainView).toBe("tool-detail");
   });
