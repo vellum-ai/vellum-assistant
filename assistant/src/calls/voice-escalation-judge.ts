@@ -16,9 +16,9 @@
  * decision stands exactly as it would without the judge.
  */
 
+import { askTypesafeNoul } from "../providers/jev/ask.js";
 import type { Message, Provider } from "../providers/types.js";
 import { safeStringSlice } from "../util/unicode.js";
-import { askTypesafeNoul } from "./typesafe-noul.js";
 
 export const VOICE_ESCALATION_JUDGE_CALL_SITE = "voiceEscalationJudge";
 

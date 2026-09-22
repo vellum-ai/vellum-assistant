@@ -14,6 +14,7 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
+  AUTO_PROFILE_KEY,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   FALLBACK_PROFILE_BY_KEY,
@@ -234,6 +235,7 @@ export const LLMCallSiteEnum = z.enum([
   "voiceEscalationJudge",
   "voiceContinuationJudge",
   "voiceContinuationLabel",
+  "autoProfileRouter",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -771,9 +773,13 @@ function unresolvableProfileReason(
   if (backupsResolve || !isManagedOnlyProfileKey(name)) {
     return "is not defined in llm.profiles";
   }
-  return name === JEV_MANAGED_PROFILE_KEY
-    ? "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider"
-    : "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
+  if (name === JEV_MANAGED_PROFILE_KEY) {
+    return "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider";
+  }
+  if (name === AUTO_PROFILE_KEY) {
+    return "is the managed Auto profile, which resolves only while llm.defaultProvider is the managed provider";
+  }
+  return "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
 }
 
 /**

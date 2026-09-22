@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
-import type { Provider } from "../../providers/types.js";
+import type { Provider } from "../types.js";
 
 let configured: {
   provider: Provider;
@@ -8,13 +8,13 @@ let configured: {
   entryRouted: boolean;
 } | null = null;
 
-const actual = await import("../../providers/provider-send-message.js");
-mock.module("../../providers/provider-send-message.js", () => ({
+const actual = await import("../provider-send-message.js");
+mock.module("../provider-send-message.js", () => ({
   ...actual,
   resolveConfiguredProvider: async () => configured,
 }));
 
-const { resolveTypesafeProvider } = await import("../typesafe-noul.js");
+const { resolveTypesafeProvider } = await import("./ask.js");
 
 afterAll(() => {
   mock.restore();

@@ -71,6 +71,7 @@ describe("getModelProfiles", () => {
       "balanced",
       "cost-optimized",
       "alpha",
+      "auto",
       "latency-optimized",
       "quality-optimized",
       "zeta",
@@ -101,6 +102,7 @@ describe("getModelProfiles", () => {
       ["alpha", false],
       ["beta", false],
       ["blend", true],
+      ["auto", false],
       ["balanced", false],
       ["cost-optimized", false],
       ["latency-optimized", false],
@@ -151,6 +153,7 @@ describe("getModelProfiles", () => {
     expect(flags).toEqual([
       ["alpha", false],
       ["beta", true],
+      ["auto", false],
       ["balanced", false],
       ["cost-optimized", false],
       ["latency-optimized", false],
@@ -196,6 +199,7 @@ describe("getModelProfiles", () => {
     expect(flags).toEqual([
       ["alpha", false],
       ["beta", true],
+      ["auto", false],
       ["balanced", false],
       ["cost-optimized", false],
       ["latency-optimized", false],
@@ -236,6 +240,7 @@ describe("getModelProfiles", () => {
         .map((p) => p.key)
         .sort(),
     ).toEqual([
+      "auto",
       "balanced",
       "cost-optimized",
       "latency-optimized",

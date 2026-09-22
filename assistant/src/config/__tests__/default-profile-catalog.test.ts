@@ -10,6 +10,7 @@ import {
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
   getUserSelectableProfilesForProvider,
+  MANAGED_PROFILE_TEMPLATES,
   PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
@@ -79,6 +80,28 @@ describe("getEffectiveProfiles", () => {
     ).toBeUndefined();
   });
 
+  test("the Auto profile is the managed Balanced body relabeled, managed-only, and offered to conversations", () => {
+    const auto = CODE_DEFAULT_PROFILE_ENTRIES.auto;
+    const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
+    expect(auto.label).toBe("Auto");
+    expect(auto.model).toBe(balanced.model);
+    expect(auto.provider).toBe(balanced.provider);
+    expect(auto.fallbackProfile).toBeUndefined();
+    expect(
+      resolveDefaultProfileForProvider(undefined, "auto", null),
+    ).toBeDefined();
+    expect(
+      resolveDefaultProfileForProvider(undefined, "auto", {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      }),
+    ).toBeUndefined();
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).toContain("auto");
+    expect(Object.keys(MANAGED_PROFILE_TEMPLATES)[0]).toBe("auto");
+  });
+
   test("the conversation view drops the managed Jev profile but keeps it selectable for call sites", () => {
     expect(
       Object.keys(getConversationProfilesForProvider(undefined, null)),
@@ -112,7 +135,12 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS, "jev-managed"].sort(),
+      [
+        ...DEFAULT_PROFILE_KEYS,
+        ...BACKUP_PROFILE_KEYS,
+        "jev-managed",
+        "auto",
+      ].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

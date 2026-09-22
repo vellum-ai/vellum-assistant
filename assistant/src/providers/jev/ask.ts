@@ -1,28 +1,36 @@
 /**
- * One bounded yes/no question to TypeSafe's System One model (Jev), shared by
- * the voice judges. A judge runs only when its call site resolves to the
- * TypeSafe provider; every failure comes back as a non-answer so the caller
- * keeps its default behavior.
+ * One bounded question set to TypeSafe's System One model (Jev), shared by
+ * the voice judges and the automatic profile router. A caller runs its
+ * question only when its call site resolves to the TypeSafe provider; every
+ * failure comes back as a non-answer so the caller keeps its default
+ * behavior.
  */
 
-import type { LLMCallSite } from "../config/schemas/llm.js";
-import { type JevJsonValue, noulFromAnswer } from "../providers/jev/client.js";
-import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
-import type { Provider, ProviderResponse } from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
+import type { LLMCallSite } from "../../config/schemas/llm.js";
+import { getLogger } from "../../util/logger.js";
+import { resolveConfiguredProvider } from "../provider-send-message.js";
+import type { Provider, ProviderResponse } from "../types.js";
+import {
+  type JevJsonValue,
+  type JevQuestions,
+  noulFromAnswer,
+} from "./client.js";
 
-const log = getLogger("typesafe-noul");
+const log = getLogger("typesafe-ask");
 
 const TYPESAFE_PROVIDER_NAME = "typesafe";
 
-export type TypesafeNoulOutcome =
-  | "answered"
-  | "unavailable"
-  | "timeout"
-  | "error";
+export type TypesafeOutcome = "answered" | "unavailable" | "timeout" | "error";
+
+export interface TypesafeAskResult {
+  outcome: TypesafeOutcome;
+  /** One entry per question id, present when the outcome is "answered". */
+  answers?: Record<string, unknown>;
+  latencyMs: number;
+}
 
 export interface TypesafeNoulResult {
-  outcome: TypesafeNoulOutcome;
+  outcome: TypesafeOutcome;
   /** Calibrated P(yes), present when the outcome is "answered". */
   noul?: number;
   latencyMs: number;
@@ -71,21 +79,25 @@ function answersFrom(
   }
 }
 
-/**
- * Ask one noul question. Never rejects. The timeout is a hard race rather
- * than trust in the provider honoring the abort, because callers hold user
- * audio or background work on the answer.
- */
-export async function askTypesafeNoul(args: {
+export interface TypesafeAskArgs {
   callSite: LLMCallSite;
   conversationId: string;
   state: JevJsonValue;
-  instructions: string;
+  questions: JevQuestions;
   timeoutMs: number;
   signal?: AbortSignal;
   /** Defaults to {@link resolveTypesafeProvider} for `callSite`. */
   resolveProvider?: () => Promise<Provider | null>;
-}): Promise<TypesafeNoulResult> {
+}
+
+/**
+ * Ask one question set. Never rejects. The timeout is a hard race rather
+ * than trust in the provider honoring the abort, because callers hold user
+ * audio or a turn's first token on the answer.
+ */
+export async function askTypesafe(
+  args: TypesafeAskArgs,
+): Promise<TypesafeAskResult> {
   const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
   const controller = new AbortController();
@@ -93,7 +105,7 @@ export async function askTypesafeNoul(args: {
     ? AbortSignal.any([args.signal, controller.signal])
     : controller.signal;
 
-  const ask = async (): Promise<TypesafeNoulResult> => {
+  const ask = async (): Promise<TypesafeAskResult> => {
     try {
       const provider = await (
         args.resolveProvider ?? (() => resolveTypesafeProvider(args.callSite))
@@ -110,9 +122,7 @@ export async function askTypesafeNoul(args: {
                 type: "text",
                 text: JSON.stringify({
                   state: args.state,
-                  questions: {
-                    answer: { type: "noul", instructions: args.instructions },
-                  },
+                  questions: args.questions,
                 }),
               },
             ],
@@ -127,20 +137,20 @@ export async function askTypesafeNoul(args: {
           signal,
         },
       );
-      const noul = noulFromAnswer(answersFrom(response)?.answer);
-      if (noul === undefined) {
+      const answers = answersFrom(response);
+      if (answers === null) {
         log.warn(
           { callSite: args.callSite, conversationId: args.conversationId },
-          "TypeSafe judge returned no usable answer",
+          "TypeSafe returned no usable answers",
         );
         return { outcome: "error", latencyMs: elapsed() };
       }
-      return { outcome: "answered", noul, latencyMs: elapsed() };
+      return { outcome: "answered", answers, latencyMs: elapsed() };
     } catch (err) {
       if (!signal.aborted) {
         log.warn(
           { err, callSite: args.callSite, conversationId: args.conversationId },
-          "TypeSafe judge failed",
+          "TypeSafe question failed",
         );
       }
       return { outcome: "error", latencyMs: elapsed() };
@@ -148,7 +158,7 @@ export async function askTypesafeNoul(args: {
   };
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<TypesafeNoulResult>((resolve) => {
+  const timedOut = new Promise<TypesafeAskResult>((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
       resolve({ outcome: "timeout", latencyMs: elapsed() });
@@ -159,4 +169,27 @@ export async function askTypesafeNoul(args: {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Ask one yes/no question. Never rejects. */
+export async function askTypesafeNoul(
+  args: Omit<TypesafeAskArgs, "questions"> & { instructions: string },
+): Promise<TypesafeNoulResult> {
+  const { instructions, ...rest } = args;
+  const result = await askTypesafe({
+    ...rest,
+    questions: { answer: { type: "noul", instructions } },
+  });
+  if (result.outcome !== "answered") {
+    return { outcome: result.outcome, latencyMs: result.latencyMs };
+  }
+  const noul = noulFromAnswer(result.answers?.answer);
+  if (noul === undefined) {
+    log.warn(
+      { callSite: args.callSite, conversationId: args.conversationId },
+      "TypeSafe judge returned no usable answer",
+    );
+    return { outcome: "error", latencyMs: result.latencyMs };
+  }
+  return { outcome: "answered", noul, latencyMs: result.latencyMs };
 }

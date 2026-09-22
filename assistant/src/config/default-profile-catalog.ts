@@ -8,6 +8,7 @@ import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import {
+  AUTO_PROFILE_KEY,
   BACKUP_PROFILE_KEYS,
   type BackupProfileKey,
   DEFAULT_PROFILE_KEYS,
@@ -408,15 +409,34 @@ export const JEV_MANAGED_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 };
 
 /**
+ * The Auto profile: the managed Balanced body under its own label, so that
+ * anything dispatching the name directly runs Balanced. The per-message
+ * choice among the defaults happens in the agent loop, not here (see
+ * `AUTO_PROFILE_KEY`). No `fallbackProfile`: the code-owned fallback mapping
+ * is keyed by default profile, and a direct dispatch of this name is already
+ * the fallback path.
+ */
+export const AUTO_PROFILE_TEMPLATE: DefaultProfileTemplate = (() => {
+  const { fallbackProfile: _fallbackProfile, ...balanced } =
+    VELLUM_PROFILE_IMPLS.balanced;
+  return {
+    ...balanced,
+    label: "Auto",
+    description: "Picks the profile that fits each message, in beta",
+  };
+})();
+
+/**
  * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
- * managed backup profiles and the managed Jev profile. Backups come after the
- * primaries, which is what places them after the primaries in the seeded
- * `profileOrder`: the seeder inserts missing managed keys in this record's
- * order. Keyed by the user-facing defaults only: an internal profile is
- * code-resolved and never listed or ordered.
+ * Auto profile, the managed backup profiles and the managed Jev profile.
+ * The seeder inserts missing managed keys into `profileOrder` in this
+ * record's order, so Auto comes first (it leads the picker) and the backups
+ * follow the primaries. Keyed by the user-facing defaults only: an internal
+ * profile is code-resolved and never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries([
+    [AUTO_PROFILE_KEY, AUTO_PROFILE_TEMPLATE],
     ...DEFAULT_PROFILE_KEYS.map((key) => [key, PROFILE_IMPLS[key].vellum]),
     ...BACKUP_PROFILE_KEYS.map((key) => [key, BACKUP_PROFILE_IMPLS[key]]),
     [JEV_MANAGED_PROFILE_KEY, JEV_MANAGED_PROFILE_TEMPLATE],
@@ -521,6 +541,7 @@ export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
   JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -535,6 +556,7 @@ export const MANAGED_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
   JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -665,6 +687,10 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   entries[JEV_MANAGED_PROFILE_KEY] = materializeProfile(
     JEV_MANAGED_PROFILE_TEMPLATE,
     JEV_MANAGED_PROFILE_TEMPLATE.provider,
+  );
+  entries[AUTO_PROFILE_KEY] = materializeProfile(
+    AUTO_PROFILE_TEMPLATE,
+    AUTO_PROFILE_TEMPLATE.provider,
   );
   entries[OS_BETA_PROFILE_KEY] = materializeProfile(
     OS_BETA_PROFILE_TEMPLATE,

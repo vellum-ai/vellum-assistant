@@ -1840,7 +1840,8 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
   test("a managed key missing from profileOrder lands beside its siblings", () => {
     // An install that predates a newly shipped managed profile, with a custom
     // profile already in its order. The new key belongs with the other
-    // managed profiles, not after whatever the user has arranged below them.
+    // managed profiles, not after whatever the user has arranged below them,
+    // and the catalog's leading key (Auto) heads the order.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1861,6 +1862,7 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.profileOrder).toEqual([
+      "auto",
       "balanced",
       "quality-optimized",
       "cost-optimized",

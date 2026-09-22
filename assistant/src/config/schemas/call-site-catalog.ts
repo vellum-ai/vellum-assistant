@@ -317,6 +317,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Decides from the caller's interruption whether a barged-in request should keep running in the background. Runs only when pinned to a TypeSafe profile.",
     domain: "agentLoop",
   },
+  autoProfileRouter: {
+    id: "autoProfileRouter",
+    displayName: "Auto Profile Router",
+    description:
+      "Picks which default profile answers a message when the conversation runs on the Auto profile. Asks managed Jev one choice question over the latest message; when unavailable the turn runs on Balanced.",
+    domain: "agentLoop",
+  },
   voiceContinuationLabel: {
     id: "voiceContinuationLabel",
     displayName: "Voice Continuation Label",
