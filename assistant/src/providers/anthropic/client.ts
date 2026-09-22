@@ -1004,7 +1004,7 @@ export class AnthropicProvider implements Provider {
       const isHaiku = effectiveModel.includes("haiku");
       // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortSupported).
       const supportsEffort = isEffortSupported(effectiveModel);
-      // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
+      // opus-4-7 / opus-4-8 / opus-5 / opus-5-5 and sonnet-5 reject `temperature`,
       // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
       // for this model" — model-wide, not effort-conditional (verified
       // 2026-06-23). opus-4-6 / sonnet-4-6 / haiku-4-5 still accept them.
@@ -1016,7 +1016,7 @@ export class AnthropicProvider implements Provider {
       // suffix is what matches.
       const deprecatesSamplingParams =
         /claude-opus-4-[78]\b/.test(effectiveModel) ||
-        /claude-opus-5\b/.test(effectiveModel) ||
+        /claude-opus-5(-5)?\b/.test(effectiveModel) ||
         /claude-sonnet-5\b/.test(effectiveModel) ||
         /claude-fable-/.test(effectiveModel);
       const mergedOutputConfig = {

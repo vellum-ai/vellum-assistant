@@ -159,7 +159,7 @@ describe("resolveModelFirstGroups", () => {
     expect(namesOf([], "anthropic").slice(0, 3)).toEqual([
       "Claude Fable 5.1",
       "Claude Fable 5",
-      "Claude Opus 5",
+      "Claude Opus 5.5",
     ]);
   });
 
@@ -254,13 +254,14 @@ describe("collapseSectionRows", () => {
     const { shown, hidden } = collapseSectionRows(options);
     expect(shown.map((option) => option.displayName)).toEqual([
       "Claude Fable 5.1",
-      "Claude Opus 5",
+      "Claude Opus 5.5",
       "Claude Sonnet 5",
     ]);
     // The rest follows in catalog order, so revealing it reads as the section
     // carrying on rather than as a second list.
     expect(hidden.map((option) => option.displayName)).toEqual([
       "Claude Fable 5",
+      "Claude Opus 5",
       "Claude Opus 4.8",
       "Claude Opus 4.7",
       "Claude Opus 4.6",
