@@ -43,3 +43,18 @@ import Testing
     #expect(session.token(processId: 100, expected: first) == nil)
     #expect(session.token(processId: 100, expected: nil) != first)
 }
+
+@Test func unavailableChromiumSelectionRetriesWithoutRequiringCapturedText() {
+    let result = SelectionReadSession.unavailableResult(holdId: 7, trusted: true, chromium: true)
+    #expect(result["unavailable"] as? Bool == true)
+    #expect(result["holdId"] as? Int == 7)
+    #expect(result["selection"] == nil)
+}
+
+@Test func unavailableSelectionWithoutChromiumAccessDoesNotRetry() {
+    for (trusted, chromium) in [(false, true), (true, false), (false, false)] {
+        let result = SelectionReadSession.unavailableResult(holdId: 7, trusted: trusted, chromium: chromium)
+        #expect(result["unavailable"] as? Bool == true)
+        #expect(result["holdId"] == nil)
+    }
+}

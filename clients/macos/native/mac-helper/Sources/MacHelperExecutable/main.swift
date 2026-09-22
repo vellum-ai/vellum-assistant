@@ -444,11 +444,9 @@ final class MacHelper: @unchecked Sendable {
         let readMs = Int(Date().timeIntervalSince(readStarted) * 1000)
         log("front selection: \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(readMs)")
         if outcome.unavailable {
-            var result: [String: Any] = ["unavailable": true]
-            if outcome.trusted && outcome.chromium && (!outcome.focused || outcome.chars > 0) {
-                result["holdId"] = holdId
-            }
-            return result
+            return SelectionReadSession.unavailableResult(
+                holdId: holdId, trusted: outcome.trusted, chromium: outcome.chromium
+            )
         }
         guard let selection = outcome.selection else {
             return [:]
