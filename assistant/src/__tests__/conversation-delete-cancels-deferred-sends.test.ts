@@ -26,8 +26,9 @@ import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
 
-const { addMessage, createConversation, getConversation } =
+const { addMessage, createConversation, getConversation, getMessages } =
   await import("../persistence/conversation-crud.js");
+const { stopConversations } = await import("../daemon/conversation-store.js");
 const {
   __resetConversationAdmissionForTests,
   isAdmissionCancelledError,
@@ -116,4 +117,36 @@ test("a send waiting on a deleted conversation never runs and never recreates it
   await tick();
   expect(ran).toBe(false);
   expect(getConversation(conversation.id)).toBeNull();
+});
+
+test("a send waiting at shutdown never runs against the disposed conversation", async () => {
+  const conversation = createConversation("deferred-send-shutdown");
+  const { release } = registerBusyConversation(conversation.id);
+  const before = getMessages(conversation.id).length;
+
+  let ran = false;
+  const admitted = runWhenConversationIdle(
+    conversation.id,
+    async () => {
+      ran = true;
+      await addMessage(conversation.id, "user", "the deferred message");
+    },
+    { origin: "subagent_notification" },
+  ).then(
+    (value) => value,
+    (err: unknown) => err,
+  );
+
+  await tick();
+  expect(pendingAdmissionCount(conversation.id)).toBe(1);
+
+  stopConversations();
+
+  expect(isAdmissionCancelledError(await admitted)).toBe(true);
+  expect(pendingAdmissionCount(conversation.id)).toBe(0);
+
+  release();
+  await tick();
+  expect(ran).toBe(false);
+  expect(getMessages(conversation.id)).toHaveLength(before);
 });

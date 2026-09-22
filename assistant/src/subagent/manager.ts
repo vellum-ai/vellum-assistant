@@ -1604,12 +1604,14 @@ export class SubagentManager {
     void runWhenConversationIdle(
       managed.state.conversationId,
       async () => {
-        // The child can be aborted, settled, or released while this waits, and
-        // a send registered outside the conversation is not torn down with it.
-        // Re-read the status at the moment it would run, so an explicitly
-        // aborted subagent is not started again to execute tools.
+        // Guidance sent mid-run waits for the child's own turn to end, so the
+        // child is usually `completed` or `failed` by the time this runs, and
+        // the guidance runs as a follow-up turn. Only an explicit stop, or a
+        // released conversation, drops it: an aborted subagent is not started
+        // again to execute tools.
         if (
-          TERMINAL_STATUSES.has(managed.state.status) ||
+          managed.state.status === "aborted" ||
+          managed.state.status === "interrupted" ||
           managed.conversation !== conversation
         ) {
           log.info(

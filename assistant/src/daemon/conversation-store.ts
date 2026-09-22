@@ -528,6 +528,9 @@ export function destroyActiveConversation(
  * resets the registry.
  */
 export function stopConversations(): void {
+  // A waiting send would otherwise admit against a disposed conversation and
+  // write rows while the daemon shuts down.
+  cancelAllPendingAdmissions("daemon_shutdown");
   for (const conversation of allConversations()) {
     conversation.dispose();
   }
