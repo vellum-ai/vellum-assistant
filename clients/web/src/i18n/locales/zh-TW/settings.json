@@ -1648,7 +1648,7 @@
     "goToBilling": "前往帳單",
     "machineLabel": "機器",
     "noExtraUsage": "無額外用量",
-    "packageChip": "{name} 套件",
+    "packageLabel": "套件",
     "planReadyStatus": "您的方案已就緒",
     "retryInBackground": "在背景重試",
     "srOnlyTo": "至",

@@ -1670,7 +1670,7 @@
     "goToBilling": "Ir a facturación",
     "machineLabel": "Máquina",
     "noExtraUsage": "Sin uso adicional",
-    "packageChip": "paquete {name}",
+    "packageLabel": "Paquete",
     "planReadyStatus": "Tu plan está listo",
     "retryInBackground": "Reintentar en segundo plano",
     "srOnlyTo": "a",

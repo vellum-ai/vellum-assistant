@@ -1653,7 +1653,7 @@
     "goToBilling": "К оплате",
     "machineLabel": "Машина",
     "noExtraUsage": "Без дополнительного использования",
-    "packageChip": "пакет {name}",
+    "packageLabel": "Пакет",
     "planReadyStatus": "План готов",
     "retryInBackground": "Повторить в фоне",
     "srOnlyTo": "на",

@@ -1648,7 +1648,7 @@
     "goToBilling": "前往账单",
     "machineLabel": "机器",
     "noExtraUsage": "无额外用量",
-    "packageChip": "{name} 套餐",
+    "packageLabel": "套餐",
     "planReadyStatus": "您的套餐已就绪",
     "retryInBackground": "在后台重试",
     "srOnlyTo": "至",

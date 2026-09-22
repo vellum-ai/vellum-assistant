@@ -4,10 +4,10 @@
  * new "Assistant Inbox" entry is seen where it will live: directly above
  * Preferences at the foot of the rail.
  *
- * 0. The upgrade itself: the status copy on white with the character
- *    stream flowing around it and the metrics of the change arriving
- *    beneath, the test bed for that animation.
- * 0b. An upgrade that has just landed: the provisioning takeover finishes its
+ * 0. The upgrade itself: the provisioning takeover mid-rollout, its status
+ *    copy and the metrics of the change with the character stream flowing
+ *    around them.
+ * 0b. An upgrade that has just landed: the same takeover finishes its
  *    celebration and hands off to the setup card, which is where the wizard
  *    now goes instead of its own domain step.
  * 1. On a plan without managed email, the inbox is an upgrade card that still
@@ -22,33 +22,21 @@
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fn } from "storybook/test";
 
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { saveViewMode } from "@/domains/chat/utils/sidebar-view-mode";
-import { SERIF_HEADING_STYLE } from "@/domains/settings/billing/pro-onboarding/primitives";
 import { ProvisioningState } from "@/domains/settings/billing/pro-onboarding/provisioning-state";
-import { takeoverCopy } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
 import {
-  TAKEOVER_AVATARS,
   TAKEOVER_CONSTANT_PROPS,
   TAKEOVER_SCENARIOS,
   TakeoverStage,
 } from "@/domains/settings/billing/pro-onboarding/takeover-story-support";
-import {
-  UpgradeMetrics,
-  type UpgradeMetric,
-} from "@/domains/settings/billing/pro-onboarding/upgrade-metrics";
-import {
-  UpgradeStream,
-  type StreamFlow,
-} from "@/domains/settings/billing/pro-onboarding/upgrade-stream";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
-import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -131,16 +119,6 @@ function seedStores(): void {
 interface InboxStoryArgs {
   /** Collapse the rail, to see the entry as a tile above Preferences. */
   collapsed: boolean;
-  /** "0 · Upgrading" only: which way the character stream flows. */
-  streamFlow?: StreamFlow;
-  /** "0 · Upgrading" only: pace multiplier on the stream. */
-  streamSpeed?: number;
-  /** "0 · Upgrading" only: characters across the stream. */
-  streamLanes?: number;
-  /** "0 · Upgrading" only: hold the stream where it is. */
-  streamPaused?: boolean;
-  /** "0 · Upgrading" only: how the metrics row arrives beneath the status. */
-  metrics?: "reveal" | "shown" | "hidden";
 }
 
 /**
@@ -214,146 +192,36 @@ const meta: Meta<InboxStoryArgs> = {
 export default meta;
 type Story = StoryObj<InboxStoryArgs>;
 
-/** What the upgrade is changing, as the metrics row states it. */
-const UPGRADE_METRICS: UpgradeMetric[] = [
-  { label: "Machine", from: "Small", to: "Medium", landed: true },
-  { label: "Storage", from: "10 GB", to: "30 GB" },
-  { label: "Usage", from: "No extra usage", to: "Super Usage" },
-];
-
-/** How long the status stands alone before the metrics come in under it. */
-const METRICS_REVEAL_AFTER_MS = 1500;
-
 /**
- * The upgrade in progress, as the takeover will draw it: the WAITING status
- * on white with the character stream flowing around it, and beneath it,
- * once it is under way, the metrics of the change, which arrive column by
- * column and stay. The copy sits left of centre, where the stream's bend
- * leaves it room; on a phone it takes the top of the screen and the stream
- * flows beneath it. A test bed for the stream and the row, so their pace,
- * direction, width, and arrival are controls; nothing else from the
- * takeover is on this screen.
- */
-function UpgradingScreen({
-  streamFlow,
-  streamSpeed,
-  streamLanes,
-  streamPaused,
-  metrics = "reveal",
-}: InboxStoryArgs) {
-  const [revealed, setRevealed] = useState(false);
-  useEffect(() => {
-    if (metrics !== "reveal") {
-      return;
-    }
-    setRevealed(false);
-    const timer = setTimeout(() => setRevealed(true), METRICS_REVEAL_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [metrics]);
-  const metricsVisible =
-    metrics === "shown" || (metrics === "reveal" && revealed);
-  const mobile = useIsMobile();
-
-  const copy = (
-    <div className="relative z-10 flex flex-col items-center gap-7">
-      <h1
-        className="text-center text-[var(--content-emphasised)]"
-        style={SERIF_HEADING_STYLE}
-      >
-        {takeoverCopy("upgrade").waitingStatus}
-      </h1>
-      <UpgradeMetrics items={UPGRADE_METRICS} visible={metricsVisible} />
-    </div>
-  );
-
-  if (mobile) {
-    /* No room beside the copy: it takes the top of the screen, and the
-       stream the rest, flowing across its own box beneath. */
-    return (
-      <div
-        className="fixed inset-0 z-50 flex flex-col overflow-hidden"
-        style={{ backgroundColor: "#ffffff" }}
-      >
-        <div className="px-6 pb-8 pt-16">{copy}</div>
-        <div className="relative min-h-0 flex-1">
-          <UpgradeStream
-            className="absolute inset-0"
-            layout="below"
-            flow={streamFlow}
-            speed={streamSpeed}
-            lanes={streamLanes}
-            paused={streamPaused}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden"
-      style={{ backgroundColor: "#ffffff" }}
-    >
-      <UpgradeStream
-        className="absolute inset-0"
-        layout="around"
-        flow={streamFlow}
-        speed={streamSpeed}
-        lanes={streamLanes}
-        paused={streamPaused}
-      />
-      {/* A right margin on the block moves its centre left by half of it. */}
-      <div className="mr-[16%]">{copy}</div>
-    </div>
-  );
-}
-
-/**
- * The upgrade animation's test bed. The stream drops in through the top,
- * sweeps around the copy, and pours off the bottom, and the metrics row
- * arrives beneath the status; the controls set the stream's direction,
- * pace, and width, and the row's arrival.
+ * The upgrade in progress, as the wizard draws it: the provisioning takeover
+ * over the app, mid-rollout on a base-to-Super upgrade with the machine
+ * landed and the storage still moving. The phase playground under
+ * Settings/Billing/ProOnboarding drives every other state of this screen.
  */
 export const Upgrading: Story = {
   name: "0 · Upgrading",
-  argTypes: {
-    streamFlow: {
-      name: "flow",
-      description: "Which way the characters move along the stream.",
-      control: "radio",
-      options: ["down", "up"],
-    },
-    streamSpeed: {
-      name: "speed",
-      description: "Pace multiplier; 1 is the gentle roll, 0 holds still.",
-      control: { type: "range", min: 0, max: 4, step: 0.25 },
-    },
-    streamLanes: {
-      name: "lanes",
-      description: "How many characters sit across the stream.",
-      control: { type: "range", min: 1, max: 5, step: 1 },
-    },
-    streamPaused: {
-      name: "paused",
-      description: "Hold every character where it is.",
-      control: "boolean",
-    },
-    metrics: {
-      description:
-        "How the metrics row arrives beneath the status: revealed column by column after a moment, pinned shown, or hidden.",
-      control: "radio",
-      options: ["reveal", "shown", "hidden"],
-    },
-    collapsed: { table: { disable: true } },
+  render: () => {
+    const scenario = TAKEOVER_SCENARIOS.baseToSuper;
+    return (
+      <div className="fixed inset-0 z-50">
+        <TakeoverStage>
+          <ProvisioningState
+            {...TAKEOVER_CONSTANT_PROPS}
+            state="WAITING"
+            direction={scenario.direction}
+            intent={scenario.intent}
+            creditsChange={scenario.creditsChange}
+            targets={scenario.targets}
+            fromSnapshot={scenario.fromSnapshot}
+            landed={{ machine: true, storage: false }}
+            softWaiting={false}
+            escapeAvailable={false}
+            celebrating={false}
+          />
+        </TakeoverStage>
+      </div>
+    );
   },
-  args: {
-    streamFlow: "down",
-    streamSpeed: 1,
-    streamLanes: 3,
-    streamPaused: false,
-    metrics: "reveal",
-  },
-  render: (args) => <UpgradingScreen {...args} />,
 };
 
 /** How long the takeover's "All done!" holds before the hand-off. */
@@ -363,8 +231,8 @@ const STORY_CELEBRATION_MS = 2500;
  * The end of a plan upgrade, as the billing wizard now plays it: the
  * full-bleed takeover celebrates the landed resize over the app, then hands
  * off to the inbox's setup card in place of the wizard's old domain step. The
- * takeover's own reads (plan catalog, avatar) resolve from the stage's cache;
- * the card beneath is the same "2 · Set up email".
+ * takeover's plan-catalog read resolves from the stage's cache; the card
+ * beneath is the same "2 · Set up email".
  */
 function UpgradeHandoff() {
   const [landed, setLanded] = useState(false);
@@ -382,7 +250,7 @@ function UpgradeHandoff() {
            page. `fixed` here, not in the stage, so the stage stays reusable
            in flow. */
         <div className="fixed inset-0 z-50">
-          <TakeoverStage assistantId={TAKEOVER_AVATARS.creature}>
+          <TakeoverStage>
             <ProvisioningState
               {...TAKEOVER_CONSTANT_PROPS}
               state="DONE"
@@ -394,7 +262,6 @@ function UpgradeHandoff() {
               landed={{ machine: true, storage: true }}
               softWaiting={false}
               escapeAvailable={false}
-              assistantId={TAKEOVER_AVATARS.creature}
               dwellMs={STORY_CELEBRATION_MS}
               onCelebrationEnd={() => setLanded(true)}
             />

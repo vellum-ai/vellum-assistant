@@ -1755,7 +1755,7 @@
     "goToBilling": "Go to billing",
     "machineLabel": "Machine",
     "noExtraUsage": "No extra usage",
-    "packageChip": "{name} package",
+    "packageLabel": "Package",
     "planReadyStatus": "Your plan is ready",
     "retryInBackground": "Retry in the background",
     "srOnlyTo": "to",

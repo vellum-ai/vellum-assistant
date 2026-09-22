@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  readTakeoverAvatarStash,
-  saveTakeoverAvatarStash,
-} from "@/lib/billing/takeover-avatar-stash";
-import type { CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import {
   __clearNotificationIdentitySnapshotsForTests,
   beginNotificationIdentityPublication,
   createNotificationIdentity,
@@ -22,12 +16,6 @@ import { useConversationStore } from "@/stores/conversation-store";
 import type { EventStream } from "@/lib/streaming/stream-transport";
 
 import { clearUserScopedStorage } from "./session-cleanup";
-
-const STASH_TRAITS: CharacterTraits = {
-  bodyShape: "blob",
-  eyeStyle: "curious",
-  color: "purple",
-};
 
 beforeEach(() => {
   __clearNotificationIdentitySnapshotsForTests();
@@ -99,15 +87,15 @@ describe("clearUserScopedStorage", () => {
         },
       ],
     });
-    useConversationStore.getState().setPendingDraftProfile("conv-1", "profile-1");
+    useConversationStore
+      .getState()
+      .setPendingDraftProfile("conv-1", "profile-1");
     useConversationStore
       .getState()
       .setPendingDraftPlugins("conv-1", new Set(["plugin-1"]));
     useComposerStore.getState().loadAssistantDrafts("assistant-1");
     useComposerStore.getState().setInput("Private draft");
-    useComposerStore
-      .getState()
-      .saveDraft("conv-1", "Private persisted draft");
+    useComposerStore.getState().saveDraft("conv-1", "Private persisted draft");
     useComposerStore.getState().addPathReferences(["/private/path"]);
     useTurnStore.getState().requestSend("turn-1");
     useInteractionStore
@@ -156,41 +144,6 @@ describe("clearUserScopedStorage", () => {
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
     expect(useConversationStore.getState().pendingDraftProfiles.size).toBe(0);
     expect(useConversationStore.getState().pendingDraftPlugins.size).toBe(0);
-  });
-
-  test("clears a takeover avatar stash whose write never reached storage", () => {
-    // That stash lives only in the module's in-memory mirror, so
-    // `sessionStorage.clear()` cannot reach it and logout has to clear the
-    // module outright.
-    const original = Object.getOwnPropertyDescriptor(
-      globalThis,
-      "sessionStorage",
-    )!;
-    Object.defineProperty(globalThis, "sessionStorage", {
-      configurable: true,
-      get: () => ({
-        clear: () => {},
-        getItem: () => null,
-        setItem: () => {
-          throw new Error("quota exceeded");
-        },
-        removeItem: () => {},
-      }),
-    });
-    try {
-      saveTakeoverAvatarStash({
-        assistantId: "a1",
-        components: BUNDLED_COMPONENTS,
-        traits: STASH_TRAITS,
-      });
-      expect(readTakeoverAvatarStash()).not.toBeNull();
-
-      clearUserScopedStorage();
-
-      expect(readTakeoverAvatarStash()).toBeNull();
-    } finally {
-      Object.defineProperty(globalThis, "sessionStorage", original);
-    }
   });
 
   test("removes all vellum: prefixed keys from localStorage", () => {
