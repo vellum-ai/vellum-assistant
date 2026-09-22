@@ -422,6 +422,20 @@ describe("finalizeMessageComplete", () => {
     });
 
     expect(result[1]!.assistantTextVisibility).toBeUndefined();
+    expect(result[1]!.autoRoutedProfile).toBeUndefined();
+  });
+
+  it("stamps the profile Auto routed the turn to onto the live row", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      autoRoutedProfile: "quality-optimized",
+    } as MessageCompleteEvent);
+
+    expect(result[1]!.autoRoutedProfile).toBe("quality-optimized");
   });
 
   it("keeps a tool-gated reply, whose only text came from send_user_message", () => {
