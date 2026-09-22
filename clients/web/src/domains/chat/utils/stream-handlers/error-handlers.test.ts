@@ -34,10 +34,10 @@ describe("handleStreamError", () => {
     expect(ctx.cancelAndClearStream).toHaveBeenCalled();
   });
 
-  it("recovers the send a full queue refused without ending the turn", () => {
-    // A full queue refusing a send the daemon had already accepted is a
-    // delivery failure for one message, not a turn ending: the conversation may
-    // still be running the turn this send tried to interrupt.
+  it("recovers an accepted send that could not be delivered without ending the turn", () => {
+    // A send the daemon accepted and then could not deliver is a delivery
+    // failure for one message, not a turn ending: the conversation may still
+    // be running the turn this send tried to interrupt.
     const ctx = makeCtx({
       requestIdToMessageId: new Map([["req-1", "cmid-1"]]),
     });
@@ -45,7 +45,7 @@ describe("handleStreamError", () => {
     handleStreamError(
       {
         type: "error",
-        code: "QUEUE_FULL",
+        code: "SEND_FAILED",
         requestId: "req-1",
         message: "The assistant couldn't take your message.",
       },
@@ -74,7 +74,7 @@ describe("handleStreamError", () => {
     // else still ends the turn.
     const ctx = makeCtx();
     handleStreamError(
-      { type: "error", code: "QUEUE_FULL", message: "no request id" },
+      { type: "error", code: "SEND_FAILED", message: "no request id" },
       ctx,
     );
     expect(ctx.endTurn).toHaveBeenCalled();

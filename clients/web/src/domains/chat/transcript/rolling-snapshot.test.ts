@@ -67,11 +67,10 @@ const thinkingDelta = (seq: number, id: string, thinking: string) =>
   } as AssistantEvent);
 const complete = (seq: number, id: string) =>
   env(seq, { type: "message_complete", messageId: id } as AssistantEvent);
-const handoff = (seq: number, id: string) =>
+const completeWithScreenshot = (seq: number, id: string) =>
   env(seq, {
-    type: "generation_handoff",
+    type: "message_complete",
     messageId: id,
-    queuedCount: 1,
     attachments: [
       {
         id: "screenshot-1",
@@ -329,11 +328,11 @@ describe("rolling-snapshot reducer", () => {
       expect(resolved.seq).toBe(3);
     });
 
-    test("preserves handoff screenshot provenance through tail replay", () => {
+    test("preserves screenshot provenance through tail replay", () => {
       const snapshot = applyEventsToHistory(SEED, [
         textDelta(1, "a1", "persisted"),
       ]);
-      const event = handoff(2, "a1");
+      const event = completeWithScreenshot(2, "a1");
 
       const resolved = resolveSnapshot(snapshot, [event, event]);
 
