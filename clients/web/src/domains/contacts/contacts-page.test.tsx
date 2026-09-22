@@ -439,6 +439,17 @@ function getButton(label: string): HTMLButtonElement {
   return match;
 }
 
+/** The auto-approve threshold picker, standing in for the design-library Select. */
+function getPermissionsSelect(): HTMLSelectElement {
+  const node = document.querySelector(
+    '[data-testid="contact-permissions-select"]',
+  );
+  if (!(node instanceof HTMLSelectElement)) {
+    throw new Error("expected the permissions picker");
+  }
+  return node;
+}
+
 function getModalButton(label: string): HTMLButtonElement {
   const match = Array.from(
     document.querySelectorAll<HTMLButtonElement>(
@@ -645,6 +656,8 @@ describe("ContactsPage list and detail", () => {
     // Staying on screen means the channel actions are reachable, and they act
     // on the id the server is deleting.
     expect(getButton("Verify").disabled).toBe(true);
+    // The threshold picker upserts that same id, so it is blocked too.
+    expect(getPermissionsSelect().disabled).toBe(true);
 
     await act(async () => {
       releaseDelete!();
@@ -653,6 +666,36 @@ describe("ContactsPage list and detail", () => {
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     expect(currentLocation().pathname).toBe("/assistant/contacts");
+  });
+
+  test("a delete in flight leaves every other contact interactive", async () => {
+    holdDelete = true;
+    renderContactsPage();
+
+    await waitFor(() => getInputByPlaceholder("Your name"));
+    fireEvent.click(getButtonByText("Alice"));
+    await waitFor(() => getInputByPlaceholder("Give this human a name"));
+
+    fireEvent.click(getButton("Delete Contact"));
+    fireEvent.click(await waitFor(() => getModalButton("Delete")));
+    await waitFor(() => getButton("Deleting…"));
+
+    // Alice drops out of the list while the request is open, but the rest of
+    // it stays reachable, so another contact can be opened mid-delete.
+    fireEvent.click(getButtonByText("Peer Assistant"));
+    await waitFor(() => {
+      expect(currentLocation().pathname).toBe(`/assistant/contacts/${PEER.id}`);
+    });
+
+    expect(getButton("Delete Contact").disabled).toBe(false);
+    expect(getInputByPlaceholder("Give this human a name").disabled).toBe(
+      false,
+    );
+
+    await act(async () => {
+      releaseDelete!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 });
 
@@ -843,15 +886,7 @@ describe("ContactsPage contact permissions", () => {
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
 
-    const select = await waitFor(() => {
-      const node = document.querySelector(
-        '[data-testid="contact-permissions-select"]',
-      );
-      if (!(node instanceof HTMLSelectElement)) {
-        throw new Error("expected the permissions picker");
-      }
-      return node;
-    });
+    const select = await waitFor(getPermissionsSelect);
     expect(document.body.textContent).toContain("Permissions");
     expect(select.value).toBe("");
 
@@ -872,15 +907,7 @@ describe("ContactsPage contact permissions", () => {
 
     await waitFor(() => getInputByPlaceholder("Your name"));
     fireEvent.click(getButtonByText("Alice"));
-    const select = await waitFor(() => {
-      const node = document.querySelector(
-        '[data-testid="contact-permissions-select"]',
-      );
-      if (!(node instanceof HTMLSelectElement)) {
-        throw new Error("expected the permissions picker");
-      }
-      return node;
-    });
+    const select = await waitFor(getPermissionsSelect);
     fireEvent.change(select, { target: { value: "fullAccess" } });
 
     await waitFor(() => {

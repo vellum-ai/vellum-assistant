@@ -797,7 +797,9 @@ export function ContactsPage({
             <ContactDetailView
               contact={optimisticContact}
               savePending={updateMutation.isPending}
-              deletePending={deleteMutation.isPending}
+              // The list stays reachable during a delete, so the freeze
+              // belongs to the contact being deleted, not whichever is open.
+              deletePending={deletingContactId === optimisticContact.id}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending

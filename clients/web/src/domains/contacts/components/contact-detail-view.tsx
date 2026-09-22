@@ -208,7 +208,7 @@ function ContactDetailViewInner({
       {canEditContactPermissions(contact) && onAutoApproveThresholdChange ? (
         <ContactPermissionsSection
           contact={contact}
-          pending={pendingAutoApproveThreshold}
+          pending={pendingAutoApproveThreshold || deletePending}
           onAutoApproveThresholdChange={onAutoApproveThresholdChange}
         />
       ) : null}
