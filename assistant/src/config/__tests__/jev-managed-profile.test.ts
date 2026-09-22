@@ -36,6 +36,23 @@ describe("jev-managed as a call-site pin target", () => {
     );
   });
 
+  test("cannot be a mix constituent", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {
+        blend: {
+          mix: [
+            { profile: "jev-managed", weight: 1 },
+            { profile: "balanced", weight: 1 },
+          ],
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain(
+      "cannot be a mix constituent",
+    );
+  });
+
   test("is rejected as the active or advisor profile even on the managed column", () => {
     for (const field of ["activeProfile", "advisorProfile"] as const) {
       const result = LLMSchema.safeParse({ [field]: "jev-managed" });

@@ -1027,6 +1027,20 @@ export const LLMSchema = z
       ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
+      // The Jev profile answers with structured verdicts, so only the sites
+      // built to read one may pin it; a text-producing site would receive
+      // output it cannot use. (Mix arms are covered by the profile-level
+      // mix validation below, which bars the profile from any mix.)
+      if (
+        siteConfig?.profile === JEV_MANAGED_PROFILE_KEY &&
+        !(JEV_MANAGED_PROFILE_CALL_SITES as readonly string[]).includes(siteId)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["callSites", siteId, "profile"],
+          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" returns structured answers rather than chat text, so it can only be pinned to ${JEV_MANAGED_PROFILE_CALL_SITES.join(", ")}`,
+        });
+      }
       if (siteConfig?.profile == null) {
         continue;
       }
@@ -1035,20 +1049,6 @@ export const LLMSchema = z
           code: "custom",
           path: ["callSites", siteId, "profile"],
           message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" ${unresolvableProfileReason(siteConfig.profile, backupsResolve)}`,
-        });
-        continue;
-      }
-      // The Jev profile answers with structured verdicts, so only the sites
-      // built to read one may pin it; a text-producing site would receive
-      // output it cannot use.
-      if (
-        siteConfig.profile === JEV_MANAGED_PROFILE_KEY &&
-        !(JEV_MANAGED_PROFILE_CALL_SITES as readonly string[]).includes(siteId)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["callSites", siteId, "profile"],
-          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" returns structured answers rather than chat text, so it can only be pinned to ${JEV_MANAGED_PROFILE_CALL_SITES.join(", ")}`,
         });
       }
     }
@@ -1136,6 +1136,17 @@ export const LLMSchema = z
             code: "custom",
             path: ["profiles", name, "mix", index, "profile"],
             message: `Mix profile "${name}" references profile "${arm.profile}" which ${unresolvableProfileReason(arm.profile, backupsResolve)}.`,
+          });
+          continue;
+        }
+        // A mix is a conversation profile, so an arm that returns structured
+        // verdicts rather than text would hand a chat turn to the decision
+        // model whenever the seeded pick lands on it.
+        if (arm.profile === JEV_MANAGED_PROFILE_KEY) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, "mix", index, "profile"],
+            message: `Mix profile "${name}" references "${JEV_MANAGED_PROFILE_KEY}", which returns structured answers rather than chat text and cannot be a mix constituent.`,
           });
           continue;
         }
