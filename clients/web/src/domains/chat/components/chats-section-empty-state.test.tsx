@@ -27,7 +27,7 @@ function renderEmptyState(viewAllHref: string | null) {
 }
 
 describe("ChatsSectionEmptyState", () => {
-  test("with the flag on, says the list is clear and links to Old chats", () => {
+  test("with the flag on, says the list is clear and links to All chats", () => {
     useClientFeatureFlagStore.setState({ sidebarDone: true });
     const { getByText, getByRole } = renderEmptyState("/assistant/chats");
     expect(getByText("All caught up.")).toBeTruthy();

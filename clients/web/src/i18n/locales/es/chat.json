@@ -1676,7 +1676,7 @@
     "label": "Ver todos los chats"
   },
   "chatsSection": {
-    "doneEmptyBody": "Los chats que marcas como hechos te esperan en Chats antiguos.",
+    "doneEmptyBody": "Los chats que marcas como hechos te esperan en Todos los chats.",
     "doneEmptyTitle": "Todo al día.",
     "emptyBody": "Inicia un chat nuevo y aparecerá aquí.",
     "emptyTitle": "Aún no hay chats."

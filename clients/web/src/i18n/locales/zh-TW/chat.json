@@ -2098,7 +2098,7 @@
     "emptyTitle": "目前還沒有任何想法。"
   },
   "chatsSection": {
-    "doneEmptyBody": "標記為已完成的聊天會保留在「舊聊天」中。",
+    "doneEmptyBody": "標記為已完成的聊天會保留在「所有聊天」中。",
     "doneEmptyTitle": "全部處理完畢。",
     "emptyBody": "開始新的聊天後，它會顯示在這裡。",
     "emptyTitle": "還沒有聊天。"

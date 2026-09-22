@@ -19,7 +19,7 @@ import { Button } from "@vellumai/design-library";
 export function ChatsSectionEmptyState({
   viewAllHref,
 }: {
-  /** The Old chats page for this section; `null` offers no link. */
+  /** The All chats page for this section; `null` offers no link. */
   viewAllHref: string | null;
 }) {
   const { t } = useTranslation("chat");

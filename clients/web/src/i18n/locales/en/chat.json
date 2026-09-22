@@ -208,7 +208,7 @@
     "emptyTitle": "No chats yet.",
     "emptyBody": "Start a new chat and it shows up here.",
     "doneEmptyTitle": "All caught up.",
-    "doneEmptyBody": "Chats you mark as done wait for you in Old chats."
+    "doneEmptyBody": "Chats you mark as done wait for you in All chats."
   },
   "assistantSectionToggle": {
     "hide": "Hide threads from {name}",
