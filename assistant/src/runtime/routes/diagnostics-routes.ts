@@ -22,7 +22,6 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import { isMaxTokensStopReason } from "../../providers/stop-reasons.js";
 import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -73,56 +72,14 @@ function buildAppMetadataBlock(context: DictationContext): string {
   ].join("\n");
 }
 
-function buildCombinedDictationPrompt(
-  body: DictationBody,
-  stylePrompt?: string,
-): string {
-  // Every line here is read on every hold, so the prompt says each thing
-  // once and leaves the model no reasoning to write.
-  const sections = [
-    "You are a voice input assistant. Given a speech transcription, classify it and, if it is dictation, clean it up.",
-    "",
-    "## Classification",
+function buildDictationClassificationPrompt(body: DictationBody): string {
+  return [
+    "Classify the speech transcription without rewriting it.",
     "dictation: the user is composing text to be typed as-is.",
-    "action: the user is asking an assistant to do something (send, message, open, search, create, schedule). Return the transcription unchanged.",
+    "action: the user is asking an assistant to do something (send, message, open, search, create, schedule).",
     `Cursor in text field: ${body.context.cursorInTextField ? "yes" : "no"}. If yes, lean toward dictation unless the intent to command is clear.`,
-    "",
-    "## Cleanup",
-    "- Fix grammar, punctuation and capitalization; remove filler words",
-    "- Rewrite hedging into clear statements, keeping the speaker's meaning",
-    "- When the speaker enumerates items, lay them out as a list, one per line",
-    "- Keep the user's natural voice; do not over-formalize casual speech",
-  ];
-
-  if (stylePrompt) {
-    sections.push(
-      "",
-      "## User Style (highest priority)",
-      "The user's own writing preferences. They override the tone guidance below.",
-      "",
-      stylePrompt,
-    );
-  }
-
-  sections.push(
-    "",
-    "## Tone",
-    stylePrompt
-      ? "Fallback guidance where the User Style above is silent:"
-      : "Adapt tone to the active application:",
-    "- Email: professional but warm, greetings and sign-offs where they fit",
-    "- Slack: casual and conversational",
-    "- Code editors: technical and concise",
-    "- Terminal: terse, command-like",
-    "- Messages: very casual, short sentences",
-    "- Notes and docs: neutral, clear writing",
-    "- Otherwise: the user's natural voice",
-    "The window title may name the recipient; adapt formality to the apparent relationship.",
-    "",
     buildAppMetadataBlock(body.context),
-  );
-
-  return sections.join("\n");
+  ].join("\n");
 }
 
 function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
@@ -184,42 +141,8 @@ function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
 
 export function computeMaxTokens(inputLength: number): number {
   const estimatedInputTokens = Math.ceil(inputLength / 3);
-  // The cleanup tool call carries the whole transcript back in its `text`
-  // argument, plus a `reasoning` string and the JSON scaffolding around both,
-  // so the budget has to cover well more than the input alone. `max_tokens` is
-  // a ceiling rather than a target: a call that stops short of it costs no
-  // extra latency.
+  // Leave room for the transformed selection and tool-call JSON.
   return Math.max(512, estimatedInputTokens * 2 + 256);
-}
-
-export type CleanupRejection = "truncated";
-
-/**
- * Decide whether the cleanup model's rewrite is safe to use as the payload.
- *
- * The rewrite replaces what the user actually said. A token-cap stop means the
- * tool JSON was cut mid-argument, so however complete the `text` argument
- * happens to look, it is a fragment; the raw transcript is the safer payload
- * then. Unpolished beats wrong.
- *
- * Whether a shorter rewrite still preserved the meaning is the model's call
- * (the prompt asks it to drop fillers and tighten phrasing), so there is no
- * length check here: a deterministic ratio cannot tell a concise cleanup from
- * a summary.
- */
-export function resolveCleanedDictation(
-  raw: string,
-  cleaned: string,
-  stopReason: string | null | undefined,
-): { text: string; rejected: CleanupRejection | null } {
-  const trimmed = cleaned.trim();
-  if (!trimmed) {
-    return { text: raw, rejected: null };
-  }
-  if (isMaxTokensStopReason(stopReason)) {
-    return { text: raw, rejected: "truncated" };
-  }
-  return { text: trimmed, rejected: null };
 }
 
 interface DictationResult {
@@ -263,174 +186,88 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
     return handleCommandMode(body, profile, profileMeta, stylePrompt);
   }
 
-  // Non-command: single LLM call that classifies AND cleans in one shot
-  const transcription = expandSnippets(body.transcription, profile.snippets);
-
-  // Covers provider resolution as well as the call, which is what the caller
-  // waits for.
-  const modelStartedAt = Date.now();
-  try {
-    const provider = await getConfiguredProvider("interactionClassifier");
-    if (!provider) {
-      log.warn(
-        "Dictation: no provider available, using heuristic + raw transcription",
-      );
-      // Build a compatible msg for the heuristic
-      const mode = detectDictationModeHeuristic({
-        type: "dictation_request",
-        transcription: body.transcription,
-        context: body.context,
-      } as DictationRequest);
-      const normalizedText = applyDictionary(transcription, profile.dictionary);
-      if (mode === "action") {
-        return {
-          text: body.transcription,
-          mode: "action",
-          actionPlan: `User wants to: ${body.transcription}`,
-          ...profileMeta,
-        };
-      }
-      return {
-        text: normalizedText,
-        mode,
-        ...profileMeta,
-      };
-    }
-
-    const systemPrompt = buildCombinedDictationPrompt(body, stylePrompt);
-    const maxTokens = computeMaxTokens(transcription.length);
-    const { signal, cleanup } = createTimeout(
-      DICTATION_CLASSIFICATION_TIMEOUT_MS,
-    );
-
-    try {
-      const response = await provider.sendMessage(
-        [userMessage(`Transcription: "${transcription}"`)],
-        {
-          tools: [
-            {
-              name: "process_dictation",
-              description: "Classify the voice input and return cleaned text",
-              input_schema: {
-                type: "object" as const,
-                properties: {
-                  mode: {
-                    type: "string",
-                    enum: ["dictation", "action"],
-                    description:
-                      "dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task.",
-                  },
-                  text: {
-                    type: "string",
-                    description:
-                      "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
-                  },
-                },
-                required: ["mode", "text"],
-              },
-            },
-          ],
-          systemPrompt,
-          config: {
-            callSite: "interactionClassifier",
-            max_tokens: maxTokens,
-            tool_choice: {
-              type: "tool" as const,
-              name: "process_dictation",
-            },
-          },
-          signal,
-        },
-      );
-      cleanup();
-
-      const toolBlock = extractToolUse(response);
-      if (toolBlock) {
-        const input = toolBlock.input as {
-          mode?: string;
-          text?: string;
-        };
-        const mode: DictationMode =
-          input.mode === "action" ? "action" : "dictation";
-        log.info(
-          {
-            mode,
-            modelMs: Date.now() - modelStartedAt,
-            inChars: transcription.length,
-            outChars: input.text?.length ?? 0,
-          },
-          "LLM dictation classify+clean",
-        );
-
-        if (mode === "action") {
-          return {
-            text: body.transcription,
-            mode: "action",
-            actionPlan: `User wants to: ${body.transcription}`,
-            ...profileMeta,
-          };
-        }
-        const { text: cleanedText, rejected } = resolveCleanedDictation(
-          transcription,
-          input.text ?? "",
-          response.stopReason,
-        );
-        if (rejected) {
-          // Lengths only -- transcript content must never be logged.
-          log.warn(
-            {
-              rejected,
-              stopReason: response.stopReason,
-              rawChars: transcription.length,
-              cleanedChars: input.text?.trim().length ?? 0,
-            },
-            "Dictation cleanup rejected, using raw transcription",
-          );
-        }
-        const normalizedText = applyDictionary(cleanedText, profile.dictionary);
-        return {
-          text: normalizedText,
-          mode: "dictation",
-          ...profileMeta,
-        };
-      }
-
-      log.warn(
-        { modelMs: Date.now() - modelStartedAt },
-        "No tool_use block in combined dictation call, using heuristic",
-      );
-    } finally {
-      cleanup();
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err: message, modelMs: Date.now() - modelStartedAt },
-      "Combined dictation LLM call failed, using heuristic",
-    );
-  }
-
-  // Heuristic fallback
-  const fallbackMode = detectDictationModeHeuristic({
-    type: "dictation_request",
-    transcription: body.transcription,
-    context: body.context,
-  } as DictationRequest);
-  log.info({ mode: fallbackMode }, "Using heuristic fallback");
-  if (fallbackMode === "action") {
+  const mode = await classifyDictation(body);
+  if (mode === "action") {
     return {
       text: body.transcription,
-      mode: "action",
+      mode,
       actionPlan: `User wants to: ${body.transcription}`,
       ...profileMeta,
     };
   }
-  const normalizedText = applyDictionary(transcription, profile.dictionary);
-  return {
-    text: normalizedText,
-    mode: fallbackMode,
-    ...profileMeta,
-  };
+
+  // Only explicit user-authored replacements may change dictated words.
+  const text = applyDictionary(
+    expandSnippets(body.transcription, profile.snippets),
+    profile.dictionary,
+  );
+  return { text, mode, ...profileMeta };
+}
+
+async function classifyDictation(
+  body: DictationBody,
+): Promise<"dictation" | "action"> {
+  try {
+    const provider = await getConfiguredProvider("interactionClassifier");
+    if (provider) {
+      const { signal, cleanup } = createTimeout(
+        DICTATION_CLASSIFICATION_TIMEOUT_MS,
+      );
+      try {
+        const response = await provider.sendMessage(
+          [userMessage(body.transcription)],
+          {
+            tools: [
+              {
+                name: "process_dictation",
+                description: "Classify the voice input",
+                input_schema: {
+                  type: "object" as const,
+                  properties: {
+                    mode: {
+                      type: "string",
+                      enum: ["dictation", "action"],
+                      description:
+                        "dictation = user wants text inserted. action = user wants the assistant to perform a task.",
+                    },
+                  },
+                  required: ["mode"],
+                },
+              },
+            ],
+            systemPrompt: buildDictationClassificationPrompt(body),
+            config: {
+              callSite: "interactionClassifier",
+              max_tokens: 512,
+              tool_choice: { type: "tool" as const, name: "process_dictation" },
+            },
+            signal,
+          },
+        );
+        const input = extractToolUse(response)?.input as
+          | { mode?: string }
+          | undefined;
+        if (input?.mode === "action" || input?.mode === "dictation") {
+          return input.mode;
+        }
+      } finally {
+        cleanup();
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err: message },
+      "Dictation classification failed, using heuristic",
+    );
+  }
+
+  const mode = detectDictationModeHeuristic({
+    type: "dictation_request",
+    transcription: body.transcription,
+    context: body.context,
+  } as DictationRequest);
+  return mode === "action" ? "action" : "dictation";
 }
 
 async function handleCommandMode(
@@ -560,7 +397,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Process dictation",
     description:
-      "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
+      "Preserve dictated words with explicit dictionary and snippet replacements, classify actions, or edit selected text when instructed.",
     tags: ["diagnostics"],
     requestBody: DictationRequestSchema,
     responseBody: z.object({

@@ -6,12 +6,9 @@ import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 /**
  * POST /v1/dictation
  *
- * Sends a raw voice transcript to the daemon for cleanup (punctuation,
- * filler-word removal, style normalisation) and intent classification.
- * Returns the cleaned text and whether the daemon classified this as a
- * "dictation" (insert into text field) or "action" (command-style intent).
- *
- * Mirrors the macOS DictationClient's transforming phase.
+ * Applies explicit dictionary/snippet replacements to dictated words, or
+ * requests an edit when selected text is supplied. Ordinary dictation keeps
+ * the speech recognizer's wording without automatic rewriting.
  */
 export async function postDictation(
   transcription: string,

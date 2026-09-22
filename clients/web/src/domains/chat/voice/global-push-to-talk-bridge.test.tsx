@@ -255,16 +255,16 @@ afterEach(() => {
 });
 
 describe("GlobalPushToTalkBridge", () => {
-  test("inserts the cleaned final transcript into the front app", async () => {
+  test("inserts explicit dictation replacements into the front app", async () => {
     nextTextInsertionStatus = "inserted";
-    nextDictationResult = { mode: "dictation", text: "cleaned global text" };
+    nextDictationResult = { mode: "dictation", text: "Hello Example User" };
     const voiceInput = renderBridge();
 
     await act(async () => {
-      await voiceInput.onTranscript("raw global text");
+      await voiceInput.onTranscript("Hello user one");
     });
 
-    expect(insertedTexts).toEqual(["cleaned global text"]);
+    expect(insertedTexts).toEqual(["Hello Example User"]);
     expect(useComposerStore.getState().input).toBe("");
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
@@ -840,7 +840,7 @@ describe("a hold over an editable selection", () => {
    * at the deadline and read aloud as an answer instead. The rewrite waits on
    * a bound of its own.
    */
-  test("waits past the cleanup's bound for a paragraph's edit", async () => {
+  test("waits past the dictation deadline for a paragraph's edit", async () => {
     withAssistantThatTellsEditsFromQuestions();
     nextTextInsertionStatus = "inserted";
     nextDictationResult = {

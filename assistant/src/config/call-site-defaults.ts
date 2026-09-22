@@ -123,9 +123,8 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
-  // The dictation cleanup pass, and nothing else runs on this site. The
-  // caller has already stopped speaking and has nothing on screen until this
-  // answers, so it is priced as a latency call.
+  // Voice intent classification and explicit selected-text edits are
+  // latency-sensitive: the caller is waiting for insertion or dispatch.
   interactionClassifier: {
     profile: "latency-optimized",
     effort: "low",
