@@ -34,6 +34,7 @@ import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
+import { cancelPendingAdmissions } from "../daemon/conversation-admission.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -2434,6 +2435,12 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     deletedSummaryIds: [],
   };
 
+  // A deferred send outlives the conversation it addresses, so the delete is
+  // where it is dropped. The daemon route's teardown does this too; callers
+  // that reach the row directly (the plugin facade, fork cleanup) have only
+  // this. Idempotent, so both paths running is one drop.
+  cancelPendingAdmissions(id, "conversation_deleted");
+
   // Capture createdAt before the transaction deletes the row — needed to
   // resolve the conversation's disk-view directory path after deletion.
   const convBeforeDelete = getConversation(id);
@@ -2546,6 +2553,8 @@ export async function deleteConversationGently(
     segmentIds: [],
     deletedSummaryIds: [],
   };
+
+  cancelPendingAdmissions(id, "conversation_deleted");
 
   // Capture createdAt before deletion — needed to resolve the conversation's
   // disk-view directory path afterwards.

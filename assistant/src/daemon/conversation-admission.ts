@@ -32,6 +32,12 @@
  *   wake) can take the lock on the same transition that released this send. Up
  *   to {@link MAX_BUSY_ATTEMPTS} attempts re-chain behind it; past that the
  *   sender is told the send failed.
+ * - **A deleted conversation drops its waiters.** Admitting an evicted
+ *   conversation means admission cannot tell "gone from memory" from "gone for
+ *   good" on its own, so the delete says so: {@link cancelPendingAdmissions}
+ *   rejects every waiter and clears the conversation's slots, and `run` is
+ *   never called. Nothing is persisted and no loop starts, so a deleted
+ *   conversation's row is not written back by a send that outlived it.
  * - **Bounded.** {@link MAX_PENDING_ADMISSIONS} registrations per conversation;
  *   beyond that registration rejects with {@link AdmissionOverflowError} and
  *   `run` is never called.
@@ -92,6 +98,36 @@ export class AdmissionOverflowError extends Error {
   }
 }
 
+/**
+ * Rejection from {@link runWhenConversationIdle} when the conversation the send
+ * was waiting on was deleted or torn down before the send could run.
+ */
+export class AdmissionCancelledError extends Error {
+  readonly conversationId: string;
+  readonly reason: string;
+
+  constructor(conversationId: string, reason: string) {
+    super(
+      `Send for conversation ${conversationId} was dropped before it ran: ${reason}`,
+    );
+    this.name = "AdmissionCancelledError";
+    this.conversationId = conversationId;
+    this.reason = reason;
+  }
+}
+
+/**
+ * True for the rejection a cancelled registration produces.
+ *
+ * Fire-and-forget callers read it to tell an expected drop (the conversation
+ * went away under the send) from a failure worth an error line.
+ */
+export function isAdmissionCancelledError(
+  err: unknown,
+): err is AdmissionCancelledError {
+  return err instanceof AdmissionCancelledError;
+}
+
 export interface AdmissionOptions {
   /** Who registered the send, for logs. */
   origin: string;
@@ -101,10 +137,48 @@ export interface AdmissionOptions {
   requestId?: string;
 }
 
+/**
+ * One registration's cancellable handle.
+ *
+ * `cancellation` never resolves; it rejects once, when the slot is cancelled.
+ * `started` is true only while `run` is in flight, which is the window a
+ * cancellation cannot reach: that send already holds the conversation and has
+ * to unwind on its own terms.
+ */
+interface AdmissionSlot {
+  readonly cancellation: Promise<never>;
+  cancelled: AdmissionCancelledError | null;
+  started: boolean;
+  cancel: (err: AdmissionCancelledError) => void;
+}
+
+function createAdmissionSlot(): AdmissionSlot {
+  let rejectCancellation!: (err: AdmissionCancelledError) => void;
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject;
+  });
+  // A slot cancelled while `run` is in flight has nobody racing `cancellation`,
+  // so keep a handler on it rather than surface an unhandled rejection.
+  void cancellation.catch(() => {});
+  const slot: AdmissionSlot = {
+    cancellation,
+    cancelled: null,
+    started: false,
+    cancel: (err) => {
+      if (slot.cancelled) {
+        return;
+      }
+      slot.cancelled = err;
+      rejectCancellation(err);
+    },
+  };
+  return slot;
+}
+
 const runAdmissionSingleFlight = createKeyedSingleFlight();
 
 /** Registrations waiting or running, per conversation. */
-const pendingByConversation = new Map<string, number>();
+const pendingByConversation = new Map<string, Set<AdmissionSlot>>();
 
 /**
  * How many sends are registered for this conversation and have not finished.
@@ -114,7 +188,7 @@ const pendingByConversation = new Map<string, number>();
  * window between registration and completion.
  */
 export function pendingAdmissionCount(conversationId: string): number {
-  return pendingByConversation.get(conversationId) ?? 0;
+  return pendingByConversation.get(conversationId)?.size ?? 0;
 }
 
 /**
@@ -130,20 +204,84 @@ export function canDeferSend(conversationId: string): boolean {
   return pendingAdmissionCount(conversationId) < MAX_PENDING_ADMISSIONS;
 }
 
-function retainAdmission(conversationId: string): void {
-  pendingByConversation.set(
-    conversationId,
-    pendingAdmissionCount(conversationId) + 1,
-  );
-}
-
-function releaseAdmission(conversationId: string): void {
-  const next = pendingAdmissionCount(conversationId) - 1;
-  if (next <= 0) {
-    pendingByConversation.delete(conversationId);
+function retainAdmission(conversationId: string, slot: AdmissionSlot): void {
+  const slots = pendingByConversation.get(conversationId);
+  if (slots) {
+    slots.add(slot);
     return;
   }
-  pendingByConversation.set(conversationId, next);
+  pendingByConversation.set(conversationId, new Set([slot]));
+}
+
+function releaseAdmission(conversationId: string, slot: AdmissionSlot): void {
+  const slots = pendingByConversation.get(conversationId);
+  if (!slots) {
+    return;
+  }
+  slots.delete(slot);
+  if (slots.size === 0) {
+    pendingByConversation.delete(conversationId);
+  }
+}
+
+/**
+ * Drop every send still waiting to run on this conversation.
+ *
+ * For the paths where the conversation itself is going away: the delete route's
+ * teardown and the clear-all wipe. A registration outlives the conversation
+ * instance it addresses, so without this a send admitted after the delete
+ * persists its message and writes the deleted row back.
+ *
+ * A plain eviction deliberately does not call this. A send addressed to a
+ * conversation that is merely no longer resident is the case the primitive
+ * exists for: it admits, and `run` hydrates the conversation from its durable
+ * row.
+ *
+ * Each dropped waiter rejects its caller with {@link AdmissionCancelledError}
+ * and leaves the conversation's slot, so no caller is left hanging and the
+ * count reads empty straight away. A send already inside `run` is left alone:
+ * it holds the conversation's own processing lock, and the teardown around this
+ * call aborts it there.
+ *
+ * Returns how many waiters were dropped.
+ */
+export function cancelPendingAdmissions(
+  conversationId: string,
+  reason: string,
+): number {
+  const slots = pendingByConversation.get(conversationId);
+  if (!slots) {
+    return 0;
+  }
+  let cancelled = 0;
+  for (const slot of [...slots]) {
+    if (slot.started || slot.cancelled) {
+      continue;
+    }
+    slot.cancel(new AdmissionCancelledError(conversationId, reason));
+    releaseAdmission(conversationId, slot);
+    cancelled += 1;
+  }
+  if (cancelled > 0) {
+    log.info(
+      { conversationId, reason, cancelled },
+      "Dropped deferred sends for a conversation that is going away",
+    );
+  }
+  return cancelled;
+}
+
+/**
+ * {@link cancelPendingAdmissions} across every conversation, for the clear-all
+ * wipe: it deletes conversations that are not resident too, so there is no
+ * per-conversation teardown to hang the cancellation off.
+ */
+export function cancelAllPendingAdmissions(reason: string): number {
+  let cancelled = 0;
+  for (const conversationId of [...pendingByConversation.keys()]) {
+    cancelled += cancelPendingAdmissions(conversationId, reason);
+  }
+  return cancelled;
 }
 
 /**
@@ -153,7 +291,9 @@ function releaseAdmission(conversationId: string): void {
  * once the busy retries are spent. Rejects with {@link AdmissionOverflowError}
  * before registering anything when the conversation's chain is full: callers
  * that answer a request synchronously check for it to refuse the send, and
- * callers that registered fire-and-forget log it.
+ * callers that registered fire-and-forget log it. Rejects with {@link
+ * AdmissionCancelledError} when the conversation is deleted while the send
+ * waits.
  *
  * `run` takes the conversation's processing lock itself. The slot is held until
  * `run` settles, so a `run` that awaits its whole turn keeps the next
@@ -169,26 +309,39 @@ export async function runWhenConversationIdle<T>(
   if (pending >= MAX_PENDING_ADMISSIONS) {
     throw new AdmissionOverflowError(conversationId, pending);
   }
-  retainAdmission(conversationId);
-  try {
-    return await runAdmissionSingleFlight(conversationId, () =>
-      admit(conversationId, run, options),
-    );
-  } finally {
-    releaseAdmission(conversationId);
-  }
+  const slot = createAdmissionSlot();
+  retainAdmission(conversationId, slot);
+  const chained = runAdmissionSingleFlight(conversationId, () =>
+    admit(conversationId, slot, run, options),
+  ).finally(() => {
+    releaseAdmission(conversationId, slot);
+  });
+  // The chain is what keeps `run` from being called after a cancellation; the
+  // race is what keeps the caller from waiting on the sends queued ahead of
+  // this one to reach the head of that chain first.
+  void chained.catch(() => {});
+  return await Promise.race([chained, slot.cancellation]);
 }
 
 async function admit<T>(
   conversationId: string,
+  slot: AdmissionSlot,
   run: () => Promise<T>,
   options: AdmissionOptions,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
-    await waitUntilAdmissible(conversationId, options.origin);
+    await Promise.race([
+      waitUntilAdmissible(conversationId, options.origin),
+      slot.cancellation,
+    ]);
+    if (slot.cancelled) {
+      throw slot.cancelled;
+    }
+    slot.started = true;
     try {
       return await run();
     } catch (err) {
+      slot.started = false;
       if (!isConversationBusyError(err)) {
         throw err;
       }

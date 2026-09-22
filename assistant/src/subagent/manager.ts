@@ -16,6 +16,7 @@ import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
 import {
   canDeferSend,
+  isAdmissionCancelledError,
   runWhenConversationIdle,
 } from "../daemon/conversation-admission.js";
 import {
@@ -1633,6 +1634,13 @@ export class SubagentManager {
       },
       { origin: "subagent_guidance" },
     ).catch((err: unknown) => {
+      if (isAdmissionCancelledError(err)) {
+        log.info(
+          { subagentId, reason: err.reason },
+          "Deferred subagent message dropped: the conversation went away",
+        );
+        return;
+      }
       log.error({ subagentId, err }, "Subagent message processing failed");
     });
     return "sent";

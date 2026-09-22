@@ -19,6 +19,7 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import {
   AdmissionOverflowError,
+  isAdmissionCancelledError,
   runWhenConversationIdle,
 } from "../../../daemon/conversation-admission.js";
 import { isConversationBusyError } from "../../../daemon/conversation-busy-error.js";
@@ -445,6 +446,17 @@ export function processChannelMessageInBackground(
         "Channel turn refused: too many sends are already waiting; deferring to the retry sweep",
       );
       deferRetryUntilIdle(eventId);
+      return;
+    }
+    if (isAdmissionCancelledError(err)) {
+      // The conversation was deleted under the waiting reply. The inbound row
+      // stays `pending` for the retry sweep, exactly as an unexpected failure
+      // leaves it: whether a channel reply survives its conversation's deletion
+      // is the ingress layer's call, not admission's.
+      log.info(
+        { conversationId, eventId, reason: err.reason },
+        "Channel turn dropped: the conversation went away before it could run",
+      );
       return;
     }
     log.error(

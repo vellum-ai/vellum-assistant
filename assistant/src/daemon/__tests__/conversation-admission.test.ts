@@ -5,7 +5,10 @@ import type { AssistantEvent } from "../../api/index.js";
 import type { Conversation } from "../conversation.js";
 import {
   __resetConversationAdmissionForTests,
+  AdmissionCancelledError,
   AdmissionOverflowError,
+  cancelAllPendingAdmissions,
+  cancelPendingAdmissions,
   MAX_PENDING_ADMISSIONS,
   pendingAdmissionCount,
   runWhenConversationIdle,
@@ -78,6 +81,18 @@ function register(conversationId: string, fake: FakeConversation): void {
 }
 
 const channel = { origin: "channel" } as const;
+
+/**
+ * Capture a registration's outcome as a value, with the handler attached at
+ * registration: a cancellation rejects every waiter in one synchronous sweep,
+ * and a handler attached after that sweep is already too late for Bun's
+ * unhandled-rejection watch.
+ */
+const settle = (p: Promise<unknown>): Promise<unknown> =>
+  p.then(
+    (value) => value,
+    (err: unknown) => err,
+  );
 
 beforeEach(() => {
   __resetConversationAdmissionForTests();
@@ -400,5 +415,189 @@ describe("runWhenConversationIdle", () => {
     fake.release();
     await Promise.all(admitted);
     expect(pendingAdmissionCount("conv-full")).toBe(0);
+  });
+});
+
+describe("cancelPendingAdmissions", () => {
+  test("drops a waiting send without running it and answers its caller", async () => {
+    const fake = makeFakeConversation(true);
+    register("conv-deleted", fake);
+
+    let ran = false;
+    const admitted = runWhenConversationIdle(
+      "conv-deleted",
+      async () => {
+        ran = true;
+      },
+      channel,
+    );
+    await tick();
+    expect(ran).toBe(false);
+
+    expect(
+      cancelPendingAdmissions("conv-deleted", "conversation_deleted"),
+    ).toBe(1);
+
+    await expect(admitted).rejects.toBeInstanceOf(AdmissionCancelledError);
+    expect(pendingAdmissionCount("conv-deleted")).toBe(0);
+
+    // The conversation going idle afterwards must not resurrect the send.
+    fake.release();
+    await tick();
+    expect(ran).toBe(false);
+  });
+
+  test("drops every waiting send for the conversation, in one call", async () => {
+    const fake = makeFakeConversation(true);
+    register("conv-many", fake);
+
+    let ran = 0;
+    const admitted = [0, 1, 2].map(() =>
+      settle(
+        runWhenConversationIdle(
+          "conv-many",
+          async () => {
+            ran += 1;
+          },
+          channel,
+        ),
+      ),
+    );
+    await tick();
+
+    expect(cancelPendingAdmissions("conv-many", "conversation_deleted")).toBe(
+      3,
+    );
+    for (const outcome of await Promise.all(admitted)) {
+      expect(outcome).toBeInstanceOf(AdmissionCancelledError);
+    }
+
+    fake.release();
+    await tick();
+    expect(ran).toBe(0);
+    expect(pendingAdmissionCount("conv-many")).toBe(0);
+  });
+
+  test("leaves a send that is already running to finish", async () => {
+    register("conv-running", makeFakeConversation(false));
+
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let finished = false;
+    const admitted = runWhenConversationIdle(
+      "conv-running",
+      async () => {
+        await started;
+        finished = true;
+      },
+      channel,
+    );
+    await tick();
+
+    expect(
+      cancelPendingAdmissions("conv-running", "conversation_deleted"),
+    ).toBe(0);
+    release();
+    await admitted;
+    expect(finished).toBe(true);
+  });
+
+  test("a send survives the conversation leaving the registry: only a delete cancels", async () => {
+    const fake = makeFakeConversation(true);
+    register("conv-evicted", fake);
+
+    let ran = false;
+    const admitted = runWhenConversationIdle(
+      "conv-evicted",
+      async () => {
+        ran = true;
+      },
+      channel,
+    );
+    await tick();
+    expect(ran).toBe(false);
+
+    // Eviction takes the instance out of the registry and cancels nothing, so
+    // the send is still owed and `run` hydrates the conversation for it.
+    clearConversations();
+    expect(pendingAdmissionCount("conv-evicted")).toBe(1);
+
+    fake.release();
+    await admitted;
+    expect(ran).toBe(true);
+  });
+
+  test("is a no-op for a conversation with nothing waiting", () => {
+    expect(cancelPendingAdmissions("conv-none", "conversation_deleted")).toBe(
+      0,
+    );
+  });
+
+  test("cancelAllPendingAdmissions drops waiters across conversations", async () => {
+    const one = makeFakeConversation(true);
+    const two = makeFakeConversation(true);
+    register("conv-one", one);
+    register("conv-two", two);
+
+    let ran = 0;
+    const admitted = [
+      settle(
+        runWhenConversationIdle(
+          "conv-one",
+          async () => {
+            ran += 1;
+          },
+          channel,
+        ),
+      ),
+      settle(
+        runWhenConversationIdle(
+          "conv-two",
+          async () => {
+            ran += 1;
+          },
+          channel,
+        ),
+      ),
+    ];
+    await tick();
+
+    expect(cancelAllPendingAdmissions("conversations_cleared")).toBe(2);
+    for (const outcome of await Promise.all(admitted)) {
+      expect(outcome).toBeInstanceOf(AdmissionCancelledError);
+    }
+
+    one.release();
+    two.release();
+    await tick();
+    expect(ran).toBe(0);
+  });
+
+  test("a cancelled waiter frees its slot for a later registration", async () => {
+    const fake = makeFakeConversation(true);
+    register("conv-reuse", fake);
+
+    const cancelled = runWhenConversationIdle(
+      "conv-reuse",
+      async () => {},
+      channel,
+    );
+    await tick();
+    cancelPendingAdmissions("conv-reuse", "conversation_deleted");
+    await expect(cancelled).rejects.toBeInstanceOf(AdmissionCancelledError);
+
+    let ran = false;
+    const admitted = runWhenConversationIdle(
+      "conv-reuse",
+      async () => {
+        ran = true;
+      },
+      channel,
+    );
+    fake.release();
+    await admitted;
+    expect(ran).toBe(true);
   });
 });

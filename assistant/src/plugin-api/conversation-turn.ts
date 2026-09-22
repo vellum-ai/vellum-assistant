@@ -289,7 +289,7 @@ export async function runConversationTurn(
   // Loaded here rather than statically: a static edge out of plugin-api into
   // the DB-graph modules this reaches breaks every plugin suite that
   // partial-mocks one of them (`__tests__/import-graph-partial-mock.test.ts`).
-  const { canDeferSend, runWhenConversationIdle } =
+  const { canDeferSend, isAdmissionCancelledError, runWhenConversationIdle } =
     await import("../daemon/conversation-admission.js");
   const { getLogger } = await import("../util/logger.js");
   const log = getLogger("plugin-api-conversation-turn");
@@ -456,6 +456,13 @@ export async function runConversationTurn(
       },
       { origin: "plugin_api", onEvent, requestId },
     ).catch((err: unknown) => {
+      if (isAdmissionCancelledError(err)) {
+        log.info(
+          { conversationId, reason: err.reason },
+          "Deferred plugin-driven conversation turn dropped: the conversation went away",
+        );
+        return;
+      }
       log.error(
         { err, conversationId },
         "Deferred plugin-driven conversation turn failed",
