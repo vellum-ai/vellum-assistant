@@ -2053,6 +2053,13 @@
   "workspacePathLink": {
     "openTitle": "開啟 {path}"
   },
+  "xlsxPreview": {
+    "emptySheet": "此工作表為空",
+    "sheetUnreadable": "無法讀取此工作表",
+    "sheetsAria": "工作表",
+    "summary": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}}",
+    "summaryTruncated": "{sheet}：{rows, plural, other {# 列}} x {columns, plural, other {# 欄}} (已截斷)"
+  },
   "transcript": {
     "noResponse": "決定不回覆",
     "reactionAddedSelf": "已用 {emoji} 回應",

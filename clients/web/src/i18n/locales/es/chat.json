@@ -2015,6 +2015,13 @@
   "workspacePathLink": {
     "openTitle": "Abrir {path}"
   },
+  "xlsxPreview": {
+    "emptySheet": "Esta hoja está vacía",
+    "sheetUnreadable": "No se pudo leer esta hoja",
+    "sheetsAria": "Hojas",
+    "summary": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}}",
+    "summaryTruncated": "{sheet}: {rows, plural, one {# fila} other {# filas}} x {columns, plural, one {# columna} other {# columnas}} (truncado)"
+  },
   "transcript": {
     "noResponse": "Decidió no responder",
     "reactionAddedSelf": "Reaccionó con {emoji}",
