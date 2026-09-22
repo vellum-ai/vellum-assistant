@@ -239,6 +239,7 @@ export function registerPluginsCommand(program: Command): void {
                 libs.catalogLocal.arePlatformFeaturesEnabled();
               if (platformEnabled) {
                 let match;
+                let catalogResolved = false;
                 try {
                   match = (
                     await libs.catalogCache.getPluginCatalog(
@@ -246,9 +247,17 @@ export function registerPluginsCommand(program: Command): void {
                       { fetch: globalThis.fetch.bind(globalThis) },
                     )
                   ).matches.find((candidate) => candidate.name === nameOrUrl);
+                  catalogResolved = true;
                 } catch {
                   // The install endpoint remains authoritative and can succeed
                   // independently when catalog discovery is unavailable.
+                }
+                if (!match && catalogResolved) {
+                  console.error(
+                    `Plugin "${nameOrUrl}" is not in the marketplace catalog.`,
+                  );
+                  process.exitCode = 1;
+                  return;
                 }
                 if (match?.source.kind === "local") {
                   result = await libs.installGitHub.installPlugin(
