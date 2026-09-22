@@ -9,14 +9,18 @@
  * cannot be read fails inside its own panel while the other tabs stay usable.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import { ScrollShadow, Tabs, Typography } from "@vellumai/design-library";
+import { ScrollShadow, Tabs } from "@vellumai/design-library";
 
-import type { ParsedCsv } from "@/domains/chat/components/local-file/preview/csv";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
+import { PreviewNotice } from "@/domains/chat/components/local-file/preview/preview-notice";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
-import { TabularGrid } from "@/domains/chat/components/local-file/preview/tabular-grid";
+import {
+  columnCountOf,
+  TabularGrid,
+} from "@/domains/chat/components/local-file/preview/tabular-grid";
+import { useAsyncRead } from "@/domains/chat/components/local-file/preview/use-async-read";
 import {
   parseWorkbook,
   type WorkbookSheet,
@@ -28,78 +32,38 @@ interface XlsxPreviewProps {
   filename: string;
 }
 
-/**
- * Reads `source`, dropping a reply that lands after the source changed or the
- * component unmounted. `read` is a dependency, so it has to be stable: an
- * inline arrow would restart the read on every render.
- */
-function useAsyncRead<S, T>(
-  source: S,
-  read: (source: S) => Promise<T>,
-): { value: T | null; failed: boolean } {
-  const [value, setValue] = useState<T | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setValue(null);
-    setFailed(false);
-    read(source).then(
-      (result) => {
-        if (!cancelled) {
-          setValue(result);
-        }
-      },
-      () => {
-        if (!cancelled) {
-          setFailed(true);
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [source, read]);
-
-  return { value, failed };
-}
-
-const readSheet = (sheet: WorkbookSheet): Promise<ParsedCsv> => sheet.read();
-
 /** The sheet on screen, which is the only one whose part is ever read. */
 function SheetPanel({ sheet }: { sheet: WorkbookSheet }): ReactNode {
   const { t } = useTranslation("chat");
-  const { value: grid, failed: readFailed } = useAsyncRead(sheet, readSheet);
+  const { value: grid, failed: readFailed } = useAsyncRead(sheet, (source) =>
+    source.read(),
+  );
 
   if (readFailed) {
-    return (
-      <div
-        role="status"
-        className="flex h-full items-center justify-center p-4"
-      >
-        <Typography
-          as="span"
-          variant="body-small-default"
-          className="text-[var(--content-tertiary)]"
-        >
-          {t("xlsxPreview.sheetUnreadable")}
-        </Typography>
-      </div>
-    );
+    return <PreviewNotice>{t("xlsxPreview.sheetUnreadable")}</PreviewNotice>;
   }
   if (grid === null) {
     return <PreviewSkeleton />;
   }
 
-  const columns = grid.headers?.length ?? grid.rows[0]?.length ?? 0;
+  // A sheet with no columns shows the empty copy in place of a footer, so its
+  // sentence is never built.
+  const columns = columnCountOf(grid);
+  const summary =
+    columns === 0
+      ? undefined
+      : t(
+          grid.truncated
+            ? "xlsxPreview.summaryTruncated"
+            : "xlsxPreview.summary",
+          { sheet: sheet.name, rows: grid.rows.length, columns },
+        );
+
   return (
     <TabularGrid
       {...grid}
       emptyLabel={t("xlsxPreview.emptySheet")}
-      summary={t(
-        grid.truncated ? "xlsxPreview.summaryTruncated" : "xlsxPreview.summary",
-        { sheet: sheet.name, rows: grid.rows.length, columns },
-      )}
+      summary={summary}
     />
   );
 }
@@ -115,13 +79,14 @@ export function WorkbookGrid({
   sheets: WorkbookSheet[];
 }): ReactNode {
   const { t } = useTranslation("chat");
-  const [activeName, setActiveName] = useState(() => sheets[0]?.name ?? "");
+  const [activeIndex, setActiveIndex] = useState(0);
 
-  // Sheet names are unique within a workbook, so the name is the selection.
-  // A name the current workbook no longer has falls back to its first sheet.
-  const active = sheets.find((sheet) => sheet.name === activeName) ?? sheets[0];
-  // An empty list only arrives from a story or a test: the container turns a
-  // parsed workbook with no sheets into the preview error state.
+  // Position, not name, is the selection: a name can repeat, be empty, or
+  // carry spaces, and the tab value becomes the `id` the panel is wired to.
+  // A workbook that loses sheets keeps the last one selected.
+  const selectedIndex = Math.min(activeIndex, sheets.length - 1);
+  const active = sheets[selectedIndex];
+  // Type narrowing for the lookup above.
   if (active === undefined) {
     return null;
   }
@@ -132,8 +97,8 @@ export function WorkbookGrid({
         <SheetPanel sheet={active} />
       ) : (
         <Tabs.Root
-          value={active.name}
-          onValueChange={setActiveName}
+          value={String(selectedIndex)}
+          onValueChange={(value) => setActiveIndex(Number(value))}
           // Arrowing across a 24-sheet workbook must not read 24 sheets.
           activationMode="manual"
           className="flex min-h-0 min-w-0 flex-1 flex-col"
@@ -149,10 +114,10 @@ export function WorkbookGrid({
               aria-label={t("xlsxPreview.sheetsAria")}
               className="border-b-0 px-4"
             >
-              {sheets.map((sheet) => (
+              {sheets.map((sheet, index) => (
                 <Tabs.Trigger
-                  key={sheet.name}
-                  value={sheet.name}
+                  key={index}
+                  value={String(index)}
                   title={sheet.name}
                   className="shrink-0"
                 >
@@ -165,8 +130,8 @@ export function WorkbookGrid({
           </ScrollShadow>
           {/* Only the open sheet is mounted, so no other sheet is ever read. */}
           <Tabs.Panel
-            key={active.name}
-            value={active.name}
+            key={selectedIndex}
+            value={String(selectedIndex)}
             className="flex min-h-0 min-w-0 flex-1 flex-col"
           >
             <SheetPanel sheet={active} />

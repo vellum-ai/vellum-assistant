@@ -16,10 +16,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ParsedCsv } from "./csv";
 import type { WorkbookSheet } from "./xlsx";
 import { WorkbookGrid } from "./xlsx-preview";
-
-function sheet(name: string, grid: ParsedCsv): WorkbookSheet {
-  return { name, read: () => Promise.resolve(grid) };
-}
+import { grid, sheet } from "./xlsx-preview.test-helper";
 
 const EXPENSE_HEADERS = ["category", "budget", "spent", "remaining"];
 
@@ -32,29 +29,27 @@ function expenseGrid(month: string): ParsedCsv {
     ["Utilities", "210", "233"],
     [`${month} one-off`, "300", "265"],
   ];
-  return {
-    headers: EXPENSE_HEADERS,
-    rows: categories.map(([category, budget, spent]) => [
+  return grid(
+    categories.map(([category, budget, spent]) => [
       category,
       budget,
       spent,
       String(Number(budget) - Number(spent)),
     ]),
-    truncated: false,
-  };
+    EXPENSE_HEADERS,
+  );
 }
 
 /** A long sheet, so the grid virtualizes and the footer counts into the tens. */
-const READINGS_GRID: ParsedCsv = {
-  headers: ["timestamp", "sensor", "celsius", "humidity"],
-  rows: Array.from({ length: 240 }, (_, index) => [
+const READINGS_GRID: ParsedCsv = grid(
+  Array.from({ length: 240 }, (_, index) => [
     `2026-09-${String(1 + Math.floor(index / 24)).padStart(2, "0")} ${String(index % 24).padStart(2, "0")}:00`,
     `sensor_${String((index % 6) + 1).padStart(2, "0")}`,
     (14 + ((index * 7) % 90) / 10).toFixed(1),
     String(40 + ((index * 3) % 35)),
   ]),
-  truncated: false,
-};
+  ["timestamp", "sensor", "celsius", "humidity"],
+);
 
 const SINGLE_SHEET = [sheet("Budget", expenseGrid("September"))];
 
@@ -78,15 +73,11 @@ const LONG_NAME_SHEETS = [
     expenseGrid("September"),
   ),
   sheet("Quarterly reconciliation and carry-forward", expenseGrid("October")),
-  sheet("Notes", {
-    headers: null,
-    rows: [["Renew the lease"]],
-    truncated: false,
-  }),
+  sheet("Notes", grid([["Renew the lease"]])),
 ];
 
 const EMPTY_SHEETS = [
-  sheet("Blank", { headers: null, rows: [], truncated: false }),
+  sheet("Blank", grid([])),
   sheet("Budget", expenseGrid("September")),
 ];
 

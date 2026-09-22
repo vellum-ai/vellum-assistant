@@ -19,6 +19,7 @@ import { TableVirtuoso, type TableComponents } from "react-virtuoso";
 import { Typography } from "@vellumai/design-library";
 
 import type { ParsedCsv } from "@/domains/chat/components/local-file/preview/csv";
+import { PreviewNotice } from "@/domains/chat/components/local-file/preview/preview-notice";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -47,19 +48,27 @@ const TABLE_COMPONENTS: TableComponents<string[]> = {
 
 export interface TabularGridProps extends ParsedCsv {
   /** Already-translated footer sentence, in place of the row and column count. */
-  summary?: ReactNode;
+  summary?: string;
   /** Already-translated copy for a grid with no columns. */
   emptyLabel?: string;
 }
 
+/**
+ * Columns the grid draws: the header row when the parse found one, else the
+ * width of the first record. Exported so a caller counting the same table for
+ * its own footer sentence counts it the same way.
+ */
+export function columnCountOf(grid: ParsedCsv): number {
+  return grid.headers?.length ?? grid.rows[0]?.length ?? 0;
+}
+
 export function TabularGrid({
-  headers,
-  rows,
-  truncated,
   summary,
   emptyLabel,
+  ...grid
 }: TabularGridProps): ReactNode {
   const { t } = useTranslation("chat");
+  const { headers, rows, truncated } = grid;
 
   const fixedHeaderContent = useCallback(() => {
     if (headers === null) {
@@ -83,21 +92,10 @@ export function TabularGrid({
     );
   }, [headers]);
 
-  const columnCount = headers?.length ?? rows[0]?.length ?? 0;
+  const columnCount = columnCountOf(grid);
   if (columnCount === 0) {
     return (
-      <div
-        role="status"
-        className="flex h-full items-center justify-center p-4"
-      >
-        <Typography
-          as="span"
-          variant="body-small-default"
-          className="text-[var(--content-tertiary)]"
-        >
-          {emptyLabel ?? t("csvPreview.emptyFile")}
-        </Typography>
-      </div>
+      <PreviewNotice>{emptyLabel ?? t("csvPreview.emptyFile")}</PreviewNotice>
     );
   }
 
