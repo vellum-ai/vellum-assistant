@@ -243,6 +243,10 @@ mock.module("./about.client", () => ({
   openAboutWindow: mock(() => undefined),
 }));
 
+mock.module("./permission-setup-window", () => ({
+  openPermissionSetup: () => undefined,
+}));
+
 mock.module("./auto-update.client", () => ({
   checkForUpdates: mock(() => undefined),
 }));
