@@ -1034,6 +1034,16 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
   ) {
     subscriptionPlanId = "pro";
     await client.invalidateQueries();
+    await waitFor(
+      () => expect(getByText("Upgrading your assistant…")).toBeTruthy(),
+      { timeout: 5000 },
+    );
+    // Wait for the pre-resize actuals to land (the "from" side) before
+    // mutating: an invalidate that races the initial actuals fetch is
+    // swallowed, leaving the update to the next poll.
+    await waitFor(() => expect(getByText("10 GB")).toBeTruthy(), {
+      timeout: 5000,
+    });
     assistantResponse = makeAssistant("large", 50);
     operationalStatusResponse = makeOperationalStatus("active");
     await client.invalidateQueries();
