@@ -26,11 +26,12 @@ const log = getLogger("auto-profile-router");
 export const AUTO_PROFILE_FALLBACK: DefaultProfileKey = "balanced";
 
 /**
- * Budget before the turn proceeds on the fallback. The router runs before
- * the turn's first provider call, so this is added to time-to-first-token
- * on every Auto turn that hits it.
+ * Budget before the turn proceeds on Balanced. The router runs before the
+ * turn's first provider call, so a Jev outage costs at most this much
+ * time-to-first-token per Auto turn and never blocks the reply. Jev's
+ * measured round trip sits well under it (the voice judge runs on 800ms).
  */
-export const AUTO_PROFILE_ROUTER_TIMEOUT_MS = 2_000;
+export const AUTO_PROFILE_ROUTER_TIMEOUT_MS = 1_000;
 
 const HISTORY_TURNS = 6;
 const HISTORY_TURN_MAX_CHARS = 600;
