@@ -239,7 +239,7 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("upsertVerifiedContactChannel — reserved channel types", () => {
+describe("upsertVerifiedContactChannel: reserved channel types", () => {
   test("refuses the vellum channel type and writes nothing", async () => {
     queryRows = [];
 

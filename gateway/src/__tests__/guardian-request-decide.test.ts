@@ -398,7 +398,7 @@ describe("decide — CAS conflict semantics", () => {
 // Reserved channel types
 // ---------------------------------------------------------------------------
 
-describe("decide — reserved channel types", () => {
+describe("decide: reserved channel types", () => {
   test("an activate_member outcome on a reserved channel type is refused and rolls back", async () => {
     const request = seedRequest();
 

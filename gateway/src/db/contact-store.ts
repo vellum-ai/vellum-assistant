@@ -1648,7 +1648,7 @@ export class ContactStore {
    * Separate from {@link upsertContact}, which refuses `role` and
    * `principalId` outright (see its SECURITY note). This write accepts a
    * principal but only for a `role: "contact"` row, and only when the contact
-   * carries none or already carries the same one — so it can neither rebind
+   * carries none or already carries the same one, so it can neither rebind
    * the guardian nor retarget a contact another principal already speaks for.
    */
   bindContactPrincipal(contactId: string, principalId: string): void {
