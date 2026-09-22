@@ -332,8 +332,6 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   drag?: CollapsibleNavSectionDrag;
   /** Forwarded to `CollapsibleNavSection.Section`; defaults to `true`. */
   collapsible?: boolean;
-  /** Forwarded to `CollapsibleNavSection.Section`: hold the header's reveal. */
-  revealHold?: boolean;
   /**
    * Overrides the default `ConversationRowList` content, e.g. nested
    * sub-sections instead of a row list. `items`/pagination/drag props are
@@ -354,7 +352,6 @@ export function ConversationNavSection({
   collapsedIndicator,
   drag,
   collapsible,
-  revealHold,
   children,
   ...listProps
 }: ConversationNavSectionProps) {
@@ -397,7 +394,6 @@ export function ConversationNavSection({
       collapsedIndicator={collapsedIndicator}
       drag={drag}
       collapsible={collapsible}
-      revealHold={revealHold}
       unbounded={listProps.unbounded}
       isLast={listProps.isLast}
     >

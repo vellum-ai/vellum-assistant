@@ -33,7 +33,6 @@ import {
   renderConversationMenuItems,
   type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
-import { useSectionDoneFlash } from "@/domains/chat/components/section-done-flash";
 import {
   useConversationDoneLabels,
   useSidebarDoneEnabled,
@@ -246,7 +245,6 @@ export function ConversationRow({
   const displayTitle = useDisplayConversationTitle();
   const sidebarDone = useSidebarDoneEnabled();
   const doneLabels = useConversationDoneLabels();
-  const { flash } = useSectionDoneFlash();
   const reduceMotion = useReducedMotion();
   const [leaving, setLeaving] = useState(false);
 
@@ -311,7 +309,6 @@ export function ConversationRow({
   useEffect(() => () => runPendingDone(), [runPendingDone]);
 
   const markDone = useCallback(() => {
-    flash();
     if (!collapsesOut) {
       ctx.onArchive?.(conversation);
       return;
@@ -321,7 +318,7 @@ export function ConversationRow({
     /* The backstop, not the usual path: `onAnimationComplete` gets there
        first whenever frames are running. */
     window.setTimeout(runPendingDone, DONE_EXIT_MS * 2);
-  }, [collapsesOut, ctx, conversation, flash, runPendingDone]);
+  }, [collapsesOut, ctx, conversation, runPendingDone]);
 
   const doneCheck =
     sidebarDone && ctx.onArchive && conversation.archivedAt == null ? (

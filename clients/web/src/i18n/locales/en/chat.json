@@ -1,8 +1,4 @@
 {
-  "conversationDoneToast": {
-    "message": "Done",
-    "undo": "Undo"
-  },
   "documentChat": {
     "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
     "viewConversation": "View conversation",
