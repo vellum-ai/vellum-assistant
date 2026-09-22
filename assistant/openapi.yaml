@@ -12060,7 +12060,9 @@ paths:
     post:
       operationId: dictation_post
       summary: Process dictation
-      description: Classify voice input as dictation or action, clean up text, and apply user style preferences.
+      description:
+        Preserve dictated words with explicit dictionary and snippet replacements, classify actions, or edit
+        selected text when instructed.
       tags:
         - diagnostics
       requestBody:

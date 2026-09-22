@@ -55,28 +55,10 @@ interface GlobalPushToTalkBridgeProps {
   assistantId: string | null;
 }
 
-/**
- * How long a hold gives the cleanup pass before inserting the words as heard.
- *
- * The route's own timeout, so the pass gets every chance to answer while its
- * cost is being measured. The log line below carries what each hold paid.
- */
-const CLEANUP_DEADLINE_MS = 5000;
+/** Bounds intent classification and explicit replacements before using raw words. */
+const DICTATION_DEADLINE_MS = 5000;
 
-/**
- * How long a hold gives the daemon to rewrite a selection before the words go
- * to the assistant as a question instead.
- *
- * Its own bound rather than the cleanup's. A cleanup tidies a sentence and
- * answers in a second or two whatever was said; a rewrite writes back as much
- * as it was handed, and a paragraph takes the model as long as a paragraph
- * takes. Under the cleanup's bound a long selection's edit was dropped at
- * the deadline and the hold fell through to the ask, which read an answer
- * aloud when the user had asked for the text in front of them changed. The
- * user is watching their selection while it runs, so the wait is a wait and
- * not a hang; what has to hold is that a rewrite asked for is a rewrite
- * delivered.
- */
+/** Selected-text edits can take longer than applying dictionary/snippet replacements. */
 const REWRITE_DEADLINE_MS = 20_000;
 
 /**
@@ -100,15 +82,14 @@ export function composeSelectionAsk(
 }
 
 /**
- * The cleanup pass raced against a deadline rather than awaited, so a daemon
- * that is not answering costs the hold the deadline and no more. Past it the
- * late answer is dropped.
+ * A late dictation response is dropped so an unavailable assistant cannot
+ * block insertion indefinitely.
  */
 async function postDictationWithDeadline(
   words: string,
   assistantId: string,
   context: DictationContext,
-  deadlineMs: number = CLEANUP_DEADLINE_MS,
+  deadlineMs: number = DICTATION_DEADLINE_MS,
 ): Promise<DictationPostResponse | null> {
   const abort = new AbortController();
   return Promise.race([
@@ -388,9 +369,8 @@ export function GlobalPushToTalkBridge({
         return;
       }
       holdTarget()?.stop();
-      // From here the other app's paste is the last edit, and the cleanup
-      // pass stands between this and the offer. Watch from now so a press in
-      // that gap is seen: after one, there is nothing safe left to replace.
+      // The dictation request stands between the other app's paste and the
+      // offer. Watch for typing during that gap: it invalidates replacement.
       if (holdClaimantRef.current !== null) {
         armDictationOfferWatch();
       }
@@ -459,10 +439,8 @@ export function GlobalPushToTalkBridge({
             return;
           }
         }
-        // A question about what was highlighted. Not pasted, and not cleaned
-        // up: the cleanup pass rewrites words meant for a document, and these
-        // are meant for the assistant, who hears them as said. The reply is
-        // spoken, on the call the companion shows while it plays.
+        // Questions carry the selection and the words as spoken to the
+        // assistant. The companion presents the spoken reply.
         const ask = composeSelectionAsk(selection, rawText);
         const taken = askVoiceFromSurface(
           (to, options) => navigateRef.current(to, options),
@@ -478,13 +456,8 @@ export function GlobalPushToTalkBridge({
         return;
       }
       let insertText = rawText;
-      // The cleanup pass: one model call that punctuates, drops the fillers,
-      // adapts the tone to the application in front and applies the user's
-      // own style. It is what turns "grocery list, onions, tomatoes" into a
-      // list, and the only leg of this that can. A hold takes it too, now that
-      // nothing else on its path is worth waiting for; what it costs is
-      // measured rather than assumed. Character counts and timings only.
-      const cleanupStartedAt = Date.now();
+      // Apply only replacements the user explicitly configured.
+      const dictationStartedAt = Date.now();
       const dictationResult = assistantId
         ? await postDictationWithDeadline(rawText, assistantId, {
             cursorInTextField: true,
@@ -494,7 +467,7 @@ export function GlobalPushToTalkBridge({
         insertText = dictationResult.text;
       }
       console.info(
-        `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
+        `dictation: replacements ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - dictationStartedAt}`,
       );
       // Another dictation app heard the same key and has pasted by now.
       // Pasting beside it would leave the sentence twice, so the words are
