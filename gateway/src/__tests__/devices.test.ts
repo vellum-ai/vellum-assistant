@@ -290,6 +290,19 @@ describe("minted token role", () => {
     expect(scopes.has("chat.write")).toBe(true);
   });
 
+  test("a contact token grants no read scope", () => {
+    // The routes behind these return the guardian's data to any holder, so
+    // each one comes back only when its routes filter by caller.
+    const scopes = resolveScopeProfile("contact_client_v1");
+    for (const scope of [
+      "chat.read",
+      "approval.read",
+      "attachments.read",
+    ] as const) {
+      expect(scopes.has(scope)).toBe(false);
+    }
+  });
+
   test("a browser mint carries the role through to both rows", () => {
     const pair = mintAndRecordBrowserTokenPair({
       guardianPrincipalId: "contact-principal-2",
