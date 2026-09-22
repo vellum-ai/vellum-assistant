@@ -25,10 +25,16 @@ import {
   HANDLE_ERROR_COPY,
 } from "@/domains/account/handle";
 import {
+  readableSetupError,
+  readDomainEmailError,
+} from "@/domains/assistant-inbox/setup-error-message";
+import {
   assistantsDomainsCreateMutation,
   assistantsEmailAddressesCreateMutation,
+  assistantsEmailAddressesListQueryKey,
   assistantsListQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { PaginatedAssistantEmailAddressList } from "@/generated/api/types.gen";
 import {
   channelsReadinessGetQueryKey,
   channelsReadinessRefreshPostMutation,
@@ -214,6 +220,7 @@ export function AssistantInboxPageRoute() {
       setSettling(true);
       setSetupError(null);
       try {
+        let partialFailure: string | null = null;
         if (state.hasDomain) {
           await createAddress.mutateAsync({
             path,
@@ -223,7 +230,7 @@ export function AssistantInboxPageRoute() {
           // One call registers the subdomain and the address on it, and the
           // subdomain becomes the assistant's public handle, which is why
           // the card lets the user choose it here.
-          await createDomain.mutateAsync({
+          const created = await createDomain.mutateAsync({
             path,
             body: { subdomain: handle, email_username: prefix },
           });
@@ -231,13 +238,34 @@ export function AssistantInboxPageRoute() {
           void queryClient.invalidateQueries({
             queryKey: assistantsListQueryKey(),
           });
+          // The subdomain is claimed even when the address on it could not
+          // be made: the platform reports that as a field on the success,
+          // not as a failure, so it is read here and treated as one.
+          const emailError = readDomainEmailError(created);
+          if (emailError) {
+            partialFailure =
+              emailError.detail ?? t("assistantInboxRoute.setupFailed");
+          }
         }
         await state.refreshAddresses();
         refreshChannelReadiness();
+        // "Ready" is what the refreshed list says, not what the call said.
+        const listed =
+          queryClient.getQueryData<PaginatedAssistantEmailAddressList>(
+            assistantsEmailAddressesListQueryKey({ path }),
+          );
+        const registered = listed?.results?.[0]?.address ?? null;
+        if (partialFailure !== null || registered === null) {
+          const reason =
+            partialFailure ?? t("assistantInboxRoute.setupIncomplete");
+          captureError(new Error(reason), {
+            context: "assistant_inbox_setup",
+          });
+          setSetupError(readableSetupError(reason));
+          return;
+        }
         toast.success(
-          t("assistantInboxRoute.setupSucceeded", {
-            address: `${prefix}@${state.hasDomain ? state.handle : handle}.${state.rootDomain}`,
-          }),
+          t("assistantInboxRoute.setupSucceeded", { address: registered }),
         );
       } catch (err) {
         captureError(err, { context: "assistant_inbox_setup" });
@@ -245,10 +273,12 @@ export function AssistantInboxPageRoute() {
         // about what was typed (a taken handle, a bad prefix), and it should
         // sit beside the thing to fix.
         setSetupError(
-          extractErrorMessage(
-            err,
-            undefined,
-            t("assistantInboxRoute.setupFailed"),
+          readableSetupError(
+            extractErrorMessage(
+              err,
+              undefined,
+              t("assistantInboxRoute.setupFailed"),
+            ),
           ),
         );
       } finally {

@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { setSelectedAssistant } from "@/assistant/selection";
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
   clearCheckoutIntent,
@@ -324,19 +323,18 @@ export function BillingOnboardingModal({
   // An address set up through the old step could never reach that mailbox,
   // so the old step is not offered beside the new one.
   const handOffToInbox = useCallback(() => {
-    // Provisioning can target an assistant other than the active one, and the
-    // inbox reads the active one, so select the target first, as the complete
-    // step does before it returns to the assistant.
-    if (assistantId != null) {
-      void setSelectedAssistant(assistantId);
-    }
+    // The inbox opens for the assistant the user was using, not the one the
+    // upgrade provisioned: the entitlement is the organisation's, and an
+    // assistant that already carries an address must land on its mailbox,
+    // not on a setup card for a sibling with none.
+    //
     // What the skipped complete step did on its own way out: clear the
     // intent. Navigating unmounts this modal before any close effect runs,
     // so it is done here.
     clearCheckoutIntent();
     onClose();
     navigate(routes.assistantInbox, { replace: true });
-  }, [assistantId, navigate, onClose]);
+  }, [navigate, onClose]);
 
   const advanceFromProvisioning = useCallback(() => {
     // Checkout treats unknown availability optimistically (`undefined` → domain

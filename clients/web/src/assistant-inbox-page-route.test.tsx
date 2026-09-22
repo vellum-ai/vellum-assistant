@@ -89,6 +89,8 @@ let addresses: AssistantEmailAddress[] = [];
 /** The domain list, empty on a fresh upgrade. */
 let domains: AssistantDomain[] = [];
 const domainCreateBodies: unknown[] = [];
+/** When set, the domain is claimed but the address on it is not made. */
+let domainEmailError: { detail: string; code: string } | null = null;
 
 function page<T>(results: T[]) {
   return {
@@ -122,7 +124,8 @@ mock.module("@/generated/api/sdk.gen", () => ({
   assistantsDomainsList: () => Promise.resolve(page(domains)),
   assistantsDomainsCreate: (options: { body: unknown }) => {
     domainCreateBodies.push(options.body);
-    // One call registers the subdomain and the address on it.
+    // One call registers the subdomain and, as a best effort, the address
+    // on it; a failed address comes back as a field on the success.
     domains = [
       {
         id: "domain-1",
@@ -131,6 +134,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
         modified: "2026-09-22T00:00:00Z",
       },
     ];
+    if (domainEmailError) {
+      return Promise.resolve({
+        data: { ...domains[0], email_error: domainEmailError },
+        response: { ok: true },
+      });
+    }
     addresses = [
       {
         id: "address-1",
@@ -185,6 +194,7 @@ beforeEach(() => {
   addresses = [];
   domains = [];
   domainCreateBodies.length = 0;
+  domainEmailError = null;
   toastSuccessCalls.length = 0;
   useClientFeatureFlagStore.setState({ assistantInbox: true, hydrated: true });
   useAssistantIdentityStore.setState({ name: "Ziggy" });
@@ -232,6 +242,35 @@ describe("AssistantInboxPageRoute after an upgrade", () => {
     expect(toastSuccessCalls.length).toBe(1);
     expect(toastSuccessCalls[0]).toMatch(
       /^hi@bright-vole-02a64h\..+ is ready\.$/,
+    );
+  });
+
+  test("a claimed subdomain whose address could not be made is an error, not a ready address", async () => {
+    domainEmailError = {
+      detail:
+        'Failed to provision email domain: {"statusCode":403,"message":"You have reached the domain limit of your plan. Upgrade to add more.","name":"validation_error"}',
+      code: "resend_domain_error",
+    };
+    renderRoute();
+
+    await screen.findByLabelText("Handle (public)");
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+    await waitFor(() => expect(domainCreateBodies.length).toBe(1));
+    // The provider's sentence, under the fields, and no claim of readiness.
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Failed to provision email domain: You have reached the domain limit of your plan. Upgrade to add more.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(toastSuccessCalls).toEqual([]);
+    expect(screen.queryByText("Ziggy's Inbox")).toBeNull();
+    // The subdomain is claimed now, so the handle is settled and only the
+    // prefix is left to choose.
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Handle (public)")).toBeNull(),
     );
   });
 

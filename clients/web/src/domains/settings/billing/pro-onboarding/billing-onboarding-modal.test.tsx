@@ -87,9 +87,9 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   },
 }));
 
-// The inbox hand-off selects the provisioning target before it navigates;
-// record the ids rather than write the real selection, which mirrors to a
-// lockfile the test has no daemon for.
+// The complete step selects the provisioning target; record the ids rather
+// than write the real selection, which mirrors to a lockfile the test has no
+// daemon for, and so the hand-off can be shown never to select one.
 const selectedAssistantIds: Array<string | null> = [];
 mock.module("@/assistant/selection", () => ({
   setSelectedAssistant: async (id: string | null) => {
@@ -1073,10 +1073,10 @@ describe("BillingOnboardingModal — Assistant Inbox on", () => {
     );
     expect(queryByText("Assistant Email")).toBeNull();
     expect(onClose).toHaveBeenCalled();
-    // The provisioning target is selected first, since the inbox reads the
-    // active assistant; the intent is cleared the way the skipped complete
-    // step would have cleared it.
-    expect(selectedAssistantIds).toEqual(["assistant-1"]);
+    // The inbox opens for the assistant the user was on: the provisioning
+    // target is never selected over it. The intent is cleared the way the
+    // skipped complete step would have cleared it.
+    expect(selectedAssistantIds).toEqual([]);
     expect(readCheckoutIntent()).toBeNull();
     expect(domainCreateCalls).toBe(0);
   }, 20_000);
