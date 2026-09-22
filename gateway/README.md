@@ -262,7 +262,7 @@ The gateway acts as the single ingress point for all traffic. Dedicated gateway 
 
 ### Auth behavior
 
-By default, proxied requests must include a valid `Authorization: Bearer <jwt>` header with a JWT signed by the shared signing key. Auth requirement is configured via workspace config.
+By default, proxied requests must include a valid `Authorization: Bearer <jwt>` header with a JWT signed by the shared signing key. Setting `RUNTIME_PROXY_REQUIRE_AUTH=false` in the gateway process environment drops that requirement; workspace config is not consulted.
 
 `OPTIONS` requests are always allowed without auth (CORS preflight). Telegram webhook requests use their own secret-based verification and are not affected by proxy auth.
 
