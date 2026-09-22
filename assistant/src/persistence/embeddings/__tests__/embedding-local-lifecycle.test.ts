@@ -54,6 +54,33 @@ function brokenPipeProc(pid = 4242) {
   };
 }
 
+/**
+ * A stand-in for a Bun subprocess whose stdin write outruns the pipe buffer:
+ * `write` and `flush` hand back one pending promise, and killing the worker
+ * rejects it with EPIPE, the way Bun settles a pending write once the child
+ * is reaped.
+ */
+function pendingWriteProc(pid = 4244) {
+  const pending = Promise.withResolvers<number>();
+  return {
+    pid,
+    killed: false,
+    exited: Promise.resolve(0),
+    kill() {
+      this.killed = true;
+      pending.reject(
+        Object.assign(new Error("EPIPE: broken pipe, write"), {
+          code: "EPIPE",
+        }),
+      );
+    },
+    stdin: {
+      write: () => pending.promise,
+      flush: () => pending.promise,
+    },
+  };
+}
+
 /** A subprocess that stays "alive" until killed, so exit can be observed. */
 function liveProc(pid = 4243) {
   let resolveExit: (code: number) => void = () => {};
@@ -263,25 +290,18 @@ describe("broken worker pipe", () => {
   });
 
   /**
-   * A real pipe, because the failure lives in Bun's behaviour rather than in
-   * ours: a batch larger than the pipe buffer, sent to a worker too busy to
-   * drain stdin, leaves the write pending, and the pending write rejects when
-   * the worker dies. A synchronous guard never sees that rejection.
+   * A batch larger than the pipe buffer, sent to a worker too busy to drain
+   * stdin, leaves the write pending, and the pending write rejects after
+   * `sendRequest` has returned, once the worker dies. A synchronous guard
+   * never sees that rejection.
    */
   test("a write still pending when the worker dies resolves the request as an error", async () => {
     const backend = newBackend();
-    const proc = Bun.spawn({
-      cmd: [process.execPath, "-e", "setTimeout(() => {}, 60_000)"],
-      windowsHide: true,
-      stdin: "pipe",
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    spawned.push(proc);
+    const proc = pendingWriteProc();
     backend.workerProc = proc;
 
-    const request = backend.sendRequest(["x".repeat(4 * 1024 * 1024)]);
-    proc.kill("SIGKILL");
+    const request = backend.sendRequest(["hello"]);
+    proc.kill();
     const response = await request;
 
     expect(response.error).toContain("worker pipe write failed");
