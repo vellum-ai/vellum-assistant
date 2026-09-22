@@ -260,7 +260,7 @@ export function useSectionConversationListQuery(
  *
  * An assistant that does not know `conversationType=all` rejects the request
  * with a 400, which surfaces here as an errored query. The caller decides what
- * to do about that (the Old chats page falls back to the four bucket reads),
+ * to do about that (the All chats page falls back to the four bucket reads),
  * which is how the read degrades without a version gate.
  */
 export function useAllHistoryConversationListQuery(

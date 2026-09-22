@@ -565,7 +565,7 @@
       "scope": "both",
       "key": "sidebar-done",
       "label": "Sidebar Done",
-      "description": "Turns archiving a chat into marking it done: the sidebar row carries a Done check instead of the overflow menu, an Old chats page lists the full history, and done chats stay findable in search by default. Off keeps today's Archive wording, the overflow menu, and search that hides archived rows unless the query asks for them.",
+      "description": "Turns archiving a chat into marking it done: the sidebar row carries a Done check instead of the overflow menu, an All chats page lists the full history, and done chats stay findable in search by default. Off keeps today's Archive wording, the overflow menu, and search that hides archived rows unless the query asks for them.",
       "defaultEnabled": false
     }
   ]

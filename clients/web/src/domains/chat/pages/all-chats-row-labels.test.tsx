@@ -1,5 +1,5 @@
 /**
- * The Old chats page never says "Archive".
+ * The All chats page never says "Archive".
  *
  * The page only exists with `sidebar-done` on, so its rows pin the done
  * wording rather than reading it off the flag. The regression this guards is
@@ -57,7 +57,7 @@ mock.module("@vellumai/design-library", () => ({
   VirtualList: () => null,
 }));
 
-import { OldChatsRow } from "@/domains/chat/pages/old-chats-page";
+import { AllChatsRow } from "@/domains/chat/pages/all-chats-page";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -83,7 +83,7 @@ function renderRow(conversation: Conversation) {
           onDelete: () => {},
         },
       },
-      createElement(OldChatsRow, { conversation, now: new Date(NOW) }),
+      createElement(AllChatsRow, { conversation, now: new Date(NOW) }),
     ),
   );
 }
@@ -121,7 +121,7 @@ afterAll(() => {
   mock.restore();
 });
 
-describe("OldChatsRow", () => {
+describe("AllChatsRow", () => {
   test("the right-click menu reads as completion even with the flag store off", () => {
     const { getByTestId } = renderRow(CONVERSATION);
     const menu = getByTestId("context-menu").textContent ?? "";
