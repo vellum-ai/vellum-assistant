@@ -34,7 +34,7 @@ export const DEFAULT_CARD_CHARS = 500;
  * only, so a missing product is not evidence it is unsupported.
  */
 export const SKILLS_INJECTION_CATALOG_HINT =
-  "Injected skills are only ones currently in the workspace. Run `assistant plugins search <name>` and `assistant skills search <name>` before concluding a given integration or skill is unsupported";
+  "These skill cards describe availability, not tool instructions. When skill_load is available, use it to load a skill's current instructions and input schemas before calling its tools; follow those schemas over remembered arguments. Injected skills are only ones currently in the workspace. Run `assistant plugins search <name>` and `assistant skills search <name>` before concluding a given integration or skill is unsupported";
 
 /**
  * Render the prose-style capability statement embedded into the unified
