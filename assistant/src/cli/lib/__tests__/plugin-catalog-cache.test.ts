@@ -102,7 +102,7 @@ describe("getPluginCatalog", () => {
 
     // THEN the platform is fetched exactly once — the second call is cached
     expect(calls()).toBe(1);
-    expect(first).toBe(second);
+    expect(first).toEqual(second);
     expect(githubNames(first)).toEqual(["a"]);
     expect(first.ref).toBe("main");
   });
@@ -161,7 +161,10 @@ describe("getPluginCatalog", () => {
     delete process.env.IS_PLATFORM;
 
     const { fetch, calls } = platformFetch(["ignored"]);
-    const deps: SearchPluginsDeps = { fetch };
+    const deps: SearchPluginsDeps = {
+      fetch,
+      featureFlagEnabled: () => true,
+    };
 
     // WHEN we request the catalog
     const result = await getPluginCatalog("main", deps);
@@ -172,6 +175,20 @@ describe("getPluginCatalog", () => {
     expect(result.matches).toEqual(bundled.matches);
     // The requested ref is echoed onto the wire contract.
     expect(result.ref).toBe("main");
+  });
+
+  test("applies feature-flag visibility to bundled catalog entries", async () => {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    delete process.env.IS_PLATFORM;
+
+    const { fetch } = platformFetch(["ignored"]);
+    const result = await getPluginCatalog("main", {
+      fetch,
+      featureFlagEnabled: () => false,
+    });
+
+    expect(result.matches.map((match) => match.name)).not.toContain("gamma");
+    expect(result.matches.map((match) => match.name)).toContain("fathom");
   });
 });
 

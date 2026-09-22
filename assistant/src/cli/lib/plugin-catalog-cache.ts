@@ -14,6 +14,7 @@ import {
   readBundledPluginCatalog,
 } from "./plugin-catalog-local.js";
 import { fetchPluginCatalogFromPlatform } from "./plugin-catalog-platform.js";
+import { filterPluginCatalogByFeatureFlags } from "./plugin-catalog-visibility.js";
 import type { PluginCatalog, SearchPluginsDeps } from "./search-plugins.js";
 
 /** How long a fetched catalog is served before a refresh is attempted. */
@@ -55,18 +56,24 @@ export async function getPluginCatalog(
   deps: SearchPluginsDeps,
 ): Promise<PluginCatalog> {
   if (!arePlatformFeaturesEnabled()) {
-    return { ...readBundledPluginCatalog(), ref };
+    return filterPluginCatalogByFeatureFlags(
+      { ...readBundledPluginCatalog(), ref },
+      deps.featureFlagEnabled,
+    );
   }
 
   const cached = cache.get(ref);
   if (cached && Date.now() - cached.timestamp < PLUGIN_CATALOG_CACHE_TTL_MS) {
-    return cached.catalog;
+    return filterPluginCatalogByFeatureFlags(
+      cached.catalog,
+      deps.featureFlagEnabled,
+    );
   }
 
   const catalog = await fetchPluginCatalogFromPlatform(deps, { ref });
   const merged = mergePlatformCatalogWithBundledLocals(catalog);
   cache.set(ref, { catalog: merged, timestamp: Date.now() });
-  return merged;
+  return filterPluginCatalogByFeatureFlags(merged, deps.featureFlagEnabled);
 }
 
 /** Invalidate the cache (for testing or forced refresh). */
