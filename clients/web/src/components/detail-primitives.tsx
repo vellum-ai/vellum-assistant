@@ -19,7 +19,11 @@ import {
   type ReactNode,
 } from "react";
 
-import { Typography, type TypographyAs } from "@vellumai/design-library";
+import {
+  CardRoot,
+  Typography,
+  type TypographyAs,
+} from "@vellumai/design-library";
 
 import { CopyButton } from "@/components/copy-button";
 import { useOverflows } from "@/hooks/use-overflows";
@@ -67,16 +71,29 @@ const CLAMP_FADE_MASK = `linear-gradient(to bottom, black calc(100% - ${CLAMP_FA
  */
 export function ClampedContent({
   label,
+  expanded,
+  onExpandedChange,
   children,
 }: {
   /** Names the value while it scrolls; defaults to a generic name. */
   label?: string;
+  /**
+   * Whether the value is open, for a host whose view unmounts the value and
+   * brings it back (a list swapped for a drill-in and back). Pair with
+   * `onExpandedChange`; without them the fold keeps its own state.
+   */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   children: ReactNode;
 }) {
   if (useContext(InsideFold)) {
     return children;
   }
-  return <Fold label={label}>{children}</Fold>;
+  return (
+    <Fold label={label} expanded={expanded} onExpandedChange={onExpandedChange}>
+      {children}
+    </Fold>
+  );
 }
 
 /** Whether content is already inside a fold, which owns folding it. */
@@ -84,13 +101,19 @@ const InsideFold = createContext(false);
 
 function Fold({
   label,
+  expanded: controlledExpanded,
+  onExpandedChange,
   children,
 }: {
   label: string | undefined;
+  expanded: boolean | undefined;
+  onExpandedChange: ((expanded: boolean) => void) | undefined;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [ownExpanded, setOwnExpanded] = useState(false);
+  const expanded = controlledExpanded ?? ownExpanded;
+  const setExpanded = onExpandedChange ?? setOwnExpanded;
   // Measured against the fold height rather than the box, so the measure holds
   // while expanded too and content swapped in that fits drops the control.
   const fold = useOverflows<HTMLDivElement>({ limit: CLAMP_HEIGHT });
@@ -170,14 +193,9 @@ function Fold({
   );
 }
 
-const DETAIL_BLOCK_VARIANT_CLASSES = {
-  outlined: "rounded-lg border border-[var(--border-base)]",
-  filled: "rounded-xl",
-} as const;
-
 interface DetailBlockProps {
   /** `outlined` carries a hairline border; `filled` is the bare surface. */
-  variant?: keyof typeof DETAIL_BLOCK_VARIANT_CLASSES;
+  variant?: "outlined" | "filled";
   /** Text the copy button copies. Without it the block has no copy button. */
   copyText?: string;
   /** Names the content while it scrolls, once opened past the fold. */
@@ -188,7 +206,8 @@ interface DetailBlockProps {
 /**
  * The surface long content sits on in a detail panel: clamped behind Show more
  * when it runs long, with a copy button in its top-right corner when there is
- * text to copy.
+ * text to copy. It is a design-library `CardRoot` on the overlay surface, since the
+ * panel it sits in is itself the lift surface a default card would take.
  *
  * It owns the conditions its parts depend on. The copy button is
  * absolutely positioned, so the block is its containing block, and it reserves
@@ -206,10 +225,12 @@ export function DetailBlock({
   const hasCopy = copyText !== undefined;
 
   return (
-    <div
+    <CardRoot
+      surface="overlay"
+      padding="sm"
+      bordered={variant === "outlined"}
       className={cn(
-        "relative bg-[var(--surface-overlay)] p-3",
-        DETAIL_BLOCK_VARIANT_CLASSES[variant],
+        "relative",
         hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
       )}
     >
@@ -221,7 +242,7 @@ export function DetailBlock({
           className="absolute right-2 top-2"
         />
       )}
-    </div>
+    </CardRoot>
   );
 }
 
@@ -322,7 +343,8 @@ export function CodeBlock({
 }
 
 /**
- * Uppercase section label in `--content-tertiary`.
+ * The one section heading every detail panel uses: uppercase, in
+ * `--content-tertiary`.
  *
  * `leading-4` is deliberate: the `label-small-default` token ships
  * `line-height: 1`, which leaves no room below the baseline and clips glyph
@@ -330,16 +352,22 @@ export function CodeBlock({
  */
 export function SectionLabel({
   children,
+  as = "div",
   className = "mb-2",
 }: {
   children: string;
+  /**
+   * `h3` where the label heads a section of a panel's outline; `span` inside
+   * a control such as a disclosure trigger, which takes only phrasing content.
+   */
+  as?: "div" | "span" | "h3";
   /** Margin override for rows that manage their own spacing. */
   className?: string;
 }) {
   return (
     <Typography
       variant="label-small-default"
-      as="div"
+      as={as}
       className={`uppercase leading-4 tracking-wider text-[var(--content-tertiary)] ${className}`}
     >
       {children}

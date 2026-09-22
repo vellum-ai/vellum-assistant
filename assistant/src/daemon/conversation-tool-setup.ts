@@ -1193,7 +1193,7 @@ export function createResolveToolsCallback(
         definition.name === "bash"
           ? {
               ...definition,
-              description: `${definition.description} For browser tasks, use assistant browser navigate --url <url> directly. It installs the virtual desktop if needed, starts Chrome, and completes the action in one call. Use timeout_seconds: ${getConfig().timeouts.shellMaxTimeoutSec} for first use; setup progress is visible in the Virtual desktop panel. Use assistant browser --help for other browser actions. Use this managed path even if saved notes describe manual setup. Do not install packages or launch Chrome, X servers, or screenshot scripts yourself.`,
+              description: `${definition.description} For browser tasks, use assistant browser navigate --url <url> directly. Chrome and desktop components are included in the assistant image. The command starts Chrome and completes the action without installing dependencies. If components are missing, report the image problem. Use assistant browser --help for other browser actions. Use this managed path even if saved notes describe manual setup. Do not install packages or launch Chrome, X servers, or screenshot scripts yourself.`,
             }
           : definition,
       );

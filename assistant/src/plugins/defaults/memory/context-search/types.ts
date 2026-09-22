@@ -1,15 +1,5 @@
+import type { RecallSource } from "../../../../api/events/tool-result.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
-
-export type RecallSource = "memory" | "conversations" | "workspace";
-
-export type RecallDepth = "fast" | "standard" | "deep";
-
-export interface RecallInput {
-  query: string;
-  sources?: RecallSource[];
-  max_results?: number;
-  depth?: RecallDepth;
-}
 
 export interface RecallEvidence {
   id: string;

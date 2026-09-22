@@ -86,6 +86,7 @@ import {
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
+  isOnToolStep,
   liveVoiceSurfaceLabelKey,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
@@ -140,6 +141,7 @@ export function VoiceSessionPillHost({
   const outputMuted = useLiveVoiceStore.use.outputMuted();
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
   const responsePhase = useLiveVoiceStore.use.responsePhase();
+  const onToolStep = useLiveVoiceStore(isOnToolStep);
 
   // The session's own word, taken as a catalog key so the pill reads in the
   // user's language. Reconnect is left unfired, while actual playback keeps a
@@ -151,6 +153,7 @@ export function VoiceSessionPillHost({
     assistantAudioActive,
     false,
     responsePhase,
+    onToolStep,
   );
   const stateLabel = stateKey ? t(stateKey) : "";
 

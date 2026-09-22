@@ -1,6 +1,7 @@
 import {
   type FeedItem,
   type FeedItemStatus,
+  type FeedItemUpdate,
   isPendingGuardianFeedItem,
 } from "@vellumai/assistant-api";
 
@@ -78,6 +79,56 @@ export function getFeedItemScheduleId(item: FeedItem | null): string | null {
  */
 export function getFeedItemSkillId(item: FeedItem | null): string | null {
   return readMetadataId(item, "skillId");
+}
+
+/**
+ * The skill updates a receipt lists, or an empty array for any other item.
+ *
+ * A receipt is the item whose panel kind says so and whose `updates` carry at
+ * least one entry: an item with the kind but no entries reads as the generic
+ * markdown notification it also carries in `summary`, so an older assistant
+ * that never writes `updates` and a receipt that arrived empty both fall back
+ * the same way. Never inferred from the title or summary text.
+ */
+export function getFeedItemUpdates(item: FeedItem | null): FeedItemUpdate[] {
+  if (item?.detailPanel?.kind !== "updatesList") {
+    return [];
+  }
+  return item.updates ?? [];
+}
+
+/** One skill's entries on a receipt, in the order the rewrites happened. */
+export interface FeedItemUpdateGroup {
+  skillId: string;
+  /** The name the latest rewrite gave the skill. */
+  name: string;
+  updates: FeedItemUpdate[];
+}
+
+/**
+ * Group a receipt's updates by skill, keeping first-seen order across skills
+ * and rewrite order within one. Groups on `skillId` alone: two skills can
+ * share a name, and one skill can be renamed between rewrites, in which case
+ * the group carries the latest name.
+ */
+export function groupFeedItemUpdates(
+  updates: FeedItemUpdate[],
+): FeedItemUpdateGroup[] {
+  const groups = new Map<string, FeedItemUpdateGroup>();
+  for (const update of updates) {
+    const group = groups.get(update.skillId);
+    if (group) {
+      group.name = update.name;
+      group.updates.push(update);
+    } else {
+      groups.set(update.skillId, {
+        skillId: update.skillId,
+        name: update.name,
+        updates: [update],
+      });
+    }
+  }
+  return [...groups.values()];
 }
 
 /**

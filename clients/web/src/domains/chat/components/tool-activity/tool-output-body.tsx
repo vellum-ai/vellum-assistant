@@ -13,8 +13,7 @@
  * would tell a user their declined call returned nothing.
  */
 
-import { Typography } from "@vellumai/design-library";
-
+import { DetailShellNotice } from "@/components/detail-shell";
 import { CodeBlock } from "@/components/detail-primitives";
 import { useTranslation } from "@/i18n";
 
@@ -41,17 +40,12 @@ export function ToolOutputBody({
     );
   }
   return (
-    <Typography
-      variant="body-small-default"
-      as="p"
-      className="text-[var(--content-tertiary)]"
-      data-testid="tool-output-notice"
-    >
+    <DetailShellNotice placement="section" data-testid="tool-output-notice">
       {isDenied
         ? t("toolDetailPanel.denied")
         : isRunning
           ? t("toolDetailPanel.running")
           : t("toolDetailPanel.emptyOutput")}
-    </Typography>
+    </DetailShellNotice>
   );
 }

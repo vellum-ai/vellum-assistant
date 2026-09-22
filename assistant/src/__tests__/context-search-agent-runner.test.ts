@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { RecallMetadataSchema } from "../api/events/tool-result.js";
 import type { AssistantConfig } from "../config/schema.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 
@@ -22,11 +23,11 @@ mock.module("../providers/provider-send-message.js", () => ({
   },
 }));
 
+import type { RecallSource } from "../api/events/tool-result.js";
 import { runAgenticRecall } from "../plugins/defaults/memory/context-search/agent-runner.js";
 import type {
   RecallEvidence,
   RecallSearchContext,
-  RecallSource,
   RecallSourceAdapter,
 } from "../plugins/defaults/memory/context-search/types.js";
 
@@ -941,5 +942,263 @@ describe("runAgenticRecall", () => {
       temperature: 0,
       thinking: { type: "disabled" },
     });
+  });
+});
+
+describe("runAgenticRecall activity", () => {
+  beforeEach(() => {
+    configuredProvider = null;
+    getConfiguredProviderCallSites.length = 0;
+  });
+
+  const launchAdapter = () =>
+    makeAdapter({
+      "launch notes": [
+        makeEvidence("workspace:launch", {
+          excerpt: "  Alice   chose\nFriday.  ",
+          timestampMs: 1_700_000_000_000,
+        }),
+        makeEvidence("workspace:retro"),
+      ],
+    });
+
+  test("carries the finish answer alone and the cited evidence", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer: "Alice chose Friday.",
+        confidence: "high",
+        citation_ids: ["workspace:launch"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"], depth: "fast" },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.activity).toEqual({
+      query: "launch notes",
+      depth: "fast",
+      sources: ["workspace"],
+      answer: "Alice chose Friday.",
+      evidence: [
+        {
+          source: "workspace",
+          title: "workspace:launch title",
+          locator: "workspace:launch.md",
+          excerpt: "Alice chose Friday.",
+          timestampMs: 1_700_000_000_000,
+        },
+      ],
+      searchedSources: [
+        { source: "workspace", status: "searched", evidenceCount: 2 },
+      ],
+    });
+    expect(RecallMetadataSchema.parse(result.activity)).toEqual(
+      result.activity,
+    );
+  });
+
+  test("lists the available evidence the text appends on a low-confidence answer", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer: "Probably Friday.",
+        confidence: "low",
+        citation_ids: ["workspace:launch"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.content).toContain("Available evidence:");
+    expect(result.activity.answer).toBe("Probably Friday.");
+    expect(result.activity.evidence.map((item) => item.title)).toEqual([
+      "workspace:launch title",
+      "workspace:retro title",
+    ]);
+  });
+
+  test("has no answer when recall falls back to listing what it found", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      { searchOptions: { adapters: [launchAdapter()] } },
+    );
+
+    expect(result.debug.mode).toBe("deterministic_fallback");
+    expect(result.activity.answer).toBeUndefined();
+    expect(result.activity.depth).toBe("standard");
+    expect(result.activity.evidence.map((item) => item.title)).toEqual([
+      "workspace:launch title",
+      "workspace:retro title",
+    ]);
+  });
+
+  test("carries the file or conversation each item was found in", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace", "conversations"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              "launch notes": [
+                makeEvidence("workspace:launch", {
+                  metadata: { path: "notes/launch.md", lineNumber: 4 },
+                }),
+                makeEvidence("workspace:unreadable", {
+                  metadata: { path: "notes/gone.md", inspectError: true },
+                }),
+              ],
+            }),
+            makeAdapter(
+              {
+                "launch notes": [
+                  makeEvidence("conversations:c1:m1", {
+                    source: "conversations",
+                    metadata: {
+                      conversationId: "c1",
+                      messageId: "m1",
+                      role: "user",
+                    },
+                  }),
+                ],
+              },
+              [],
+              "conversations",
+            ),
+          ],
+        },
+      },
+    );
+
+    const byTitle = Object.fromEntries(
+      result.activity.evidence.map((item) => [item.title, item]),
+    );
+    expect(byTitle["workspace:launch title"]?.path).toBe("notes/launch.md");
+    expect(byTitle["workspace:unreadable title"]?.path).toBeUndefined();
+    expect(byTitle["conversations:c1:m1 title"]?.conversationId).toBe("c1");
+    expect(byTitle["conversations:c1:m1 title"]?.messageId).toBe("m1");
+    expect(byTitle["conversations:c1:m1 title"]?.path).toBeUndefined();
+  });
+
+  test("reports a source that degrades on a follow-up search", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("search_sources", {
+        query: "decision notes",
+        sources: ["workspace"],
+      }),
+      toolResponse("finish_recall", {
+        answer: "Friday.",
+        confidence: "medium",
+        citation_ids: ["workspace:seed"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search(query) {
+                if (query === "decision notes") {
+                  throw new Error("index unavailable");
+                }
+                return { evidence: [makeEvidence("workspace:seed")] };
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.activity.searchedSources).toEqual([
+      {
+        source: "workspace",
+        status: "degraded",
+        evidenceCount: 1,
+        error: "index unavailable",
+      },
+    ]);
+    expect(result.content).toContain(
+      "Degraded sources: workspace (index unavailable).",
+    );
+  });
+
+  test("clears a degradation that a follow-up search recovers from", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("search_sources", {
+        query: "decision notes",
+        sources: ["workspace"],
+      }),
+      toolResponse("finish_recall", {
+        answer: "Friday.",
+        confidence: "medium",
+        citation_ids: ["workspace:decision"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search(query) {
+                if (query === "launch notes") {
+                  throw new Error("index warming up");
+                }
+                return { evidence: [makeEvidence("workspace:decision")] };
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.activity.searchedSources).toEqual([
+      { source: "workspace", status: "searched", evidenceCount: 1 },
+    ]);
+    expect(result.content).not.toContain("Degraded sources");
+  });
+
+  test("reports a degraded source and no evidence when nothing is found", async () => {
+    const result = await runAgenticRecall(
+      { query: "launch notes", sources: ["workspace"] },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            {
+              source: "workspace",
+              async search() {
+                throw new Error("index unavailable");
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    expect(result.content).toContain("No reliable results found.");
+    expect(result.activity.evidence).toEqual([]);
+    expect(result.activity.searchedSources).toEqual([
+      {
+        source: "workspace",
+        status: "degraded",
+        evidenceCount: 0,
+        error: "index unavailable",
+      },
+    ]);
   });
 });

@@ -1,10 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 
-import {
-  desktopSetupGetOptions,
-  useDesktopSetupPostMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { desktopSetupGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { desktopSetupGet } from "@/generated/daemon/sdk.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -65,23 +61,4 @@ export function useDesktopSetupStatus(assistantId: string) {
     void refresh();
   });
   return { query, refresh };
-}
-
-export function useDesktopSetup(assistantId: string) {
-  const orgReady = useIsOrgReady();
-  const { query, refresh } = useDesktopSetupStatus(assistantId);
-  const install = useDesktopSetupPostMutation({ onSettled: refresh });
-  const { mutate } = install;
-  const autoInstallFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (
-      orgReady &&
-      query.data?.state === "required" &&
-      autoInstallFor.current !== assistantId
-    ) {
-      autoInstallFor.current = assistantId;
-      mutate({ path: { assistant_id: assistantId } });
-    }
-  }, [assistantId, orgReady, query.data?.state, mutate]);
-  return { query, install };
 }

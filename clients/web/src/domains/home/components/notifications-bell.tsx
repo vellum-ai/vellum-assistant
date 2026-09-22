@@ -26,11 +26,14 @@ import { toast } from "@vellumai/design-library/components/toast";
 import type { HomeRecapRowDecision } from "../home-recap-row";
 import { useFeedItemConversationLink } from "../hooks/use-feed-item-conversation-link";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
+import { useFeedItemReceiptTitle } from "../hooks/use-feed-item-receipt-title";
+import { useFeedItemUpdateLinks } from "../hooks/use-feed-item-update-links";
 import { useGuardianDecision } from "../hooks/use-guardian-decision";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import {
   clearAllArgs,
+  getFeedItemUpdates,
   getVisibleFeedItems,
   markAllReadArgs,
   resolveFeedItemTitle,
@@ -234,6 +237,19 @@ export function NotificationsBell() {
   // conversation lists: the list view has no use for those ids.
   const { links: entityLinks, isPending: areEntityLinksPending } =
     useFeedItemEntityLinks(selectedItem, assistantId, isDetailOpen);
+
+  // A skill-update receipt names several skills and source conversations at
+  // once, each checked the same way as the single links above. Same gate.
+  const selectedUpdates = useMemo(
+    () => getFeedItemUpdates(selectedItem),
+    [selectedItem],
+  );
+  const updateLinks = useFeedItemUpdateLinks(
+    selectedUpdates,
+    assistantId,
+    isDetailOpen,
+  );
+  const selectedReceiptTitle = useFeedItemReceiptTitle(selectedItem);
 
   // The list unmounts while the detail is open, so its scroll offset is parked
   // here and written back when the list mounts again.
@@ -458,6 +474,7 @@ export function NotificationsBell() {
           areConversationListsPending={conversationLink.isPending}
           entityLinks={entityLinks}
           areEntityLinksPending={areEntityLinksPending}
+          updateLinks={updateLinks}
           isActionPending={feedQuery.triggerAction.isPending}
           onBack={() => setSelectedItemId(null)}
           onGoToConversation={handleGoToConversation}
@@ -491,7 +508,7 @@ export function NotificationsBell() {
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>
               {selectedItem
-                ? resolveFeedItemTitle(selectedItem)
+                ? (selectedReceiptTitle ?? resolveFeedItemTitle(selectedItem))
                 : t("notificationsBell.heading")}
             </BottomSheet.Title>
           </BottomSheet.Header>

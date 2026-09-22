@@ -58,7 +58,7 @@ import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-ca
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { sameThinkingTarget, useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type { WebSearchResultItem } from "@vellumai/assistant-api";
 
 export type SingleActivityProps =
   | {

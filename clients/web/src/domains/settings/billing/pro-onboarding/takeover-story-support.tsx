@@ -15,7 +15,7 @@
  * Not a `.stories.tsx` file, so Storybook does not index it.
  */
 import type { Decorator } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode } from "react";
 
 import {
@@ -30,6 +30,7 @@ import type {
   PlanListResponse,
 } from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 import type { ProvisioningDimensions } from "./provisioning-machine";
@@ -102,9 +103,7 @@ const STORY_PLANS: PlanListResponse = {
 };
 
 /** One client for every story, holding the plan catalog the credits row reads. */
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const queryClient = createStoryQueryClient();
 
 queryClient.setQueryData(
   organizationsBillingPlansRetrieveQueryKey(),

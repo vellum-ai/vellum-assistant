@@ -157,6 +157,11 @@ interface ContactChannelsSectionProps {
   a2aEnabled?: boolean;
   setupLabel?: string;
   verifyLoading?: boolean;
+  /**
+   * Blocks every row action. Set while a request that removes the contact is
+   * in flight, since Link account would upsert the id being deleted.
+   */
+  actionsDisabled?: boolean;
   verifySubject?: "self" | "contact";
   onSetupChannel?: (type: string) => void;
   /**
@@ -218,6 +223,7 @@ export function ContactChannelsSection({
   a2aEnabled,
   setupLabel,
   verifyLoading,
+  actionsDisabled,
   verifySubject = "self",
   onSetupChannel,
   onVerifyChannel,
@@ -287,6 +293,7 @@ export function ContactChannelsSection({
                   setupLabel ?? t("contactChannelsSection.setupDefault")
                 }
                 verifyLoading={verifyLoading}
+                actionsDisabled={actionsDisabled}
                 onSetup={
                   onSetupChannel ? () => onSetupChannel(info.id) : undefined
                 }
@@ -353,6 +360,7 @@ interface ChannelRowProps {
   existing: ContactChannelPayload | undefined;
   setupLabel: string;
   verifyLoading?: boolean;
+  actionsDisabled?: boolean;
   onSetup?: () => void;
   onVerify?: () => void;
   onRevoke?: () => void;
@@ -364,6 +372,7 @@ function ChannelRow({
   existing,
   setupLabel,
   verifyLoading,
+  actionsDisabled,
   onSetup,
   onVerify,
   onRevoke,
@@ -402,7 +411,11 @@ function ChannelRow({
               {t("channelStatus.connected")}
             </span>
             {onRevoke ? (
-              <Button variant="danger" onClick={onRevoke}>
+              <Button
+                variant="danger"
+                onClick={onRevoke}
+                disabled={actionsDisabled}
+              >
                 {t("actions.revoke")}
               </Button>
             ) : null}
@@ -414,7 +427,11 @@ function ChannelRow({
               {t("channelStatus.verified")}
             </span>
             {onRevoke ? (
-              <Button variant="danger" onClick={onRevoke}>
+              <Button
+                variant="danger"
+                onClick={onRevoke}
+                disabled={actionsDisabled}
+              >
                 {t("actions.revoke")}
               </Button>
             ) : null}
@@ -423,7 +440,7 @@ function ChannelRow({
           <Button
             variant="outlined"
             onClick={onVerify}
-            disabled={!onVerify || verifyLoading}
+            disabled={!onVerify || verifyLoading || actionsDisabled}
           >
             {verifyLoading ? t("actions.verifying") : t("actions.verify")}
           </Button>
@@ -431,12 +448,16 @@ function ChannelRow({
           info.id === "a2a" ? null : (
             <>
               {onLinkAccount ? (
-                <Button onClick={onLinkAccount}>
+                <Button onClick={onLinkAccount} disabled={actionsDisabled}>
                   <Link2 className="h-3.5 w-3.5" />
                   {t("contactChannelsSection.linkAccount")}
                 </Button>
               ) : null}
-              <Button variant="outlined" onClick={onSetup} disabled={!onSetup}>
+              <Button
+                variant="outlined"
+                onClick={onSetup}
+                disabled={!onSetup || actionsDisabled}
+              >
                 {setupLabel}
               </Button>
             </>

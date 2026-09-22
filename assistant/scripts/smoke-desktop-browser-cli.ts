@@ -14,26 +14,18 @@ import { registerBrowserCommand } from "../src/cli/commands/browser.js";
 import { DesktopAutomationLease } from "../src/desktop/desktop-automation-lease.js";
 import {
   desktopChromePath,
-  desktopDependencyInstaller,
+  desktopDependencies,
 } from "../src/desktop/desktop-dependencies.js";
 import { DesktopSessionManager } from "../src/desktop/desktop-session-manager.js";
 import { getAssistantSocketPath } from "../src/ipc/socket-path.js";
 
-if (
-  process.platform !== "linux" ||
-  !process.argv[2] ||
-  !process.env.ASSISTANT_IPC_SOCKET_DIR
-) {
+if (process.platform !== "linux" || !process.env.ASSISTANT_IPC_SOCKET_DIR) {
   throw new Error(
-    "Run in disposable Linux with desktop packages, a temporary ASSISTANT_IPC_SOCKET_DIR and a Chrome executable argument or --install for a cold install.",
+    "Run in a disposable Linux assistant image with a temporary ASSISTANT_IPC_SOCKET_DIR.",
   );
 }
-const coldInstall = process.argv[2] === "--install";
-const executable = coldInstall ? desktopChromePath() : process.argv[2];
-if (coldInstall) {
-  assert.equal(desktopDependencyInstaller.getStatus().state, "required");
-  assert.equal(Bun.which("Xtigervnc"), null);
-}
+const executable = desktopChromePath();
+assert.equal(desktopDependencies.getStatus().state, "ready");
 const directory = await mkdtemp(join(tmpdir(), "desktop-browser-cli-"));
 const manager = new DesktopSessionManager({
   resolveChromePath: async () => executable,
@@ -44,9 +36,7 @@ const manager = new DesktopSessionManager({
 const control = new DesktopAutomationLease({
   notify: async () => {},
   enabled: () => true,
-  ready: () =>
-    !coldInstall || desktopDependencyInstaller.getStatus().state === "ready",
-  ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
+  ready: () => desktopDependencies.getStatus().state === "ready",
   manager: () => manager,
 });
 const context = {
@@ -182,16 +172,10 @@ try {
     "--allow-private-network",
   );
   assert.equal(navigations, 1);
-  if (coldInstall) {
-    assert.equal(desktopDependencyInstaller.getStatus().state, "ready");
-    assert(
-      setupNotifications >= 3,
-      "Installation progress must reach the viewer",
-    );
-    console.error(
-      "PASS: one CLI navigate installed desktop and Chrome from scratch, then loaded the requested page once",
-    );
-  }
+  assert.equal(setupNotifications, 0);
+  console.error(
+    "PASS: baked desktop opened the requested page without installation",
+  );
   const snapshot = await cli("snapshot");
   await cli(
     "type",

@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fn } from "storybook/test";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 import { AssistantHandleModal } from "./assistant-handle-modal";
 
@@ -15,14 +15,12 @@ const ASSISTANT = {
 
 /** Seeds the domain list, so the story decides whether the handle is held. */
 function withDomains(subdomain: string | null) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  return withQueryCache((client) => {
+    client.setQueryData(
+      assistantsDomainsListQueryKey({ path: { assistant_id: ASSISTANT.id } }),
+      { results: subdomain ? [{ id: "domain-1", subdomain }] : [] },
+    );
   });
-  client.setQueryData(
-    assistantsDomainsListQueryKey({ path: { assistant_id: ASSISTANT.id } }),
-    { results: subdomain ? [{ id: "domain-1", subdomain }] : [] },
-  );
-  return client;
 }
 
 const meta: Meta<typeof AssistantHandleModal> = {
@@ -40,22 +38,10 @@ type Story = StoryObj<typeof AssistantHandleModal>;
 
 /** The handle is free to change: Save is present throughout and disabled at rest. */
 export const Editable: Story = {
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={withDomains(null)}>
-        <Story />
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [withDomains(null)],
 };
 
 /** A registered subdomain holds the handle, so it reads only, with the way out. */
 export const HeldByDomain: Story = {
-  decorators: [
-    (Story) => (
-      <QueryClientProvider client={withDomains("velly")}>
-        <Story />
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [withDomains("velly")],
 };

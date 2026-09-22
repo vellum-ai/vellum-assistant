@@ -7,6 +7,7 @@ const meta: Meta<typeof Card> = {
   component: Card,
   argTypes: {
     padding: { control: "select", options: ["sm", "md", "lg"] },
+    surface: { control: "inline-radio", options: ["lift", "overlay"] },
     bordered: { control: "boolean" },
     elevated: { control: "boolean" },
     noPadding: { control: "boolean" },
@@ -22,6 +23,25 @@ type Story = StoryObj<typeof Card>;
 
 export const Default: Story = {
   args: { children: "A simple card with default settings." },
+};
+
+/**
+ * A card on a `--surface-lift` background, such as a side drawer's body. With
+ * the default `lift` fill it would take the background's own color; `overlay`
+ * gives it a fill of its own.
+ */
+export const OnLiftSurface: Story = {
+  args: {
+    surface: "overlay",
+    children: "Card on a lift surface, with the overlay fill.",
+  },
+  decorators: [
+    (Story) => (
+      <div className="bg-[var(--surface-lift)] p-6">
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const Bordered: Story = {

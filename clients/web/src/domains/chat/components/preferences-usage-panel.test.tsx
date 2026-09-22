@@ -365,31 +365,46 @@ describe("PreferencesUsagePanel", () => {
     expect(queryByText("Add credits to continue.")).toBeNull();
   });
 
-  test("holds the neutral reading while the classification is in flight", async () => {
+  test("a spent reading leaves the slot empty until the classification lands", async () => {
     // Spent grants with credit behind them on a route that will turn out to
-    // be managed: the settled answer is the amber extra-credits line. The red
-    // reading must not appear on the way there, however long the classifier's
-    // daemon queries take.
+    // be managed: the settled answer is the amber extra-credits line, and the
+    // other settled answer at 100% is the red bar. A full neutral bar is
+    // neither, so the slot holds its reserved height and draws nothing until
+    // the classifier's daemon queries answer.
     totalUsageBalance = "25.00";
     availableUsageBalance = "0.00";
     effectiveBalance = "12.00";
     classificationSettled = false;
-    const { findByTestId, getByText, queryByText } = renderPanel();
+    const { findByTestId, getByText, queryByRole, queryByText } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
-    const fill = () =>
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style");
-    // The length comes off the summary alone, so it is already honest.
+    // The percentage comes off the summary alone, so it is already honest.
     expect(panel.textContent).toContain("100% used");
-    expect(fill()).toContain("width: 100%");
+    expect(queryByRole("progressbar")).toBeNull();
     // Neither reading is claimed yet.
     expect(queryByText("Now using extra usage credits")).toBeNull();
-    expect(fill()).not.toContain("--system-negative-strong");
     expect(getByText("100% used").className).not.toContain(
       "--system-negative-strong",
     );
+  });
+
+  test("a reading below 100% draws its bar before the classification lands", async () => {
+    // Under 100% the neutral bar is what the panel settles on, so a
+    // classification still in flight has nothing to change about it and the
+    // bar is drawn as soon as there is a ratio.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    classificationSettled = false;
+    const { findByTestId, getByRole } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("40% used");
+    expect(getByRole("progressbar")).toBeTruthy();
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).toContain("width: 40%");
   });
 
   test("no managed route means no extra-credits claim", async () => {
@@ -413,17 +428,14 @@ describe("PreferencesUsagePanel", () => {
     effectiveBalance = "0.00";
     creditsExhausted = true;
     classificationSettled = false;
-    const { findByTestId, queryByText } = renderPanel();
+    const { findByTestId, queryByRole, queryByText } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
-    // The strip and the bar's colour are the same verdict, so they land on one
-    // render rather than the strip growing the popover a beat later.
+    expect(panel.textContent).toContain("100% used");
+    // The strip and the bar are the same verdict, so they land on one render
+    // rather than the strip growing the popover a beat later.
     expect(queryByText("Add credits to continue.")).toBeNull();
-    expect(
-      panel
-        .querySelector('[data-slot="progress-bar-fill"]')
-        ?.getAttribute("style"),
-    ).not.toContain("--system-negative-strong");
+    expect(queryByRole("progressbar")).toBeNull();
   });
 
   test("a reading below 100% stays neutral", async () => {

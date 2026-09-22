@@ -16,7 +16,7 @@
 import type { ReactNode } from "react";
 import { useLayoutEffect, useState } from "react";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -35,6 +35,7 @@ import {
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -135,12 +136,7 @@ function SeededPanel({
 }) {
   const { plan, balanceUsd, totalUsageUsd, availableUsageUsd } = args;
   const free = plan === "free";
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      }),
-  );
+  const [client] = useState(() => createStoryQueryClient());
 
   useLayoutEffect(() => {
     const previousAuth = useAuthStore.getState().platformSession;
@@ -160,8 +156,8 @@ function SeededPanel({
     useOrganizationStore.setState({ persistedOrganizationId: "org_storybook" });
     // The usage panel withholds both of its readings until the BYOK route
     // classifier settles, and that classifier asks nothing at all without a
-    // resolved assistant. Left unseeded, every story below renders the
-    // neutral pre-settle bar instead of the state it documents.
+    // resolved assistant. Left unseeded, a spent story renders its empty
+    // pre-settle slot instead of the state it documents.
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(STORY_ASSISTANT_ID);

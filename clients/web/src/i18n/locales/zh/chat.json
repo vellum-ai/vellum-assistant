@@ -1,4 +1,8 @@
 {
+  "conversationDoneToast": {
+    "message": "已完成",
+    "undo": "撤销"
+  },
   "documentChat": {
     "saveFailed": "无法保存文档。你的消息仍在这里。请重新发送。",
     "viewConversation": "查看对话",
@@ -61,6 +65,11 @@
     "takingLonger": "您的助手响应时间超出预期。",
     "tryAgain": "重试"
   },
+  "markAllDoneConfirmDialog": {
+    "confirm": "全部标记为已完成",
+    "message": "{count, plural, other {将“{groupName}”中的所有 {count} 个对话标记为已完成？它们将从侧边栏移除，并保留在“旧聊天”中，您可以在那里重新打开它们。}}",
+    "title": "全部标记为已完成"
+  },
   "mobileDetailSheet": {
     "title": "活动详情"
   },
@@ -117,6 +126,28 @@
     "navigate": "导航",
     "terminal": "运行命令"
   },
+  "oldChatsPage": {
+    "band": {
+      "previous30Days": "过去 30 天",
+      "previous7Days": "过去 7 天",
+      "today": "今天",
+      "yesterday": "昨天"
+    },
+    "chip": {
+      "all": "全部",
+      "background": "后台",
+      "done": "已完成"
+    },
+    "doneMeta": "已完成 · {time}",
+    "empty": "这里还没有聊天。",
+    "filterAria": "筛选聊天",
+    "loadError": "无法加载你的聊天。",
+    "loading": "正在加载聊天",
+    "noMatches": "没有与“{query}”匹配的聊天。",
+    "retry": "重试",
+    "searchPlaceholder": "搜索聊天",
+    "title": "旧聊天"
+  },
   "sessionGroupRow": {
     "mode": {
       "computerUse": "计算机会话",
@@ -164,14 +195,8 @@
     "reconnectButton": "重新连接",
     "title": "桌面",
     "unavailable": "此助理不支持虚拟桌面。",
-    "installButton": "安装虚拟桌面",
     "checkingSetup": "正在检查虚拟桌面设置…",
-    "installingPackages": "正在安装虚拟桌面组件…",
-    "installingChrome": "正在安装 Google Chrome…",
-    "checkingInstall": "正在检查安装…",
-    "installFailed": "安装失败。请重试以完成设置。",
-    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。",
-    "setupUnsupported": "虚拟桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。"
   },
   "assistantNavItem": {
     "newChat": "新建聊天"
@@ -461,6 +486,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
+    "done": "[已完成]",
     "newChat": "新建聊天"
   },
   "chatInfoPanel": {
@@ -698,8 +724,10 @@
     "copyConversation": "复制完整对话",
     "copyConversationId": "复制对话ID",
     "delete": "删除",
+    "done": "完成",
     "forkConversation": "派生对话",
     "inspect": "分析对话",
+    "markAsDone": "标记为已完成",
     "markRead": "标记为已读",
     "markUnread": "标记为未读",
     "moveToGroup": "移动到群组",
@@ -711,6 +739,7 @@
     "refresh": "刷新",
     "removeFromGroup": "从群组中移除",
     "rename": "重命名",
+    "reopen": "重新打开",
     "shareFeedback": "分享反馈",
     "triggerAriaLabel": "对话操作",
     "unarchive": "取消归档",
@@ -950,6 +979,7 @@
     "deleteGroup": "删除群组",
     "deleteGroupWithConversations": "删除群组…",
     "groupByChannel": "按渠道分组",
+    "markAllAsDone": "全部标记为已完成…",
     "markAllRead": "全部标记为已读",
     "moveSectionDown": "下移分区",
     "moveSectionUp": "上移分区",
@@ -1681,6 +1711,9 @@
   "sidebarListContextMenu": {
     "newGroup": "新建群组…"
   },
+  "sidebarSectionViewAll": {
+    "label": "查看所有聊天"
+  },
   "singleActivity": {
     "webSearch": "网页搜索"
   },
@@ -1694,7 +1727,8 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · 正在运行"
+    "runningSuffix": " · 正在运行",
+    "unnamedTool": "技能工具"
   },
   "skillLoadCard": {
     "view": "查看"
@@ -1735,8 +1769,6 @@
     "noEventsYet": "暂无事件",
     "objective": "目标",
     "output": "输出",
-    "showLess": "收起",
-    "showMore": "显示更多",
     "stopSubagentAria": "停止子代理",
     "timeline": "时间线"
   },
@@ -1957,12 +1989,12 @@
     "workflowFinished": "工作流已完成"
   },
   "wakeDetailPanel": {
-    "close": "关闭",
     "details": "详细信息",
     "result": "结果",
     "runStatus": "运行状态",
     "title": "对话已唤醒",
-    "workflow": "工作流"
+    "workflow": "工作流",
+    "closeAria": "关闭详情"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -2088,5 +2120,23 @@
     "skip": "跳过",
     "showMore": "展开",
     "showLess": "收起"
+  },
+  "rememberDetail": {
+    "saved": "已保存",
+    "saving": "正在保存",
+    "notSaved": "未保存"
+  },
+  "recallDetail": {
+    "searchedFor": "搜索内容",
+    "scope": "{depth} · {sources}",
+    "answer": "回答",
+    "evidence": "{count, plural, other {# 条结果}}",
+    "noEvidence": "没有找到相关内容。",
+    "degraded": "部分位置未能完整搜索",
+    "degradedSource": "{source}：{error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {记忆} conversations {对话} workspace {工作区文件} other {{source}}}",
+    "depth": "{depth, select, fast {快速搜索} standard {标准搜索} deep {深度搜索} other {搜索}}"
   }
 }

@@ -85,6 +85,10 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
  * Whether the companion's introduction is staged, which is main's answer and
  * the only thing that decides whether a tap is worth counting.
  */
+const advanceIntro = mock((_action: string) => {});
+mock.module("@/runtime/companion-surface", () => ({
+  advanceCompanionIntro: advanceIntro,
+}));
 let introStaged = false;
 mock.module("@/runtime/companion-intro-stage", () => ({
   companionIntroStaged: () => introStaged,
@@ -236,6 +240,7 @@ afterEach(() => {
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
+  advanceIntro.mockClear();
   toastErrorMock.mockClear();
   runningClaimant = null;
   clearDictationOffer();
@@ -250,16 +255,16 @@ afterEach(() => {
 });
 
 describe("GlobalPushToTalkBridge", () => {
-  test("inserts the cleaned final transcript into the front app", async () => {
+  test("inserts explicit dictation replacements into the front app", async () => {
     nextTextInsertionStatus = "inserted";
-    nextDictationResult = { mode: "dictation", text: "cleaned global text" };
+    nextDictationResult = { mode: "dictation", text: "Hello Example User" };
     const voiceInput = renderBridge();
 
     await act(async () => {
-      await voiceInput.onTranscript("raw global text");
+      await voiceInput.onTranscript("Hello user one");
     });
 
-    expect(insertedTexts).toEqual(["cleaned global text"]);
+    expect(insertedTexts).toEqual(["Hello Example User"]);
     expect(useComposerStore.getState().input).toBe("");
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
@@ -835,7 +840,7 @@ describe("a hold over an editable selection", () => {
    * at the deadline and read aloud as an answer instead. The rewrite waits on
    * a bound of its own.
    */
-  test("waits past the cleanup's bound for a paragraph's edit", async () => {
+  test("waits past the dictation deadline for a paragraph's edit", async () => {
     withAssistantThatTellsEditsFromQuestions();
     nextTextInsertionStatus = "inserted";
     nextDictationResult = {
@@ -979,4 +984,19 @@ describe("a hold over an editable selection", () => {
     );
     expect(useComposerStore.getState().input).toBe("Send the files.");
   });
+});
+
+test("routes tutorial double taps through the companion permission guard", () => {
+  introStaged = true;
+  renderBridge("a1");
+  act(() => holdHandlers?.onDoubleTap());
+  expect(advanceIntro).toHaveBeenCalledWith("try");
+  expect(toggleVoiceMock).not.toHaveBeenCalled();
+});
+
+test("a tutorial hold does not start dictation", () => {
+  introStaged = true;
+  renderBridge("a1");
+  act(() => holdHandlers?.onHoldStart({ selection: null }));
+  expect(voiceStartMock).not.toHaveBeenCalled();
 });

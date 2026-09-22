@@ -71,7 +71,8 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
   }
 
   /**
-   * Embed `inputs` in order. Runs of text inputs go through
+   * Embed `inputs` in order. Managed requests use single `embedContent`
+   * calls because Vertex does not expose the batch route. Direct text runs use
    * `batchEmbedContents`, {@link GEMINI_EMBED_BATCH_SIZE} texts per round
    * trip, so a corpus re-embed costs one request per hundred sections rather
    * than one per section; a lone text and every multimodal input take the
@@ -99,6 +100,7 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
       // Gather the run of text inputs starting here, up to one batch.
       let end = i;
       while (
+        !this.managed &&
         !this.batchRouteUnavailable &&
         end < normalized.length &&
         end - i < GEMINI_EMBED_BATCH_SIZE &&

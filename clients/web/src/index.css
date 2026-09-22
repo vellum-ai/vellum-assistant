@@ -492,6 +492,56 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The call's work on its bar: the count's turning arc, a finished item's mark
+ * popping in, and a step that changes fading in over the last. See
+ * `components/companion-call-work.tsx`. */
+@keyframes companion-work-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.companion-work-spin {
+  animation: companion-work-spin 0.9s linear infinite;
+}
+
+@keyframes companion-work-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.companion-work-pop {
+  animation: companion-work-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+
+@keyframes companion-work-fade {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.companion-work-fade {
+  animation: companion-work-fade 240ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-work-spin,
+  .companion-work-pop,
+  .companion-work-fade {
+    animation: none;
+  }
+}
+
 /* One capture on the frame: a single brightening of the edge that is already
  * drawn. Opacity and nothing else, with no travel, no scale, and nothing on
  * screen displaced, so there is no reduced-motion fallback: holding it still

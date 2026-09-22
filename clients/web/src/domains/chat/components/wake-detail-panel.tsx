@@ -38,8 +38,7 @@ export function WakeDetailPanel({ payload, onClose }: WakeDetailPanelProps) {
     <DetailShell
       Glyph={Sparkles}
       title={payload.title || t("wakeDetailPanel.title")}
-      closeLabel={t("wakeDetailPanel.close")}
-      closeTooltip={t("wakeDetailPanel.close")}
+      closeLabel={t("wakeDetailPanel.closeAria")}
       closeVariant="outlined"
       onClose={onClose}
     >
@@ -117,7 +116,7 @@ function ResultBody({ result }: { result: string }) {
         >
           {rows.map((row) => (
             <div key={row.key} className="flex flex-col gap-0.5">
-              <span className="text-body-small-default text-[var(--content-tertiary)]">
+              <span className="text-label-medium-default text-[var(--content-tertiary)]">
                 {row.key}
               </span>
               <span className="whitespace-pre-wrap break-words">

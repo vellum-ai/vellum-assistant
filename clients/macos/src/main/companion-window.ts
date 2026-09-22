@@ -126,7 +126,10 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
-import { getPermissionsService } from "./permissions-service";
+import {
+  getPermissionsService,
+  onPermissionPresentation,
+} from "./permissions-service";
 import {
   answerScreenRecordingRefusal,
   isScreenRecordingRefusal,
@@ -482,6 +485,16 @@ let introStaged = false;
  */
 let introScrim = false;
 
+let introPermissionLowered = false;
+
+const restoreIntroWindowLevel = (): void => {
+  if (!introPermissionLowered) {
+    return;
+  }
+  introPermissionLowered = false;
+  getFloatingWindow(COMPANION_KIND)?.setAlwaysOnTop(true, "floating");
+};
+
 /**
  * How long the surface stays put after landing before the ordinary
  * frontmost rule takes it off the screen again.
@@ -730,6 +743,7 @@ let introChordAsked: CompanionIntroCallControl | null = null;
  * up is a card asking for a key that answers nothing.
  */
 const setIntroBeat = (next: CompanionIntroBeat | null): void => {
+  restoreIntroWindowLevel();
   intro = next;
   const control = introChordFor(next);
   if (control === introChordAsked) {
@@ -749,6 +763,7 @@ const setIntroBeat = (next: CompanionIntroBeat | null): void => {
  * way, so nothing is left dimmed.
  */
 const unstageIntro = (): void => {
+  restoreIntroWindowLevel();
   cancelIntroLanding();
   if (!introStaged && !introScrim) {
     return;
@@ -1526,7 +1541,13 @@ const landIntroHome = (): void => {
   // holds it there for.
   setIntroScrim(false);
   const { workArea } = displayUnder(avatarCentre(win));
-  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    // The final offer can already have borrowed the tour's centered position.
+    callHome = home;
+  } else {
+    glideAvatarTo(win, home, workArea);
+  }
   introLanding = setTimeout(() => {
     introLanding = null;
     introStaged = false;
@@ -2094,10 +2115,20 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
- * The frame window that has not painted yet, so nothing shows it before its
- * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ * The frame window whose page has not drawn the border yet, so nothing shows
+ * it before {@link revealFrame} does. See {@link placeWatchFrame}.
  */
-let frameAwaitingPaint: BrowserWindow | null = null;
+let frameAwaitingDraw: BrowserWindow | null = null;
+
+/** Shows {@link frameAwaitingDraw} if its page never reports the border. */
+let frameDrawFallback: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * How long a new frame waits on its page before being shown anyway. Well past
+ * the few hundred milliseconds the page takes to draw, so it only fires for a
+ * page that will not report at all.
+ */
+const FRAME_DRAW_TIMEOUT_MS = 3000;
 
 /**
  * Give the frame the mouse, or give it back to the desktop.
@@ -2136,9 +2167,9 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  // `focus` puts a window on screen, and a frame still waiting on its first
-  // paint must stay off it. The paint runs this again.
-  if (frame !== frameAwaitingPaint) {
+  // `focus` puts a window on screen, and a frame still waiting on its page to
+  // draw must stay off it. `revealFrame` runs this again.
+  if (frame !== frameAwaitingDraw) {
     frame.focus();
   }
 };
@@ -2729,9 +2760,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    // A frame still waiting on its first paint is shown by that paint.
-    // Shown any earlier, it is the frame that never reaches the screen.
-    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
+    // A frame still waiting on its page is shown by `revealFrame`. Shown any
+    // earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingDraw) {
       existing.showInactive();
     }
     return;
@@ -2741,13 +2772,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
-    // **Shown once its page has painted, never before.** A frame put on
-    // screen while its page is still loading stays blank on a whole display:
-    // the page draws the border and the label, and the screen keeps showing
-    // the empty window until something makes macOS take it again (Mission
-    // Control, or showing the window a second time). Moving it, resizing it
-    // and repainting the page do not.
-    showWhenReady: true,
+    // **Shown once its page has drawn the border, never before.** A frame put
+    // on screen before then stays blank on a whole display: the page goes on
+    // drawing the border and the label, and the screen keeps showing the
+    // empty window until something makes macOS take the window's contents
+    // again (Mission Control, capturing the window, or showing it a second
+    // time). Moving it, resizing it, reordering it and repainting the page do
+    // not. The page's first paint (`ready-to-show`) is too early: the border
+    // waits on the companion state, which the page asks for after it loads.
+    callerShows: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2769,15 +2802,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
-  frameAwaitingPaint = win;
-  win.once("ready-to-show", () => {
-    if (frameAwaitingPaint === win) {
-      frameAwaitingPaint = null;
-    }
-    // Key status is lent with a `focus` that would have shown the window
-    // early, so a mode that was on when this frame opened takes it now.
-    applyFrameMouse();
-  });
+  awaitFrameDraw(win);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
@@ -2789,6 +2814,51 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   // Marks still up are drawn on this window from here on, so the presses
   // they can be heard as are measured out on it.
   armCoachmarkPressWatch();
+};
+
+/**
+ * Hold a new frame off the screen until its page reports the border drawn, or
+ * until {@link FRAME_DRAW_TIMEOUT_MS} passes without a report.
+ */
+const awaitFrameDraw = (win: BrowserWindow): void => {
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+  }
+  frameAwaitingDraw = win;
+  frameDrawFallback = setTimeout(() => {
+    revealFrame(win);
+  }, FRAME_DRAW_TIMEOUT_MS);
+  win.once("closed", () => {
+    if (frameAwaitingDraw === win) {
+      frameAwaitingDraw = null;
+      if (frameDrawFallback !== null) {
+        clearTimeout(frameDrawFallback);
+        frameDrawFallback = null;
+      }
+    }
+  });
+};
+
+/**
+ * Put a frame that was waiting on its page on the screen. Settles: a frame
+ * already shown, or replaced by a newer one, is left alone.
+ */
+const revealFrame = (win: BrowserWindow): void => {
+  if (frameAwaitingDraw !== win) {
+    return;
+  }
+  frameAwaitingDraw = null;
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+    frameDrawFallback = null;
+  }
+  if (win.isDestroyed()) {
+    return;
+  }
+  win.showInactive();
+  // Key status is lent with a `focus` that would have shown the window
+  // early, so a mode that was on when this frame opened takes it now.
+  applyFrameMouse();
 };
 
 /**
@@ -3733,6 +3803,22 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * The frame's page has drawn the border, from the frame's own window. Taken
+   * only from the window waiting on it, so another page cannot show the frame
+   * early.
+   */
+  on("vellum:companion:frameDrawn", z.tuple([]), (_args, event) => {
+    const frame = frameAwaitingDraw;
+    if (
+      frame !== null &&
+      !frame.isDestroyed() &&
+      event.sender === frame.webContents
+    ) {
+      revealFrame(frame);
+    }
+  });
+
+  /**
    * A mark drawn on the frame, delivered to the renderer holding the session
    * the way Share's press is.
    *
@@ -4092,6 +4178,15 @@ export const installCompanionWindow = (): void => {
       if (intro === null) {
         return;
       }
+      // Rehearsal keys never open a call. Both the avatar and the voice key
+      // reach this guard, including grants revoked since the card last read.
+      if (
+        action === "try" &&
+        (intro !== "try" ||
+          systemPreferences.getMediaAccessStatus("microphone") !== "granted")
+      ) {
+        return;
+      }
       // Resolved against the beat main is on when it runs, not the one this
       // press arrived on, which is the same rule the handler itself follows:
       // the hand-off below can put a window build in between, and anything the
@@ -4104,10 +4199,6 @@ export const installCompanionWindow = (): void => {
           return;
         }
         const next = introOnAdvance(from, action);
-        // **The offer is counted where it is taken, not where it lands.** A
-        // `try` on the last beat ends the run and a `try` before it does not,
-        // so the beat it was taken on is the only place the two are told
-        // apart, and that beat is gone a line later.
         if (action === "try") {
           reportIntro("offer_taken", from);
         }
@@ -4115,8 +4206,6 @@ export const installCompanionWindow = (): void => {
           finishIntro(introEndingFor(action));
         } else {
           setIntroBeat(next);
-          // `try` mid-run holds the beat, and a beat held is not a beat
-          // reached.
           if (next !== from) {
             reportIntro("advanced", next);
           }
@@ -4346,9 +4435,22 @@ export const installCompanionWindow = (): void => {
     pushState();
   });
 
+  onPermissionPresentation(() => {
+    if (intro === null || introPermissionLowered) {
+      return;
+    }
+    const win = getFloatingWindow(COMPANION_KIND);
+    if (win === null) {
+      return;
+    }
+    // A floating panel otherwise covers Settings and native permission alerts.
+    introPermissionLowered = true;
+    win.setAlwaysOnTop(false);
+  });
   // The app coming forward and going back, which is what decides whether the
   // surface is on the screen at all while it is open. See `appActive`.
   app.on("did-become-active", () => {
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });
@@ -4360,6 +4462,7 @@ export const installCompanionWindow = (): void => {
     if (win !== currentMainWindow()) {
       return;
     }
+    restoreIntroWindowLevel();
     appActive = true;
     syncFrontmost();
   });

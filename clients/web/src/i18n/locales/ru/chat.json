@@ -118,14 +118,8 @@
     "reconnectButton": "Переподключиться",
     "title": "Рабочий стол",
     "unavailable": "Виртуальный рабочий стол недоступен для этого ассистента.",
-    "installButton": "Установить виртуальный рабочий стол",
     "checkingSetup": "Проверка виртуального рабочего стола…",
-    "installingPackages": "Установка компонентов виртуального рабочего стола…",
-    "installingChrome": "Установка Google Chrome…",
-    "checkingInstall": "Проверка установки…",
-    "installFailed": "Не удалось завершить установку. Попробуйте ещё раз.",
-    "setupRequestFailed": "Не удалось проверить установку. Подключитесь заново.",
-    "setupUnsupported": "Для установки нужен контейнер Linux x64 или ARM64 с правами администратора."
+    "setupRequestFailed": "Не удалось проверить рабочий стол. Подключитесь заново."
   },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Не удалось загрузить все диалоги в этом разделе. Повторите попытку."
@@ -1087,12 +1081,12 @@
     "workflowFinished": "Рабочий процесс завершён"
   },
   "wakeDetailPanel": {
-    "close": "Закрыть",
     "details": "Подробности",
     "result": "Результат",
     "runStatus": "Статус запуска",
     "title": "Разговор возобновлён",
-    "workflow": "Рабочий процесс"
+    "workflow": "Рабочий процесс",
+    "closeAria": "Закрыть подробности"
   },
   "watchRetroSurface": {
     "doneDiscarded": "Не сохранено",
@@ -1141,5 +1135,26 @@
   },
   "fileUploadSurface": {
     "removeFile": "Удалить {name}"
+  },
+  "rememberDetail": {
+    "saved": "Сохранено",
+    "saving": "Сохранение",
+    "notSaved": "Не сохранено"
+  },
+  "recallDetail": {
+    "searchedFor": "Запрос",
+    "scope": "{depth} · {sources}",
+    "answer": "Ответ",
+    "evidence": "{count, plural, one {# результат} few {# результата} many {# результатов} other {# результата}}",
+    "noEvidence": "Ничего подходящего не нашлось.",
+    "degraded": "Некоторые места не удалось просмотреть полностью",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Память} conversations {Беседы} workspace {Файлы рабочей области} other {{source}}}",
+    "depth": "{depth, select, fast {Быстрый поиск} standard {Обычный поиск} deep {Глубокий поиск} other {Поиск}}"
+  },
+  "skillExecuteDetail": {
+    "unnamedTool": "Инструмент навыка"
   }
 }

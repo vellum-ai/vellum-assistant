@@ -14,7 +14,7 @@ import {
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 import {
   deriveStepLabel,
   type IconName,
@@ -578,6 +578,7 @@ export function toolDetailPayloadFromToolCall(
     input: tc.input ?? {},
     result: tc.result,
     streamedOutput: tc.streamedOutput,
+    activityMetadata: tc.activityMetadata,
     status: deriveToolStepStatus(tc),
     riskLevel: tc.riskLevel,
     riskReason: tc.riskReason,

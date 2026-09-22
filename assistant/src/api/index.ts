@@ -4,6 +4,7 @@ export {
   isComputerUseToolCall,
   resolveComputerUseToolName,
 } from "./computer-use-tool.js";
+export { type RememberInput, RememberInputSchema } from "./remember-tool.js";
 
 import { AcpAuthRequiredEventSchema } from "./events/acp-auth-required.js";
 import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
@@ -642,6 +643,18 @@ export {
   ToolOutputChunkSubTypeSchema,
 } from "./events/tool-output-chunk.js";
 export {
+  type RecallDepth,
+  RecallDepthSchema,
+  type RecallEvidenceItem,
+  RecallEvidenceItemSchema,
+  type RecallMetadata,
+  RecallMetadataSchema,
+  type RecallSearchedSource,
+  RecallSearchedSourceSchema,
+  type RecallSource,
+  RecallSourceSchema,
+  type RememberMetadata,
+  RememberMetadataSchema,
   type RiskScopeOption,
   RiskScopeOptionSchema,
   type ToolActivityMetadata,
@@ -819,6 +832,8 @@ export {
   FeedItemStatusSchema,
   type FeedItemType,
   FeedItemTypeSchema,
+  type FeedItemUpdate,
+  FeedItemUpdateSchema,
   type FeedItemUrgency,
   FeedItemUrgencySchema,
   GUARDIAN_TERMINAL_REASON_SUPERSEDED,

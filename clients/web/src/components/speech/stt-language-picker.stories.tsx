@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 
 import { SttLanguagePicker } from "./stt-language-picker";
 
@@ -38,17 +38,17 @@ export default meta;
 type Story = StoryObj<typeof SttLanguagePicker>;
 
 /**
- * Owns the picked code locally so the check mark follows a pick, the way it
- * does once the write lands in the app.
+ * A pick writes back to the `currentCode` arg, so the check mark follows it the
+ * way it does once the write lands in the app, and Controls stays in step.
  */
 export const Default: Story = {
   render: function Render(args) {
-    const [code, setCode] = useState(args.currentCode);
+    const [{ currentCode }, updateArgs] = useArgs<{ currentCode: string }>();
     return (
       <SttLanguagePicker
         {...args}
-        currentCode={code}
-        selectLanguage={setCode}
+        currentCode={currentCode}
+        selectLanguage={(code) => updateArgs({ currentCode: code })}
         onDone={() => {}}
       />
     );

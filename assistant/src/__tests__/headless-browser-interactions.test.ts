@@ -163,7 +163,7 @@ function resetMockPage() {
  */
 function defaultCdpHandler(
   method: string,
-  _params: Record<string, unknown> | undefined,
+  params: Record<string, unknown> | undefined,
 ): unknown {
   switch (method) {
     case "DOM.getDocument":
@@ -177,12 +177,28 @@ function defaultCdpHandler(
     case "Runtime.evaluate":
       return { result: { value: { w: 800, h: 600 } } };
     case "Runtime.callFunctionOn":
+      if (
+        params?.returnByValue === true &&
+        String(params.functionDeclaration).includes("isConnected")
+      ) {
+        return {
+          result: { value: { connected: true, matches: true } },
+        };
+      }
+      if (
+        params?.returnByValue === true &&
+        String(params.functionDeclaration).includes("clearFirst")
+      ) {
+        return { result: { value: { needsRefocus: false } } };
+      }
       // executeBrowserSelectOption invokes a function that returns
       // a `matched` boolean — default to true so wrapper-contract
       // tests don't need to know the inner select-option matching
       // shape. Tests that exercise the no-match path override the
       // handler explicitly.
       return { result: { value: true } };
+    case "Input.insertText":
+      return {};
     default:
       return {};
   }
@@ -485,20 +501,21 @@ describe("executeBrowserType", () => {
     expect(result.content).toContain('Typed into element: element_id "e3"');
     expect(result.content).toContain("cleared existing content");
 
-    // Expected CDP sequence when resolving by backendNodeId + clearFirst:
-    //   DOM.focus → DOM.resolveNode → Runtime.callFunctionOn (clear) →
-    //   DOM.focus → Input.insertText
+    // The editor selection precedes insertion, and a live-node read verifies
+    // that the requested text persisted.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "DOM.focus",
       "DOM.resolveNode",
       "Runtime.callFunctionOn",
-      "DOM.focus",
       "Input.insertText",
+      "Runtime.callFunctionOn",
     ]);
     const focusCall = sendCalls[0]!;
     expect(focusCall.params).toEqual({ backendNodeId: 555 });
-    const insertCall = sendCalls[sendCalls.length - 1]!;
+    const insertCall = sendCalls.find(
+      (call) => call.method === "Input.insertText",
+    )!;
     expect(insertCall.params).toEqual({ text: "hello" });
   });
 
@@ -524,11 +541,10 @@ describe("executeBrowserType", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).not.toContain("cleared");
-    // clear_first=false skips DOM.resolveNode + Runtime.callFunctionOn
-    // and the re-focus call, so we should see focus + insertText only.
+    // Append mode collapses the editor selection at the end before insertion.
     const methods = sendCalls.map((c) => c.method);
-    expect(methods).not.toContain("DOM.resolveNode");
-    expect(methods).not.toContain("Runtime.callFunctionOn");
+    expect(methods).toContain("DOM.resolveNode");
+    expect(methods).toContain("Runtime.callFunctionOn");
     const focusCount = methods.filter((m) => m === "DOM.focus").length;
     expect(focusCount).toBe(1);
     expect(methods).toContain("Input.insertText");
@@ -542,22 +558,22 @@ describe("executeBrowserType", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("pressed Enter");
     const methods = sendCalls.map((c) => c.method);
-    // Input.insertText must come before the Enter keyDown/char/keyUp.
+    // Input.insertText must come before the Enter rawKeyDown/char/keyUp.
     const insertIdx = methods.indexOf("Input.insertText");
     const keyDownIdx = methods.findIndex(
       (m, i) =>
         m === "Input.dispatchKeyEvent" &&
-        (sendCalls[i]!.params as { type: string }).type === "keyDown",
+        (sendCalls[i]!.params as { type: string }).type === "rawKeyDown",
     );
     expect(insertIdx).toBeGreaterThanOrEqual(0);
     expect(keyDownIdx).toBeGreaterThan(insertIdx);
-    // Enter is text-producing → keyDown + char + keyUp.
+    // Enter is text-producing, so it emits rawKeyDown + char + keyUp.
     const keyEvents = sendCalls.filter(
       (c) => c.method === "Input.dispatchKeyEvent",
     );
     expect(keyEvents).toHaveLength(3);
     expect((keyEvents[0]!.params as { key: string }).key).toBe("Enter");
-    expect((keyEvents[0]!.params as { type: string }).type).toBe("keyDown");
+    expect((keyEvents[0]!.params as { type: string }).type).toBe("rawKeyDown");
     expect((keyEvents[1]!.params as { type: string }).type).toBe("char");
     expect((keyEvents[2]!.params as { type: string }).type).toBe("keyUp");
   });
@@ -689,7 +705,7 @@ describe("executeBrowserPressKey", () => {
     expect(result.content).toContain('Pressed "Enter"');
     // No target => no DOM.focus, no selector resolution. Enter is a
     // text-producing key (text "\r") so dispatchKeyPress emits
-    // keyDown + char + keyUp.
+    // rawKeyDown + char + keyUp.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "Input.dispatchKeyEvent",
@@ -699,12 +715,42 @@ describe("executeBrowserPressKey", () => {
     const keyDown = sendCalls[0]!.params as Record<string, unknown>;
     const charEvt = sendCalls[1]!.params as Record<string, unknown>;
     const keyUp = sendCalls[2]!.params as Record<string, unknown>;
-    expect(keyDown.type).toBe("keyDown");
+    expect(keyDown.type).toBe("rawKeyDown");
     expect(keyDown.key).toBe("Enter");
     expect(keyDown.windowsVirtualKeyCode).toBe(13);
     expect(charEvt.type).toBe("char");
     expect(keyUp.type).toBe("keyUp");
     expect(keyUp.key).toBe("Enter");
+  });
+
+  test("presses modifier chords on the focused element", async () => {
+    const result = await executeBrowserPressKey({ key: "Meta+v" }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Pressed "Meta+v"');
+
+    const keyEvents = sendCalls.filter(
+      (call) => call.method === "Input.dispatchKeyEvent",
+    );
+    expect(keyEvents).toHaveLength(4);
+    expect(keyEvents[0]!.params).toMatchObject({
+      type: "rawKeyDown",
+      key: "Meta",
+      modifiers: 4,
+    });
+    expect(keyEvents[1]!.params).toMatchObject({
+      type: "rawKeyDown",
+      key: "v",
+      modifiers: 4,
+    });
+    expect(keyEvents[2]!.params).toMatchObject({
+      type: "keyUp",
+      key: "v",
+      modifiers: 4,
+    });
+    expect(keyEvents[3]!.params).toMatchObject({
+      type: "keyUp",
+      key: "Meta",
+    });
   });
 
   test("presses key on targeted element via element_id", async () => {
@@ -716,12 +762,10 @@ describe("executeBrowserPressKey", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain('Pressed "Tab" on element');
     expect(result.content).toContain('element_id "e5"');
-    // Backend-resolved path: focus → dispatchKeyEvent × 3 (Tab is
-    // text-producing so we also dispatch a char event).
+    // Backend-resolved path: focus, then Tab key down and key up.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).toEqual([
       "DOM.focus",
-      "Input.dispatchKeyEvent",
       "Input.dispatchKeyEvent",
       "Input.dispatchKeyEvent",
     ]);
@@ -767,7 +811,7 @@ describe("executeBrowserPressKey", () => {
 
   test("surfaces CDP failure as a press-key error", async () => {
     sendHandler = () => new Error("Key not recognized");
-    const result = await executeBrowserPressKey({ key: "InvalidKey" }, ctx);
+    const result = await executeBrowserPressKey({ key: "Enter" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Press key failed");
     expect(result.content).toContain("Key not recognized");

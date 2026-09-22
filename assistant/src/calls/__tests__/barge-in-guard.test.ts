@@ -12,13 +12,16 @@ describe("createBargeInGuard", () => {
     expect(guard.track("speech", 100)).toBe("pending");
     expect(guard.track("speech", 100)).toBe("pending");
     expect(guard.speechMs).toBe(200);
+    expect(guard.fired).toBe(false);
   });
 
   test("sustained speech reaching the threshold fires once and stays fired", () => {
     const guard = createBargeInGuard(250);
     guard.track("speech", 200);
     expect(guard.track("speech", 50)).toBe("fired");
+    expect(guard.fired).toBe(true);
     expect(guard.track("silence", 1_000)).toBe("fired");
+    expect(guard.fired).toBe(true);
   });
 
   test("a brief sub-threshold gap does not reset the run", () => {

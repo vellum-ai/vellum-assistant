@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ArrowLeft, ChevronLeft } from "lucide-react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -10,9 +10,11 @@ import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligenc
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { returnToList } from "@/utils/list-detail-navigation";
 import {
   type AboutAssistantSectionKey,
   aboutAssistantSectionForPath,
+  isPathExactly,
   routes,
 } from "@/utils/routes";
 
@@ -55,17 +57,32 @@ const SECTION_LABEL_KEY: Record<
 export function IntelligenceLayout() {
   const { t } = useTranslation("intelligence");
   const assistantName = useAssistantIdentityStore.use.name();
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const setMobileTopBar = useChatLayoutSlotsStore.use.setMobileTopBar();
   const headerTrailing = useIntelligenceLayoutSlotsStore.use.headerTrailing();
+  const detailIsScreen = useIntelligenceLayoutSlotsStore.use.detailIsScreen();
 
   const section = aboutAssistantSectionForPath(pathname);
-  const sectionTitle = section
-    ? t(SECTION_LABEL_KEY[section.key as AboutAssistantSectionKey])
-    : null;
-  const usesLibraryMobileTopBar = isMobile && section?.key === "library";
+  const sectionTitle = section ? t(SECTION_LABEL_KEY[section.key]) : null;
+  // Library and Contacts own the complete mobile top bar (back, title, action)
+  // so those affordances form one centered navigation row; every other section
+  // registers only its title into the shared app bar.
+  const ownsMobileTopBar =
+    isMobile && (section?.key === "library" || section?.key === "contacts");
+  /**
+   * The list the Back pill returns to, else null for the overview. The page
+   * reports whether its detail is a pushed screen, since the pane it measures
+   * can still seat the list beside the detail on a mobile-width window. The
+   * path has to agree: on the list itself a Back to the list would point at
+   * the page already on screen, whoever set the flag and whenever.
+   */
+  const backToListPath =
+    ownsMobileTopBar && detailIsScreen && !isPathExactly(pathname, section.to)
+      ? section.to
+      : null;
   const fallbackAssistantName =
     assistantName || t("identityOverview.defaultAssistantName");
   const backAriaLabel = t("intelligenceLayout.backToAriaLabel", {
@@ -75,25 +92,38 @@ export function IntelligenceLayout() {
     name: fallbackAssistantName,
   });
 
-  // Library owns the complete mobile top bar so its back, title, and import
-  // affordances form one centered navigation row. Other mobile sections keep
-  // the shared menu and search chrome and register only their title.
   useEffect(() => {
-    if (usesLibraryMobileTopBar && sectionTitle) {
+    if (ownsMobileTopBar && sectionTitle) {
+      // A plain button for the list, so nothing navigates before
+      // `returnToList` decides between popping and replacing; a link for the
+      // overview, which is a plain destination.
+      const destination =
+        backToListPath != null
+          ? {
+              "aria-label": t("intelligenceLayout.backToAriaLabel", {
+                name: sectionTitle,
+              }),
+              tooltip: t("intelligenceLayout.backToTitle", {
+                name: sectionTitle,
+              }),
+              onClick: () => returnToList(navigate, state, backToListPath),
+            }
+          : {
+              "aria-label": backAriaLabel,
+              tooltip: backTitle,
+              asChild: true,
+              children: <Link to={routes.identity} />,
+            };
       setTopBarCenter(null);
       setMobileTopBar({
         leading: (
           <Button
             shape="pill"
-            asChild
             variant="ghost"
             iconOnly={<ArrowLeft aria-hidden />}
-            aria-label={backAriaLabel}
-            tooltip={backTitle}
             className="max-md:bg-[var(--surface-active)]"
-          >
-            <Link to={routes.identity} />
-          </Button>
+            {...destination}
+          />
         ),
         center: (
           <Typography
@@ -126,12 +156,16 @@ export function IntelligenceLayout() {
   }, [
     backAriaLabel,
     backTitle,
+    backToListPath,
     headerTrailing,
     isMobile,
+    navigate,
+    ownsMobileTopBar,
     sectionTitle,
     setMobileTopBar,
     setTopBarCenter,
-    usesLibraryMobileTopBar,
+    state,
+    t,
   ]);
 
   // The overview and personality pages paint their own full-bleed stage —
@@ -147,9 +181,9 @@ export function IntelligenceLayout() {
   return (
     <PageShell>
       {/* Desktop section chrome and the existing mobile chrome for sections
-          that still use the shared app bar. Library's mobile header is fully
-          registered above, so it does not render a second body row. */}
-      {!usesLibraryMobileTopBar ? (
+          that still use the shared app bar. The sections that own the mobile
+          top bar register it above, so they do not render a second body row. */}
+      {!ownsMobileTopBar ? (
         <div className="mb-4 flex shrink-0 items-center gap-1.5">
           <Link
             to={routes.identity}

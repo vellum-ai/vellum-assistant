@@ -8,9 +8,6 @@
     "deleting": "正在删除…",
     "connect": "连接",
     "connecting": "正在连接…",
-    "manage": "管理",
-    "disconnect": "断开连接",
-    "disconnecting": "正在断开连接…",
     "cancel": "取消",
     "back": "返回",
     "verify": "验证",
@@ -43,7 +40,8 @@
     "saveFailed": "保存联系人失败",
     "verifyFailed": "验证渠道失败",
     "rosterLoadFailed": "无法加载工作区名册。请检查 Slack 连接并重试。",
-    "emptyBody": "选择一个联系人"
+    "emptyBody": "选择一个联系人",
+    "notFoundBody": "此联系人不可用。"
   },
   "contactsList": {
     "heading": "条目",
@@ -54,8 +52,7 @@
     "verified": "已验证",
     "unverified": "未验证",
     "you": "您",
-    "youNamed": "{name} (您)",
-    "assistantFallback": "您的助手"
+    "youNamed": "{name} (您)"
   },
   "contactDetailView": {
     "namePlaceholder": "为此人命名",
@@ -92,15 +89,6 @@
     "channelsTitle": "渠道",
     "channelsSubtitle": "验证后，当您通过这些渠道发送消息时，您的助手将识别出您。",
     "setupLabel": "验证我"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (您的助手)",
-    "channelsTitle": "渠道",
-    "channelsSubtitle": "{name} 可联系到的地方。"
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "断开 {channel} 的连接？",
-    "disconnectConfirmMessage": "此操作将清除此渠道的存储凭据。您可以稍后重新连接。"
   },
   "accountLink": {
     "linked": "已关联为 @{username}",

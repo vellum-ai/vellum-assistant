@@ -25,6 +25,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -43,6 +44,7 @@ import type {
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
+  COMPANION_PERCH_HOP,
 } from "@vellumai/ipc-contract";
 import type {
   CompanionAnnotationTool,
@@ -51,9 +53,18 @@ import type {
   CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
+  VoiceActivityWork,
 } from "@vellumai/ipc-contract";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import {
+  CompanionCallWorkSettled,
+  CompanionCallWorkShelf,
+  CompanionCallWorkSpinner,
+  callWorkAccent,
+  runningCallWork,
+  waitingCallWork,
+} from "@/components/companion-call-work";
 import { unplacedOfferLabelKey } from "@/components/companion-dictation-offer";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
@@ -62,18 +73,17 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /**
  * The macOS companion surface (LUM-3086): the assistant's avatar floating from
- * app launch, with a pill carrying the ways to reach it unfurling beside it,
+ * app launch, with a pill carrying the ways to reach it unfurling around it,
  * and unfurling the same way while a call runs.
  *
- * **Two elements, and the mascot is the fixed point.** The creature and the
- * pill are siblings with a gap between them rather than one box holding the
- * other. The avatar holds one point in the canvas in every state, which is the
- * point the host positions this window around, so the surface reads as one
- * object changing shape rather than a series of different objects and the eye
- * and the cursor always have the same target to aim at. The pill hangs off it:
- * its avatar-facing edge sits the avatar's half box plus the gap from that
- * point, and its bottom edge sits on the avatar's bottom, so the two keep one
- * baseline whatever the pill is carrying. Only the pill's `width` animates.
+ * **Two layers, and the mascot is the fixed point.** The creature is drawn
+ * above the pill so it can bob, perch on a control, or walk into an intro card
+ * without being clipped. In the ordinary layout the pill reserves its leading
+ * slot for that creature and unfurls from the slot's far edge. The avatar holds
+ * one point in the canvas in every non-call state, which is the point the host
+ * positions this window around, so the surface reads as one object changing
+ * shape rather than a series of different objects and the eye and cursor keep
+ * the same target.
  *
  * **Two sizes, and the creature carries the difference.** The host publishes a
  * box for the avatar and a box for the pill, and the page around this scales
@@ -83,9 +93,9 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
  * its edge (the gap, the near edge, its own half box) are worked out from the
  * contract's helpers and divided back into these units.
  *
- * **Growth needs clearance on the side it runs into**: the gap, and then a pill
- * as wide as `COMPANION_BASE_MAX_PILL_WIDTH`, which is the host's ceiling. A
- * circle parked against the right edge does not have it, and unclamped
+ * **Growth needs clearance on the side it runs into** for a pill as wide as
+ * `COMPANION_BASE_MAX_PILL_WIDTH`, which is the host's ceiling. A circle parked
+ * against the right edge does not have it, and unclamped
  * the pill would run straight off the display with the controls the user was
  * reaching for. So the surface flips and grows the other way instead, the way a
  * menu does, through {@link growth}.
@@ -417,6 +427,12 @@ const OFFER_WIDTH = 200;
 const CALL_LINE_WIDTH = 120;
 
 /**
+ * The background-work indicator's fixed width. When it appears, the status
+ * line yields this much room so the call pill and its controls stay put.
+ */
+const CALL_WORK_CHIP_WIDTH = 32;
+
+/**
  * The controls at the end of the call row, together: five buttons of a
  * 16-point glyph in 8 points of padding either side, the gap between each
  * pair, and the gap between the line and the first of them.
@@ -593,8 +609,8 @@ export interface CompanionSurfaceProps {
   cardGrowth?: CompanionSurfaceCardGrowth;
   /**
    * Which edge of the display the call's bar rests on. See
-   * {@link CompanionSurfaceDock}. Read only on a call: every other pill hangs
-   * off the creature's side whatever the host remembers.
+   * {@link CompanionSurfaceDock}. Read only on a call: every other pill stays
+   * horizontal whatever the host remembers.
    */
   dock?: CompanionSurfaceDock;
   /**
@@ -622,17 +638,15 @@ export interface CompanionSurfaceProps {
    * The avatar's own element.
    *
    * Handed out for the reason {@link CompanionSurfaceProps.rootRef} is, and
-   * separately from it: the avatar and the pill are siblings with a gap between
-   * them, so the host hit-tests a union of their rects rather than one box. A
-   * box drawn around both would claim the empty canvas above and below the gap
-   * and swallow the presses landing there.
+   * separately from it: the avatar is visually inside the pill but remains a
+   * sibling layer so its bob and intro choreography are not clipped. The host
+   * therefore hit-tests both elements.
    */
   avatarRef?: Ref<HTMLDivElement>;
   /**
    * Begin a drag. Everything drawn that is not a control is a handle, so this
    * is wired to the avatar and to the pill, and the controls stop the press
-   * from reaching it. The gap between the two is not a handle: there is nothing
-   * drawn in it to grab.
+   * from reaching it.
    */
   onSurfacePointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
   /**
@@ -789,11 +803,6 @@ export interface CompanionSurfaceProps {
    * its chevron reads as held open.
    */
   openPicker?: CompanionPicker;
-  /**
-   * Whether the assistant has voices to pick from. Without a catalog the
-   * voice chevron would open nothing, so it is not drawn.
-   */
-  voicesPickable?: boolean;
   /** A chevron pressed: open that picker in the popover, or close it. */
   onPicker?: (picker: CompanionPicker) => void;
   /**
@@ -958,6 +967,13 @@ export interface CompanionSurfaceProps {
    * {@link CompanionContext.dictationText}.
    */
   dictationText?: string;
+  /**
+   * Told when the list of the call's work opens or closes on the bar. The
+   * host hit-tests the pointer against the joined row, and a list that closes
+   * on its own (the work ran out) under a still pointer leaves nothing there
+   * to move off; the host gives the desktop back on this.
+   */
+  onWorkShelfChange?: (shown: boolean) => void;
 }
 
 export function CompanionSurface({
@@ -996,7 +1012,6 @@ export function CompanionSurface({
   marked = false,
   onClearMarks,
   openPicker,
-  voicesPickable = false,
   onPicker,
   shortcuts,
   onAvatarClick,
@@ -1013,12 +1028,55 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
-  prompt,
+  prompt: hostPrompt,
   promptRef,
   promptsDeferred = 0,
   onReviewPrompts,
+  onWorkShelfChange,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
+  /**
+   * Whether the list of the call's work is open on the bar. The surface's own
+   * state rather than the host's: it is a view of what the call already
+   * carries, opened and closed from the bar, and nothing outside the bar acts
+   * on it. Closed when the work runs out, so the next piece of work arrives
+   * as a count rather than reopening a list the user closed long ago.
+   */
+  const work = phase === "call" ? call?.work : undefined;
+  const hasWork = work !== undefined && work.length > 0;
+  const [workShelfOpen, setWorkShelfOpen] = useState(false);
+  useEffect(() => {
+    if (!hasWork) {
+      setWorkShelfOpen(false);
+    }
+  }, [hasWork]);
+  /**
+   * What stands joined to the bar: the host's prompt, which is waiting on the
+   * user and so always outranks it, or else the call's work while its list is
+   * open.
+   */
+  /**
+   * The host's prompt, which only a row carries: a column has no edge for a
+   * list of answers, and the host draws those in a window of their own there.
+   * The call's own list stands beside a column instead.
+   */
+  const sideDocked = dock === "left" || dock === "right";
+  const rowPrompt = sideDocked ? undefined : hostPrompt;
+  const workShelfShown =
+    rowPrompt === null || rowPrompt === undefined
+      ? workShelfOpen && hasWork
+      : false;
+  useEffect(() => {
+    onWorkShelfChange?.(workShelfShown);
+  }, [onWorkShelfChange, workShelfShown]);
+  const prompt = useMemo(
+    () =>
+      rowPrompt ??
+      (workShelfOpen && hasWork ? (
+        <CompanionCallWorkShelf work={work} accentHex={accentHex} />
+      ) : undefined),
+    [rowPrompt, workShelfOpen, hasWork, work, accentHex],
+  );
   /**
    * Whether the pill is drawn.
    *
@@ -1153,12 +1211,12 @@ export function CompanionSurface({
     height: number;
   } | null>(null);
   /**
-   * The width the call's line was given past its own while the bar carries a
-   * wider prompt, as last drawn. Taken back out of every measurement, so the
-   * content is measured at its own width and the bar never grows to fit a
-   * line that was only stretched to fill it.
+   * The length the call's line was given past its own while the bar carries a
+   * bigger prompt, as last drawn: across a row, or down a column. Taken back
+   * out of every measurement, so the content is measured at its own size and
+   * the bar never grows to fit a line that was only stretched to fill it.
    */
-  const lineExtraRef = useRef(0);
+  const lineExtraRef = useRef({ width: 0, height: 0 });
 
   // The body is measured while it is still clipped, so the pill knows how wide
   // to grow before it starts growing. `scrollWidth` reports the content's own
@@ -1171,8 +1229,8 @@ export function CompanionSurface({
     }
     const measure = () => {
       setContentSize({
-        width: element.scrollWidth - lineExtraRef.current,
-        height: element.scrollHeight,
+        width: element.scrollWidth - lineExtraRef.current.width,
+        height: element.scrollHeight - lineExtraRef.current.height,
       });
     };
     measure();
@@ -1186,28 +1244,17 @@ export function CompanionSurface({
   // The distances everything below is placed by, in points, and the one
   // conversion into the units this layout is stated in. Shared with
   // `CompanionIntro`, whose card hangs off the same creature.
-  const {
-    scale,
-    avatarRel,
-    avatarHalf,
-    baseline,
-    gap,
-    inUnits,
-    lineAt,
-    edgeAt,
-  } = companionLayoutFor(avatarBox, optionsBox);
+  const { scale, avatarRel, avatarHalf, gap, inUnits, lineAt, edgeAt } =
+    companionLayoutFor(avatarBox, optionsBox);
 
   /**
    * Whether the pill is the call's bar.
    *
-   * **The call is clearly not the pill, but a form of it.** Every other phase
-   * is the pill hanging off the creature's side; on a call the bar is centred
-   * on the point the host put the window around instead, lit at its edge in
-   * the assistant's colour, and the host takes the whole thing to the bottom
-   * of the display the way a meeting's controls sit. The creature stands
-   * beside the bar across the gap it keeps from every other pill: the
-   * controls are the call's and the creature is the one on the call, and two
-   * objects with daylight between them is how that reads.
+   * **The call is clearly not the pill, but a form of it.** The bar is centred
+   * on the point the host put the window around, and the host takes the whole
+   * thing to the display edge the way meeting controls sit. The creature keeps
+   * the bar's leading slot, so the controls and the one on the call read as one
+   * surface.
    */
   const inCall = phase === "call";
 
@@ -1227,8 +1274,9 @@ export function CompanionSurface({
       ? "right"
       : "left";
 
-  // The body and the clearance at either end of it, and nothing else: the
-  // avatar has a box of its own beside the pill rather than a column inside it.
+  // The creature's leading slot, the body, and the trailing clearance. The
+  // slot is one authored pill row wide and scales with the options setting;
+  // the creature has its own scale on the layer above it.
   //
   // A column is measured both ways. Its length is its content's, as the row's
   // width is, and its width is its content's too: a column of icons is one
@@ -1238,18 +1286,22 @@ export function CompanionSurface({
     ? 0
     : vertical
       ? (contentSize?.width ?? FALLBACK_COLUMN.width) + 2 * INNER_GAP
-      : (contentSize?.width ?? FALLBACK_WIDTHS[phase]) + 2 * INNER_GAP;
+      : COMPANION_BASE_AVATAR_BOX +
+        (contentSize?.width ?? FALLBACK_WIDTHS[phase]) +
+        INNER_GAP;
   const height = !expanded
     ? 0
-    : (contentSize?.height ?? FALLBACK_COLUMN.height) + 2 * INNER_GAP;
+    : COMPANION_BASE_AVATAR_BOX +
+      (contentSize?.height ?? FALLBACK_COLUMN.height) +
+      INNER_GAP;
 
   /**
-   * Whether the call's bar carries a prompt row, joined to it as one shape.
-   * Only a row can: a column has no edge to stand a line of words on.
+   * Whether the call's bar carries a prompt, joined to it as one shape: over
+   * or under a row, beside a column.
    */
-  const joined = inCall && !vertical && prompt !== null && prompt !== undefined;
+  const joined = inCall && prompt !== null && prompt !== undefined;
   const promptMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [promptWidth, setPromptWidth] = useState(0);
+  const [promptSize, setPromptSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const element = promptMeasureRef.current;
     if (!joined || element === null) {
@@ -1259,7 +1311,11 @@ export function CompanionSurface({
       // Its fractional width, rounded up, in the surface's own units: a
       // whole-point width rounded down leaves the row a fraction too narrow
       // for its words, and they wrap onto a second line they do not need.
-      setPromptWidth(Math.ceil(element.getBoundingClientRect().width / scale));
+      const rect = element.getBoundingClientRect();
+      setPromptSize({
+        width: Math.ceil(rect.width / scale),
+        height: Math.ceil(rect.height / scale),
+      });
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -1273,16 +1329,25 @@ export function CompanionSurface({
    * two, so the prompt's words are never cut to fit the call's controls and
    * the two keep one edge.
    */
-  const barWidth = joined ? Math.max(width, promptWidth) : width;
+  const barWidth =
+    joined && !vertical ? Math.max(width, promptSize.width) : width;
+  /**
+   * The column's length while a list stands beside it, for the same reason:
+   * as long as the longer of the two, so the two keep one edge.
+   */
+  const barHeight =
+    joined && vertical ? Math.max(height, promptSize.height) : height;
   /**
    * What the prompt widened the bar by, given to the call's line: the line
    * says more of what the session is doing, and the controls end at the
    * bar's far edge under the prompt's answers rather than short of it.
    */
-  const lineExtra = barWidth - width;
+  const lineExtra = vertical ? barHeight - height : barWidth - width;
   useLayoutEffect(() => {
-    lineExtraRef.current = lineExtra;
-  }, [lineExtra]);
+    lineExtraRef.current = vertical
+      ? { width: 0, height: lineExtra }
+      : { width: lineExtra, height: 0 };
+  }, [lineExtra, vertical]);
 
   /**
    * The line the creature stands on, as the CSS edge the surface is drawn
@@ -1296,18 +1361,21 @@ export function CompanionSurface({
    */
   const avatarLine = vertical ? "50%" : lineAt(cardGrowth, 0);
 
-  // **The avatar never moves.** It holds one spot in the canvas, which is the
-  // spot the host positions this window around, and the pill hangs off one side
-  // of it across the gap. Growing from the pill's centre instead would slide
-  // the mascot to a different x-position in every state, so the surface would
-  // read as a series of different objects rather than one object changing
-  // shape, and the user's eye and cursor would have no fixed target to aim at.
+  // **The avatar never moves outside a call.** It holds one spot in the canvas,
+  // which is the spot the host positions this window around, and the pill
+  // starts half a row before it so the creature occupies the leading slot.
+  // Growing from the pill's centre instead would slide the mascot to a
+  // different x-position in every state, so the surface would read as a series
+  // of different objects rather than one object changing shape, and the user's
+  // eye and cursor would have no fixed target to aim at.
   //
-  // So each direction pins the pill's avatar-facing edge that far out from the
-  // centre and lets the body run the rest of the way: the pill is what moves
-  // when `growth` flips, and the creature the host measures every drag, clamp
-  // and direction check against is not.
-  const placement = edgeAt(growth, avatarHalf + gap);
+  // Each direction pins the outside edge of the avatar slot half a pill row
+  // across the centre. The body runs away from the slot while the creature the
+  // host measures every drag, clamp and direction check against stays put.
+  const placement = edgeAt(
+    growth,
+    growth === "left" ? optionsBox / 2 : -(optionsBox / 2),
+  );
 
   /**
    * The creature's box over the one this file's lengths are authored for.
@@ -1346,7 +1414,7 @@ export function CompanionSurface({
     ? {
         width: barWidth,
         // A column has a length of its own; a row is one row tall.
-        ...(vertical ? { height } : {}),
+        ...(vertical ? { height: barHeight } : {}),
         // **Centred on the creature's own point.** The bar takes the point
         // the creature holds everywhere else and stands on its centre line
         // rather than on its baseline, and the canvas is symmetric about
@@ -1360,14 +1428,12 @@ export function CompanionSurface({
     : {
         width,
         ...placement,
-        // **On the creature's visible bottom.** The pill's bottom edge sits on
-        // the bottom of the artwork, so the two keep one baseline whatever the
-        // pill is carrying. The line is the artwork, not the avatar's *box*,
-        // which runs an `INNER_GAP` further down to hold the bob's slack.
-        // Which edge of the canvas that line is measured from is the host's
-        // call (see `CompanionSurfaceCardGrowth`).
-        top: lineAt(cardGrowth, baseline),
-        transform: "translateY(-100%)",
+        // The pill and creature share a centre line, which seats the artwork in
+        // the leading slot while its larger transparent box keeps room for the
+        // bob and glow. Which canvas edge that line is measured from is the
+        // host's call (see `CompanionSurfaceCardGrowth`).
+        top: avatarLine,
+        transform: "translateY(-50%)",
         // Settles rather than overshoots. A surface on screen all day should
         // not bounce every time the pointer crosses it.
         transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
@@ -1375,14 +1441,12 @@ export function CompanionSurface({
 
   /**
    * Where the creature is drawn: on the point the host put the window around,
-   * or, on a call, beside the bar's leading end.
+   * or, on a call, in the bar's leading slot.
    *
    * The bar is centred on that point and its width is known here, so the
-   * creature is a fixed step back from the centre: half the bar, then the gap
-   * and its own half box, which are the distances the pill steps off the
-   * creature by everywhere else, read the other way round. The creature slides
-   * out as the bar unfurls and back as it collapses, over the pill's own
-   * duration, so the two read as one object changing shape.
+   * creature sits half a row in from its leading edge. The creature slides as
+   * the bar unfurls and back as it collapses, over the pill's own duration, so
+   * the two read as one object changing shape.
    */
   const creatureLeft =
     stage !== null
@@ -1390,12 +1454,11 @@ export function CompanionSurface({
       : perch !== null && !vertical
         ? `${perch}px`
         : inCall && !vertical
-          ? `calc(50% - ${barWidth / 2 + inUnits(avatarHalf + gap)}px)`
+          ? `calc(50% - ${barWidth / 2 - COMPANION_BASE_AVATAR_BOX / 2}px)`
           : "50%";
   /**
-   * The same step, read up the column: on a side dock the creature stands at
-   * the column's top end, across the gap, and the column is centred on the
-   * creature's point vertically the way the row is horizontally.
+   * The same step, read down the column: on a side dock the creature occupies
+   * the column's first row, and the column is centred on the host's point.
    */
   const creatureTop =
     stage !== null
@@ -1409,7 +1472,7 @@ export function CompanionSurface({
           // bar itself.
           `calc(${avatarLine} - ${inUnits(avatarHalf + gap) + COMPANION_PERCH_HOP}px)`
         : vertical
-          ? `calc(50% - ${height / 2 + inUnits(avatarHalf + gap)}px)`
+          ? `calc(50% - ${barHeight / 2 - COMPANION_BASE_AVATAR_BOX / 2}px)`
           : avatarLine;
 
   return (
@@ -1418,10 +1481,10 @@ export function CompanionSurface({
     // inside resolves in base units and the host never holds a second set of
     // dimensions.
     //
-    // The pill, the creature and the introduction's card are siblings inside it,
-    // never nested: a card inside the pill would sit in the box whose width
-    // animates from state to state and be clipped by the pill's own rounding,
-    // and beside it they all hang off the same fixed avatar position.
+    // The pill, the creature and the introduction's card are sibling layers
+    // inside it. The creature is visually inside the pill's leading slot, but
+    // remains a sibling so its perch and card animations are not clipped by the
+    // pill's own box.
     <div
       ref={boxRef}
       className="absolute top-0 left-0 origin-top-left"
@@ -1435,9 +1498,9 @@ export function CompanionSurface({
         <PromptShelf
           dock={dock}
           top={avatarLine}
-          width={barWidth}
-          accentHex={accentHex}
-          lit={expanded}
+          width={vertical ? promptSize.width : barWidth}
+          height={barHeight}
+          barThickness={vertical ? width : 44}
           promptRef={promptRef}
         >
           {prompt}
@@ -1452,7 +1515,11 @@ export function CompanionSurface({
           inert
           aria-hidden
           data-theme="dark"
-          className="pointer-events-none invisible absolute top-0 left-0 w-max max-w-[640px]"
+          className={`pointer-events-none invisible absolute top-0 left-0 w-max ${
+            // Beside a column the list has the room the canvas keeps for the
+            // capture picker, which stands on the same side.
+            vertical ? "max-w-[400px]" : "max-w-[640px]"
+          }`}
         >
           {prompt}
         </div>
@@ -1462,11 +1529,10 @@ export function CompanionSurface({
         grabbed. */}
       <div
         // One row in a box whose width animates, so the row is pinned to the
-        // pill's avatar-facing edge. `growth: "left"` anchors the pill by its
+        // pill's avatar-slot edge. `growth: "left"` anchors the pill by its
         // right, and a row left-aligned in a box narrower than itself spills
-        // past that edge, across the gap and over the creature, every time the
-        // width lags the content: through the unfurl and instantly on each
-        // label reveal.
+        // past that edge toward the avatar slot every time the width lags the
+        // content: through the unfurl and instantly on each label reveal.
         className={`absolute flex cursor-grab items-center rounded-full duration-300 select-none active:cursor-grabbing ${
           vertical
             ? "flex-col transition-[width,height] will-change-[width,height]"
@@ -1477,10 +1543,9 @@ export function CompanionSurface({
         onContextMenu={onSurfaceContextMenu}
         ref={rootRef}
       >
-        {/* The pill's body, which exists only once there is a pill. At rest
-          there is nothing beside the avatar to draw, and fading the body in
-          as the width grows is what makes the pill unfurl out of the gap
-          rather than appear in it. */}
+        {/* The pill's body, which exists only once there is a pill. At rest it
+          is transparent, and fading it in as the width grows makes the pill
+          unfurl from the avatar slot rather than appear at full width. */}
         <span
           className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
             // Joined to the prompt row it is one shape with it: opaque, so
@@ -1493,38 +1558,32 @@ export function CompanionSurface({
           style={{ opacity: expanded ? 1 : 0 }}
           aria-hidden
         />
-        {/* The call's own light: a pulse travelling the bar's edge in the
-            assistant's colour, the same ring the creature burns for a turn and
-            a watch session burns in amber. On the edge and nowhere inside it,
-            so the bar stays the pill it was and the call is the thing moving
-            around it. */}
-        {inCall && (
-          <span
-            className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full transition-opacity duration-200"
-            style={{
-              // Out while a prompt is joined to the bar: it would run across
-              // the join, through the middle of the one shape.
-              opacity: expanded && !joined ? 1 : 0,
-              ["--companion-ring-accent" as string]: accentHex,
-            }}
-            aria-hidden
-          />
-        )}
-        {/* The pill's one in-flow row, and where the clearance at either end
-          lives. On the row rather than on the pill, so the pill's own box
-          goes to nothing at rest while the body inside it keeps being
-          measured. */}
+        {/* The pill's one in-flow row. Its avatar-facing end reserves a whole
+          row for the creature, and the far end keeps the ordinary clearance.
+          On the row rather than on the pill, so the pill's own box goes to
+          nothing at rest while the body inside it keeps being measured. */}
         <div
           className={`relative flex shrink-0 items-center ${
             vertical ? "flex-col" : "h-11"
           }`}
-          // A column keeps its clearance at its two ends, the way the row
-          // does at its; and the row's own clearance across, since a column
-          // is measured across as well as along.
+          // A column reserves its first row for the creature. A horizontal pill
+          // reserves the slot on whichever end faces the fixed avatar point.
           style={
             vertical
-              ? { paddingBlock: INNER_GAP, paddingInline: INNER_GAP }
-              : { paddingInline: INNER_GAP }
+              ? {
+                  paddingTop: COMPANION_BASE_AVATAR_BOX,
+                  paddingBottom: INNER_GAP,
+                  paddingInline: INNER_GAP,
+                }
+              : growth === "left"
+                ? {
+                    paddingLeft: INNER_GAP,
+                    paddingRight: COMPANION_BASE_AVATAR_BOX,
+                  }
+                : {
+                    paddingLeft: COMPANION_BASE_AVATAR_BOX,
+                    paddingRight: INNER_GAP,
+                  }
           }
         >
           <div
@@ -1585,7 +1644,6 @@ export function CompanionSurface({
                   onAnnotate={onAnnotate}
                   onClearMarks={onClearMarks}
                   openPicker={openPicker}
-                  voicesPickable={voicesPickable}
                   onPicker={onPicker}
                   pickerSide={
                     vertical
@@ -1600,6 +1658,11 @@ export function CompanionSurface({
                   promptsDeferred={promptsDeferred}
                   lineExtra={lineExtra}
                   onReviewPrompts={onReviewPrompts}
+                  accentHex={accentHex}
+                  workShelfOpen={workShelfShown}
+                  onToggleWorkShelf={() => {
+                    setWorkShelfOpen((open) => !open);
+                  }}
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -1733,8 +1796,8 @@ export function CompanionSurface({
         }}
         label={t("companionSurface.talk")}
       />
-      {/* Drawn after the pill so the creature lands over the pill's leading
-        edge rather than under it. */}
+      {/* Drawn after the pill so the creature sits above its leading slot and
+        can leave that slot for an intro beat without being clipped. */}
       <Avatar
         // The press's name, by the phase, since the caller decides what the
         // press does by the same fact: a call's creature goes back to Vellum,
@@ -1890,18 +1953,6 @@ const trackInBox = (
     cancelAnimationFrame(frame);
   };
 };
-
-/**
- * How far above its own line the creature stands while perched on a control,
- * beyond the step everything beside the creature takes.
- *
- * Flat rather than scaled, like the caption's lift: it is the clearance over
- * the bar's top edge, and that edge is the same few pixels away at every size.
- *
- * Exported for the introduction's card, which hangs off the same line and has
- * to leave the perched creature its room. See `CompanionIntro`.
- */
-export const COMPANION_PERCH_HOP = 22;
 
 /**
  * The lift that puts the caption's beak on the creature's edge rather than
@@ -2445,36 +2496,69 @@ function PromptShelf({
   dock,
   top,
   width,
-  accentHex,
-  lit,
+  height,
+  barThickness,
   promptRef,
   children,
 }: {
   dock: CompanionSurfaceDock;
   top: string;
+  /** Across a row, the bar's width; beside a column, the list's own. */
   width: number;
-  accentHex: string;
-  /** Whether the call's light travels the shape's edge. */
-  lit: boolean;
+  /** The column's length, which the list beside it matches. */
+  height: number;
+  /** How thick the bar is across: a row's height, or a column's width. */
+  barThickness: number;
   promptRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
-  const below = dock === "top";
+  const half = barThickness / 2;
+  // Which way the shelf stands off the bar: toward the middle of the screen.
+  const side =
+    dock === "top"
+      ? "below"
+      : dock === "left"
+        ? "right"
+        : dock === "right"
+          ? "left"
+          : "above";
+  const across = side === "left" || side === "right";
+  const placed: CSSProperties = across
+    ? {
+        // Beside the column: its own width plus the half of the column it
+        // runs behind, as long as the column, and centred on the same line.
+        left: "50%",
+        top,
+        width: width + half,
+        height,
+        transform:
+          side === "right" ? "translate(0, -50%)" : "translate(-100%, -50%)",
+        [side === "right" ? "paddingLeft" : "paddingRight"]: half,
+      }
+    : {
+        left: "50%",
+        top,
+        width,
+        transform:
+          side === "below" ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        // The half of the bar the shelf runs behind.
+        [side === "below" ? "paddingTop" : "paddingBottom"]: half,
+      };
+  const rounded = {
+    above: "rounded-t-[22px]",
+    below: "rounded-b-[22px]",
+    left: "rounded-l-[22px]",
+    right: "rounded-r-[22px]",
+  }[side];
   return (
     <div
       ref={promptRef}
       // The surface paints its own dark ground in every host theme, so the
       // design-library tokens the row is drawn with resolve against dark.
       data-theme="dark"
+      data-shelf-side={side}
       className="absolute"
-      style={{
-        left: "50%",
-        top,
-        width,
-        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-        // The half of the bar the shelf runs behind.
-        [below ? "paddingTop" : "paddingBottom"]: 22,
-      }}
+      style={placed}
       onPointerDown={(event) => {
         // A press here is an answer, not a grab of the surface.
         event.stopPropagation();
@@ -2482,35 +2566,27 @@ function PromptShelf({
     >
       <span
         aria-hidden
-        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${
-          below ? "rounded-b-[22px]" : "rounded-t-[22px]"
+        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${rounded}`}
+      />
+      <span
+        aria-hidden
+        className={`absolute bg-white/10 ${
+          across ? "top-4 bottom-4 w-px" : "right-4 left-4 h-px"
         }`}
-      />
-      <span
-        aria-hidden
-        className="absolute right-4 left-4 h-px bg-white/10"
-        style={below ? { top: 22 } : { bottom: 22 }}
-      />
-      {/* The call's light, travelling the edge of the whole shape: the shelf
-          and the half of the bar it does not run behind. The bar's own ring
-          is out while the shelf is up. */}
-      <span
-        aria-hidden
-        className="companion-working-ring pointer-events-none absolute transition-opacity duration-200"
-        style={{
-          left: -2,
-          right: -2,
-          top: below ? -24 : -2,
-          bottom: below ? -2 : -24,
-          borderRadius: 24,
-          opacity: lit ? 1 : 0,
-          ["--companion-ring-accent" as string]: accentHex,
-        }}
+        style={{ [oppositeEdge[side]]: half }}
       />
       <div className="relative">{children}</div>
     </div>
   );
 }
+
+/** The edge of the shelf that runs behind the bar, by the side it stands on. */
+const oppositeEdge = {
+  above: "bottom",
+  below: "top",
+  left: "right",
+  right: "left",
+} as const;
 
 function CallBody({
   call,
@@ -2537,13 +2613,15 @@ function CallBody({
   onAnnotate,
   onClearMarks,
   openPicker,
-  voicesPickable,
   onPicker,
   pickerSide,
   shortcuts,
   promptsDeferred = 0,
   onReviewPrompts,
   lineExtra = 0,
+  accentHex,
+  workShelfOpen,
+  onToggleWorkShelf,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -2573,7 +2651,6 @@ function CallBody({
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
   openPicker?: CompanionPicker;
-  voicesPickable: boolean;
   onPicker?: (picker: CompanionPicker) => void;
   /** Where the popover a chevron opens hangs from the bar, which it points at. */
   pickerSide: DrawToolsPlacement;
@@ -2583,6 +2660,10 @@ function CallBody({
   onReviewPrompts?: () => void;
   /** Width past its own the line takes, to fill a bar a prompt widened. */
   lineExtra?: number;
+  accentHex: string;
+  workShelfOpen: boolean;
+  /** Absent where the bar cannot carry the list, which leaves the count. */
+  onToggleWorkShelf?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2613,11 +2694,14 @@ function CallBody({
       </>
     );
   }
-  // The activity line when the turn has one, the phase otherwise. `detail` is
-  // the more specific of the two ("Reading a file" against "Thinking…") and is
-  // empty for most of a call, so this reads as the surface saying more exactly
-  // when there is more to say. The mascot carries the state either way.
-  const line = call.detail || call.label;
+  // The phase, and the turn's own step when the session has no work list to
+  // carry it. A session that sends `work` names the step there, on the
+  // foreground's line, and the phase reads "Working…" for it; one that
+  // predates the list has only this line, and the step is the more specific
+  // of the two ("Reading a file" against "Thinking…").
+  const line = call.work === undefined ? call.detail || call.label : call.label;
+  const work = call.work ?? [];
+  const hasWork = work.length > 0;
   const { muted, outputMuted } = call;
   // Who is on this call, which is not always who the app is showing. A
   // session outlives a switch to another assistant, while `assistantName` on
@@ -2630,12 +2714,24 @@ function CallBody({
 
   return (
     <>
+      {hasWork ? (
+        <WorkChip
+          work={work}
+          accentHex={accentHex}
+          open={workShelfOpen}
+          onToggle={onToggleWorkShelf}
+        />
+      ) : null}
       {/* One width, whatever the session is saying. See
           {@link CALL_LINE_WIDTH}. `shrink-0` because the pill measures this row
           to decide how wide to be, and a box that collapsed under pressure
           would measure its own collapsed self: the width and the truncation
           would chase each other down. */}
-      <CallLine vertical={vertical} extra={lineExtra} text={line} />
+      <CallLine
+        vertical={vertical}
+        extra={lineExtra - (!vertical && hasWork ? CALL_WORK_CHIP_WIDTH : 0)}
+        text={line}
+      />
       {/* What was put off, beside what the session is doing: it is the
           assistant waiting on the user, which is part of what the call is
           doing. A press lists it again. */}
@@ -2710,32 +2806,6 @@ function CallBody({
       />
       <PillButton
         icon={
-          muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
-        }
-        label={
-          muted
-            ? t("companionSurface.unmuteMicrophone")
-            : t("companionSurface.muteMicrophone")
-        }
-        shortcut={shortcuts?.muteMicrophone}
-        control="mute"
-        spotlit={spotlight === "mute"}
-        dimmed={spotlight !== undefined && spotlight !== "mute"}
-        onClick={() => {
-          onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
-        }}
-      />
-      {/* Beside the control it chooses for, the way a system call bar puts
-          the device menu next to its mute. */}
-      <PickerChevron
-        picker="microphones"
-        label={t("companionSurface.chooseMicrophone")}
-        side={pickerSide}
-        open={openPicker === "microphones"}
-        onPicker={onPicker}
-      />
-      <PillButton
-        icon={
           outputMuted ? (
             <VolumeX className="size-4" />
           ) : (
@@ -2767,15 +2837,32 @@ function CallBody({
           );
         }}
       />
-      {voicesPickable ? (
-        <PickerChevron
-          picker="voices"
-          label={t("companionSurface.chooseVoice")}
-          side={pickerSide}
-          open={openPicker === "voices"}
-          onPicker={onPicker}
-        />
-      ) : null}
+      <PillButton
+        icon={
+          muted ? <MicOff className="size-4" /> : <Mic className="size-4" />
+        }
+        label={
+          muted
+            ? t("companionSurface.unmuteMicrophone")
+            : t("companionSurface.muteMicrophone")
+        }
+        shortcut={shortcuts?.muteMicrophone}
+        control="mute"
+        spotlit={spotlight === "mute"}
+        dimmed={spotlight !== undefined && spotlight !== "mute"}
+        onClick={() => {
+          onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
+        }}
+      />
+      {/* Beside the control it chooses for, the way a system call bar puts
+          the device menu next to its mute. */}
+      <PickerChevron
+        picker="microphones"
+        label={t("companionSurface.chooseMicrophone")}
+        side={pickerSide}
+        open={openPicker === "microphones"}
+        onPicker={onPicker}
+      />
       <EndCallButton dimmed={spotlight !== undefined} onControl={onControl} />
     </>
   );
@@ -2784,10 +2871,10 @@ function CallBody({
 /**
  * What the session is doing, in the bar.
  *
- * On a row it is the first thing in the row, one width whatever it says (see
- * {@link CALL_LINE_WIDTH}). On a column it is the first thing down the
- * column and runs along it, the way a title runs down a book's spine: the
- * same words at one length of their own (see
+ * On a row it follows the background-work indicator when one is present, at
+ * one width whatever it says (see {@link CALL_LINE_WIDTH}). On a column it
+ * follows that indicator down the column and runs along it, the way a title
+ * runs down a book's spine: the same words at one length of their own (see
  * {@link CALL_COLUMN_LINE_LENGTH}), turned to lie with the controls, so the
  * column stays one control wide. Written the other way, the line would be
  * the widest thing in the column by a long way and the whole bar would
@@ -2812,7 +2899,7 @@ function CallLine({
       <span
         className="mt-1 shrink-0 truncate text-[12px] text-white/85"
         style={{
-          height: CALL_COLUMN_LINE_LENGTH,
+          height: CALL_COLUMN_LINE_LENGTH + extra,
           writingMode: "vertical-rl",
         }}
         data-label="line"
@@ -3186,6 +3273,90 @@ const captionStance = (
         className: CONTROL_CAPTION_BESIDE[side],
         beak: side === "right" ? "left" : "right",
       };
+
+/**
+ * The call's work on its row: a turning arc around how many pieces are
+ * running, which settles to a mark for a beat when the last one finishes. A
+ * press opens the list of them joined to the bar. Beside the line, since it is
+ * part of what the call is doing.
+ *
+ * The caption names what is running rather than the press, the way a count
+ * is read: the names are what the pointer came for.
+ */
+function WorkChip({
+  work,
+  accentHex,
+  open,
+  onToggle,
+}: {
+  work: readonly VoiceActivityWork[];
+  accentHex: string;
+  open: boolean;
+  onToggle?: () => void;
+}) {
+  const { t } = useTranslation();
+  const stance = captionStance(useContext(CaptionSideContext));
+  const running = runningCallWork(work);
+  const waiting = waitingCallWork(work);
+  // What the count counts: the work moving, or failing that the work held on
+  // the user, which is still open but not running.
+  const counted = running.length > 0 ? running : waiting;
+  const last = work.at(-1);
+  const names = (counted.length > 0 ? counted : work)
+    .map((item) => item.title)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      aria-label={
+        running.length === 0 && waiting.length > 0
+          ? t("companionSurface.workWaiting", { count: waiting.length })
+          : t("companionSurface.workCount", { count: running.length })
+      }
+      aria-expanded={onToggle === undefined ? undefined : open}
+      data-control="work"
+      disabled={onToggle === undefined}
+      // The same 32 by 28 capsule as the call's other controls, a 16pt icon
+      // in `px-2`, so its hover and open background is the same shape theirs is.
+      className={`group flex h-7 shrink-0 items-center justify-center rounded-full px-1.5 transition-colors enabled:hover:bg-white/15 ${
+        open ? "bg-white/15" : ""
+      }`}
+      style={{ ...callWorkAccent(accentHex), width: CALL_WORK_CHIP_WIDTH }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={onToggle}
+    >
+      <span className="relative grid size-5 place-items-center">
+        {counted.length > 0 ? (
+          <>
+            <span className="absolute inset-0 grid place-items-center">
+              <CompanionCallWorkSpinner
+                size={20}
+                still={running.length === 0}
+              />
+            </span>
+            <span className="text-[10px] leading-none font-semibold text-white/90 tabular-nums">
+              {counted.length}
+            </span>
+          </>
+        ) : (
+          <CompanionCallWorkSettled
+            state={last?.state === "failed" ? "failed" : "done"}
+          />
+        )}
+      </span>
+      {open ? null : (
+        <Caption
+          label={names}
+          className={`opacity-0 group-hover:opacity-100 ${stance.className}`}
+          beak={stance.beak}
+          data-label="hover"
+        />
+      )}
+    </button>
+  );
+}
 
 /**
  * A control in the pill.

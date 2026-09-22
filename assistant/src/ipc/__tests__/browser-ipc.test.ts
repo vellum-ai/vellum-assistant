@@ -20,7 +20,7 @@ import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helper
 import { isSessionGroupsEnabled } from "../../config/session-groups-gate.js";
 import type { BrowserOperationToken } from "../../daemon/browser-mode-session.js";
 import { BrowserModeSessionProducer } from "../../daemon/browser-mode-session.js";
-import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
+import { desktopDependencies } from "../../desktop/desktop-dependencies.js";
 import * as desktopFeature from "../../desktop/virtual-desktop-feature.js";
 import { browserManager } from "../../tools/browser/browser-manager.js";
 import type { ToolExecutionResult } from "../../tools/types.js";
@@ -150,10 +150,9 @@ const enabledSpy = spyOn(
   desktopFeature,
   "isVirtualDesktopEnabled",
 ).mockImplementation(() => desktopEnabled);
-const readySpy = spyOn(
-  desktopDependencyInstaller,
-  "getStatus",
-).mockImplementation(() => ({ state: desktopReady ? "ready" : "required" }));
+const readySpy = spyOn(desktopDependencies, "getStatus").mockImplementation(
+  () => ({ state: desktopReady ? "ready" : "failed" }),
+);
 afterAll(() => {
   enabledSpy.mockRestore();
   readySpy.mockRestore();
@@ -849,7 +848,7 @@ test("a streamed browser failure does not switch to Playwright or personal Chrom
   expect(mockOperationCalls).toHaveLength(0);
 });
 
-test("first web browser use routes to virtual desktop setup before installation", async () => {
+test("missing image components do not redirect web browser use to a personal browser", async () => {
   webConversation();
   desktopReady = false;
   await callHandler({

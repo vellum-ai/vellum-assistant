@@ -46,6 +46,8 @@ The response includes:
 - `recommendedMode` — the best available backend (use this)
 - `modes[]` — per-mode status with `available`, `summary`, and `userActions` (remediation steps)
 
+For `--virtual-desktop`, Chrome and desktop components are included in the assistant image. Browser and computer use start the existing desktop without installing dependencies. If components are missing, report the image problem; do not install packages or launch a separate Chrome process.
+
 ## Browser Modes
 
 Use `--browser-mode <mode>` on the `assistant browser` parent command to pin the browser backend:
