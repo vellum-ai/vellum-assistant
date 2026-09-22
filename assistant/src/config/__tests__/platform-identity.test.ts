@@ -116,6 +116,7 @@ describe("fetchPlatformIdentityIds", () => {
 describe("resolvePlatformAssistantId", () => {
   const originalFetch = globalThis.fetch;
   const originalAssistantApiKeyEnv = process.env.ASSISTANT_API_KEY;
+  const originalPlatformUrlEnv = process.env.VELLUM_PLATFORM_URL;
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
   let fetchImpl: (
     input: RequestInfo | URL,
@@ -148,6 +149,11 @@ describe("resolvePlatformAssistantId", () => {
       delete process.env.ASSISTANT_API_KEY;
     } else {
       process.env.ASSISTANT_API_KEY = originalAssistantApiKeyEnv;
+    }
+    if (originalPlatformUrlEnv === undefined) {
+      delete process.env.VELLUM_PLATFORM_URL;
+    } else {
+      process.env.VELLUM_PLATFORM_URL = originalPlatformUrlEnv;
     }
     setPlatformBaseUrl(undefined);
     setPlatformAssistantId(undefined);
@@ -225,13 +231,15 @@ describe("resolvePlatformAssistantId", () => {
 
   test("retries validate inside the cooldown once a different base URL is stored", async () => {
     process.env.ASSISTANT_API_KEY = "assistant-key";
-    setPlatformBaseUrl("https://old.example.com");
+    // The environment URL outranks the in-memory override (and the test
+    // preload sets one), so the base URL is changed through the environment.
+    process.env.VELLUM_PLATFORM_URL = "https://old.example.com";
     fetchImpl = async () => new Response("no", { status: 401 });
 
     await expect(resolvePlatformAssistantId()).resolves.toBe("");
     expect(fetchCalls).toHaveLength(1);
 
-    setPlatformBaseUrl(BASE_URL);
+    process.env.VELLUM_PLATFORM_URL = BASE_URL;
     fetchImpl = async () =>
       new Response(
         JSON.stringify({
