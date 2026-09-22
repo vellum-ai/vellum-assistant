@@ -30,6 +30,7 @@ import { useReducedMotion } from "motion/react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
+import { ChatsSectionEmptyState } from "@/domains/chat/components/chats-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import {
   SectionDoneFlashProvider,
@@ -340,15 +341,17 @@ function SidebarSectionCardWithMenu({
       onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
-      /* The only section that renders at zero, so the only one with anything
-         to say there. `ConversationNavSection` resolves this as
+      /* The two sections that render at zero, so the two with anything to
+         say there. `ConversationNavSection` resolves this as
          `children ?? <ConversationRowList/>`, so it has to be exactly
          `undefined` in every other case or a section would lose its rows to
          an empty node. Passed as a prop rather than as a JSX child for that
          reason: it keeps the absent case unambiguous. */
       children={
-        isAssistantSection && conversations.length === 0 ? (
+        conversations.length > 0 ? undefined : isAssistantSection ? (
           <AssistantSectionEmptyState />
+        ) : section.type === "recents" ? (
+          <ChatsSectionEmptyState viewAllHref={viewAllHref} />
         ) : undefined
       }
     />
