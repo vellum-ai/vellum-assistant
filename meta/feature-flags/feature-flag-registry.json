@@ -339,6 +339,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "mcp-catalog-qa-integrations",
+      "scope": "assistant",
+      "key": "mcp-catalog-qa-integrations",
+      "label": "MCP Catalog QA Integrations",
+      "description": "Show Gamma, Guru, Intercom, Ramp, Semrush, and Typeform in the installable plugin catalog while their OAuth flows are validated. When off, catalog search, detail, and install-by-name cannot resolve them. Existing installed connections remain available.",
+      "defaultEnabled": false
+    },
+    {
       "id": "os-beta",
       "scope": "assistant",
       "key": "os-beta",
