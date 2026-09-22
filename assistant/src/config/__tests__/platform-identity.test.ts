@@ -198,6 +198,31 @@ describe("resolvePlatformAssistantId", () => {
     expect(fetchCalls).toHaveLength(1);
   });
 
+  test("retries validate inside the cooldown once a different API key is stored", async () => {
+    process.env.ASSISTANT_API_KEY = "rejected-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () => new Response("no", { status: 401 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(1);
+
+    process.env.ASSISTANT_API_KEY = "replacement-key";
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+    const headers = new Headers(fetchCalls[1]?.init?.headers);
+    expect(headers.get("Authorization")).toBe("Api-Key replacement-key");
+  });
+
   test("retries validate after a failed attempt once the cooldown is cleared", async () => {
     process.env.ASSISTANT_API_KEY = "assistant-key";
     setPlatformBaseUrl(BASE_URL);
