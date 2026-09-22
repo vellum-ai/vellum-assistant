@@ -316,9 +316,10 @@ export async function runWhenConversationIdle<T>(
   ).finally(() => {
     releaseAdmission(conversationId, slot);
   });
-  // The chain is what keeps `run` from being called after a cancellation; the
-  // race is what keeps the caller from waiting on the sends queued ahead of
-  // this one to reach the head of that chain first.
+  // A cancelled slot answers its caller here rather than when it reaches the
+  // head of the chain, which is behind however many sends were registered
+  // first. `admit` is what guarantees `run` is not called for it; this only
+  // decides when the caller hears about it.
   void chained.catch(() => {});
   return await Promise.race([chained, slot.cancellation]);
 }
@@ -330,10 +331,12 @@ async function admit<T>(
   options: AdmissionOptions,
 ): Promise<T> {
   for (let attempt = 1; ; attempt++) {
-    await Promise.race([
-      waitUntilAdmissible(conversationId, options.origin),
-      slot.cancellation,
-    ]);
+    await waitUntilAdmissible(conversationId, options.origin);
+    // Read after the wait rather than raced against it. A cancellation that
+    // lands mid-wait is honored here either way, since the wait only ends when
+    // the conversation is free and `run` has not been reached yet; racing it
+    // would add an event-loop hop to every admission to buy nothing but an
+    // earlier release of a chain slot nobody is waiting on.
     if (slot.cancelled) {
       throw slot.cancelled;
     }
