@@ -78,15 +78,27 @@ const INTERCEPTABLE_STATUSES_SQL = INTERCEPTABLE_STATUSES.map(
   (s) => `'${s}'`,
 ).join(", ");
 
+/**
+ * A row whose purpose is outside the contract is not a session to any read:
+ * it matches no code, counts toward no presence check, cannot be claimed,
+ * and never shadows a valid row as the newest. Applied in the query, before
+ * ordering and limiting, so the store never has to decide what such a row
+ * grants. Writes that clean up (revoke-prior, supersede) still reach it.
+ */
+const HAS_KNOWN_PURPOSE = inArray(
+  channelVerificationSessions.verificationPurpose,
+  VerificationPurposeSchema.options,
+);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * A row whose purpose is not a known {@link VerificationPurpose} is not a
- * session: lookups return null for it, so every redemption path sees "no
- * match" and the code grants nothing. Reading it as any particular purpose
- * would be a grant nobody asked for.
+ * Every read filters on {@link HAS_KNOWN_PURPOSE}, so a row that fails the
+ * parse here reached the store some other way. It is still not a session,
+ * because reading it as any particular purpose would be a grant nobody
+ * asked for.
  */
 function rowToSession(
   row: typeof channelVerificationSessions.$inferSelect,
@@ -237,6 +249,7 @@ export function findPendingSessionByHash(
         eq(channelVerificationSessions.challengeHash, challengeHash),
         inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -266,6 +279,7 @@ export function findPendingSessionForChannel(
         eq(channelVerificationSessions.channel, channel),
         eq(channelVerificationSessions.status, "pending"),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -295,6 +309,7 @@ export function findLatestSessionByStatuses(
         eq(channelVerificationSessions.channel, channel),
         inArray(channelVerificationSessions.status, statuses),
         gt(channelVerificationSessions.expiresAt, Date.now()),
+        HAS_KNOWN_PURPOSE,
         ...(filter.expectedExternalUserId
           ? [
               eq(
@@ -345,6 +360,7 @@ export function hasInterceptableSession(channel: string): boolean {
         eq(channelVerificationSessions.channel, channel),
         inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
         gt(channelVerificationSessions.expiresAt, Date.now()),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();
@@ -403,10 +419,10 @@ export function consumeSession(
  * redeeming the same link leave it bound to the second one, and an
  * identity-matched revoke would miss it for the first.
  *
- * A claimed row with no known purpose also returns null, after the revoke
- * has landed: the deep link is spent and nothing is minted for it. That is
- * deliberate. The replacement would have to carry the claimed purpose, and
- * a link whose purpose is unknown must not become a code of any kind.
+ * A bootstrap row with no known purpose cannot be claimed at all: the claim
+ * finds nothing, the mint conflicts, and the row is left to expire. The
+ * replacement would have to carry the claimed purpose, and a link whose
+ * purpose is unknown must not become a code of any kind.
  */
 export function claimBootstrapSession(
   id: string,
@@ -420,6 +436,7 @@ export function claimBootstrapSession(
         eq(channelVerificationSessions.id, id),
         eq(channelVerificationSessions.channel, channel),
         eq(channelVerificationSessions.status, "pending_bootstrap"),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .returning()
@@ -562,7 +579,7 @@ export function getSessionById(id: string): VerificationSession | null {
   const row = db
     .select()
     .from(channelVerificationSessions)
-    .where(eq(channelVerificationSessions.id, id))
+    .where(and(eq(channelVerificationSessions.id, id), HAS_KNOWN_PURPOSE))
     .get();
 
   return row ? rowToSession(row) : null;
@@ -605,6 +622,7 @@ export function findSessionByBootstrapTokenHash(
         eq(channelVerificationSessions.bootstrapTokenHash, tokenHash),
         eq(channelVerificationSessions.status, "pending_bootstrap"),
         gt(channelVerificationSessions.expiresAt, now),
+        HAS_KNOWN_PURPOSE,
       ),
     )
     .get();

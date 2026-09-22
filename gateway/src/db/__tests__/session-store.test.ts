@@ -295,7 +295,7 @@ describe("claimBootstrapSession", () => {
     expect(getRow("live")?.status).toBe("awaiting_response");
   });
 
-  test("a claim on a row with no known purpose spends the link and mints nothing", () => {
+  test("a row with no known purpose cannot be claimed and is left to expire", () => {
     insertRaw({
       id: "bootstrap",
       channel: "telegram",
@@ -304,7 +304,7 @@ describe("claimBootstrapSession", () => {
     });
 
     expect(claimBootstrapSession("bootstrap", "telegram")).toBeNull();
-    expect(getRow("bootstrap")?.status).toBe("revoked");
+    expect(getRow("bootstrap")?.status).toBe("pending_bootstrap");
   });
 });
 
@@ -426,6 +426,20 @@ describe("findActiveSession", () => {
     expect(findActiveSession("telegram")?.id).toBe("new");
   });
 
+  test("a newest row with no known purpose does not shadow an older session", () => {
+    // The purpose predicate runs in the query, before the ORDER BY and the
+    // single-row fetch, so the caller sees the valid session, not null.
+    const now = Date.now();
+    insertRaw({ id: "old", status: "awaiting_response", createdAt: now - 500 });
+    insertRaw({
+      id: "new",
+      status: "awaiting_response",
+      createdAt: now,
+      verificationPurpose: null,
+    });
+    expect(findActiveSession("telegram")?.id).toBe("old");
+  });
+
   test("ignores expired sessions", () => {
     insertRaw({ id: "stale", status: "awaiting_response", expiresAt: PAST() });
     expect(findActiveSession("telegram")).toBeNull();
@@ -480,6 +494,17 @@ describe("hasInterceptableSession", () => {
     insertRaw({ id: "spent", status: "consumed" });
     insertRaw({ id: "stale", status: "pending", expiresAt: PAST() });
     insertRaw({ id: "other", status: "pending", channel: "slack" });
+    expect(hasInterceptableSession("telegram")).toBe(false);
+  });
+
+  test("false for a live row with no known purpose", () => {
+    // Otherwise a bare code-shaped message would be intercepted, and fail,
+    // on the strength of a row no lookup can return.
+    insertRaw({
+      id: "s-null",
+      status: "awaiting_response",
+      verificationPurpose: null,
+    });
     expect(hasInterceptableSession("telegram")).toBe(false);
   });
 });
