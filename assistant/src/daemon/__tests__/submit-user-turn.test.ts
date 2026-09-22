@@ -39,6 +39,7 @@ mock.module("../conversation-interrupt-repair.js", () => ({
 
 const {
   __resetConversationAdmissionForTests,
+  cancelPendingAdmissions,
   MAX_PENDING_ADMISSIONS,
   runWhenConversationIdle,
 } = await import("../conversation-admission.js");
@@ -289,6 +290,42 @@ describe("submitUserTurn", () => {
       submitUserTurn(fake.conversation, options()),
     ).rejects.toBeInstanceOf(AdmissionOverflowError);
     expect(runs).toEqual([]);
+  });
+
+  test("a deleted conversation drops the deferred send without telling the sender to retry", async () => {
+    eligibility = "hidden";
+    const fake = makeConversation(true);
+
+    const outcome = await submitUserTurn(fake.conversation, options());
+    expect(outcome).toBe("deferred");
+
+    // What the delete route's teardown does to a conversation going away.
+    expect(cancelPendingAdmissions(CONV, "conversation_deleted")).toBe(1);
+    await tick();
+
+    expect(runs).toEqual([]);
+    expect(events).toEqual([]);
+
+    // The turn the send was waiting on ending afterwards must not admit it.
+    fake.release();
+    await tick();
+    expect(runs).toEqual([]);
+  });
+
+  test("a deleted conversation drops a send the interrupt had already accepted", async () => {
+    interruptOutcome = "busy";
+    const fake = makeConversation(true);
+
+    const outcome = await submitUserTurn(fake.conversation, options());
+    expect(outcome).toBe("interrupting");
+    await tick();
+    expect(runs).toEqual([]);
+
+    expect(cancelPendingAdmissions(CONV, "conversation_deleted")).toBe(1);
+    await tick();
+
+    expect(runs).toEqual([]);
+    expect(events).toEqual([]);
   });
 
   test("releases the caller's per-send reservation once the work settles", async () => {

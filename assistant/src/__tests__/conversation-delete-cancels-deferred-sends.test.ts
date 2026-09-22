@@ -15,6 +15,7 @@ mock.module("../config/env.js", () => ({
 mock.module("../daemon/handlers/conversations.js", () => ({
   cancelGeneration: () => true,
   clearAllConversations: async () => 0,
+  denyPendingConfirmationsOnSupersession: () => {},
   resolveMetaSlashCommand: () => null,
   switchConversation: async () => null,
   undoLastMessage: async () => null,

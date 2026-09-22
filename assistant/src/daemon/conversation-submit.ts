@@ -19,6 +19,7 @@ import type { Conversation } from "./conversation.js";
 import {
   AdmissionOverflowError,
   canDeferSend,
+  isAdmissionCancelledError,
   pendingAdmissionCount,
   runWhenConversationIdle,
 } from "./conversation-admission.js";
@@ -174,16 +175,9 @@ function deferDetached(
 ): void {
   void runDeferred(conversation, options)
     .catch((err) => {
-      log.error(
-        {
-          err,
-          conversationId: conversation.conversationId,
-          requestId: options.requestId,
-          origin: options.origin,
-        },
-        "Deferred send failed",
-      );
-      reportSendFailed(conversation.conversationId, options);
+      reportDeferredSendFailure(conversation.conversationId, options, err, {
+        origin: options.origin,
+      });
     })
     .finally(settle);
 }
@@ -197,16 +191,9 @@ async function deferAfterAcceptance(
   try {
     await runDeferred(conversation, options);
   } catch (err) {
-    log.error(
-      {
-        err,
-        conversationId: conversation.conversationId,
-        requestId: options.requestId,
-        reason,
-      },
-      "Deferred send for an accepted message failed",
-    );
-    reportSendFailed(conversation.conversationId, options);
+    reportDeferredSendFailure(conversation.conversationId, options, err, {
+      reason,
+    });
   }
 }
 
@@ -260,6 +247,34 @@ function assertDeferralCapacity(
     conversationId,
     pendingAdmissionCount(conversationId),
   );
+}
+
+/**
+ * Close out a deferred send that never ran.
+ *
+ * A cancelled admission is the conversation being deleted while the send
+ * waited. The sender is not told to send it again: there is nothing left to
+ * send it to, and the client dropped the conversation with the delete. Every
+ * other failure reaches the sender as {@link reportSendFailed}.
+ */
+function reportDeferredSendFailure(
+  conversationId: string,
+  options: SubmitUserTurnOptions,
+  err: unknown,
+  details: Record<string, unknown>,
+): void {
+  if (isAdmissionCancelledError(err)) {
+    log.info(
+      { conversationId, requestId: options.requestId, reason: err.reason },
+      "Deferred send dropped: its conversation went away before it could run",
+    );
+    return;
+  }
+  log.error(
+    { err, conversationId, requestId: options.requestId, ...details },
+    "Deferred send failed",
+  );
+  reportSendFailed(conversationId, options);
 }
 
 function reportSendFailed(
