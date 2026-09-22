@@ -201,9 +201,7 @@ export function ConversationRowList({
     <ConversationRow
       key={conversation.conversationId}
       conversation={conversation}
-      /* Only a mounted list can let a row collapse out of it: virtuoso owns
-         a windowed row's geometry, so there the row simply goes. */
-      animateDone={!windows}
+      windowed={windows}
     />
   );
 
@@ -332,8 +330,6 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   drag?: CollapsibleNavSectionDrag;
   /** Forwarded to `CollapsibleNavSection.Section`; defaults to `true`. */
   collapsible?: boolean;
-  /** Forwarded to `CollapsibleNavSection.Section`: hold the header's reveal. */
-  revealHold?: boolean;
   /**
    * Overrides the default `ConversationRowList` content, e.g. nested
    * sub-sections instead of a row list. `items`/pagination/drag props are
@@ -354,7 +350,6 @@ export function ConversationNavSection({
   collapsedIndicator,
   drag,
   collapsible,
-  revealHold,
   children,
   ...listProps
 }: ConversationNavSectionProps) {
@@ -397,7 +392,6 @@ export function ConversationNavSection({
       collapsedIndicator={collapsedIndicator}
       drag={drag}
       collapsible={collapsible}
-      revealHold={revealHold}
       unbounded={listProps.unbounded}
       isLast={listProps.isLast}
     >

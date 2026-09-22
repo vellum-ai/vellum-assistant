@@ -32,21 +32,67 @@ function spawnBusyWorker() {
 
 describe("writeWorkerLine", () => {
   /**
-   * The production failure: the payload outruns the pipe buffer, Bun returns a
-   * pending promise, and the worker dies before draining it. Unobserved, that
-   * rejection is an `unhandledRejection`, which `bun test` reports as a failure
-   * of this test.
+   * The contract this module rests on, against the real Bun API: a payload
+   * that outruns the pipe buffer comes back as a `Promise`, and killing the
+   * worker settles it. Which way it settles is Bun's to choose. It rejects
+   * with EPIPE on nearly every kill and, rarely on Linux, resolves with a
+   * short count instead, so this asserts only that nothing escapes either
+   * way. Demanding the rejection is what made this case flaky on CI.
+   */
+  test("observes a real pending write however Bun settles it", async () => {
+    const proc = spawnBusyWorker();
+    const failures: unknown[] = [];
+    const settling: Promise<number>[] = [];
+    const record = (result: number | Promise<number>) => {
+      if (result instanceof Promise) {
+        settling.push(result);
+      }
+      return result;
+    };
+
+    writeWorkerLine(
+      {
+        write: (chunk) => record(proc.stdin.write(chunk)),
+        flush: () => record(proc.stdin.flush()),
+      },
+      OVERSIZED_LINE,
+      (err) => failures.push(err),
+    );
+    proc.kill("SIGKILL");
+    const outcomes = await Promise.race([
+      Promise.allSettled(settling),
+      Bun.sleep(10_000).then(() => null),
+    ]);
+
+    expect(settling.length).toBeGreaterThan(0);
+    expect(outcomes).not.toBeNull();
+    expect(failures).toHaveLength(
+      outcomes!.some((o) => o.status === "rejected") ? 1 : 0,
+    );
+  });
+
+  /**
+   * The production failure: the payload outruns the pipe buffer, Bun hands
+   * `write` and `flush` one pending promise, and the worker dies before
+   * draining it. Bun rejects that promise from its own event loop, after this
+   * call has returned. Unobserved, the rejection is an `unhandledRejection`,
+   * which `bun test` reports as a failure of this test.
    */
   test("reports a write still pending when the worker dies", async () => {
-    const proc = spawnBusyWorker();
     const failure = Promise.withResolvers<unknown>();
+    const epipe = Object.assign(new Error("EPIPE: broken pipe, write"), {
+      code: "EPIPE",
+    });
+    const pending = Promise.withResolvers<number>();
+    const stdin = {
+      write: () => pending.promise,
+      flush: () => pending.promise,
+    };
 
-    writeWorkerLine(proc.stdin, OVERSIZED_LINE, failure.resolve);
-    proc.kill("SIGKILL");
+    writeWorkerLine(stdin, "line", failure.resolve);
+    pending.reject(epipe);
 
-    const err = await failure.promise;
-    expect(err).toBeInstanceOf(Error);
-    expect((err as NodeJS.ErrnoException).code).toBe("EPIPE");
+    expect(await failure.promise).toBe(epipe);
   });
 
   test("reports a synchronous throw", () => {

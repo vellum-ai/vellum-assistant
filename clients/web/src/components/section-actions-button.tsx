@@ -22,11 +22,10 @@ import { cn } from "@vellumai/design-library/utils/cn";
 /**
  * The box every control in a section header's trailing cluster draws in, so a
  * header that carries more than one ("…" plus "View all chats") reads as a
- * matched pair rather than two controls at two weights. `relative` is here
- * for a control that paints a layer of its own inside the box.
+ * matched pair rather than two controls at two weights.
  */
 export const SECTION_HEADER_CONTROL_CLASSES = [
-  "relative flex h-5 w-5 items-center justify-center rounded-[4px]",
+  "flex h-5 w-5 items-center justify-center rounded-[4px]",
   "text-[var(--content-tertiary)] transition-colors",
   "hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]",
   "aria-[expanded=true]:bg-[var(--surface-active)]",

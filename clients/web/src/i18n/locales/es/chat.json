@@ -2,10 +2,6 @@
   "askQuestionDetail": {
     "heading": "{count, plural, one {Pregunta} other {Preguntas}}"
   },
-  "conversationDoneToast": {
-    "message": "Hecho",
-    "undo": "Deshacer"
-  },
   "documentChat": {
     "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
     "viewConversation": "Ver conversación",

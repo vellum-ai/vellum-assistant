@@ -7,9 +7,8 @@
  * "…", and the Expand control is gone.
  *
  * The archive is wired to story-local state, so checking a row really removes
- * it and the toast's Undo really puts it back. That is the whole interaction
- * under review, and a story that stubbed it would show the affordance without
- * showing what it does.
+ * it. That is the whole interaction under review, and a story that stubbed it
+ * would show the affordance without showing what it does.
  *
  * `FlagOff` is the control: the same fixture with the flag down, which has to
  * render today's sidebar, ellipsis and Expand included.
@@ -19,14 +18,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Toaster, toast } from "@vellumai/design-library";
-
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { DRAWER_SURFACE_BACKGROUND } from "@/domains/chat/utils/drawer-surface";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useTranslation } from "@/i18n";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -91,7 +87,7 @@ const CONVERSATIONS: Conversation[] = [
   }),
 ];
 
-/** Past the windowing threshold, where a checked row goes without animating. */
+/** Past the windowing threshold, where the Chats section is virtualized. */
 const MANY_CONVERSATIONS: Conversation[] = [
   ...CONVERSATIONS,
   ...Array.from({ length: 60 }, (_, index) =>
@@ -154,10 +150,8 @@ function seed(assistantId: string, sidebarDone: boolean) {
 
 /**
  * The sidebar over a story-local conversation list, so the check really
- * removes a row and Undo really restores it. `onArchiveConversation` is the
- * same callback `chat-layout` wires to the archive mutation; here it is a
- * `setState`, and the toast is raised by the story because the mutation hook
- * that raises it in the app is not mounted.
+ * removes a row. `onArchiveConversation` is the same callback `chat-layout`
+ * wires to the archive mutation; here it is a `setState`.
  */
 function LiveSidebar({
   assistantId,
@@ -168,8 +162,6 @@ function LiveSidebar({
   seedConversations: Conversation[];
   variant: "rail" | "overlay";
 }) {
-  const { t } = useTranslation("chat");
-  const sidebarDone = useClientFeatureFlagStore.use.sidebarDone();
   const [conversations, setConversations] = useState(seedConversations);
 
   const patch = useCallback(
@@ -183,64 +175,45 @@ function LiveSidebar({
     [],
   );
 
-  const archive = useCallback(
-    (row: Conversation) => {
-      patch(row.conversationId, { archivedAt: Date.now() });
-      if (!sidebarDone) {
-        return;
-      }
-      toast(t("conversationDoneToast.message"), {
-        id: `conversation-done:${row.conversationId}`,
-        description: row.title ?? undefined,
-        action: {
-          label: t("conversationDoneToast.undo"),
-          onClick: () => patch(row.conversationId, { archivedAt: undefined }),
-        },
-      });
-    },
-    [patch, sidebarDone, t],
-  );
-
   return (
-    <>
-      <AssistantSideMenu
-        assistantId={assistantId}
-        assistantName="Vex"
-        collapsed={false}
-        variant={variant}
-        width={variant === "rail" ? 280 : undefined}
-        onWidthChange={variant === "rail" ? () => {} : undefined}
-        conversations={conversations}
-        conversationGroups={GROUPS}
-        activeConversationId="r4"
-        onSelectConversation={() => {}}
-        onOpenIntelligence={() => {}}
-        onOpenApp={() => {}}
-        onStartNewConversation={() => {}}
-        onRenameGroup={() => {}}
-        onDeleteGroup={() => {}}
-        onCreateGroup={() => {}}
-        onMarkAllReadInGroup={() => {}}
-        onArchiveAllInGroup={() => {}}
-        onMarkConversationRead={() => {}}
-        onMarkConversationUnread={() => {}}
-        onPinConversation={() => {}}
-        onRenameConversation={() => {}}
-        onDeleteConversation={() => {}}
-        onArchiveConversation={archive}
-        onUnarchiveConversation={(row) =>
-          patch(row.conversationId, { archivedAt: undefined })
-        }
-        onClose={variant === "overlay" ? () => {} : undefined}
-        footerAction={
-          <PreferencesMenu
-            assistantId={assistantId}
-            triggerVariant={variant === "overlay" ? "pill" : undefined}
-          />
-        }
-      />
-      <Toaster />
-    </>
+    <AssistantSideMenu
+      assistantId={assistantId}
+      assistantName="Vex"
+      collapsed={false}
+      variant={variant}
+      width={variant === "rail" ? 280 : undefined}
+      onWidthChange={variant === "rail" ? () => {} : undefined}
+      conversations={conversations}
+      conversationGroups={GROUPS}
+      activeConversationId="r4"
+      onSelectConversation={() => {}}
+      onOpenIntelligence={() => {}}
+      onOpenApp={() => {}}
+      onStartNewConversation={() => {}}
+      onRenameGroup={() => {}}
+      onDeleteGroup={() => {}}
+      onCreateGroup={() => {}}
+      onMarkAllReadInGroup={() => {}}
+      onArchiveAllInGroup={() => {}}
+      onMarkConversationRead={() => {}}
+      onMarkConversationUnread={() => {}}
+      onPinConversation={() => {}}
+      onRenameConversation={() => {}}
+      onDeleteConversation={() => {}}
+      onArchiveConversation={(row) =>
+        patch(row.conversationId, { archivedAt: Date.now() })
+      }
+      onUnarchiveConversation={(row) =>
+        patch(row.conversationId, { archivedAt: undefined })
+      }
+      onClose={variant === "overlay" ? () => {} : undefined}
+      footerAction={
+        <PreferencesMenu
+          assistantId={assistantId}
+          triggerVariant={variant === "overlay" ? "pill" : undefined}
+        />
+      }
+    />
   );
 }
 
@@ -287,9 +260,8 @@ export const Default: Story = {
 };
 
 /**
- * Past the windowing threshold. The Chats section is virtualized here, so a
- * checked row is simply gone rather than collapsing out: virtuoso owns a
- * windowed row's height and a row animating its own would fight it.
+ * Past the windowing threshold. The Chats section is virtualized here, and a
+ * checked row slides out and closes the same way it does in a short list.
  */
 export const ManyRows: Story = {
   name: "Flag on · windowed list",

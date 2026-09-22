@@ -2,10 +2,6 @@
   "askQuestionDetail": {
     "heading": "{count, plural, other {問題}}"
   },
-  "conversationDoneToast": {
-    "message": "已完成",
-    "undo": "復原"
-  },
   "documentChat": {
     "saveFailed": "無法儲存文件。你的訊息仍在這裡。請重新傳送。",
     "viewConversation": "查看對話",
