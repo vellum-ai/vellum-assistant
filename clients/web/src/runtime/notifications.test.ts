@@ -1680,7 +1680,7 @@ describe("postLocalNotification browser avatar icons", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]?.options).toMatchObject({
         body: "Stand up",
-        tag: "delivery-1",
+        tag: JSON.stringify([identity.scopeId, identity.assistantId, "delivery-1"]),
       });
       expect(calls[0]?.options?.icon).toBeUndefined();
       expect(calls[0]?.options).not.toHaveProperty("badge");
@@ -2036,5 +2036,27 @@ describe("notification tap listener adapters", () => {
         value: originalNotification,
       });
     }
+  });
+});
+
+describe("browser delivery receipts", () => {
+  test("a duplicate signal neither posts, chimes, nor overwrites the owner's acknowledgement", async () => {
+    nativePlatform = false;
+    await withBrowserNotificationMock(async (calls) => {
+      const args = { ...baseArgs, identity: testIdentity(), correlationId: "signal-1" };
+      expect(await postLocalNotification(args)).toBe("web-sound");
+      expect(await postLocalNotification({ ...args, deliveryId: "delivery-2" })).toBe("silent");
+      expect(calls).toHaveLength(1);
+      expect(ackMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("a cancelled session does not post or acknowledge on its replacement session", async () => {
+    nativePlatform = false;
+    await withBrowserNotificationMock(async (calls) => {
+      expect(await postLocalNotification({ ...baseArgs, identity: testIdentity(), canDeliver: () => false })).toBe("silent");
+      expect(calls).toHaveLength(0);
+      expect(ackMock).toHaveBeenCalledTimes(0);
+    });
   });
 });

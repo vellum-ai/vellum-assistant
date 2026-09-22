@@ -45,6 +45,7 @@ import {
   allowsLegacyAndroidNotificationFallback,
   postAndroidSenderNotification,
 } from "@/runtime/android-sender-notification";
+import { browserNotificationDelivery } from "@/runtime/browser-notification-delivery";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { getNotificationIdentitySnapshot } from "@/runtime/notification-avatar";
@@ -73,7 +74,7 @@ import {
   allowsLegacyNotificationFallback,
   postSenderNotification,
 } from "@/runtime/sender-notification";
-import { isVisibleToUser } from "@/runtime/window-attention";
+import { isClientAttended } from "@/runtime/window-attention";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { isConversationChatPath } from "@/utils/routes";
@@ -95,6 +96,7 @@ type PermissionState = "granted" | "denied" | "prompt" | "unsupported";
 
 let cachedPermission: PermissionState | null = null;
 let pendingPermissionRequest: Promise<PermissionState> | null = null;
+let browserPermissionRequest: Promise<PermissionState> | null = null;
 let tapListenersRegistered = false;
 let conversationActionTypeRegistered = false;
 let conversationActionTypePromise: Promise<void> | null = null;
@@ -309,6 +311,31 @@ async function requestPermissionOnce(): Promise<PermissionState> {
   }
 }
 
+/** Browser settings action. An unanswered prompt can be retried by a gesture. */
+export function requestBrowserNotificationPermission(): Promise<PermissionState> {
+  if (isNativePlatform() || isElectron()) {
+    return getNotificationPermission();
+  }
+  if (browserPermissionRequest) {
+    return browserPermissionRequest;
+  }
+  // Read and invoke synchronously so engines retain the initiating gesture.
+  const current = checkBrowserPermission();
+  if (current !== "prompt") {
+    cachedPermission = current;
+    return Promise.resolve(current);
+  }
+  browserPermissionRequest = requestPermissionOnce().finally(() => {
+    browserPermissionRequest = null;
+  });
+  return browserPermissionRequest;
+}
+
+/** Browser settings remain reachable when this browser lacks the API. */
+export function isBrowserNotificationHost(): boolean {
+  return !isElectron() && !isNativePlatform();
+}
+
 /**
  * Register the conversation action category with the OS. Capacitor's
  * `registerActionTypes` replaces the process-wide category set, so this
@@ -513,13 +540,15 @@ export function isFocusedNotificationConversation(
   return (
     conversationId === useConversationStore.getState().activeConversationId &&
     isConversationChatPath(pathname) &&
-    isVisibleToUser()
+    isClientAttended()
   );
 }
 
 export interface PostLocalNotificationArgs {
   title: string;
   body: string;
+  /** Recheck captured session ownership before an asynchronous browser post. */
+  canDeliver?: () => boolean;
   sourceEventName: string;
   /** Verified assistant name carried by this notification event. */
   assistantName?: string;
@@ -720,14 +749,19 @@ export async function postLocalNotification(
   // visibility at intent arrival, not after an async native-bridge gap.
   const visibilityAtIntent = document.visibilityState;
 
-  const permission = await ensureNotificationPermission();
+  const permission = isNativePlatform()
+    ? await ensureNotificationPermission()
+    : await (browserPermissionRequest ?? refreshNotificationPermission());
+  if (args.canDeliver && !args.canDeliver()) {
+    return "silent";
+  }
   if (permission !== "granted") {
     if (args.assistantId && args.deliveryId) {
       await sendNotificationIntentAck(
         args.assistantId,
         args.deliveryId,
         false,
-        "Notification authorization denied",
+        `Notification authorization ${permission}`,
       );
     }
     return "web-sound";
@@ -929,13 +963,14 @@ export async function postLocalNotification(
       errorMessage = err instanceof Error ? err.message : String(err);
     }
   } else {
-    // Desktop browser path. Mirror the native `toNotificationId` fallback —
-    // `sourceEventName` alone is too coarse (two conversations both emitting
-    // `chat.assistant_turn_complete` would replace each other on the
-    // browser's single-tag lane), so include title + body in the seed to
-    // keep distinct notifications distinct.
-    const tag =
-      args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
+    const key = notificationDeliveryKey(args.correlationId, args.deliveryId);
+    const tag = JSON.stringify([
+      args.identity?.scopeId ?? null,
+      args.identity?.assistantId ?? args.assistantId ?? null,
+      key.status === "valid"
+        ? key.value
+        : `${args.sourceEventName}:${args.title}:${args.body}`,
+    ]);
     const options: NotificationOptions = {
       body: args.body,
       tag,
@@ -943,24 +978,33 @@ export async function postLocalNotification(
     };
     const icon = browserNotificationIcon(senderResolution);
     try {
-      let n: Notification;
-      if (icon) {
-        try {
-          n = new Notification(args.title, { ...options, icon });
-        } catch {
-          n = new Notification(args.title, options);
-        }
-      } else {
-        n = new Notification(args.title, options);
+      const result = await browserNotificationDelivery.post(
+        args.identity && key.status === "valid" ? tag : null,
+        () => {
+          let n: Notification;
+          if (icon) {
+            try {
+              n = new Notification(args.title, { ...options, icon });
+            } catch {
+              n = new Notification(args.title, options);
+            }
+          } else {
+            n = new Notification(args.title, options);
+          }
+          n.onclick = () => {
+            window.focus();
+            dispatchNotificationTap(tapPayload);
+            n.close();
+          };
+        },
+        args.canDeliver,
+      );
+      if (result !== "posted") {
+        // Only the posting tab owns the receipt and sound. A cancelled
+        // session must not send an acknowledgement using another account.
+        return "silent";
       }
-      n.onclick = () => {
-        window.focus();
-        dispatchNotificationTap(tapPayload);
-        n.close();
-      };
     } catch (err) {
-      // Notification constructor can throw on older browsers or when the
-      // page has lost focus — record the failure but don't throw.
       success = false;
       errorMessage = err instanceof Error ? err.message : String(err);
     }
@@ -1073,8 +1117,10 @@ export function postForegroundRemotePush(
 }
 
 export function __resetNotificationsStateForTests(): void {
+  browserNotificationDelivery.resetForTests();
   cachedPermission = null;
   pendingPermissionRequest = null;
+  browserPermissionRequest = null;
   tapListenersRegistered = false;
   conversationActionTypeRegistered = false;
   conversationActionTypePromise = null;

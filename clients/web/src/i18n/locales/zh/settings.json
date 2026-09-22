@@ -1163,7 +1163,7 @@
     "titleGeneric": "获取 Vellum 移动应用"
   },
   "notificationsPage": {
-    "description": "管理 Vellum 在此 Android 设备上通知您的方式。",
+    "description": "管理 Vellum 在此设备上通知您的方式。",
     "title": "通知"
   },
   "overridesCallSiteList": {
@@ -2568,5 +2568,15 @@
     "setupGuide": "设置指南",
     "waiting": "请在浏览器中完成 {name} 的登录。",
     "waitingCancel": "请在浏览器中完成 {name} 的登录。点击取消。"
+  },
+  "browserNotificationSettingsCard": {
+    "title": "浏览器通知",
+    "grantedDescription": "此浏览器已允许通知。",
+    "deniedDescription": "通知已被阻止。请在浏览器设置中允许此网站发送通知。",
+    "unsupportedDescription": "此浏览器不支持系统通知。",
+    "promptDescription": "启用通知，以便在回复或请求的任务完成时收到提醒。",
+    "checkingDescription": "正在检查通知权限…",
+    "openTabDescription": "请保持 Vellum 标签页打开以接收提醒。关闭或暂停标签页以及断网会暂停通知发送。",
+    "enable": "启用通知"
   }
 }

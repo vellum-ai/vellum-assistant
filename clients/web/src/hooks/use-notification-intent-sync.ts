@@ -3,7 +3,7 @@
  *
  * Turns daemon-pushed notification intents into local browser or
  * Capacitor notifications. Skips intents the daemon marks `silent`, which
- * it sets for low- and medium-urgency signals: those reach their
+ * resolves independently of urgency: silent signals reach their
  * conversation (and the home feed, for background work) without a banner.
  * Skips guardian-scoped notifications from an assistant that broadcasts
  * them to every connection (see
@@ -11,9 +11,8 @@
  * notifications for the conversation the user is watching right now,
  * which takes three facts: the store's active conversation, a route
  * that mounts the chat surface, and a client that is on screen.
- * `isVisibleToUser()` answers the last one on every platform: the main
- * process's window report in the Electron renderer, `document.visibilityState`
- * in a browser tab and in the Capacitor shell. A hidden tab that reads
+ * `isClientAttended()` answers the last one: Electron host attention,
+ * browser visibility plus focus, and native mobile foreground visibility. A hidden tab that reads
  * itself visible acks a notification nobody saw, and no web surface has a
  * push fallback to deliver it again.
  *
@@ -25,7 +24,7 @@
  * - runtime/notifications.ts — notification scheduling and ack API
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router";
 
@@ -92,6 +91,14 @@ export function useNotificationIntentSync(assistantId: string | null): void {
         : null,
     [assistantId, platformAssistantId, scopeId],
   );
+
+  const deliveryOwner = useRef(notificationIdentity);
+  useEffect(() => {
+    deliveryOwner.current = notificationIdentity;
+    return () => {
+      deliveryOwner.current = null;
+    };
+  }, [notificationIdentity]);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
@@ -177,6 +184,8 @@ export function useNotificationIntentSync(assistantId: string | null): void {
 
     void (async () => {
       const soundDisposition = await postLocalNotification({
+        canDeliver: () =>
+          originatingIdentity !== null && deliveryOwner.current === originatingIdentity,
         title: event.title,
         body: event.body,
         sourceEventName: event.sourceEventName,

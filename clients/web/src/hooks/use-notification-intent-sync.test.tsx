@@ -7,7 +7,7 @@
  * mounts the chat surface, and a client on screen. Route is driven by a real
  * `MemoryRouter` so the basename behaves as it does in remote-gateway mode.
  *
- * `isVisibleToUser` is deliberately NOT mocked. It branches on the host, and
+ * `isClientAttended` is deliberately NOT mocked. It branches on the host, and
  * one stub answers for both branches: every case here passes even while the
  * hook reads the desktop's always-true window-attention default and a hidden
  * tab swallows its own notification. The DOM is stubbed for the browser cases
@@ -33,7 +33,7 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import type { PostLocalNotificationArgs } from "@/runtime/notifications";
-import { isVisibleToUser } from "@/runtime/window-attention";
+import { isClientAttended } from "@/runtime/window-attention";
 import { isConversationChatPath, routes } from "@/utils/routes";
 
 const CONVERSATION_ID = "conv-1";
@@ -85,7 +85,7 @@ mock.module("@/runtime/notifications", () => ({
   ) =>
     conversationId === useConversationStore.getState().activeConversationId &&
     isConversationChatPath(pathname) &&
-    isVisibleToUser(),
+    isClientAttended(),
   shouldSuppressFocusedNotificationDelivery:
     shouldSuppressFocusedNotificationDeliveryMock,
 }));
@@ -143,6 +143,7 @@ function runInElectron(attended: boolean): void {
   });
 }
 
+const originalHasFocus = document.hasFocus;
 const originalHref = window.location.href;
 let queryClient: QueryClient;
 
@@ -236,6 +237,7 @@ function identityQueryKey(assistantId: string, scopeId: string) {
 }
 
 beforeEach(() => {
+  document.hasFocus = () => true;
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -272,6 +274,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.hasFocus = originalHasFocus;
   cleanup();
   queryClient.clear();
   __resetForTesting();
@@ -410,6 +413,17 @@ describe("useNotificationIntentSync", () => {
     expect(postedArgs[0]?.identityStoreName).toBeNull();
   });
 
+  test("logout cancels a queued browser delivery", () => {
+    mountAt(routes.assistant);
+    publishNotificationIntent({});
+    const canDeliver = postedArgs[0]?.canDeliver;
+    expect(canDeliver?.()).toBe(true);
+    act(() => {
+      useAuthStore.setState({ sessionStatus: "unauthenticated", user: null });
+    });
+    expect(canDeliver?.()).toBe(false);
+  });
+
   test("keeps delayed work bound to self-hosted origin A after selecting B", () => {
     const assistantA: ResolvedAssistant = {
       id: "local-a",
@@ -448,12 +462,14 @@ describe("useNotificationIntentSync", () => {
 
     publishNotificationIntent({ assistantName: "Origin A" });
     const originA = postedArgs[0]?.identity;
+    expect(postedArgs[0]?.canDeliver?.()).toBe(true);
 
     act(() => {
       useResolvedAssistantsStore.setState({ activeAssistantId: assistantB.id });
       mounted.rerender({ assistantId: assistantB.id });
     });
 
+    expect(postedArgs[0]?.canDeliver?.()).toBe(false);
     expect(originA).toMatchObject({
       scopeId: resolveAssistantAvatarOwnerScopeId(
         assistantA,
@@ -565,6 +581,7 @@ describe("useNotificationIntentSync silent intents", () => {
 
 describe("useNotificationIntentSync already-watching skip", () => {
   beforeEach(() => {
+    document.hasFocus = () => true;
     useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);
   });
 
@@ -608,6 +625,13 @@ describe("useNotificationIntentSync already-watching skip", () => {
     publishForActiveConversation();
 
     expectSuppressed();
+  });
+
+  test("notifies for a visible browser window behind another app", () => {
+    document.hasFocus = () => false;
+    mountAt(routes.conversation(CONVERSATION_ID));
+    publishForActiveConversation();
+    expectNotified();
   });
 
   test("notifies when the desktop window is off screen or unfocused", () => {
