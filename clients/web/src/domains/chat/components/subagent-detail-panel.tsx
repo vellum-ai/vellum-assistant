@@ -283,7 +283,10 @@ export function SubagentDetailPanel({
             />
           )}
           {activeDetail ? (
-            <StepDetailGlyph detail={activeDetail} />
+            <StepDetailGlyph
+              detail={activeDetail}
+              source={SNAPSHOT_TOOL_CALL_SOURCE}
+            />
           ) : components ? (
             <AvatarRenderer
               components={components}

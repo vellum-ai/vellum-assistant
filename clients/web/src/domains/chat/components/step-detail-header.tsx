@@ -14,6 +14,11 @@ import {
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { toolDetailHeaderTitle } from "@/domains/chat/components/tool-detail-panel";
+import {
+  useLiveToolCall,
+  type ToolCallSource,
+} from "@/domains/chat/hooks/use-live-tool-call";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useTranslation } from "@/i18n";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -35,10 +40,23 @@ function iconNameForDetail(detail: ToolDetailPayload): IconName {
 
 /**
  * The step's glyph: the running indicator while the step is in flight,
- * otherwise the step's own icon.
+ * otherwise the step's own icon. Whether it is in flight is read live from
+ * `source`, as `ToolDetailBody` reads it, so a step opened while running
+ * turns to its icon when the body beside it shows the result.
  */
-export function StepDetailGlyph({ detail }: { detail: ToolDetailPayload }) {
-  if (detail.status === "running") {
+export function StepDetailGlyph({
+  detail,
+  source,
+}: {
+  detail: ToolDetailPayload;
+  /** Where the call lives, the same source the step's body reads. */
+  source: ToolCallSource;
+}) {
+  const liveTc = useLiveToolCall(source, detail.toolCallId);
+  const isRunning = liveTc
+    ? isToolCallRunning(liveTc)
+    : detail.status === "running";
+  if (isRunning) {
     return (
       <ThreeDotIndicator
         className="shrink-0"

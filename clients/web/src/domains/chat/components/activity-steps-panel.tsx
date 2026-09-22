@@ -302,7 +302,10 @@ function ActivityStepsPanelTarget({
                 onClick={() => setStepDetail(null)}
                 className="shrink-0"
               />
-              <StepDetailGlyph detail={stepDetail} />
+              <StepDetailGlyph
+                detail={stepDetail}
+                source={TRANSCRIPT_TOOL_CALL_SOURCE}
+              />
             </>
           ) : undefined
         }
