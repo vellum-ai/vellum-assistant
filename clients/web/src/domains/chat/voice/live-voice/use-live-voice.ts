@@ -101,6 +101,7 @@ import {
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
 import type {
   LiveVoiceEntry,
+  LiveVoiceSessionConfig,
   LiveVoiceSessionControlServerFrame,
   LiveVoiceSightSource,
 } from "@/domains/chat/voice/live-voice/protocol";
@@ -754,17 +755,12 @@ export function useLiveVoice(
   }, []);
 
   /**
-   * Retune the running session's turn-detection knobs live (the voice-room
-   * gear). Delegates to the transport, which no-ops unless the socket is
-   * active; a no-op during the reconnect gap (no session) is fine — the fresh
-   * `connectSession` re-reads the current settings into its start frame.
+   * Forward live session updates while connected. On reconnect, start-frame
+   * settings and the screen-share hook restore their respective state.
    */
-  const updateConfig = useCallback(
-    (config: { silenceThresholdMs?: number; bargeInMinSpeechMs?: number }) => {
-      sessionRef.current?.client.updateConfig(config);
-    },
-    [],
-  );
+  const updateConfig = useCallback((config: LiveVoiceSessionConfig) => {
+    sessionRef.current?.client.updateConfig(config);
+  }, []);
 
   /**
    * Hand the running session a photo the user took mid-call. Returns whether
