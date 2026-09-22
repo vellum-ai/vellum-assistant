@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { motion, useReducedMotion } from "motion/react";
 
+import { SectionLabel } from "@/components/detail-primitives";
 import { AvatarRenderer } from "@/components/avatar-renderer";
 import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
@@ -191,6 +192,7 @@ export function WorkflowDetailPanel({
       {/* Body: swaps to a leaf's nested detail when one is open, keeping the
           header above mounted in both views. */}
       <motion.div
+          className="flex flex-col gap-5"
           key={selectedLeaf ? String(selectedLeaf.seq) : "list"}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -205,7 +207,7 @@ export function WorkflowDetailPanel({
           ) : (
             <>
               {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <AnimatedMetricCard
                   icon={
                     <ArrowDownToLine
@@ -243,15 +245,11 @@ export function WorkflowDetailPanel({
 
               {/* Subagents section */}
               <div>
-                <Typography
-                  variant="body-medium-default"
-                  as="h3"
-                  className="mb-4 text-[var(--content-emphasised)]"
-                >
+                <SectionLabel as="h3">
                   {t("workflowDetailPanel.subagents")}
-                </Typography>
+                </SectionLabel>
                 {sortedLeaves.length === 0 ? (
-                  <DetailShellNotice>
+                  <DetailShellNotice placement="section">
                     {t("workflowDetailPanel.noSubagentsYet")}
                   </DetailShellNotice>
                 ) : (

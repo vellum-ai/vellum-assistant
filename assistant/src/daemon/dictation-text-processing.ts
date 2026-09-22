@@ -1,8 +1,8 @@
 /**
  * Pure text-processing functions for dictation profiles.
  *
- * - expandSnippets: pre-LLM, dictation mode only
- * - applyDictionary: post-LLM, dictation + command modes (including fallback paths)
+ * - expandSnippets: dictation mode only
+ * - applyDictionary: dictation and selected-text edits (including fallback paths)
  */
 
 import type {
@@ -33,7 +33,7 @@ function wrapWordBoundary(
 }
 
 /**
- * Expand snippet triggers in text before sending to the LLM.
+ * Expand user-configured snippet triggers in dictated text.
  *
  * - Only enabled snippets are considered
  * - Sorted by trigger length descending (longest match wins)
@@ -80,7 +80,7 @@ export function expandSnippets(
 }
 
 /**
- * Apply dictionary normalization to text after LLM processing (or on raw fallback).
+ * Apply user-configured dictionary replacements to dictated or edited text.
  *
  * - Sorted by spoken length descending
  * - Respects wholeWord (default true) and caseSensitive (default false) per entry

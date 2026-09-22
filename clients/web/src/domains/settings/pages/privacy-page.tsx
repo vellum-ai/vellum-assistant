@@ -44,9 +44,9 @@ function Divider() {
 
 export function PrivacyPage() {
   const { t } = useTranslation("settings");
-  // platformHostedOnly so the divider visibility matches the gate inside
-  // `AccessConsentSetting` exactly.
-  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // The standard gate, matching `AccessConsentSetting`, so the divider
+  // shows exactly when that row does.
+  const platformGate = usePlatformGate();
   // The Share toggles control telemetry (browser Sentry, daemon analytics) that
   // only runs with a probe-confirmed live platform session, so gate both the
   // visibility and the consent write on it — matching `sentry-control.ts`. A
@@ -144,9 +144,9 @@ export function PrivacyPage() {
           )}
           <AccessConsentSetting />
           {/*
-            `AccessConsentSetting` returns null when gated (self-hosted
-            assistants). Hide the trailing divider in that case so we
-            don't render two adjacent dividers around a missing row.
+            `AccessConsentSetting` returns null when gated. Hide the
+            trailing divider in that case so we don't render two adjacent
+            dividers around a missing row.
           */}
           {platformGate !== "gated" && <Divider />}
           <div>

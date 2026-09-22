@@ -666,6 +666,17 @@
     "toggleLabel": "每日积分限额",
     "toggleSubtitle": "每日限额仅适用于额外用量积分"
   },
+  "debugBundleExport": {
+    "description": "Vellum 工作人员无法访问这台电脑。如需他们协助排查，请导出调试包：助手的工作区、日志和网关自身的数据库，不含任何凭据。调试包保留 7 天。",
+    "export": "导出调试包",
+    "exporting": "正在导出…",
+    "sentAt": "已于 {time} 发送给 Vellum。",
+    "toastFailed": "调试包未发送。",
+    "toastFailedWithReason": "调试包未发送：{reason}",
+    "toastSent": "调试包已发送给 Vellum。",
+    "updateAssistant": "请将助手更新到 {version} 或更高版本以导出调试包。",
+    "useDesktopApp": "请在运行此助手的电脑上，通过 Vellum 桌面应用导出。"
+  },
   "debugControlsPanel": {
     "backups": "备份",
     "loadFailedToast": "加载助手信息失败",
@@ -1648,7 +1659,7 @@
     "goToBilling": "前往账单",
     "machineLabel": "机器",
     "noExtraUsage": "无额外用量",
-    "packageChip": "{name} 套餐",
+    "packageLabel": "套餐",
     "planReadyStatus": "您的套餐已就绪",
     "retryInBackground": "在后台重试",
     "srOnlyTo": "至",

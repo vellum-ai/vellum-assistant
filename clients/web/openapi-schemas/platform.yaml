@@ -3726,246 +3726,6 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
-  /v1/assistants/restart/:
-    post:
-      operationId: assistants_restart_create
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssistantRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/AssistantRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/AssistantRequest'
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: {}
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '409':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '502':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/retire/:
-    delete:
-      operationId: assistants_retire_destroy
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      - in: query
-        name: successor_assistant_id
-        schema:
-          type: string
-          format: uuid
-        description: Optional assistant that inherits the retiring assistant's managed
-          OAuth connections, e.g. the target of a teleport. Must be a live assistant
-          owned by the caller in the same organization. The rows are moved before
-          the retiring assistant's credentials are revoked.
-      tags:
-      - assistants
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '204':
-          description: No response body
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/rollback/:
-    post:
-      operationId: assistants_rollback_create
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RollbackRequestRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/RollbackRequestRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/RollbackRequestRequest'
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RollbackResult'
-          description: ''
-        '400':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '409':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-        '502':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/sleep-policy/:
-    get:
-      operationId: assistants_sleep_policy_retrieve
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SleepPolicy'
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-    patch:
-      operationId: assistants_sleep_policy_partial_update
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedSleepPolicyRequest'
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SleepPolicy'
-          description: ''
-        '400':
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: {}
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
   /v1/assistants/telemetry/ingest/:
     post:
       operationId: assistants_telemetry_ingest_create
@@ -4052,122 +3812,6 @@ paths:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
         '502':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/upgrade-policy/:
-    get:
-      operationId: assistants_upgrade_policy_retrieve
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpgradePolicy'
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-    patch:
-      operationId: assistants_upgrade_policy_partial_update
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedUpgradePolicyRequest'
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpgradePolicy'
-          description: ''
-        '400':
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: {}
-          description: ''
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DetailResponse'
-          description: ''
-      x-vellum-api-clients:
-      - platform
-  /v1/assistants/upgrade-status/:
-    get:
-      operationId: assistants_upgrade_status_retrieve
-      parameters:
-      - in: header
-        name: Vellum-Organization-Id
-        schema:
-          type: string
-          format: uuid
-        description: Required if using Cookie-based or X-Session-Token authentication
-          methods.
-      tags:
-      - assistants
-      security:
-      - VellumAPIKey: []
-      - cookieAuth: []
-      - XSessionTokenAuth: []
-      - AssistantAPIKey: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpgradeStatus'
-          description: ''
-        '404':
           content:
             application/json:
               schema:
@@ -4277,6 +3921,41 @@ paths:
       - cookieAuth: []
       - XSessionTokenAuth: []
       - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedbackIngestResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/feedback/assistant/:
+    post:
+      operationId: feedback_assistant_create
+      description: |-
+        A report filed by an assistant under its own API key.
+
+        Everything about the submitter comes from the key: the assistant, its
+        organization, and its owner account's email as the contact. ``user``
+        stays unset, because the assistant is the submitter and its owner is not.
+        The public ``FeedbackIngestView`` is untouched by this path.
+      tags:
+      - feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AssistantFeedbackIngestRequestRequest'
+        required: true
+      security:
+      - AssistantAPIKey: []
       responses:
         '201':
           content:
@@ -6547,6 +6226,39 @@ components:
       - address
       - created_at
       - id
+    AssistantFeedbackClassificationEnum:
+      enum:
+      - bug_report
+      - other
+      type: string
+      description: |-
+        * `bug_report` - Bug Report
+        * `other` - Other
+    AssistantFeedbackIngestRequestRequest:
+      type: object
+      description: |-
+        Body of a report an assistant files under its own API key.
+
+        Who filed it comes from the key, so there is no identity field, and no
+        upload field: what an assistant may attach is its own design.
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 50000
+        classification:
+          $ref: '#/components/schemas/AssistantFeedbackClassificationEnum'
+        assistant_version:
+          type: string
+          default: ''
+          maxLength: 100
+        client_version:
+          type: string
+          default: ''
+          maxLength: 100
+      required:
+      - classification
+      - message
     AssistantHandleAvailability:
       type: object
       description: |-

@@ -2,10 +2,10 @@
  * Shared setup for the provisioning-takeover playground: everything that stands
  * in for what `BillingOnboardingModal` supplies and Storybook cannot.
  *
- * That is the plan catalog and the avatar reads, answered from a story-local
- * query cache; the takeover frame the modal draws around the step; the props it
- * passes on every mount; and the fixture tables the Controls panel selects a row
- * from (the plan move, the captured reconcile failure, the seeded assistant).
+ * That is the plan catalog read, answered from a story-local query cache; the
+ * takeover frame the modal draws around the step; the props it passes on
+ * every mount; and the fixture tables the Controls panel selects a row from
+ * (the plan move, the captured reconcile failure).
  *
  * The catalog fixture mirrors the platform's real Pro catalog (Mighty on
  * `credits_25`, Super on `credits_45`), so the credits chip quotes the amounts a
@@ -16,7 +16,7 @@
  */
 import type { Decorator } from "@storybook/react-vite";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { type CSSProperties } from "react";
+import { type ReactNode } from "react";
 
 import {
   makeProPackage,
@@ -29,47 +29,22 @@ import type {
   MachineSizeEnum,
   PlanListResponse,
 } from "@/generated/api/types.gen";
-import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import { createStoryQueryClient } from "@/lib/story-query-cache";
-import type { CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 import type { ProvisioningDimensions } from "./provisioning-machine";
 import {
-  TAKEOVER_SURFACE_VAR,
+  PROVISIONING_SURFACE,
   type ProvisioningStateProps,
 } from "./provisioning-state";
 import type { TakeoverDirection } from "./takeover-copy";
 import type { CreditTierChange } from "./use-provisioning-credits";
-import { useTakeoverSurface } from "./use-takeover-surface";
 
-// The takeover draws the assistant creature at 240px, and the bundled-component
+// The takeover's stream draws bundled characters, and the bundled-component
 // chunk is a dynamic import. Warming it at module scope keeps the first frame
 // from holding an empty stage, the way `plans-page.tsx` does.
 preloadBundledAvatarComponents();
-
-/** The assistant whose avatar is a bundled creature: a purple blob. */
-const CREATURE_ASSISTANT_ID = "story-assistant-creature";
-/** The assistant whose avatar is an uploaded image, blurred behind the content. */
-const PHOTO_ASSISTANT_ID = "story-assistant-photo";
-/** An assistant with nothing in the avatar cache, so the read has to settle. */
-const UNRESOLVED_ASSISTANT_ID = "story-assistant-unresolved";
-
-const CREATURE_TRAITS: CharacterTraits = {
-  bodyShape: "blob",
-  eyeStyle: "curious",
-  color: "purple",
-};
-
-/**
- * A stand-in for an uploaded avatar. Inline so nothing is fetched from a host
- * Storybook may not reach; the hexes are fixture data the component receives,
- * not story styling.
- */
-const PHOTO_AVATAR_URL =
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMjQwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjI0MCIgZmlsbD0iIzJGNkY0RiIvPjxjaXJjbGUgY3g9IjEyMCIgY3k9IjEwNCIgcj0iNTgiIGZpbGw9IiNFOUM5MUEiLz48cmVjdCB4PSI0NiIgeT0iMTY4IiB3aWR0aD0iMTQ4IiBoZWlnaHQ9IjQ0IiByeD0iMjIiIGZpbGw9IiMwRTlCOEIiLz48L3N2Zz4=";
 
 const MIGHTY = makeProPackage();
 const SUPER = makeSuperPackage();
@@ -127,48 +102,13 @@ const STORY_PLANS: PlanListResponse = {
   ],
 };
 
-/**
- * One client for every story: distinct assistant ids let a single cache serve
- * the creature, the uploaded image, and the assistant nothing was seeded for.
- */
+/** One client for every story, holding the plan catalog the credits row reads. */
 const queryClient = createStoryQueryClient();
 
 queryClient.setQueryData(
   organizationsBillingPlansRetrieveQueryKey(),
   STORY_PLANS,
 );
-
-// `useAssistantAvatar` keys on the per-assistant manifest gate, which resolves
-// from the assistant's version and is unknowable here. Seeding both values
-// renders the avatar whichever way the gate lands.
-function seedAvatar(assistantId: string, avatar: AvatarData): void {
-  for (const supportsManifest of [false, true]) {
-    queryClient.setQueryData(
-      [...avatarQueryKey(assistantId), supportsManifest],
-      avatar,
-    );
-  }
-}
-
-seedAvatar(CREATURE_ASSISTANT_ID, {
-  components: BUNDLED_COMPONENTS,
-  traits: CREATURE_TRAITS,
-  customImageUrl: null,
-});
-seedAvatar(PHOTO_ASSISTANT_ID, {
-  components: BUNDLED_COMPONENTS,
-  traits: null,
-  customImageUrl: PHOTO_AVATAR_URL,
-});
-
-/** The assistants the `avatar` control picks between, by their seeded id. */
-export const TAKEOVER_AVATARS = {
-  creature: CREATURE_ASSISTANT_ID,
-  photo: PHOTO_ASSISTANT_ID,
-  unresolved: UNRESOLVED_ASSISTANT_ID,
-} satisfies Record<string, string>;
-
-export type TakeoverAvatarKey = keyof typeof TAKEOVER_AVATARS;
 
 /** A constant stamp, so a story's props never change between renders. */
 const INTENT_SAVED_AT = 0;
@@ -403,7 +343,7 @@ export const TAKEOVER_CONSTANT_PROPS = {
   phaseMinMs: 0,
 } satisfies Partial<ProvisioningStateProps>;
 
-/** The cache the takeover's plan-catalog and avatar reads resolve from. */
+/** The cache the takeover's plan-catalog read resolves from. */
 export const takeoverQueryDecorator: Decorator = (Story) => (
   <QueryClientProvider client={queryClient}>
     <Story />
@@ -411,28 +351,44 @@ export const takeoverQueryDecorator: Decorator = (Story) => (
 );
 
 /**
- * The takeover frame: a black ground, a viewport-tall box, `data-theme="dark"`,
- * and the `--takeover-surface` custom property, all of which
+ * The takeover frame: a viewport-tall box on the takeover's own ground, which
  * `BillingOnboardingModal` puts on its own content box.
  *
  * Reproduced in flow rather than mounted through `Modal.Content`, whose overlay
  * is `fixed`: one portaled overlay per story would stack every story in a file
  * on top of the others in the shared docs iframe.
  */
-export const takeoverFrameDecorator: Decorator<{ avatar: TakeoverAvatarKey }> =
-  function TakeoverFrame(Story, context) {
-    const { tintHex } = useTakeoverSurface(
-      TAKEOVER_AVATARS[context.args.avatar],
-    );
+export const takeoverFrameDecorator: Decorator =
+  function TakeoverFrameDecorator(Story) {
     return (
-      <div
-        data-theme="dark"
-        className="flex h-screen w-full flex-col overflow-y-auto bg-black"
-        style={{ [TAKEOVER_SURFACE_VAR]: tintHex } as CSSProperties}
-      >
-        <div className="flex min-h-0 flex-1 flex-col">
-          <Story />
-        </div>
-      </div>
+      <TakeoverFrame>
+        <Story />
+      </TakeoverFrame>
     );
   };
+
+/** The frame itself, for a story that mounts the takeover in its own render. */
+function TakeoverFrame({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-theme="light"
+      className="flex h-screen w-full flex-col overflow-y-auto"
+      style={{ backgroundColor: PROVISIONING_SURFACE }}
+    >
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Both decorators as one component, for a story outside this folder that
+ * plays the takeover as a step of a longer flow: the query cache its read
+ * resolves from, and the frame the modal draws around it.
+ */
+export function TakeoverStage({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TakeoverFrame>{children}</TakeoverFrame>
+    </QueryClientProvider>
+  );
+}

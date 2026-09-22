@@ -221,6 +221,8 @@ export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ANSWER_DICTATION_OFFER =
   "vellum:companion:answerDictationOffer";
+export const COMPANION_SET_UNPLACED_DICTATION_OFFER =
+  "vellum:companion:setUnplacedDictationOffer";
 export const COMPANION_ANSWER_POPOVER = "vellum:companion:answerPopover";
 export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
 export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";

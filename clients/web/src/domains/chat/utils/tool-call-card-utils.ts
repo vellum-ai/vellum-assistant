@@ -579,6 +579,7 @@ export function toolDetailPayloadFromToolCall(
     result: tc.result,
     streamedOutput: tc.streamedOutput,
     activityMetadata: tc.activityMetadata,
+    answeredQuestion: tc.answeredQuestion,
     status: deriveToolStepStatus(tc),
     riskLevel: tc.riskLevel,
     riskReason: tc.riskReason,

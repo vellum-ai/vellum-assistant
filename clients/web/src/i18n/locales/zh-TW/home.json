@@ -33,6 +33,10 @@
       "unreachable": "無法連線"
     }
   },
+  "homeUpdatesList": {
+    "titleOne": "技能已更新：{name}",
+    "titleMany": "{count, plural, other {已更新 # 個技能}}"
+  },
   "notificationsBell": {
     "ariaLabel": "通知",
     "ariaLabelUnread": "通知 (未讀)",

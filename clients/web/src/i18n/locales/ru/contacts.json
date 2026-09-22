@@ -8,9 +8,6 @@
     "deleting": "Удаление…",
     "connect": "Подключить",
     "connecting": "Подключение…",
-    "manage": "Настроить",
-    "disconnect": "Отключить",
-    "disconnecting": "Отключение…",
     "cancel": "Отмена",
     "back": "Назад",
     "verify": "Подтвердить",
@@ -43,7 +40,8 @@
     "saveFailed": "Не удалось сохранить контакт",
     "verifyFailed": "Не удалось подтвердить канал",
     "rosterLoadFailed": "Не удалось загрузить список рабочего пространства. Проверьте подключение Slack и повторите попытку.",
-    "emptyBody": "Выбор контакта"
+    "emptyBody": "Выбор контакта",
+    "notFoundBody": "Этот контакт недоступен."
   },
   "contactsList": {
     "heading": "Записи",
@@ -54,8 +52,7 @@
     "verified": "Подтверждён",
     "unverified": "Не подтверждён",
     "you": "Вы",
-    "youNamed": "{name} (вы)",
-    "assistantFallback": "Ассистент"
+    "youNamed": "{name} (вы)"
   },
   "contactDetailView": {
     "namePlaceholder": "Имя этой персоны",
@@ -92,15 +89,6 @@
     "channelsTitle": "Каналы",
     "channelsSubtitle": "После подтверждения ассистент узнает отправителя сообщений с этих каналов.",
     "setupLabel": "Подтвердить меня"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (ассистент)",
-    "channelsTitle": "Каналы",
-    "channelsSubtitle": "Где можно достучаться до {name}."
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "Отключить {channel}?",
-    "disconnectConfirmMessage": "Это удалит сохранённые учётные данные канала. Потом можно подключить снова."
   },
   "accountLink": {
     "linked": "Связан как @{username}",

@@ -1302,3 +1302,149 @@ describe("GET /v1/conversations/sections", () => {
     expect(sections.some((s) => s.kind === "pinned")).toBe(false);
   });
 });
+
+describe("GET /v1/conversations, conversationType=all", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  function setLastMessageAt(id: string, at: number): void {
+    rawRun(
+      "test:setLastMessageAt",
+      "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+      at,
+      id,
+    );
+  }
+
+  test("returns the standard listing and the background umbrella together", async () => {
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+
+    const result = (await invoke({ conversationType: "all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "bg-1",
+      "foreground-1",
+      "sched-1",
+    ]);
+  });
+
+  test("with archiveStatus=all one page spans live and done rows of every type", async () => {
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    seedArchived("archived-1");
+    const archivedBackground = createConversation({
+      title: "archived-bg",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:archiveConversation",
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      archivedBackground.id,
+    );
+
+    const result = (await invoke({
+      conversationType: "all",
+      archiveStatus: "all",
+    })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title).sort()).toEqual([
+      "archived-1",
+      "archived-bg",
+      "bg-1",
+      "foreground-1",
+    ]);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test("orders by last message time descending across the types it merges", async () => {
+    const oldest = createConversation("oldest-foreground");
+    const middle = createConversation({
+      title: "middle-background",
+      conversationType: "background",
+    });
+    const newest = createConversation("newest-foreground");
+    setLastMessageAt(oldest.id, 1000);
+    setLastMessageAt(middle.id, 2000);
+    setLastMessageAt(newest.id, 3000);
+
+    const result = (await invoke({ conversationType: "all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual([
+      "newest-foreground",
+      "middle-background",
+      "oldest-foreground",
+    ]);
+  });
+
+  test("excludes legacy private rows and subagent runs", async () => {
+    createConversation("foreground-1");
+    const legacyPrivate = createConversation("legacy-private");
+    rawRun(
+      "test:legacyPrivateRow",
+      "UPDATE conversations SET conversation_type = 'private', group_id = 'system:background' WHERE id = ?",
+      legacyPrivate.id,
+    );
+    const subagent = createConversation({
+      title: "subagent-run",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:subagentRun",
+      "UPDATE conversations SET source = 'subagent' WHERE id = ?",
+      subagent.id,
+    );
+
+    const result = (await invoke({ conversationType: "all" })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["foreground-1"]);
+  });
+
+  test("never appends pinned rows outside the page", async () => {
+    // Pinned injection is the compatibility shim for the default sidebar
+    // read. A whole-history page already contains the pinned row in recency
+    // order, so appending it would duplicate it and put hasMore out of step
+    // with the count.
+    const pinned = createConversation("pinned-1");
+    rawRun(
+      "test:pinConversation",
+      "UPDATE conversations SET is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+      pinned.id,
+    );
+    const newer = createConversation("newer-1");
+    setLastMessageAt(pinned.id, 1000);
+    setLastMessageAt(newer.id, 2000);
+
+    const result = (await invoke({
+      conversationType: "all",
+      limit: "1",
+    })) as ListResponse;
+
+    expect(result.conversations.map((c) => c.title)).toEqual(["newer-1"]);
+    expect(result.hasMore).toBe(true);
+  });
+
+  test("hasMore describes the combined total, so pagination drains it", async () => {
+    createConversation("foreground-1");
+    createConversation({ title: "bg-1", conversationType: "background" });
+    createConversation({ title: "sched-1", conversationType: "scheduled" });
+
+    const first = (await invoke({
+      conversationType: "all",
+      limit: "2",
+    })) as ListResponse;
+    expect(first.conversations).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+
+    const second = (await invoke({
+      conversationType: "all",
+      limit: "2",
+      offset: String(first.nextOffset),
+    })) as ListResponse;
+    expect(second.conversations).toHaveLength(1);
+    expect(second.hasMore).toBe(false);
+  });
+});

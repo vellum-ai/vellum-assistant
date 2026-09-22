@@ -98,11 +98,10 @@ export function UsageBalancePanel({
   const spent = ratio >= 1;
 
   return (
-    // No fill: the panel sits on the tile's own surface and the border alone
-    // groups it.
+    // One surface step above the tile's base, so the panel reads as its own block.
     <div
       data-testid="plan-usage-balance"
-      className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] px-4 py-3"
+      className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3"
     >
       {/*
         Container query, not a viewport breakpoint: the tile is half a card

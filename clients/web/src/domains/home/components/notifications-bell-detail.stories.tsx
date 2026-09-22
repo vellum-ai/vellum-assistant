@@ -16,9 +16,13 @@ import { NotificationsBellDetail } from "@/domains/home/components/notifications
 import {
   feedItem,
   FIXTURE_CONVERSATION_ID,
+  FIXTURE_SECOND_CONVERSATION_ID,
+  FIXTURE_SKILL_UPDATES,
   FIXTURE_VALID_CONVERSATIONS,
+  skillUpdateReceipt,
 } from "@/domains/home/feed-test-fixtures";
 import type { FeedItemEntityLink } from "@/domains/home/hooks/use-feed-item-entity-links";
+import type { FeedItemUpdateLinksResult } from "@/domains/home/hooks/use-feed-item-update-links";
 import { routes } from "@/utils/routes";
 
 const SKILL_LINK: FeedItemEntityLink = {
@@ -35,6 +39,23 @@ const SCHEDULE_LINK: FeedItemEntityLink = {
   to: routes.schedules.detail("weekly-report"),
 };
 
+/** What `useFeedItemUpdateLinks` returns for any item that is not a receipt. */
+const NO_UPDATE_LINKS: FeedItemUpdateLinksResult = {
+  validSkillIds: new Set(),
+  validConversationIds: new Set(),
+  isPending: false,
+};
+
+/** Every target the receipt fixture names, once its reads have resolved. */
+const RECEIPT_LINKS: FeedItemUpdateLinksResult = {
+  validSkillIds: new Set(FIXTURE_SKILL_UPDATES.map((update) => update.skillId)),
+  validConversationIds: new Set([
+    FIXTURE_CONVERSATION_ID,
+    FIXTURE_SECOND_CONVERSATION_ID,
+  ]),
+  isPending: false,
+};
+
 const meta = {
   title: "Home/NotificationsBellDetail",
   component: NotificationsBellDetail,
@@ -47,6 +68,7 @@ const meta = {
     areConversationListsPending: false,
     entityLinks: [],
     areEntityLinksPending: false,
+    updateLinks: NO_UPDATE_LINKS,
     isActionPending: false,
     onBack: () => {},
     onGoToConversation: () => {},
@@ -168,6 +190,63 @@ export const LinksPending: Story = {
         "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
+      metadata: { skillId: "approved-pr-merge-gate" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+    }),
+  },
+};
+
+/**
+ * A background burst rewrote several skills, one of them twice. The title
+ * counts the skills, and the body lists each with the pass's account of every
+ * rewrite; the skill names and the source conversations are links, since a
+ * footer link can only name one of each. The footer keeps the timestamp
+ * alone.
+ */
+export const SkillUpdateReceipt: Story = {
+  args: {
+    updateLinks: RECEIPT_LINKS,
+    item: skillUpdateReceipt({ id: "feed-skill-receipt" }),
+  },
+};
+
+/**
+ * The same receipt after one skill was removed and one source conversation
+ * was garbage collected: each reads as plain text, and everything else still
+ * links.
+ */
+export const SkillUpdateReceiptTargetsGone: Story = {
+  args: {
+    updateLinks: {
+      validSkillIds: new Set([
+        "approved-pr-merge-gate",
+        "weekly-report-export",
+      ]),
+      validConversationIds: new Set([FIXTURE_CONVERSATION_ID]),
+      isPending: false,
+    },
+    item: skillUpdateReceipt({ id: "feed-skill-receipt-gone" }),
+  },
+};
+
+/**
+ * A receipt whose rewrites all came from one conversation and touched one
+ * skill twice. It carries that skill and that conversation the way a single
+ * notification does, so the footer offers both links and the list repeats
+ * neither.
+ */
+export const SkillUpdateReceiptOneSource: Story = {
+  args: {
+    entityLinks: [SKILL_LINK],
+    updateLinks: RECEIPT_LINKS,
+    item: skillUpdateReceipt({
+      id: "feed-skill-receipt-one-source",
+      updates: FIXTURE_SKILL_UPDATES.filter(
+        (update) => update.skillId === "approved-pr-merge-gate",
+      ).map((update) => ({
+        ...update,
+        conversationId: FIXTURE_CONVERSATION_ID,
+      })),
       metadata: { skillId: "approved-pr-merge-gate" },
       conversationId: FIXTURE_CONVERSATION_ID,
     }),

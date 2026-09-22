@@ -1,12 +1,11 @@
 /**
  * Tests for the pure-props `ProvisioningState` takeover. Renders via
  * `@testing-library/react` (happy-dom registered in test-setup.ts) wrapped in
- * a `QueryClientProvider`. The takeover avatar hook is mocked to record the id
- * it's queried with — the avatar resolves to its neutral fallback (null
- * components) — so every phase stays driven through props while the
- * avatar-target wiring can be asserted directly.
+ * a `QueryClientProvider`, so every phase is driven through props. The
+ * character stream draws on a canvas happy-dom gives no context for, so it
+ * mounts and draws nothing; its geometry has its own tests.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -15,64 +14,15 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import * as motionReact from "motion/react";
 
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { PlanListResponse } from "@/generated/api/types.gen";
-import * as assistantAvatarMod from "@/hooks/use-assistant-avatar";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
-import { SURFACE_GROUND } from "@/utils/avatar-tone";
 
-import type { ProvisioningStateProps } from "./provisioning-state";
-
-/** The id handed to the avatar hook, captured so the target-selection wiring
- *  can be asserted without a network fetch. */
-let avatarQueryId: string | null | undefined;
-/** Flipped per-test to hold the avatar query in flight. */
-let avatarLoading = false;
-/** The avatar the mocked query resolves to; null components keep the neutral
- *  fallback the phase/mode cases render against. */
-let avatarComponents: CharacterComponents | null = null;
-let avatarTraits: CharacterTraits | null = null;
-/** An uploaded avatar image, which the takeover also blurs behind its content. */
-let avatarCustomImageUrl: string | null = null;
-mock.module("@/hooks/use-assistant-avatar", () => ({
-  ...assistantAvatarMod,
-  useAssistantAvatar: (assistantId: string | null) => {
-    avatarQueryId = assistantId;
-    return {
-      components: avatarComponents,
-      traits: avatarTraits,
-      customImageUrl: avatarCustomImageUrl,
-      isLoading: avatarLoading,
-      invalidate: () => {},
-    };
-  },
-}));
-
-// `useReducedMotion` reads a cached media-query singleton, so a per-test
-// `matchMedia` stub can't flip it. Override just that export (real `motion` /
-// `AnimatePresence` are preserved) and drive it through this toggle instead.
-let reducedMotion = false;
-mock.module("motion/react", () => ({
-  ...motionReact,
-  useReducedMotion: () => reducedMotion,
-}));
-
-const { ProvisioningState, TAKEOVER_SURFACE, TAKEOVER_SURFACE_VAR } =
-  await import("./provisioning-state");
-
-beforeEach(() => {
-  avatarQueryId = undefined;
-  avatarLoading = false;
-  avatarComponents = null;
-  avatarTraits = null;
-  avatarCustomImageUrl = null;
-  reducedMotion = false;
-  useResolvedAssistantsStore.setState({ activeAssistantId: null });
-});
+import {
+  PROVISIONING_SURFACE,
+  ProvisioningState,
+  type ProvisioningStateProps,
+} from "./provisioning-state";
 
 afterEach(() => {
   cleanup();
@@ -187,13 +137,18 @@ describe("confirming", () => {
     expect(getByText("This might take a couple seconds.")).toBeTruthy();
   });
 
-  test("renders a package chip from the stashed intent", () => {
-    const { getByText } = renderState({
+  test("renders the package from the stashed intent", () => {
+    const { getByTestId } = renderState({
       state: "CONFIRMING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
     });
 
-    expect(getByText("Mighty package")).toBeTruthy();
+    const column = getByTestId("chip-package");
+    expect(within(column).getByText("Package")).toBeTruthy();
+    expect(within(column).getByText("Mighty")).toBeTruthy();
+    // Target-only: nothing to arrow from, and no progress to claim.
+    expect(column.querySelector(".lucide-arrow-right")).toBeNull();
+    expect(within(column).queryByTestId("chip-check")).toBeNull();
   });
 
   test("renders custom-intent machine/storage chips, target-only with no from-arrow, omitting credits when null", () => {
@@ -216,7 +171,6 @@ describe("confirming", () => {
     // CONFIRMING is target-only: no current→new arrow while actuals are unknown.
     expect(container.querySelector(".lucide-arrow-right")).toBeNull();
   });
-
 });
 
 describe("waiting / resizing", () => {
@@ -291,52 +245,26 @@ describe("waiting / resizing", () => {
     expect(queryByTestId("chip-credits")).toBeNull();
   });
 
-  for (const reduce of [false, true]) {
-    const label = reduce ? "under reduced motion" : "under full motion";
-    test(`${label}, machine + storage + credits share one row`, () => {
-      // The row is motion-independent: three chips are always all on screen,
-      // never one at a time, so a downgrade can't hide the resize being waited
-      // on behind a dimension that was never in doubt.
-      reducedMotion = reduce;
-      const { container, getByText } = renderState({
-        state: "WAITING",
-        intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-        targets: { machineSize: "large", storageGib: 100 },
-        fromSnapshot: { machineSize: "small", storageGib: 30 },
-      });
-
-      expect(getByText("Machine")).toBeTruthy();
-      expect(getByText("Large")).toBeTruthy();
-      expect(getByText("Storage")).toBeTruthy();
-      expect(getByText("100 GB")).toBeTruthy();
-      expect(getByText("Usage")).toBeTruthy();
-      expect(getByText("Mighty Usage")).toBeTruthy();
-      // One row holds all three; there is no sibling row to wrap onto.
-      const row = chipRow(container);
-      expect(within(row).getAllByTestId(CHIP_TESTID).length).toBe(3);
-    });
-  }
-
-  test("the row cap widens for a third chip and holds the mock's width for two", () => {
-    // happy-dom performs no layout, so this is a smoke test on the class the
-    // width comes from; the real single-row check is visual.
-    const threeChips = renderState({
+  test("machine + storage + credits share one row", () => {
+    // Three columns are always all on screen, never one at a time, so a
+    // downgrade can't hide the resize being waited on behind a dimension that
+    // was never in doubt.
+    const { container, getByText } = renderState({
       state: "WAITING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
-    expect(chipRow(threeChips.container).className).toContain("max-w-2xl");
-    // Never a second row: the chips shrink inside the cap instead.
-    expect(chipRow(threeChips.container).className).not.toContain("flex-wrap");
 
-    cleanup();
-    const twoChips = renderState({
-      state: "WAITING",
-      targets: { machineSize: "large", storageGib: 100 },
-      fromSnapshot: { machineSize: "small", storageGib: 30 },
-    });
-    expect(chipRow(twoChips.container).className).toContain("max-w-sm");
+    expect(getByText("Machine")).toBeTruthy();
+    expect(getByText("Large")).toBeTruthy();
+    expect(getByText("Storage")).toBeTruthy();
+    expect(getByText("100 GB")).toBeTruthy();
+    expect(getByText("Usage")).toBeTruthy();
+    expect(getByText("Mighty Usage")).toBeTruthy();
+    // One row holds all three; there is no sibling row to wrap onto.
+    const row = chipRow(container);
+    expect(within(row).getAllByTestId(CHIP_TESTID).length).toBe(3);
   });
 
   test("a machine-less target renders the floor downsize it settles at", () => {
@@ -360,19 +288,18 @@ const IN_FLIGHT: Partial<ProvisioningStateProps> = {
   fromSnapshot: { machineSize: "small", storageGib: 30 },
 };
 
-describe("per-chip progress", () => {
-  test("every chip starts pending with a spinner and no check", () => {
+describe("per-dimension progress", () => {
+  test("every dimension starts pending, with no check", () => {
     const { getByTestId } = renderState(IN_FLIGHT);
 
     for (const key of ["chip-machine", "chip-storage"]) {
       const chip = getByTestId(key);
-      expect(within(chip).getByTestId("chip-spinner")).toBeTruthy();
       expect(within(chip).queryByTestId("chip-check")).toBeNull();
-      expect(chip.className).toContain("opacity-70");
+      expect(within(chip).queryByTestId("chip-check")).toBeNull();
     }
   });
 
-  test("a landed dimension checks off while the other keeps spinning", () => {
+  test("a landed dimension checks off while the other stays pending", () => {
     const { getByTestId } = renderState({
       ...IN_FLIGHT,
       landed: { machine: false, storage: true },
@@ -380,21 +307,19 @@ describe("per-chip progress", () => {
 
     const storage = getByTestId("chip-storage");
     expect(within(storage).getByTestId("chip-check")).toBeTruthy();
-    expect(within(storage).queryByTestId("chip-spinner")).toBeNull();
-    expect(storage.className).not.toContain("opacity-70");
     // The landed chip keeps its from→to arrow rather than collapsing to the
     // achieved value.
     expect(storage.textContent).toContain("30 GB");
     expect(storage.textContent).toContain("100 GB");
 
     const machine = getByTestId("chip-machine");
-    expect(within(machine).getByTestId("chip-spinner")).toBeTruthy();
+    expect(within(machine).queryByTestId("chip-check")).toBeNull();
     expect(within(machine).queryByTestId("chip-check")).toBeNull();
   });
 
-  test("the credits chip is landed from first paint", () => {
+  test("the credits column is landed from first paint", () => {
     // The rate flips when the plan change is accepted; nothing rolls out, so
-    // waiting on the machine would leave it spinning for no reason.
+    // waiting on the machine would leave it pending for no reason.
     const { getByTestId } = renderState({
       state: "WAITING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
@@ -407,39 +332,11 @@ describe("per-chip progress", () => {
       within(getByTestId("chip-credits")).getByTestId("chip-check"),
     ).toBeTruthy();
     expect(
-      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
-    ).toBeTruthy();
+      within(getByTestId("chip-machine")).queryByTestId("chip-check"),
+    ).toBeNull();
   });
 
-  test("the progress mark shares a line with the value it belongs to", () => {
-    // The value row wraps so a long value can break rather than clip the chip,
-    // and the mark is the last and smallest thing on that line, so it is what
-    // wraps: it lands alone underneath and reads as belonging to nothing. It
-    // has to travel with the destination value as one item.
-    const { getByTestId } = renderState({
-      state: "WAITING",
-      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-      targets: { machineSize: "large", storageGib: null },
-      fromSnapshot: { machineSize: "small", storageGib: null },
-      landed: { machine: false, storage: false },
-    });
-
-    for (const [chipId, markId] of [
-      ["chip-credits", "chip-check"],
-      ["chip-machine", "chip-spinner"],
-    ] as const) {
-      const chip = getByTestId(chipId);
-      const mark = within(chip).getByTestId(markId);
-      const group = mark.parentElement;
-      // The wrapping row is the grandparent once the mark sits in its group.
-      expect(group?.className).toContain("inline-flex");
-      expect(group?.className).not.toContain("flex-wrap");
-      // The destination value is inside that same unwrappable group.
-      expect(group?.textContent).not.toBe("");
-    }
-  });
-
-  test("stalled keeps each chip on its own dimension's state", () => {
+  test("stalled keeps each column on its own dimension's state", () => {
     const { getByTestId } = renderState({
       state: "STALLED",
       targets: { machineSize: "large", storageGib: 100 },
@@ -451,14 +348,13 @@ describe("per-chip progress", () => {
       within(getByTestId("chip-storage")).getByTestId("chip-check"),
     ).toBeTruthy();
     expect(
-      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
-    ).toBeTruthy();
+      within(getByTestId("chip-machine")).queryByTestId("chip-check"),
+    ).toBeNull();
   });
 
   test("a mixed row reads its progress per dimension, not just paints it", () => {
-    // The spinner, the check and the dimming are all invisible to assistive
-    // tech, so without the status text a landed storage sounds identical to a
-    // pending one.
+    // The check is invisible to assistive tech, so without the status text a
+    // landed storage sounds identical to a pending one.
     const { getByTestId } = renderState({
       ...IN_FLIGHT,
       landed: { machine: false, storage: true },
@@ -517,7 +413,7 @@ describe("per-chip progress", () => {
   });
 
   test("the from-to relation is spoken rather than left to the arrow glyph", () => {
-    // The arrow is aria-hidden, so the chip would otherwise read
+    // The arrow is aria-hidden, so the column would otherwise read
     // "Machine Small Large Pending".
     const { getByTestId } = renderState(IN_FLIGHT);
 
@@ -526,7 +422,7 @@ describe("per-chip progress", () => {
     ).toContain("sr-only");
   });
 
-  test("a target-only intent chip claims neither status", () => {
+  test("a target-only intent column claims neither status", () => {
     // CONFIRMING has no per-dimension progress to report, so claiming
     // "Pending" there would assert a resize that isn't in flight.
     const { getByText, queryByText } = renderState({
@@ -546,49 +442,8 @@ describe("per-chip progress", () => {
   });
 });
 
-describe("chip fit at narrow widths", () => {
-  /** The widest row the takeover renders: all three dimensions at once. */
-  const NARROW: Partial<ProvisioningStateProps> = {
-    ...IN_FLIGHT,
-    intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-  };
-
-  test("chip text breaks inside a word so it can never spill into the next chip", () => {
-    // happy-dom runs no layout, so this asserts the rule the no-clip behaviour
-    // rests on. `min-w-0` lets the box shrink but an unbreakable word such as
-    // "Machine" still sets a floor; `anywhere` (not `break-word`) is what feeds
-    // the break opportunity into the min-content sizing a flex item measures
-    // itself against.
-    const { getByTestId } = renderState(NARROW);
-    const cases: Array<[string, string, string]> = [
-      ["chip-machine", "Machine", "Large"],
-      ["chip-storage", "Storage", "100 GB"],
-      ["chip-credits", "Usage", "Mighty Usage"],
-    ];
-
-    for (const [key, label, value] of cases) {
-      const chip = within(getByTestId(key));
-      // Label and value both sit under the rule, which inherits from the text
-      // column rather than being repeated on each span.
-      expect(chip.getByText(label).closest(".wrap-anywhere")).toBeTruthy();
-      expect(chip.getByText(value).closest(".wrap-anywhere")).toBeTruthy();
-    }
-  });
-
-  test("the decorative icon yields its column below the narrow breakpoint", () => {
-    // 32px of icon and gap against roughly 37px of text width at 320px, for a
-    // glyph that is aria-hidden and repeats what the label already says.
-    const { getByTestId } = renderState(NARROW);
-    const slot =
-      getByTestId("chip-machine").querySelector(".lucide-cpu")?.parentElement;
-
-    expect(slot?.className).toContain("hidden");
-    expect(slot?.className).toContain("min-[420px]:flex");
-  });
-});
-
 describe("done / not_applicable", () => {
-  test("done renders the all-done status, checked chips, and fires onCelebrationEnd after the dwell", async () => {
+  test("done renders the all-done status, checked columns, and fires onCelebrationEnd after the dwell", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText, getByTestId } = renderState({
       state: "DONE",
@@ -608,9 +463,7 @@ describe("done / not_applicable", () => {
     // One format everywhere: the terminal phase keeps the from→to arrow and
     // adds the check.
     for (const key of ["chip-machine", "chip-storage"]) {
-      const chip = getByTestId(key);
-      expect(within(chip).getByTestId("chip-check")).toBeTruthy();
-      expect(within(chip).queryByTestId("chip-spinner")).toBeNull();
+      expect(within(getByTestId(key)).getByTestId("chip-check")).toBeTruthy();
     }
     expect(getByText("Small")).toBeTruthy();
     expect(getByText("30 GB")).toBeTruthy();
@@ -915,330 +768,30 @@ describe("escape hatch", () => {
   });
 });
 
-describe("takeover avatar", () => {
-  test("queries the avatar for the passed provisioning target assistant", () => {
-    useResolvedAssistantsStore.setState({
-      activeAssistantId: "active-assistant",
-    });
-    renderState({ assistantId: "primary-assistant" });
-
-    expect(avatarQueryId).toBe("primary-assistant");
-  });
-
-  test("falls back to the active-store assistant when no target is passed", () => {
-    useResolvedAssistantsStore.setState({
-      activeAssistantId: "active-assistant",
-    });
-    renderState();
-
-    expect(avatarQueryId).toBe("active-assistant");
-  });
-});
-
-/** The takeover root, which publishes the tint, paints from it, and holds the
- *  backdrop and the content layered over it. */
-function root(container: HTMLElement): HTMLElement {
-  const el = container.querySelector<HTMLElement>(".provision-surface-settle");
-  if (!el) {
-    throw new Error("takeover root not found");
-  }
-  return el;
-}
-
 describe("takeover surface", () => {
-  test("paints from the published variable rather than a literal colour", () => {
-    const { container } = renderState({ assistantId: "primary-assistant" });
+  test("paints white, whatever the theme, under light tokens, and mounts the stream", () => {
+    const { getByTestId } = renderState({ state: "WAITING" });
 
-    expect(root(container).style.backgroundColor).toBe(TAKEOVER_SURFACE);
+    const root = getByTestId("provisioning-takeover");
+    expect(root.style.backgroundColor).toBe(PROVISIONING_SURFACE);
+    // Dark and velvet set the content colours near white, so the text and
+    // hairlines on this ground read the light theme's tokens instead.
+    expect(root.getAttribute("data-theme")).toBe("light");
+    expect(getByTestId("upgrade-stream")).toBeTruthy();
   });
 
-  test("a purple character publishes its own deep tint", () => {
-    avatarComponents = BUNDLED_COMPONENTS;
-    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
-
-    const { container } = renderState({ assistantId: "primary-assistant" });
-
-    expect(
-      root(container)
-        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
-        .toLowerCase(),
-    ).toBe("#29202e");
-  });
-
-  test("an unresolved avatar holds the neutral ground", () => {
-    // A hue committed before the query settles is the wrong assistant's, at
-    // full-viewport scale.
-    avatarLoading = true;
-    avatarComponents = BUNDLED_COMPONENTS;
-    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
-
-    const { container } = renderState({ assistantId: "primary-assistant" });
-
-    expect(root(container).style.getPropertyValue(TAKEOVER_SURFACE_VAR)).toBe(
-      SURFACE_GROUND,
-    );
-  });
-
-  test("the default green creature keeps the takeover's established tint", () => {
-    avatarComponents = BUNDLED_COMPONENTS;
-
-    const { container } = renderState({ assistantId: "primary-assistant" });
-
-    expect(
-      root(container)
-        .style.getPropertyValue(TAKEOVER_SURFACE_VAR)
-        .toLowerCase(),
-    ).toBe("#1d281d");
-  });
-});
-
-describe("takeover backdrop", () => {
-  test("a custom-image avatar blurs that image behind the takeover", () => {
-    avatarCustomImageUrl = "blob:vellum/avatar-image";
-
-    const { getByTestId } = renderState({ assistantId: "primary-assistant" });
-
-    expect(
-      getByTestId("takeover-backdrop")
-        .querySelector("img")
-        ?.getAttribute("src"),
-    ).toBe("blob:vellum/avatar-image");
-  });
-
-  test("every layer beside the backdrop stacks above it", () => {
-    // The backdrop is absolutely positioned, so it paints over any sibling left
-    // in normal flow — the avatar and the phase block both have to be raised.
-    avatarCustomImageUrl = "blob:vellum/avatar-image";
-
-    const { container, getByTestId } = renderState({
-      state: "WAITING",
-      assistantId: "primary-assistant",
-    });
-    const backdrop = getByTestId("takeover-backdrop");
-    const content = Array.from(root(container).children).filter(
-      (el) => el !== backdrop,
-    );
-
-    expect(content.length).toBeGreaterThan(0);
-    for (const el of content) {
-      expect(el.className).toContain("z-10");
+  test("renders no Apply control in any phase", () => {
+    for (const state of [
+      "CONFIRMING",
+      "WAITING",
+      "DONE",
+      "STALLED",
+      "CONFIRM_TIMEOUT",
+    ] as const) {
+      const { queryByTestId, unmount } = renderState({ state });
+      expect(queryByTestId("provisioning-apply")).toBeNull();
+      unmount();
     }
-  });
-
-  test("a character avatar gets the flat tint and no image layer", () => {
-    avatarComponents = BUNDLED_COMPONENTS;
-    avatarTraits = { bodyShape: "blob", eyeStyle: "curious", color: "purple" };
-
-    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
-
-    expect(queryByTestId("takeover-backdrop")).toBeNull();
-  });
-
-  test("withholds the backdrop until the avatar query settles", () => {
-    // A backdrop that appears and then disappears is worse than one that
-    // arrives late.
-    avatarLoading = true;
-    avatarCustomImageUrl = "blob:vellum/avatar-image";
-
-    const { queryByTestId } = renderState({ assistantId: "primary-assistant" });
-
-    expect(queryByTestId("takeover-backdrop")).toBeNull();
-  });
-});
-
-describe("takeover avatar mode", () => {
-  /** The mode is carried as a class on the avatar's outer element. */
-  function modeClasses(container: HTMLElement): string {
-    const el = container.querySelector(".provision-avatar-evolve");
-    return el?.className ?? "";
-  }
-
-  const CASES: Array<[ProvisioningStateProps["state"], boolean, string]> = [
-    ["CONFIRMING", false, ""],
-    ["CONFIRM_TIMEOUT", false, ""],
-    ["WAITING", false, "is-working"],
-    ["RESIZING", false, "is-working"],
-    ["WAITING", true, "is-settling"],
-    ["RESIZING", true, "is-settling"],
-    ["STALLED", false, "is-stalled"],
-    ["DONE", false, "is-evolved"],
-    ["NOT_APPLICABLE", false, "is-evolved"],
-  ];
-
-  for (const [state, softWaiting, expected] of CASES) {
-    const label = softWaiting ? `${state} past the grace window` : state;
-    test(`${label} renders ${expected || "no mode class"}`, () => {
-      const { container } = renderState({
-        state,
-        softWaiting,
-        assistantId: "primary-assistant",
-      });
-      const classes = modeClasses(container);
-
-      if (expected) {
-        expect(classes).toContain(expected);
-      } else {
-        for (const mode of [
-          "is-working",
-          "is-settling",
-          "is-stalled",
-          "is-evolved",
-        ]) {
-          expect(classes).not.toContain(mode);
-        }
-      }
-    });
-  }
-
-  test("a downgrade inverts the resolve, and only a known one does", () => {
-    // The stage reserves the grown height either way, so the step down waits at
-    // that size and settles into the resting one. Ending taller than it started
-    // would read as the opposite of the change the user just made.
-    const down = renderState({
-      state: "DONE",
-      direction: "downgrade",
-      assistantId: "primary-assistant",
-    });
-    expect(modeClasses(down.container)).toContain("is-downsizing");
-    cleanup();
-
-    // A move with no knowable direction must not claim one.
-    for (const direction of ["upgrade", "change", undefined] as const) {
-      const view = renderState({
-        state: "DONE",
-        direction,
-        assistantId: "primary-assistant",
-      });
-      expect(modeClasses(view.container)).not.toContain("is-downsizing");
-      cleanup();
-    }
-  });
-
-  test("withholds the avatar until its query settles", () => {
-    // `components ?? fallback` synthesizes traits from the first bundled entry
-    // of each list, so drawing during the fetch shows a green blob regardless
-    // of the assistant's real avatar.
-    avatarLoading = true;
-
-    const { container, getByTestId } = renderState({
-      state: "WAITING",
-      assistantId: "primary-assistant",
-    });
-
-    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
-    // The stage still reserves its height, so nothing moves when it arrives.
-    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
-    // …and the placeholder breathes in the meantime rather than leaving a hole.
-    expect(getByTestId("provision-avatar-placeholder").className).not.toContain(
-      "is-resolved",
-    );
-  });
-
-  test("renders exactly one placeholder", () => {
-    const { container } = renderState({
-      state: "WAITING",
-      assistantId: "primary-assistant",
-    });
-
-    expect(
-      container.querySelectorAll(".provision-avatar-placeholder"),
-    ).toHaveLength(1);
-  });
-
-  test("reveals the avatar once the target and the query both settle", () => {
-    const { container, getByTestId } = renderState({
-      state: "WAITING",
-      assistantId: "primary-assistant",
-    });
-
-    expect(container.querySelector(".provision-avatar-reveal")).toBeTruthy();
-    // The placeholder fades out on the same beat the creature arrives on.
-    expect(getByTestId("provision-avatar-placeholder").className).toContain(
-      "is-resolved",
-    );
-  });
-
-  test("keeps waiting while the target assistant is still unknown", () => {
-    // `useAssistantAvatar(null)` is a disabled query, and a disabled query
-    // reports `isLoading: false` with no data — so the id has to gate the
-    // render too. The active assistant is deliberately set here: an explicit
-    // null target must not fall back to it, or a multi-assistant org fades in
-    // the active assistant before the provisioning primary resolves.
-    useResolvedAssistantsStore.setState({
-      activeAssistantId: "active-assistant",
-    });
-
-    const { container } = renderState({ state: "WAITING", assistantId: null });
-
-    expect(container.querySelector(".provision-avatar-reveal")).toBeNull();
-    expect(container.querySelector(".provision-avatar-stage")).toBeTruthy();
-    // Nor should it fetch the wrong assistant's avatar on the way.
-    expect(avatarQueryId).toBeNull();
-  });
-
-  test("holds the grow until there is an avatar to play it on", () => {
-    // The phase can resolve before the avatar fetch does — the avatar is read
-    // off the machine being restarted — and a grow that runs on an empty
-    // wrapper leaves the creature to fade in already at its final scale.
-    avatarLoading = true;
-
-    const { container } = renderState({
-      state: "DONE",
-      assistantId: "primary-assistant",
-    });
-
-    expect(
-      container.querySelector(".provision-avatar-evolve")?.className,
-    ).not.toContain("is-evolved");
-  });
-
-  test("steps the creature down so a short viewport keeps the actions below it", () => {
-    // The stage reserves the grown height, so a full-size creature needs about
-    // 650px before the phase block — which carries the escape hatch and the
-    // stalled retry — starts to clip out of the h-screen takeover.
-    const original = window.innerHeight;
-    Object.defineProperty(window, "innerHeight", {
-      value: 568,
-      configurable: true,
-    });
-
-    const { container } = renderState({ state: "WAITING" });
-    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
-
-    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("132px");
-
-    Object.defineProperty(window, "innerHeight", {
-      value: original,
-      configurable: true,
-    });
-  });
-
-  test("uses the full size when the viewport has room for it", () => {
-    const original = window.innerHeight;
-    Object.defineProperty(window, "innerHeight", {
-      value: 900,
-      configurable: true,
-    });
-
-    const { container } = renderState({ state: "WAITING" });
-    const el = container.querySelector<HTMLElement>(".provision-avatar-evolve");
-
-    expect(el?.style.getPropertyValue("--provision-avatar-size")).toBe("240px");
-
-    Object.defineProperty(window, "innerHeight", {
-      value: original,
-      configurable: true,
-    });
-  });
-
-  test("the grace window never softens a state that isn't waiting", () => {
-    const { container } = renderState({
-      state: "STALLED",
-      softWaiting: true,
-      assistantId: "primary-assistant",
-    });
-
-    expect(modeClasses(container)).toContain("is-stalled");
   });
 });
 
@@ -1333,11 +886,11 @@ describe("ProvisioningState phase hold", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The credits chips name usage bundles, never a credit amount
+// The credits column names usage bundles, never a credit amount
 // ---------------------------------------------------------------------------
 
-describe("credits chip wording", () => {
-  test("the resize credits chip names the bundles, not monthly rates", () => {
+describe("credits column wording", () => {
+  test("the resize credits column names the bundles, not monthly rates", () => {
     const { getByTestId } = renderState({
       state: "WAITING",
       creditsChange: { fromTier: null, toTier: "credits_50" },

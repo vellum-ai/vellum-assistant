@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 
-import type { HotkeySelection, KeyboardModifier } from "@vellumai/ipc-contract";
+import type {
+  HotkeySelectionResult,
+  KeyboardModifier,
+} from "@vellumai/ipc-contract";
 
 import {
   readFrontSelection,
@@ -8,10 +11,7 @@ import {
   subscribeToHotkeyEvents,
   supportsModifierHold,
 } from "@/runtime/hotkey";
-import {
-  getSystemPermissionsState,
-  requestSystemPermission,
-} from "@/runtime/system-permissions";
+import { subscribeToInputMonitoringGranted } from "@/runtime/system-permissions";
 import { createVoiceKeyGestureClassifier } from "@/domains/chat/voice/voice-key-gestures";
 import type { VoiceKey } from "@/utils/voice-key";
 
@@ -27,10 +27,10 @@ export interface HoldStart {
    * waiting on the read; what was selected cannot change while the key is
    * held, and the transcript that needs it lands well after the read does.
    * The helper answers only while the hold is still open, so a read that
-   * lands after the keys are up resolves to nothing rather than to whatever
+   * lands after the keys are up resolves as unavailable rather than to whatever
    * the user has moved on to.
    */
-  selection: Promise<HotkeySelection | null>;
+  selection: Promise<HotkeySelectionResult>;
 }
 
 export interface VoiceKeyHandlers {
@@ -58,27 +58,6 @@ export interface VoiceKeyHandlers {
    * Input Monitoring ungranted), which is the settings card's cue to say so.
    */
   onRegistered?: (registered: boolean) => void;
-}
-
-/**
- * Whether this launch has asked for Input Monitoring on the key's behalf.
- *
- * The grant is asked for when the key is armed and not yet granted, which on a
- * fresh install is the first launch. Once per launch: a refusal is the user's
- * answer for the session, and the settings card offers the question again.
- */
-let inputMonitoringAskedThisLaunch = false;
-
-async function askForInputMonitoringOnce(): Promise<void> {
-  if (inputMonitoringAskedThisLaunch) {
-    return;
-  }
-  const state = await getSystemPermissionsState();
-  if (state?.inputMonitoring.status === "granted") {
-    return;
-  }
-  inputMonitoringAskedThisLaunch = true;
-  await requestSystemPermission("inputMonitoring");
 }
 
 /**
@@ -162,26 +141,30 @@ export function useVoiceKey({
     });
 
     let disposed = false;
-    void setModifierHold({
-      kind: "modifierOnly",
-      modifiers: modifiers.split("+") as KeyboardModifier[],
-    }).then(
-      (result) => {
-        if (!disposed) {
-          handlers.current.onRegistered?.(result.ok && result.enabled);
-        }
-      },
-      () => {
-        if (!disposed) {
-          handlers.current.onRegistered?.(false);
-        }
-      },
-    );
-    void askForInputMonitoringOnce();
+    const register = () => {
+      void setModifierHold({
+        kind: "modifierOnly",
+        modifiers: modifiers.split("+") as KeyboardModifier[],
+      }).then(
+        (result) => {
+          if (!disposed) {
+            handlers.current.onRegistered?.(result.ok && result.enabled);
+          }
+        },
+        () => {
+          if (!disposed) {
+            handlers.current.onRegistered?.(false);
+          }
+        },
+      );
+    };
+    const unsubscribePermission = subscribeToInputMonitoringGranted(register);
+    register();
 
     return () => {
       disposed = true;
       unsubscribe();
+      unsubscribePermission();
       classifier.cancel();
       void setModifierHold({ kind: "off" });
     };

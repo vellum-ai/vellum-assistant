@@ -259,7 +259,7 @@ export function SingleActivity(props: SingleActivityProps) {
           kind: "thinking",
           toolCallId: "",
           toolName: "",
-          title: "Thought process",
+          title: t("thinkingDetail.title"),
           activity: "",
           input: {},
           status: "completed",

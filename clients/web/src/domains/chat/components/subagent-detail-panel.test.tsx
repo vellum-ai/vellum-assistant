@@ -360,8 +360,18 @@ describe("SubagentDetailPanel — header controls", () => {
 });
 
 describe("SubagentDetailPanel — objective", () => {
-  test("a long objective shows a toggle that expands and collapses the body", () => {
-    const longObjective = "x ".repeat(400).trim();
+  const longObjective = "x ".repeat(400).trim();
+
+  test("is a section heading, like the timeline below it", () => {
+    render(<SubagentDetailPanel entry={makeEntry()} onClose={noop} />);
+    const headings = screen
+      .getAllByRole("heading", { level: 3 })
+      .map((h) => h.textContent);
+    expect(headings).toContain("Objective");
+    expect(headings).toContain("Timeline");
+  });
+
+  test("a long objective folds behind the shared Show more, which opens and closes it", () => {
     const restore = stubOverflow((el) => el.textContent === longObjective);
     try {
       render(
@@ -371,18 +381,8 @@ describe("SubagentDetailPanel — objective", () => {
         />,
       );
 
-      const body = screen.getByText(longObjective);
-      // Collapsed by default: clamped and offering "Show more".
-      expect(body.className).toContain("line-clamp-5");
-      const toggle = screen.getByText("Show more");
-
-      fireEvent.click(toggle);
-      // Expanded: clamp removed and the affordance flips to "Show less".
+      fireEvent.click(screen.getByText("Show more"));
       expect(screen.getByText("Show less")).toBeDefined();
-      expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-5",
-      );
-
       fireEvent.click(screen.getByText("Show less"));
       expect(screen.getByText("Show more")).toBeDefined();
     } finally {
@@ -391,7 +391,7 @@ describe("SubagentDetailPanel — objective", () => {
   });
 
   test("a short objective renders no toggle", () => {
-    const restore = stubOverflow((el) => el.textContent === "never-matches");
+    const restore = stubOverflow(() => false);
     try {
       render(
         <SubagentDetailPanel
@@ -407,13 +407,11 @@ describe("SubagentDetailPanel — objective", () => {
     }
   });
 
-  test("switching to a different subagent resets the expanded objective state", () => {
+  test("an objective opened for one subagent is folded again for the next", () => {
     // The desktop parent reuses this component instance across subagent
-    // switches (no React `key`). Expand the first subagent's long objective,
-    // then re-render the SAME instance with a different subagent whose
-    // objective is short. The expand state must reset and re-measure: the new
-    // objective renders collapsed with no toggle.
-    const longObjective = "x ".repeat(400).trim();
+    // switches (no React `key`), so the objective's own open state has to
+    // reset when the subagent changes, including when the next subagent's
+    // objective is byte-identical.
     const restore = stubOverflow((el) => el.textContent === longObjective);
     try {
       const { rerender } = render(
@@ -422,67 +420,26 @@ describe("SubagentDetailPanel — objective", () => {
           onClose={noop}
         />,
       );
-
-      // Expand the first subagent's objective.
       fireEvent.click(screen.getByText("Show more"));
       expect(screen.getByText("Show less")).toBeDefined();
-      expect(screen.getByText(longObjective).className).not.toContain(
-        "line-clamp-5",
-      );
 
-      // Switch to a different subagent with a short objective. Same instance,
-      // different `entry.subagentId`.
-      rerender(
-        <SubagentDetailPanel
-          entry={makeEntry({ subagentId: "sub-2", objective: "Short" })}
-          onClose={noop}
-        />,
-      );
-
-      // State reset + re-measured: collapsed, no stale "Show less"/toggle.
-      const shortBody = screen.getByText("Short");
-      expect(shortBody.className).toContain("line-clamp-5");
-      expect(screen.queryByText("Show less")).toBeNull();
-      expect(screen.queryByText("Show more")).toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  test("re-measures overflow when switching to a different subagent with identical objective text", () => {
-    // The render-phase reset forces `objectiveOverflows` to `false` on every
-    // subagent switch. If the measurement effect only depended on the
-    // objective text + expanded flag, switching from subagent A to a DIFFERENT
-    // subagent B with byte-identical (still overflowing) objective text would
-    // change neither dep, the effect would skip, and the toggle would vanish.
-    // Depending on `entry.subagentId` forces a re-measure so "Show more"
-    // survives the switch.
-    const longObjective = "x ".repeat(400).trim();
-    const restore = stubOverflow((el) => el.textContent === longObjective);
-    try {
-      const { rerender } = render(
-        <SubagentDetailPanel
-          entry={makeEntry({ subagentId: "sub-1", objective: longObjective })}
-          onClose={noop}
-        />,
-      );
-
-      // Subagent A: overflowing objective offers the toggle.
-      expect(screen.getByText("Show more")).toBeDefined();
-
-      // Switch to a DIFFERENT subagent with an IDENTICAL objective string.
       rerender(
         <SubagentDetailPanel
           entry={makeEntry({ subagentId: "sub-2", objective: longObjective })}
           onClose={noop}
         />,
       );
-
-      // Re-measured despite identical text: the toggle is still present.
       expect(screen.getByText("Show more")).toBeDefined();
-      expect(screen.getByText(longObjective).className).toContain(
-        "line-clamp-5",
+      expect(screen.queryByText("Show less")).toBeNull();
+
+      rerender(
+        <SubagentDetailPanel
+          entry={makeEntry({ subagentId: "sub-3", objective: "Short" })}
+          onClose={noop}
+        />,
       );
+      expect(screen.queryByText("Show more")).toBeNull();
+      expect(screen.queryByText("Show less")).toBeNull();
     } finally {
       restore();
     }
@@ -789,6 +746,27 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     expect(screen.queryByTestId("nested-detail-running")).toBeNull();
   });
 
+  test("an opened objective is still open after a step's detail and Back", () => {
+    const longObjective = "x ".repeat(400).trim();
+    const restore = stubOverflow((el) => el.textContent === longObjective);
+    try {
+      render(
+        <SubagentDetailPanel
+          entry={{ ...entryWithTool(true), objective: longObjective }}
+          onClose={noop}
+        />,
+      );
+      fireEvent.click(screen.getByText("Show more"));
+
+      fireEvent.click(screen.getByTestId("timeline-pill"));
+      fireEvent.click(screen.getByLabelText("Back to timeline"));
+
+      expect(screen.getByText("Show less")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
   test("'Back' restores the timeline view", () => {
     render(<SubagentDetailPanel entry={entryWithTool(true)} onClose={noop} />);
 
@@ -876,6 +854,10 @@ describe("SubagentDetailPanel — nested tool detail", () => {
     ).toBeDefined();
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("Output")).toBeNull();
+    // Headed "Thinking" (header and breadcrumb), as every panel heads a
+    // thinking step, not with the "Thought" its payload was built with.
+    expect(screen.getAllByText("Thinking")).toHaveLength(2);
+    expect(screen.queryByText("Thought")).toBeNull();
 
     // Back returns to the timeline.
     fireEvent.click(screen.getByLabelText("Back to timeline"));

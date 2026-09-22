@@ -137,6 +137,34 @@
     "searching": "正在搜尋…"
   },
   "companionIntro": {
+    "announcement": {
+      "body": "現在，無論你在桌面上的哪個位置，我都能陪你一起工作。",
+      "cards": {
+        "context": {
+          "body": "讓我看到你所看到的內容，結合情境為你提供協助。",
+          "title": "展示並講解"
+        },
+        "flow": {
+          "body": "無需離開目前的 App，隨時都能找到我。",
+          "title": "保持專注和節奏"
+        },
+        "together": {
+          "body": "和我交談、指點，一起推進工作。",
+          "title": "並肩協作"
+        }
+      },
+      "close": "關閉",
+      "confirm": {
+        "body": "只需大約一分鐘。我迫不及待想向你展示我能在桌面上做些什麼。",
+        "keep": "開始導覽",
+        "skip": "暫時略過",
+        "title": "略過導覽？"
+      },
+      "previewLabel": "你的桌面助理",
+      "previewAssistantName": "Quill",
+      "start": "開始導覽",
+      "title": "在你工作的地方與我相遇"
+    },
     "ariaLabel": "介紹您的助理",
     "back": "上一步",
     "call": {
@@ -156,7 +184,8 @@
       "titleNamed": "嘿，我是 {name}"
     },
     "key": {
-      "scolded": "不是這個，是鍵盤上的那個鍵"
+      "scolded": "不是這個，是鍵盤上的那個鍵",
+      "title": "讓我更方便地和你交談"
     },
     "meet": {
       "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。"
@@ -174,13 +203,25 @@
       "body": "點擊我就能開始對話。",
       "gesture": "或者連按兩次這個鍵：",
       "greeted": "成功了！就這麼簡單。",
-      "prompt": "我會請求使用您的麥克風",
       "title": "和我說話"
     },
     "try": {
       "body": "跟我打個招呼，我會說出聲來回答。",
       "how": "點擊我，或連按兩次這個鍵",
       "title": "試試看"
+    },
+    "permission": {
+      "microphoneAction": "啟用麥克風",
+      "microphoneBody": "允許我使用你的麥克風進行語音對話。",
+      "shortcutBody": "允許我在你使用其他 App 時辨識快捷鍵。",
+      "screenAction": "啟用螢幕共享",
+      "screenBody": "設定螢幕共享。使用時再選擇要共享的內容。",
+      "openSettings": "打開設定",
+      "settingsHint": "在系統設定中允許取用，然後返回這裡。",
+      "restricted": "你的 Mac 限制了此權限。你可以略過此步驟。",
+      "error": "無法檢查取用權限。請重試。",
+      "waiting": "正在檢查取用權限…",
+      "skip": "暫時略過"
     }
   },
   "companionPopover": {
@@ -253,7 +294,6 @@
     "drawBox": "方框",
     "drawCircle": "圓形",
     "chooseMicrophone": "選擇麥克風",
-    "chooseVoice": "選擇聲音",
     "workCount": "{count, plural, =0 {沒有進行中的工作} other {# 項工作進行中}}",
     "workDone": "已完成",
     "workStopped": "已停止",
@@ -997,6 +1037,7 @@
   },
   "detailShell": {
     "close": "關閉",
-    "closePanel": "關閉面板"
+    "closePanel": "關閉面板",
+    "loading": "載入中…"
   }
 }

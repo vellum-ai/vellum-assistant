@@ -29,11 +29,28 @@ import { getInflightFlushedContentSeq } from "../../daemon/inflight-turn-registr
 import { recordConversationPersistedSeq } from "../../persistence/conversation-crud.js";
 import { getCurrentSeq } from "../../runtime/assistant-stream-state.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
-import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
-import { NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD } from "../../runtime/sync/worker-daemon-notify.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationMessagesChanged,
+} from "../../runtime/sync/resource-sync-events.js";
+import {
+  NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD,
+  NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD,
+} from "../../runtime/sync/worker-daemon-notify.js";
 
 const NotifyConversationPersistedParamsSchema = z.object({
   conversationId: z.string().min(1),
+});
+
+const NotifyConversationListChangedParamsSchema = z.object({
+  reason: z.enum([
+    "created",
+    "renamed",
+    "deleted",
+    "reordered",
+    "seen_changed",
+  ]),
+  conversationIds: z.array(z.string().min(1)).min(1),
 });
 
 /**
@@ -62,6 +79,23 @@ export function handleNotifyConversationPersisted({
 }
 
 /**
+ * Republish a worker's conversation-list-and-metadata invalidation on the
+ * daemon's hub, where the SSE subscribers live.
+ *
+ * A worker turn that changes which rows belong in the list (clearing
+ * `archived_at` on a Done conversation it woke) has to reach connected
+ * sidebars, and a publish in the worker reaches none of them.
+ */
+export function handleNotifyConversationListChanged({
+  body = {},
+}: RouteHandlerArgs) {
+  const { reason, conversationIds } =
+    NotifyConversationListChangedParamsSchema.parse(body);
+  publishConversationListAndMetadataChanged(reason, conversationIds);
+  return { ok: true };
+}
+
+/**
  * IPC-only conversation-sync methods, keyed by operationId. Registered directly
  * on the assistant IPC server (see `assistant-server.ts`).
  */
@@ -70,4 +104,6 @@ export const CONVERSATION_SYNC_IPC_METHODS: Record<
   (args: RouteHandlerArgs) => unknown
 > = {
   [NOTIFY_CONVERSATION_PERSISTED_IPC_METHOD]: handleNotifyConversationPersisted,
+  [NOTIFY_CONVERSATION_LIST_CHANGED_IPC_METHOD]:
+    handleNotifyConversationListChanged,
 };

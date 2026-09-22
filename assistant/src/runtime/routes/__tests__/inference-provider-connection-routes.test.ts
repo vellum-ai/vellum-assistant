@@ -405,6 +405,66 @@ describe("POST inference/provider-connections (create)", () => {
     expect(result.auth).toEqual({ type: "platform" });
   });
 
+  test("stores an openai-compatible row pointed at opencode.ai as provider opencode", async () => {
+    const created = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "opencode-go",
+          provider: "openai-compatible",
+          credential: "vault/opencode/key",
+          base_url: "https://opencode.ai/zen/go/v1",
+          models: [{ id: "mimo-v2.6-flash" }],
+        },
+      },
+    )) as { provider: string; baseUrl: string | null };
+    expect(created.provider).toBe("opencode");
+    expect(created.baseUrl).toBe("https://opencode.ai/zen/go/v1");
+
+    const lookalike = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "lookalike",
+          provider: "openai-compatible",
+          base_url: "https://opencode.ai.evil.example/v1",
+          models: [{ id: "m" }],
+        },
+      },
+    )) as { provider: string };
+    expect(lookalike.provider).toBe("openai-compatible");
+  });
+
+  test("rejects a keyless openai-compatible row pointed at opencode.ai", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "opencode-keyless",
+          provider: "openai-compatible",
+          base_url: "https://opencode.ai/zen/v1",
+          models: [{ id: "m" }],
+        },
+      }),
+    ).rejects.toThrow(/Provider "opencode" requires an API key/);
+  });
+
+  test("rejects repointing an existing openai-compatible row at opencode.ai", async () => {
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "my-proxy",
+        provider: "openai-compatible",
+        base_url: "http://localhost:8080/v1",
+        models: [{ id: "m" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "my-proxy" },
+        body: { base_url: "https://opencode.ai/zen/v1" },
+      }),
+    ).rejects.toThrow(/needs an "opencode" connection/);
+  });
+
   test("rejects a whitespace-only label", async () => {
     await expect(
       call(findHandler("inference_provider_connections_create"), {

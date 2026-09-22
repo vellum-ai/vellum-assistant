@@ -28,6 +28,7 @@ function renderView(
       result={undefined}
       activityMetadata={undefined}
       streamedOutput={undefined}
+      answeredQuestion={undefined}
       isRunning={false}
       isError={false}
       isDenied={false}

@@ -9,15 +9,16 @@
  * correct reply need something the front door cannot do from here? A
  * confident yes overrules a front-door answer and hands the turn off.
  *
- * The judge runs only when the `voiceEscalationJudge` call site resolves to
- * the TypeSafe provider. Every other outcome (no such profile, provider
- * error, timeout, unparseable answer) is a "clear" verdict, so the front
- * door's own decision stands exactly as it would without the judge.
+ * The judge uses managed Jev by default when Vellum-managed inference is
+ * available. An explicit TypeSafe call-site override can use a user-owned
+ * connection. Every other outcome (unavailable route, provider error,
+ * timeout, unparseable answer) is a "clear" verdict, so the front door's own
+ * decision stands exactly as it would without the judge.
  */
 
+import { askTypesafeNoul } from "../providers/jev/ask.js";
 import type { Message, Provider } from "../providers/types.js";
 import { safeStringSlice } from "../util/unicode.js";
-import { askTypesafeNoul } from "./typesafe-noul.js";
 
 export const VOICE_ESCALATION_JUDGE_CALL_SITE = "voiceEscalationJudge";
 

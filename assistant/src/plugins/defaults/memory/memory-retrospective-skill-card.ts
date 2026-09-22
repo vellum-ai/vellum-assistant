@@ -321,6 +321,11 @@ async function insertOrDeferSkillCard(
       metadata: { kind: SKILL_CARD_MESSAGE_KIND, automated: true },
       skipIndexing: true,
       clientMessageId: surfaceId,
+      // The card is what the pass learned about this conversation, not new
+      // activity in it, and a pass runs once the conversation has gone idle.
+      // That is exactly when the user has just marked it done, so a card that
+      // resurfaced would bounce fresh done chats back into the sidebar.
+      skipResurface: true,
     },
   );
   if (persisted.deduplicated) {

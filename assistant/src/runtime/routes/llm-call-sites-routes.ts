@@ -1,14 +1,16 @@
 import { z } from "zod";
 
-import { CALL_SITE_DEFAULTS } from "../../config/call-site-defaults.js";
 import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
-import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
+import {
+  resolveDefaultProfileKey,
+  resolveShippedDefaultProfileKey,
+} from "../../config/llm-resolver.js";
 import { loadConfig } from "../../config/loader.js";
 import {
   CALL_SITE_CATALOG,
   CALL_SITE_DOMAINS,
 } from "../../config/schemas/call-site-catalog.js";
-import type { LLMCallSite } from "../../config/schemas/llm.js";
+import type { LLMCallSite, LLMConfig } from "../../config/schemas/llm.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -30,7 +32,8 @@ const callSiteEntrySchema = z.object({
    * `defaultProfile` would scatter pinned or remapped sites across their
    * winners. Profileless call sites report `balanced`: the resolver's
    * fallback anchor consults the balanced remap for them, so they follow
-   * the Balanced tier like any balanced-keyed site.
+   * the Balanced tier like any balanced-keyed site. A managed-only tier is
+   * omitted when it has no body under the workspace's default provider.
    */
   shippedDefaultProfile: z.string().optional(),
 });
@@ -40,16 +43,22 @@ const callSiteCatalogResponseSchema = z.object({
   callSites: z.array(callSiteEntrySchema),
 });
 
+export function buildCallSiteCatalog(llm: LLMConfig) {
+  return CALL_SITE_CATALOG.map((entry) => ({
+    ...entry,
+    defaultProfile: resolveDefaultProfileKey(entry.id as LLMCallSite, llm),
+    shippedDefaultProfile: resolveShippedDefaultProfileKey(
+      entry.id as LLMCallSite,
+      llm,
+    ),
+  }));
+}
+
 async function handleGetCallSites() {
   const { llm } = loadConfig();
   return {
     domains: CALL_SITE_DOMAINS,
-    callSites: CALL_SITE_CATALOG.map((entry) => ({
-      ...entry,
-      defaultProfile: resolveDefaultProfileKey(entry.id as LLMCallSite, llm),
-      shippedDefaultProfile:
-        CALL_SITE_DEFAULTS[entry.id]?.profile ?? "balanced",
-    })),
+    callSites: buildCallSiteCatalog(llm),
   };
 }
 

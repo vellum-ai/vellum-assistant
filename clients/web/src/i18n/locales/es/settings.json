@@ -666,6 +666,17 @@
     "toggleLabel": "Límite diario de créditos",
     "toggleSubtitle": "El límite diario solo se aplica a los créditos de uso adicional"
   },
+  "debugBundleExport": {
+    "description": "El personal de Vellum no puede acceder a este equipo. Para que puedan revisarlo, exporta un paquete de depuración: el espacio de trabajo de tu asistente, sus registros y la base de datos de la pasarela, sin credenciales. Se conserva 7 días.",
+    "export": "Exportar paquete de depuración",
+    "exporting": "Exportando…",
+    "sentAt": "Enviado a Vellum a las {time}.",
+    "toastFailed": "El paquete de depuración no se envió.",
+    "toastFailedWithReason": "El paquete de depuración no se envió: {reason}",
+    "toastSent": "Paquete de depuración enviado a Vellum.",
+    "updateAssistant": "Actualiza el asistente a la versión {version} o posterior para exportar un paquete de depuración.",
+    "useDesktopApp": "Exporta desde la aplicación de escritorio de Vellum en el equipo que ejecuta este asistente."
+  },
   "debugControlsPanel": {
     "backups": "Copias de seguridad",
     "loadFailedToast": "No se pudo cargar la información del asistente",
@@ -1670,7 +1681,7 @@
     "goToBilling": "Ir a facturación",
     "machineLabel": "Máquina",
     "noExtraUsage": "Sin uso adicional",
-    "packageChip": "paquete {name}",
+    "packageLabel": "Paquete",
     "planReadyStatus": "Tu plan está listo",
     "retryInBackground": "Reintentar en segundo plano",
     "srOnlyTo": "a",

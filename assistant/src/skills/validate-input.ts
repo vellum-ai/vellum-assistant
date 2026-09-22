@@ -3,10 +3,11 @@
  *
  * Deliberate strict subset of JSON Schema: it covers only the keywords
  * actually used by `assistant/src/config/bundled-skills/**\/TOOLS.json`
- * (required / type / enum / items.type) plus unknown-key detection. Anything
- * else (`$ref`, `oneOf`, `anyOf`, `allOf`, `format`, `pattern`, `minimum`,
- * `maximum`, object-shape `additionalProperties`, etc.) is silently skipped so
- * a richer schema can never cause us to reject a legitimate call.
+ * (required / type / enum / nested properties and items / required-only oneOf)
+ * plus unknown-key detection. Anything else (`$ref`, richer `oneOf`, `anyOf`,
+ * `allOf`, `format`, `pattern`, `minimum`, `maximum`, object-shape
+ * `additionalProperties`, etc.) is skipped. Nested objects allow extra keys
+ * unless their schema explicitly closes them.
  *
  * Each error message is written to be agent-readable and self-correcting
  * (e.g. `surface_id is required`, `mode must be one of "replace", "append"`).
@@ -314,6 +315,15 @@ export function validateInputAgainstSchema(
   input: Record<string, unknown>,
   schema: Record<string, unknown> | undefined,
 ): InputValidationResult {
+  return validateObjectInput(input, schema, "", true);
+}
+
+function validateObjectInput(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+  path: string,
+  rejectUnknown: boolean,
+): InputValidationResult {
   // Skip when there's no schema or no properties block — matches today's
   // lenient behaviour for tools that declare only `{ type: "object" }`.
   if (!schema) {
@@ -338,17 +348,46 @@ export function validateInputAgainstSchema(
         continue;
       }
       if (!(key in input)) {
-        errors.push(`${key} is required`);
+        errors.push(`${path}${key} is required`);
       }
     }
   }
 
+  // Only enforce alternatives whose complete contract is field presence.
+  // Richer unions stay permissive because unsupported keywords can decide
+  // which branch matches.
+  const alternatives = schema.oneOf;
+  if (
+    Array.isArray(alternatives) &&
+    alternatives.length > 0 &&
+    alternatives.every(
+      (branch) =>
+        isPlainObject(branch) &&
+        Object.keys(branch).every(
+          (key) => key === "required" || key === "description",
+        ) &&
+        Array.isArray(branch.required) &&
+        branch.required.every((key: unknown) => typeof key === "string"),
+    )
+  ) {
+    const choices = alternatives as { required: string[] }[];
+    if (
+      choices.filter((branch) => branch.required.every((key) => key in input))
+        .length !== 1
+    ) {
+      errors.push(
+        `${path ? path.slice(0, -1) : "input"} must match exactly one required field set: ${choices.map((branch) => quoteList(branch.required)).join(" or ")}`,
+      );
+    }
+  }
+
   // 2. Per-property checks: type, enum, items.type.
-  for (const [key, rawSubSchema] of Object.entries(properties)) {
-    if (!(key in input)) {
+  for (const [property, rawSubSchema] of Object.entries(properties)) {
+    if (!(property in input)) {
       continue;
     }
-    const value = input[key];
+    const key = `${path}${property}`;
+    const value = input[property];
     // Skip type-checking for absent values; presence is enforced by the
     // `required` check above. Note: `null` IS a present value and is
     // type-checked below — only schemas that explicitly opt in to null via
@@ -381,11 +420,23 @@ export function validateInputAgainstSchema(
       if (!matchesType(value, type)) {
         errors.push(
           type === "boolean" && typeof value === "string"
-            ? `${key} must be a boolean — pass true or false as a JSON boolean, not a string`
+            ? `${key} must be a boolean: pass true or false as a JSON boolean, not a string`
             : `${key} must be ${typeArticle(type)} ${type}`,
         );
         // No point checking enum/items if the base type is wrong.
         continue;
+      }
+
+      if (type === "object" && isPlainObject(value)) {
+        const nested = validateObjectInput(
+          value,
+          rawSubSchema,
+          `${key}.`,
+          rawSubSchema.additionalProperties === false,
+        );
+        if (!nested.ok) {
+          errors.push(...nested.errors);
+        }
       }
 
       // 2a. Enum (string enums are the only shape used today).
@@ -412,6 +463,17 @@ export function validateInputAgainstSchema(
               errors.push(
                 `${key}[${index}] must be ${typeArticle(itemTypeName)} ${itemTypeName}`,
               );
+            } else if (itemTypeName === "object" && isPlainObject(element)) {
+              const itemSchema = rawSubSchema.items as Record<string, unknown>;
+              const nested = validateObjectInput(
+                element,
+                itemSchema,
+                `${key}[${index}].`,
+                itemSchema.additionalProperties === false,
+              );
+              if (!nested.ok) {
+                errors.push(...nested.errors);
+              }
             }
           });
         }
@@ -420,10 +482,12 @@ export function validateInputAgainstSchema(
   }
 
   // 3. Unknown keys — parity with the previous `validateNoUnknownParams`.
-  const unknownKeys = Object.keys(input).filter((k) => !knownKeySet.has(k));
+  const unknownKeys = rejectUnknown
+    ? Object.keys(input).filter((k) => !knownKeySet.has(k))
+    : [];
   for (const key of unknownKeys) {
     errors.push(
-      `Unknown parameter "${key}". Supported: ${quoteList(knownKeys)}`,
+      `Unknown parameter "${path}${key}". Supported: ${quoteList(knownKeys)}`,
     );
   }
 

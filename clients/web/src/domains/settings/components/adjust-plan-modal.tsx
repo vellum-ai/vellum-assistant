@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import {
   CancelReasonSurvey,
   EMPTY_CANCEL_REASON,
@@ -190,7 +189,9 @@ function AdjustPlanModalContent({
 
   // The Pro card names the sub's real plan and lists its real tiers, so it
   // agrees with the billing plan card whose Manage button opens this modal.
-  const planDisplayName = proPackageDisplayName(subscriptionQuery.data?.package);
+  const planDisplayName = proPackageDisplayName(
+    subscriptionQuery.data?.package,
+  );
   // Rows come from the current tiers, not the picker selection: the card states
   // what the sub holds, while the picker and the price delta express a pending
   // change. Gated on `isSuccess` rather than a loading flag because the machine
@@ -323,26 +324,23 @@ function AdjustPlanModalContent({
               storageTier: selectedStorageTier,
               creditTier: displayCreditTier,
             });
-            captureTakeoverAvatarStash(queryClient);
             void openUrl(data.checkout_url);
             return;
           }
           if (data.status === "no_op") {
-            toast.info(t("adjustPlanModal.alreadyOnPro"), { id: "pro-upgrade" });
+            toast.info(t("adjustPlanModal.alreadyOnPro"), {
+              id: "pro-upgrade",
+            });
             onClose();
             return;
           }
-          toast.error(
-            data.message ?? t("adjustPlanModal.upgradeFailed"),
-            { id: "pro-upgrade-error" },
-          );
+          toast.error(data.message ?? t("adjustPlanModal.upgradeFailed"), {
+            id: "pro-upgrade-error",
+          });
         },
         onError: (error) => {
           toast.error(
-            extractMutationError(
-              error,
-              t("adjustPlanModal.upgradeFailed"),
-            ),
+            extractMutationError(error, t("adjustPlanModal.upgradeFailed")),
             { id: "pro-upgrade-error" },
           );
         },
@@ -558,7 +556,9 @@ function AdjustPlanModalContent({
           ) : (
             <>
               <Modal.Header>
-                <Modal.Title className="sr-only">{t("adjustPlanModal.upgradePlanTitle")}</Modal.Title>
+                <Modal.Title className="sr-only">
+                  {t("adjustPlanModal.upgradePlanTitle")}
+                </Modal.Title>
               </Modal.Header>
               <Modal.Body>
                 {isLoading ? (
@@ -693,9 +693,7 @@ function AdjustPlanModalContent({
         onCancel={() => setTierDowngradeOpen(false)}
         onConfirm={handleConfirmTierDowngrade}
         confirming={tierChangePending}
-        lostFeatures={[
-          t("adjustPlanModal.machineDowngradeFeature"),
-        ]}
+        lostFeatures={[t("adjustPlanModal.machineDowngradeFeature")]}
       />
     </>
   );

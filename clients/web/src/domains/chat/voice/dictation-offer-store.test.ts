@@ -3,6 +3,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { COMPANION_DICTATION_OFFER_MAX } from "@vellumai/ipc-contract";
 
 let emitInput: (() => void) | null = null;
+let popout = false;
+const forwardOffer = mock((_offer: unknown) => true);
+mock.module("@/runtime/popout-window", () => ({
+  isPopoutWindowLifetime: () => popout,
+}));
+mock.module("@/runtime/companion-surface", () => ({
+  forwardUnplacedDictationOffer: forwardOffer,
+}));
 const setInputActivityWatch = mock(async (_enable: boolean) => true);
 mock.module("@/runtime/input-activity", () => ({
   setInputActivityWatch,
@@ -26,6 +34,9 @@ const {
 const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
 
 beforeEach(() => {
+  popout = false;
+  forwardOffer.mockClear();
+  forwardOffer.mockReturnValue(true);
   setInputActivityWatch.mockClear();
 });
 
@@ -77,6 +88,41 @@ describe("the dictation offer", () => {
  * the reason that tells the card the clipboard is the only answer.
  */
 describe("an offer of words nothing would take", () => {
+  test("forwards a bounded pop-out offer to the main renderer", () => {
+    popout = true;
+    setUnplacedDictationOffer(
+      "x".repeat(COMPANION_DICTATION_OFFER_MAX + 5),
+      "paste-failed",
+    );
+
+    expect(forwardOffer).toHaveBeenLastCalledWith({
+      reason: "paste-failed",
+      text: "x".repeat(COMPANION_DICTATION_OFFER_MAX),
+    });
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
+
+  test("a pop-out's next hold clears the main renderer's offer", () => {
+    popout = true;
+    clearDictationOffer();
+    expect(forwardOffer).toHaveBeenCalledWith(null);
+  });
+
+  test("retains a local fallback when the shell cannot forward", () => {
+    popout = true;
+    forwardOffer.mockReturnValue(false);
+    setUnplacedDictationOffer("keep these words", "paste-failed");
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "keep these words",
+    });
+  });
+
+  test("main-window offers do not leave the renderer", () => {
+    setUnplacedDictationOffer("keep these words");
+    expect(forwardOffer).not.toHaveBeenCalled();
+  });
+
   test("stands with the reason that says why", () => {
     setUnplacedDictationOffer("onions, tomatoes, and a bag of rice");
 

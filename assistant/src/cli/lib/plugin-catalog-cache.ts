@@ -26,16 +26,31 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-/** Add bundled local packages without overriding platform-authoritative rows. */
+/**
+ * Add bundled local packages without overriding platform-authoritative rows.
+ * A platform row without an integration borrows the bundled row's
+ * integration of the same name, so an integration the platform omits or
+ * serves malformed never disappears from the catalog.
+ */
 export function mergePlatformCatalogWithBundledLocals(
   platform: PluginCatalog,
   bundledLocal: PluginCatalog = readBundledLocalPluginCatalog(),
 ): PluginCatalog {
+  const bundledByName = new Map(
+    bundledLocal.matches.map((match) => [match.name, match]),
+  );
+  const platformMatches = platform.matches.map((match) => {
+    const bundledIntegration = bundledByName.get(match.name)?.integration;
+    if (match.integration || !bundledIntegration) {
+      return match;
+    }
+    return { ...match, integration: bundledIntegration };
+  });
   const seen = new Set(platform.matches.map((match) => match.name));
   return {
     ref: platform.ref,
     matches: [
-      ...platform.matches,
+      ...platformMatches,
       ...bundledLocal.matches.filter((match) => !seen.has(match.name)),
     ].sort((a, b) => a.name.localeCompare(b.name)),
   };

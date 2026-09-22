@@ -11,12 +11,15 @@
  * fail-closed: skipped, pruned, and omitted from the manifest. A genuine non-404
  * fetch failure (transient 429/5xx/network or a hard error) aborts the whole run
  * before any asset/manifest is written, so an outage never silently drops a
- * pinned icon. An invalid plugin name in the manifest also aborts.
+ * pinned icon. An invalid plugin name in the manifest also aborts. Local
+ * (in-repo) entries such as `plugins/mcp-catalog/<name>` are read from
+ * `<source.path>/icon.png` on disk instead of fetched, then vendored the same
+ * way, so the platform serves every catalog icon from one GCS bucket.
  *
  * CHECK mode (`--check`): purely local. Re-validate every vendored `icon.png`
  * against the icon contract and assert its content hash matches the committed
- * manifest, with no orphan manifest entries and no unlisted asset dirs. No
- * network.
+ * manifest, with no orphan manifest entries and no unlisted asset dirs. Also
+ * assert every local package icon is vendored byte-identically. No network.
  *
  * Usage:
  *   node scripts/plugins/generate-plugin-icons.mjs          # write
@@ -122,6 +125,24 @@ function listAssetDirs(assetsDir) {
     .sort();
 }
 
+/**
+ * Absolute path of a local (in-repo) plugin's package-owned `icon.png`, or
+ * `null` when `source.path` is not a clean repo-relative directory. Local
+ * packages (e.g. `plugins/mcp-catalog/<name>`) own their icon in-tree, so it is
+ * read from disk rather than fetched.
+ */
+function localIconPath(repoRoot, entry) {
+  const path = entry.source?.path;
+  if (typeof path !== "string" || path.length === 0 || path.startsWith("/")) {
+    return null;
+  }
+  const segments = path.split("/");
+  if (segments.some((seg) => seg === "" || seg === "." || seg === "..")) {
+    return null;
+  }
+  return join(repoRoot, ...segments, ICON_FILENAME);
+}
+
 /** GitHub Contents API URL for a plugin's `icon.png` at its pinned ref. */
 function iconContentsUrl(entry) {
   const filePath = entry.source.path
@@ -168,6 +189,22 @@ export function isTransientUpstreamStatus(res) {
  * aborting the run, and never buffers the oversized body.
  */
 const OVERSIZED_ICON = Symbol("oversized-icon");
+
+/**
+ * Read a local package's `icon.png` without buffering an oversized file.
+ * Returns the bytes, `null` when the file is missing, or {@link OVERSIZED_ICON}
+ * when its on-disk size exceeds the byte cap (checked before any read).
+ */
+function readLocalIconBytes(iconPath) {
+  const stat = statSync(iconPath, { throwIfNoEntry: false });
+  if (!stat?.isFile()) {
+    return null;
+  }
+  if (stat.size > MAX_ICON_BYTES) {
+    return OVERSIZED_ICON;
+  }
+  return readFileSync(iconPath);
+}
 
 /**
  * Fetch a plugin's raw `icon.png` bytes at its pinned ref. Returns the Buffer,
@@ -230,12 +267,14 @@ function serializeManifest(versionsByName) {
 
 /**
  * Resolve, validate, and vendor every marketplace plugin's `icon.png`, then
- * write the derived manifest. Local sources keep their icon in the package and
- * are handled by `sync-local-plugin-icons.mjs`. Prunes assets absent from the
- * valid GitHub inventory. Returns `{ vendored, skipped }` name lists.
+ * write the derived manifest. GitHub icons are fetched at the pinned ref; local
+ * (in-repo) packages are read from `<source.path>/icon.png` on disk. Prunes
+ * assets absent from the valid inventory. Returns `{ vendored, skipped }` name
+ * lists.
  */
 export async function generatePluginIcons({
   fetch: fetchImpl = globalThis.fetch,
+  repoRoot = REPO_ROOT,
   marketplacePath = MARKETPLACE_PATH,
   assetsDir = ASSETS_DIR,
   manifestPath = MANIFEST_PATH,
@@ -268,24 +307,32 @@ export async function generatePluginIcons({
       );
     }
 
+    let bytes;
     if (entry.source?.source === "local") {
-      continue;
-    }
-    if (entry.source?.source !== "github") {
+      // Local packages own their icon in-tree: read it from disk (no network)
+      // so the platform can serve it from the same GCS bucket as GitHub icons.
+      const iconPath = localIconPath(repoRoot, entry);
+      if (!iconPath) {
+        throw new Error(
+          `Aborting icon generation: invalid local source.path for ${entry.name}. ` +
+            `No assets or manifest were modified.`,
+        );
+      }
+      bytes = readLocalIconBytes(iconPath);
+    } else if (entry.source?.source === "github") {
+      try {
+        bytes = await fetchIconBytes(fetchImpl, entry, token);
+      } catch (err) {
+        const kind = err.transient ? "transient " : "";
+        throw new Error(
+          `Aborting icon generation: ${kind}icon fetch failed for ${entry.name} (${err.message}). ` +
+            `No assets or manifest were modified; re-run once upstream recovers.`,
+        );
+      }
+    } else {
       throw new Error(
         `Aborting icon generation: unsupported source for ${entry.name}. ` +
           `No assets or manifest were modified.`,
-      );
-    }
-
-    let bytes;
-    try {
-      bytes = await fetchIconBytes(fetchImpl, entry, token);
-    } catch (err) {
-      const kind = err.transient ? "transient " : "";
-      throw new Error(
-        `Aborting icon generation: ${kind}icon fetch failed for ${entry.name} (${err.message}). ` +
-          `No assets or manifest were modified; re-run once upstream recovers.`,
       );
     }
 
@@ -344,12 +391,15 @@ export async function generatePluginIcons({
 /**
  * Verify the committed manifest against the vendored assets, purely locally:
  * every asset's content hash matches its manifest entry, with no orphan
- * manifest entries and no unlisted or icon-less asset dirs. Returns
- * `{ ok, errors }`.
+ * manifest entries and no unlisted or icon-less asset dirs. When
+ * `marketplacePath` is given, also asserts every local package icon is vendored
+ * byte-identically. Returns `{ ok, errors }`.
  */
 export function checkPluginIcons({
+  repoRoot = REPO_ROOT,
   assetsDir = ASSETS_DIR,
   manifestPath = MANIFEST_PATH,
+  marketplacePath,
 } = {}) {
   const errors = [];
 
@@ -405,6 +455,51 @@ export function checkPluginIcons({
     }
   }
 
+  // Local packages are the source of truth for their own icon, and their bytes
+  // are on disk, so check mode can (network-free) assert every valid package
+  // icon is vendored byte-identically. Catches an icon.png edit committed
+  // without re-running the generator.
+  if (marketplacePath) {
+    let entries = [];
+    try {
+      entries = JSON.parse(readFileSync(marketplacePath, "utf-8")).plugins ?? [];
+    } catch (err) {
+      errors.push(`cannot read ${marketplacePath}: ${err.message}`);
+    }
+    for (const entry of entries) {
+      if (entry?.source?.source !== "local") {
+        continue;
+      }
+      if (typeof entry.name !== "string" || !PLUGIN_NAME_RE.test(entry.name)) {
+        continue;
+      }
+      const iconPath = localIconPath(repoRoot, entry);
+      if (!iconPath) {
+        continue;
+      }
+      const assetPath = join(assetsDir, entry.name, ICON_FILENAME);
+      const bytes = readLocalIconBytes(iconPath);
+      if (!Buffer.isBuffer(bytes) || !validatePluginIconBytes(bytes).hasIcon) {
+        // Write mode never vendors a missing, oversized, or invalid package
+        // icon. A vendored copy left behind is stale and would keep serving
+        // an icon the package no longer owns.
+        if (isFile(assetPath)) {
+          errors.push(
+            `vendored asset "${entry.name}" is stale: ${entry.source.path}/${ICON_FILENAME} is missing or invalid`,
+          );
+        }
+        continue;
+      }
+      if (!isFile(assetPath)) {
+        errors.push(`local plugin "${entry.name}" icon is not vendored`);
+      } else if (!readFileSync(assetPath).equals(bytes)) {
+        errors.push(
+          `vendored asset "${entry.name}" differs from ${entry.source.path}/${ICON_FILENAME}`,
+        );
+      }
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -414,7 +509,7 @@ export function checkPluginIcons({
 
 async function cli(argv) {
   if (argv.includes("--check")) {
-    const { ok, errors } = checkPluginIcons();
+    const { ok, errors } = checkPluginIcons({ marketplacePath: MARKETPLACE_PATH });
     if (!ok) {
       console.error("plugin-icons.json is out of sync with plugins/assets/:");
       for (const e of errors) {

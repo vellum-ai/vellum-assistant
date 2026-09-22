@@ -240,6 +240,19 @@ controls both tracking and presentation. When it is disabled, optional cached
 metadata remains compatible while the web renders the ordinary flat transcript
 and skips session-specific refresh and presentation work.
 
+### Unknown managed-key state on platform status
+
+`GET /v1/assistants/{id}/platform/status` reports `hasAssistantApiKey: null`
+when the daemon could not read its credential store. Daemons from before that
+change report `false` there, the same value as a readable store with no key.
+The web already maps an absent field to `null`, and the bootstrap in
+`lib/local-platform-identity.ts` treats `null` as unknown: it fails the attempt
+and retries rather than asking the platform to rotate a key it may not be able
+to store. No gate: on an older daemon the same condition reads as `false`, and
+the bootstrap behaves exactly as it did before the field could be `null`, so
+there is no fallback that diverges from the old behavior and nothing to switch
+on a version.
+
 ## The gates
 
 Each module owns one feature's old/new split. Current registry:

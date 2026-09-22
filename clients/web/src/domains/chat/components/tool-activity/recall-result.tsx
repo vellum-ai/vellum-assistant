@@ -4,13 +4,13 @@
  */
 
 import type { RecallMetadata } from "@vellumai/assistant-api";
-import { Typography } from "@vellumai/design-library";
 
 import {
   ClampedContent,
   DetailBlock,
   SectionLabel,
 } from "@/components/detail-primitives";
+import { DetailShellNotice } from "@/components/detail-shell";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { RecallDegradedSources } from "@/domains/chat/components/tool-activity/recall-degraded-sources";
 import { RecallEvidenceList } from "@/domains/chat/components/tool-activity/recall-evidence-list";
@@ -52,13 +52,9 @@ export function RecallResult({ recall, assistantId }: RecallResultProps) {
           </ClampedContent>
         </div>
       ) : (
-        <Typography
-          variant="body-small-default"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
+        <DetailShellNotice placement="section">
           {t("recallDetail.noEvidence")}
-        </Typography>
+        </DetailShellNotice>
       )}
     </>
   );

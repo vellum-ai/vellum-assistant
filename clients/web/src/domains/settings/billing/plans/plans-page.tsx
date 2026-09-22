@@ -40,7 +40,6 @@ import {
   type ResizeTakeoverContext,
 } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import type { TakeoverDirection } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
-import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { usePreferredOrActiveAssistant } from "@/domains/settings/billing/pro-onboarding/use-preferred-or-active-assistant";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
@@ -268,7 +267,10 @@ function PlansPageContent() {
   // cancellation) disables every plan CTA (and Configure) so a second click
   // can't start a competing billing operation before the first resolves.
   const billingActionPending =
-    pending || changePackagePending || cancelPending || portalMutation.isPending;
+    pending ||
+    changePackagePending ||
+    cancelPending ||
+    portalMutation.isPending;
 
   // Seed the custom-plan modal with the Pro sub's current tiers so an unrelated
   // edit (e.g. only the machine) doesn't force re-picking — and dropping — the
@@ -354,7 +356,6 @@ function PlansPageContent() {
                 creditTier: body.credit_tier ?? null,
               },
         );
-        captureTakeoverAvatarStash(queryClient);
         openUrl(result.checkout_url);
       } else {
         await queryClient.invalidateQueries({

@@ -137,6 +137,34 @@
     "searching": "Buscando…"
   },
   "companionIntro": {
+    "announcement": {
+      "body": "Ahora puedo acompañarte en cualquier lugar de tu escritorio.",
+      "cards": {
+        "context": {
+          "body": "Déjame ver lo que ves para ayudarte con todo el contexto.",
+          "title": "Muestra y explica"
+        },
+        "flow": {
+          "body": "Háblame sin salir de la app que estás usando.",
+          "title": "No pierdas el ritmo"
+        },
+        "together": {
+          "body": "Habla, señala y avanza conmigo.",
+          "title": "Trabajemos juntos"
+        }
+      },
+      "close": "Cerrar",
+      "confirm": {
+        "body": "Solo lleva un minuto. Me hace ilusión enseñarte lo que puedo hacer desde tu escritorio.",
+        "keep": "Hacer el recorrido",
+        "skip": "Omitir por ahora",
+        "title": "¿Omitir el recorrido?"
+      },
+      "previewLabel": "Tu compañero de escritorio",
+      "previewAssistantName": "Quill",
+      "start": "Iniciar el recorrido",
+      "title": "Estoy donde tú trabajas"
+    },
     "ariaLabel": "Te presento a tu compañero",
     "back": "Atrás",
     "call": {
@@ -156,7 +184,8 @@
       "titleNamed": "Hola, soy {name}"
     },
     "key": {
-      "scolded": "No, la tecla de tu teclado"
+      "scolded": "No, la tecla de tu teclado",
+      "title": "Haz que sea fácil hablar conmigo"
     },
     "meet": {
       "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista."
@@ -174,13 +203,25 @@
       "body": "Haz clic en mí para empezar una conversación.",
       "gesture": "O pulsa dos veces esta tecla:",
       "greeted": "¡Lo lograste! Así de simple.",
-      "prompt": "Te pediré permiso para usar tu micrófono",
       "title": "Habla conmigo"
     },
     "try": {
       "body": "Dime hola y te responderé en voz alta.",
       "how": "Haz clic en mí, o pulsa dos veces la tecla",
       "title": "Pruébalo"
+    },
+    "permission": {
+      "microphoneAction": "Activar micrófono",
+      "microphoneBody": "Permíteme usar tu micrófono para conversar por voz.",
+      "shortcutBody": "Permíteme detectar el atajo mientras usas otras apps.",
+      "screenAction": "Activar pantalla compartida",
+      "screenBody": "Activa esta opción. Tú eliges qué compartir al usarla.",
+      "openSettings": "Abrir Ajustes",
+      "settingsHint": "Permite el acceso en Ajustes del Sistema y vuelve aquí.",
+      "restricted": "Tu Mac restringe este permiso. Puedes omitir este paso.",
+      "error": "No se pudo comprobar el acceso. Inténtalo de nuevo.",
+      "waiting": "Comprobando acceso…",
+      "skip": "Omitir"
     }
   },
   "companionPopover": {
@@ -253,7 +294,6 @@
     "unmuteAssistantNamed": "Activar sonido de {name}",
     "unmuteMicrophone": "Activar micrófono",
     "chooseMicrophone": "Elegir micrófono",
-    "chooseVoice": "Elegir voz",
     "workCount": "{count, plural, =0 {Nada en curso} one {# tarea en curso} other {# tareas en curso}}",
     "workDone": "Hecho",
     "workStopped": "Detenido",
@@ -961,6 +1001,7 @@
   },
   "detailShell": {
     "close": "Cerrar",
-    "closePanel": "Cerrar panel"
+    "closePanel": "Cerrar panel",
+    "loading": "Cargando…"
   }
 }

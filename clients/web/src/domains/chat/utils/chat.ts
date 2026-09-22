@@ -288,6 +288,9 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
 };
 
 export function formatVoiceError(code: string): string {
+  if (code === "dictation-selection-unavailable") {
+    return t("chat:voiceErrors.selectionUnavailable");
+  }
   if (code === "native-stt-no-transcript") {
     return t("chat:voiceErrors.nativeSttNoTranscript", {
       clientName: clientOsDisplayName(detectClientOs()),

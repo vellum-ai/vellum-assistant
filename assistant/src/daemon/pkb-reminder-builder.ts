@@ -1,5 +1,5 @@
 const BODY =
-  "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark — corrections (highest priority), plans, decisions, felt moments. You don't have to capture everything in the moment — a retrospective pass reviews this conversation in the background and saves what you didn't capture." +
+  "\nStay present in this conversation. Use `remember` when something feels worth pausing to mark: corrections (highest priority), plans, decisions, felt moments. A later pass may review this conversation and save what you did not capture, but it is not guaranteed and never runs over scheduled work, so save now anything that must survive." +
   "\nIf you're unsure about something that may live in the workspace — past decisions, prior conversations, files — use `recall` before asking or guessing.";
 
 /**

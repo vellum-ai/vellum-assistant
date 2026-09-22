@@ -5,10 +5,12 @@ import { resolveModelIntent } from "../../providers/model-intents.js";
 import { CALL_SITE_DEFAULTS } from "../call-site-defaults.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
+  getConversationProfilesForProvider,
   getEffectiveProfile,
   getEffectiveProfiles,
   getEffectiveProfilesForProvider,
   getUserSelectableProfilesForProvider,
+  MANAGED_PROFILE_TEMPLATES,
   PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
@@ -59,6 +61,64 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Jev profile routes jev-latest through TypeSafe and is managed-only", () => {
+    const jev = CODE_DEFAULT_PROFILE_ENTRIES["jev-managed"];
+    expect(jev.model).toBe("jev-latest");
+    expect(jev.provider_connection).toBeUndefined();
+    expect(resolveRoutingIdentity(jev.provider, jev.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "typesafe",
+    });
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", null),
+    ).toBeDefined();
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("the Auto profile is the managed Balanced body relabeled, managed-only, and flag-gated", () => {
+    const auto = CODE_DEFAULT_PROFILE_ENTRIES.auto;
+    const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
+    expect(auto.label).toBe("Auto");
+    expect(auto.model).toBe(balanced.model);
+    expect(auto.provider).toBe(balanced.provider);
+    expect(auto.fallbackProfile).toBeUndefined();
+    // Not seeded unconditionally: the flag reconcile writes the stub.
+    expect(Object.keys(MANAGED_PROFILE_TEMPLATES)).not.toContain("auto");
+    expect(
+      resolveDefaultProfileForProvider(undefined, "auto", null),
+    ).toBeUndefined();
+    const stub: Record<string, ProfileEntry> = { auto: { source: "managed" } };
+    expect(resolveDefaultProfileForProvider(stub, "auto", null)?.model).toBe(
+      balanced.model,
+    );
+    expect(
+      resolveDefaultProfileForProvider(stub, "auto", {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      }),
+    ).toBeUndefined();
+    expect(
+      Object.keys(getConversationProfilesForProvider(stub, null)),
+    ).toContain("auto");
+  });
+
+  test("the conversation view drops the managed Jev profile but keeps it selectable for call sites", () => {
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).not.toContain("jev-managed");
+    expect(
+      Object.keys(getUserSelectableProfilesForProvider(undefined, null)),
+    ).toContain("jev-managed");
+    expect(
+      Object.keys(getConversationProfilesForProvider(undefined, null)),
+    ).toContain("balanced");
+  });
+
   test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
     expect(balanced.model).toBe("accounts/fireworks/models/glm-5p3-flash");
@@ -80,7 +140,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS, "jev-managed"].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

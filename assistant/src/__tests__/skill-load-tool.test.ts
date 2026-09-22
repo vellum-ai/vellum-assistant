@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -781,16 +781,48 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Deploy the application to production");
     expect(result.content).toContain("Rollback to previous version");
 
-    // Should list parameters with types and required/optional markers
-    expect(result.content).toContain(
-      "- environment (string, required): Target environment",
+    const schemas = [
+      ...result.content.matchAll(/```json\n([\s\S]*?)\n```/g),
+    ].map((match) => JSON.parse(match[1]));
+    expect(schemas[0].required).toEqual(["environment"]);
+    expect(schemas[0].properties.environment).toEqual({
+      type: "string",
+      description: "Target environment",
+    });
+    expect(schemas[0].properties.force.type).toBe("boolean");
+    expect(schemas[1].required).toEqual(["version"]);
+  });
+
+  test("discloses the complete annotation mark schema before execution", async () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        join(
+          import.meta.dir,
+          "../config/bundled-skills/screen-annotation/TOOLS.json",
+        ),
+        "utf-8",
+      ),
     );
-    expect(result.content).toContain(
-      "- force (boolean, optional): Force deploy even if checks fail",
+    writeSkill(
+      "annotation-schema",
+      "Annotation Schema",
+      "Point at a control",
+      "Name the control.",
     );
-    expect(result.content).toContain(
-      "- version (string, required): Version to rollback to",
+    writeToolsJson("annotation-schema", manifest.tools);
+
+    const result = await executeSkillLoad(
+      { skill: "annotation-schema" },
+      "macos",
     );
+    expect(result.isError).toBe(false);
+    const schemaMatch = result.content.match(/```json\n([\s\S]*?)\n```/);
+    expect(schemaMatch).not.toBeNull();
+    const schema = JSON.parse(schemaMatch![1]);
+    expect(schema).toEqual(manifest.tools[0].input_schema);
+    expect(schema.properties.marks.items.oneOf).toHaveLength(2);
+    expect(schema.properties.marks.items.properties.target.minLength).toBe(1);
+    expect(schema.properties.marks.items.properties.caption.maxLength).toBe(80);
   });
 
   test("skill without TOOLS.json does not include tool schemas section", async () => {
@@ -862,9 +894,8 @@ describe("skill_load tool", () => {
     // The child skill's tool schemas should appear (#### level under ### Tools from …)
     expect(result.content).toContain("#### child_action");
     expect(result.content).toContain("A child tool action");
-    expect(result.content).toContain(
-      "- target (string, required): Action target",
-    );
+    const schemaMatch = result.content.match(/```json\n([\s\S]*?)\n```/);
+    expect(JSON.parse(schemaMatch![1]).required).toEqual(["target"]);
     expect(result.content).toContain(
       "Use `skill_execute` to call these tools.",
     );

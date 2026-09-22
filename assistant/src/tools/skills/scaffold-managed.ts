@@ -1,14 +1,16 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { v4 as uuid } from "uuid";
+
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { sanitizeMultilineMessagePreview } from "../../notifications/notification-utils.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
+import { recordSkillUpdate } from "../../plugins/defaults/memory/skill-update-receipt-job.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
@@ -90,78 +92,90 @@ function normalizeOptionalStringArray(
   return { value: normalized };
 }
 
+/** Watchdog check_name counted when a receipt entry could not be recorded. */
+const SKILL_UPDATE_RECEIPT_RECORD_FAILED_CHECK_NAME =
+  "skill_update_receipt_record_failed";
+
 /**
- * Tell the user that a background pass changed a skill they already have.
+ * Record that a background pass changed a skill the user already has.
  *
  * A newly authored skill announces itself in the conversation through the
- * `skill_card` surface; an update announces itself here instead. The pass
- * runs in a background fork and rewrites the body of a skill the user may be
- * relying on, and `createManagedSkill` writes through an atomic rename
- * keeping no prior version, so the notification pipeline is what puts the
- * change in the background feed alongside the other unattended work (sweeps,
- * scheduled jobs, heartbeat), where a user already looks to see what the
- * assistant did on its own.
+ * `skill_card` surface; an update is announced through a skill-update
+ * receipt instead. The pass runs in a background fork and rewrites the body
+ * of a skill the user may be relying on, and `createManagedSkill` writes
+ * through an atomic rename keeping no prior version, so the receipt is what
+ * puts the change in the background feed alongside the other unattended
+ * work (sweeps, scheduled jobs, heartbeat), where a user already looks to
+ * see what the assistant did on its own. One pass can rewrite several skills
+ * within minutes, so the rewrites accumulate on one pending receipt job
+ * (`plugins/defaults/memory/skill-update-receipt-job.ts`), which announces
+ * the whole burst once it has settled rather than one notification per
+ * rewrite.
  *
  * `changeSummary` is the pass's own account of what it changed and is the
- * notice's body: the feed item is the only place the change surfaces, and a
- * reader triaging it there has no diff to look at, so a notice that only
+ * entry's body: the receipt is the only place the change surfaces, and a
+ * reader triaging it there has no diff to look at, so an entry that only
  * names the skill sends them into the skill to find out what happened. The
  * executor refuses the overwrite without one, so this never runs without it.
  *
- * `sourceContextId` is a conversation id so the feed item's "Go to Convo"
- * target resolves (see `home-feed-side-effect.ts`, which looks it up via
- * `getConversation`): the source conversation when lineage resolved, else the
- * run's own conversation. Deduped per skill per day, so a pass that refines
- * the same skill repeatedly cannot flood the feed. Best-effort and
- * non-blocking: the skill is already written, and a notification failure must
- * never turn that into a tool error.
+ * `sourceConversationId` is the conversation the receipt's link resolves to
+ * for this entry (see `home-updates-list.tsx`): the source conversation when
+ * lineage resolved, else none. The run's own conversation is never used in
+ * its place: it is an ephemeral fork the next successful retrospective
+ * garbage-collects, and the receipt job leaves out any entry whose source
+ * is gone by the time it announces, so naming the fork would drop the
+ * entry rather than link it. `entryId` is the producing tool call's id, so a
+ * re-executed call records nothing new. A context with no tool call id (a
+ * direct caller) has no re-execution to guard against, so it gets a fresh
+ * id: a stable key on the run and skill would drop a second rewrite of the
+ * same skill in the same run.
+ *
+ * Best-effort and non-blocking: the skill is already written, and a receipt
+ * that cannot be recorded is a receipt the user will not get, not a reason
+ * to fail or retry a write that already landed. The failure is logged with
+ * the ids and counted, and the tool-invocation history keeps the summary as
+ * audit evidence.
  */
-function notifyBackgroundSkillUpdate(args: {
+function recordBackgroundSkillUpdate(args: {
   skillId: string;
   name: string;
-  conversationId: string;
   changeSummary: string;
+  runConversationId: string;
+  sourceConversationId: string | undefined;
+  toolUseId: string | undefined;
 }): void {
-  const day = new Date().toISOString().slice(0, 10);
-  void emitNotificationSignal({
-    // This emit is a tool executor's, not the scheduler's. The channel is
-    // provenance the pipeline reads: `home-feed-side-effect` derives
-    // `fromAssistant` from it, so labelling this "scheduler" would drop the
-    // item from the feed's assistant-initiated filter despite being exactly
-    // that.
-    sourceChannel: "assistant_tool",
-    sourceContextId: args.conversationId,
-    sourceEventName: "activity.complete",
-    dedupeKey: `skill-updated:${args.skillId}:${day}`,
-    contextPayload: {
-      // `summary` feeds the copy composer and `title` is the headline both
-      // it and the home feed keep; `title`/`body` are also the feed's
-      // fallback when no channel copy was rendered. Without them a fully
-      // suppressed delivery (the intended shape for this signal: low urgency,
-      // background, no interruption) leaves the feed writer with no summary
-      // and it skips the item entirely, so the quiet case would surface
-      // nothing at all.
-      summary: args.changeSummary,
-      // Named, not just "Skill updated": the feed sits several rows deep and
-      // a generic title is unscannable next to entries that name their
-      // subject (`Background job failed: memory.v2.sweep`). The word "Skill"
-      // stays because a bare skill name does not always read as one.
-      title: `Skill updated: ${args.name}`,
-      body: args.changeSummary,
+  const entryId = `${args.runConversationId}:${args.toolUseId ?? uuid()}`;
+  try {
+    recordSkillUpdate({
+      entryId,
       skillId: args.skillId,
-    },
-    attentionHints: {
-      requiresAction: false,
-      urgency: "low",
-      isAsyncBackground: true,
-      visibleInSourceNow: false,
-    },
-  }).catch((err: unknown) => {
+      name: args.name,
+      changeSummary: args.changeSummary,
+      runConversationId: args.runConversationId,
+      ...(args.sourceConversationId
+        ? { sourceConversationId: args.sourceConversationId }
+        : {}),
+    });
+  } catch (err) {
     log.warn(
-      { err, skillId: args.skillId },
-      "skill update notification failed; the skill write stands",
+      {
+        err,
+        skillId: args.skillId,
+        runConversationId: args.runConversationId,
+        entryId,
+      },
+      "skill update receipt recording failed; the skill write stands and no receipt will name this update",
     );
-  });
+    try {
+      recordWatchdogEvent({
+        checkName: SKILL_UPDATE_RECEIPT_RECORD_FAILED_CHECK_NAME,
+        value: 1,
+      });
+    } catch {
+      // recordWatchdogEvent already no-ops on opt-out and a missing
+      // telemetry DB; anything past that is not worth surfacing here.
+    }
+  }
 }
 
 /**
@@ -333,10 +347,11 @@ export async function executeScaffoldManagedSkill(
     category = input.category.trim().toLowerCase();
   }
 
-  // The update notice's body. Model-authored text bound for a notification
+  // The receipt entry's body. Model-authored text bound for a notification
   // surface, so it gets the same control-character strip and preview clamp as
   // any other producer-supplied body; blank collapses to absent so the
-  // requirement below treats it as missing rather than posting an empty notice.
+  // requirement below treats it as missing rather than recording an empty
+  // entry.
   let changeSummary: string | undefined;
   if (input.change_summary !== undefined) {
     if (typeof input.change_summary !== "string") {
@@ -404,9 +419,9 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
-  // A background overwrite announces itself through the notice built in
-  // notifyBackgroundSkillUpdate, whose body is this summary, so the write is
-  // refused without one. The error returns to the pass in the same turn and
+  // A background overwrite announces itself through the receipt entry
+  // recorded in recordBackgroundSkillUpdate, whose body is this summary, so
+  // the write is refused without one. The error returns to the pass in the same turn and
   // it retries with the field, the way a missing activation_hints does.
   // Checked after the ownership backstop so a pass that may not touch the
   // skill hears that first, and only for a call that asked to overwrite: a
@@ -500,23 +515,23 @@ export async function executeScaffoldManagedSkill(
   }
 
   // A background pass changed a skill that already existed. Creates announce
-  // themselves through the skill card below; updates announce themselves in
-  // the background activity feed. Covers an explicit `overwrite: true`
-  // refinement as well as any other background write onto a pre-existing
-  // skill.
-  const notifyConversationId =
-    sourceConversationId ?? retrospectiveConversationId;
+  // themselves through the skill card below; updates land on the skill-update
+  // receipt that announces the whole burst. Covers an explicit
+  // `overwrite: true` refinement as well as any other background write onto
+  // a pre-existing skill.
   if (
     fromRetrospective &&
     managedSkillExistedBefore &&
-    notifyConversationId &&
+    retrospectiveConversationId &&
     changeSummary
   ) {
-    notifyBackgroundSkillUpdate({
+    recordBackgroundSkillUpdate({
       skillId: id,
       name: normalizedName,
-      conversationId: notifyConversationId,
       changeSummary,
+      runConversationId: retrospectiveConversationId,
+      sourceConversationId,
+      toolUseId: context.toolUseId,
     });
   }
 

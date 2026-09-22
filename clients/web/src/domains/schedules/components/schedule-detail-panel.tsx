@@ -1,19 +1,17 @@
 import type { ReactNode } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BarChart3,
-  ChevronRight,
-  Coins,
-  Loader2,
-  Repeat,
-  Trash2,
-} from "lucide-react";
+import { BarChart3, ChevronRight, Coins, Repeat, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { DetailShellHeader } from "@/components/detail-shell";
+import {
+  DetailShellHeader,
+  DetailShellLoading,
+  DetailShellNotice,
+} from "@/components/detail-shell";
 import { InsetDetailCard } from "@/components/inset-detail-card";
+import { useScheduleConversationDoneLabel } from "@/utils/done-labels";
 import { useTranslation } from "@/i18n";
 import { SCHEDULE_USAGE_WINDOW_DAYS } from "@/utils/usage-window";
 import {
@@ -278,6 +276,7 @@ function RunRow({
   onToggleDetails: (runId: string) => void;
 }) {
   const { t } = useTranslation("schedules");
+  const conversationDoneLabel = useScheduleConversationDoneLabel();
   // Older daemons do not send `conversations`, so the scalar pointer is
   // wrapped in the same shape here. Newer daemons fold that pointer into the
   // array themselves.
@@ -363,7 +362,7 @@ function RunRow({
                         ? c.title
                         : t("scheduleDetail.conversation")}{" "}
                       {c.exists
-                        ? t("scheduleDetail.conversationArchived")
+                        ? conversationDoneLabel
                         : t("scheduleDetail.conversationUnavailable")}
                     </span>
                   ),
@@ -450,17 +449,13 @@ function RecentRuns({
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
-      </div>
-    );
+    return <DetailShellLoading placement="section" />;
   }
   if (!runs || runs.length === 0) {
     return (
-      <p className="py-2 text-body-medium-lighter text-[var(--content-tertiary)] italic">
+      <DetailShellNotice placement="section">
         {t("scheduleDetail.noRunsYet")}
-      </p>
+      </DetailShellNotice>
     );
   }
   return (
@@ -601,7 +596,7 @@ export function ScheduleDetailPanel({
         />
 
         {/* Scrollable body */}
-        <div className="flex-1 space-y-6 overflow-y-auto px-[var(--app-spacing-lg)] py-[var(--app-spacing-lg)]">
+        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
           {schedule.description ? (
             <p className="text-body-medium-lighter text-[var(--content-secondary)]">
               {schedule.description}

@@ -23,6 +23,7 @@ import type {
   CompanionPopoverView,
   CompanionSurfaceState,
   DictationOfferAnswer,
+  UnplacedDictationOffer,
   ScreenCaptureFrame,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
@@ -312,6 +313,22 @@ export function captureCompanionSourceThumbnail(
  */
 export function answerCompanionWatchRetro(open: boolean): void {
   bridge()?.answerWatchRetro?.(open);
+}
+
+/** Forward recovery offers to the main renderer that publishes companion state. */
+export function forwardUnplacedDictationOffer(
+  offer: UnplacedDictationOffer | null,
+): boolean {
+  const companion = bridge();
+  if (!companion?.setUnplacedDictationOffer) {
+    return false;
+  }
+  try {
+    companion.setUnplacedDictationOffer(offer);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

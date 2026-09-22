@@ -39,6 +39,8 @@ export {
   FeedItemSchema as feedItemSchema,
   type FeedItemStatus,
   type FeedItemType,
+  type FeedItemUpdate,
+  FeedItemUpdateSchema as feedItemUpdateSchema,
   type FeedItemUrgency,
   isPendingGuardianFeedItem,
   type SuggestedPrompt,

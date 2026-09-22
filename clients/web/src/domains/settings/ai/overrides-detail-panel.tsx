@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2, Search } from "lucide-react";
+import { AlertCircle, Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -37,7 +37,9 @@ import { useLlmConfigPatch } from "@/domains/settings/ai/use-llm-config-patch";
 import { useSupportsCompleteProfileSnapshots } from "@/lib/backwards-compat/complete-profile-snapshots";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useTranslation } from "@/i18n";
-import { DetailShell } from "@/components/detail-shell";
+import { SectionLabel } from "@/components/detail-primitives";
+import { DetailShell, DetailShellLoading } from "@/components/detail-shell";
+import { Notice } from "@vellumai/design-library/components/notice";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
@@ -425,16 +427,17 @@ export function OverridesDetailPanel({
       onClose={onClose}
       footer={footer}
     >
-      <p className="mb-4 text-body-medium-lighter text-[var(--content-tertiary)]">
+      <div className="flex flex-col gap-5">
+      <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
         {t("overridesDetailPanel.description")}
       </p>
 
-      <div>
+      <div className="flex flex-col gap-5">
         {/* Search + bulk change. The swap acts on persisted overrides, so it
             stays disabled while the editor holds unsaved drafts: applying it
             under a dirty draft would show stale rows and let a later Save
             silently undo the swap. */}
-        <div className="mb-4 flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <Input
               type="search"
@@ -467,11 +470,8 @@ export function OverridesDetailPanel({
             renders off `daemonConfig` alone and stays put if the call-site
             catalog fails to load. */}
         {daemonConfigLoaded && advisorMatchesSearch && (
-          <div className="mb-4">
-            {/* typography: off-scale. Matches the domain section label below */}
-            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
-              {t("overridesDetailPanel.advisorSection")}
-            </p>
+          <div>
+            <SectionLabel>{t("overridesDetailPanel.advisorSection")}</SectionLabel>
             <AdvisorProfileRow
               value={advisorProfile}
               profileOptions={advisorOptions}
@@ -482,25 +482,21 @@ export function OverridesDetailPanel({
         )}
 
         {/* Loading */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-          </div>
-        )}
+        {isLoading && <DetailShellLoading placement="panel" />}
 
         {/* Error */}
         {isError && (
-          <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <p className="text-body-medium-default text-[var(--content-default)]">
-              {t("overridesDetailPanel.loadErrorTitle")}
-            </p>
-            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              {t("overridesDetailPanel.loadErrorHint")}
-            </p>
-            <Button variant="outlined" onClick={() => void refetch()}>
-              {t("overridesDetailPanel.retry")}
-            </Button>
-          </div>
+          <Notice
+            tone="error"
+            title={t("overridesDetailPanel.loadErrorTitle")}
+            actions={
+              <Button variant="outlined" onClick={() => void refetch()}>
+                {t("overridesDetailPanel.retry")}
+              </Button>
+            }
+          >
+            {t("overridesDetailPanel.loadErrorHint")}
+          </Notice>
         )}
 
         {/* Call site list grouped by domain */}
@@ -516,6 +512,7 @@ export function OverridesDetailPanel({
             onToggle={handleToggle}
           />
         )}
+      </div>
       </div>
 
       {/* Mounted per open so source/target/selection state resets. Clears

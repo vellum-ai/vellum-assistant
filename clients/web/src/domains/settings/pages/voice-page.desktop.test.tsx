@@ -54,10 +54,15 @@ mock.module("@/runtime/hotkey", () => ({
 
 let inputMonitoringStatus = "granted";
 const permissionRequests: string[] = [];
+const permissionSettingsOpens: string[] = [];
 mock.module("@/runtime/system-permissions", () => ({
   getSystemPermissionsState: async () => ({
     inputMonitoring: { status: inputMonitoringStatus },
   }),
+  openSystemPermissionSettings: async (kind: string) => {
+    permissionSettingsOpens.push(kind);
+    return null;
+  },
   requestSystemPermission: async (kind: string) => {
     permissionRequests.push(kind);
     return null;
@@ -104,6 +109,7 @@ beforeEach(() => {
   localStorage.clear();
   inputMonitoringStatus = "granted";
   permissionRequests.length = 0;
+  permissionSettingsOpens.length = 0;
 });
 
 describe("VoiceSections voice key on the desktop host", () => {
@@ -176,7 +182,7 @@ describe("VoiceSections voice key on the desktop host", () => {
     );
   });
 
-  test("offers the grant again while Input Monitoring is missing", async () => {
+  test("opens Settings while Input Monitoring is missing", async () => {
     inputMonitoringStatus = "denied";
     renderPage();
 
@@ -186,7 +192,8 @@ describe("VoiceSections voice key on the desktop host", () => {
     fireEvent.click(allow);
 
     await waitFor(() =>
-      expect(permissionRequests).toContain("inputMonitoring"),
+      expect(permissionSettingsOpens).toContain("inputMonitoring"),
     );
+    expect(permissionRequests).toEqual([]);
   });
 });

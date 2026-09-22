@@ -37,6 +37,7 @@ import {
 } from "./memory-retrospective-job.js";
 import { skillCardInsertJob } from "./memory-retrospective-skill-card.js";
 import { memoryRetrospectiveSweepJob } from "./memory-retrospective-sweep.js";
+import { skillUpdateReceiptJob } from "./skill-update-receipt-job.js";
 // SUBSTRATE (v2+v3).
 import {
   type ConsolidationOutcome,
@@ -309,8 +310,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
 
   // RETROSPECTIVE (all tiers).
   // The retrospective pass and its cross-conversation sweep are tier-agnostic
-  // and survive every tier deletion. `skill_card_insert` is emitted only on
-  // v3 but is owned by the retrospective, so it groups here.
+  // and survive every tier deletion. `skill_card_insert` and
+  // `skill_update_receipt` are emitted only on v3 but are owned by the
+  // retrospective, so they group here.
   {
     type: "memory_retrospective",
     handler: async (job, config) =>
@@ -323,6 +325,10 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "skill_card_insert",
     handler: (job) => skillCardInsertJob(job),
+  },
+  {
+    type: "skill_update_receipt",
+    handler: (job) => skillUpdateReceiptJob(job),
   },
 ];
 

@@ -107,6 +107,47 @@ A subset of push signals — inbound deep links being the canonical case — can
 
 ---
 
+## Companion dictation recovery
+
+The main renderer exclusively publishes companion context. When a voice-key
+hold in a pop-out cannot place its transcript, the pop-out forwards a bounded
+recovery offer through the companion IPC channel to the main renderer without
+raising the app. That renderer owns the offer's copy/dismiss lifecycle and
+expiry. Starting another hold clears the forwarded offer, while the recording
+window retains the full transcript in its saved draft.
+
+## Companion introduction permissions
+
+The macOS companion tour offers microphone setup on Talk, Input Monitoring on
+its voice-key lesson, and Screen Recording on Share. Setup is explicit and
+skippable. The permission bridge reads the capturing helper's Screen Recording
+grant; the Electron app's grant is not interchangeable with it.
+
+The tour stays on its current step while Settings is open and observes permission
+updates before restoring the rehearsal controls. Global keyboard registration
+never requests access. Permission updates re-arm the voice key and call chords.
+During the tour, holds do not dictate and double taps reach the same native
+microphone guard as the final avatar click. Only the final step with microphone
+access can start the tour's real call.
+
+Before a native permission prompt or Settings opens, the tour lowers its window
+below system UI. Returning to Vellum or advancing the tour restores its floating
+level. Finishing the tour sets the idle pill's home to the display's bottom
+center, including the home held by a call started from the final step.
+
+The tour prefetches permission status during its opening cards and retains the
+latest result across steps and background checks. An initial check keeps the
+card shell visible without showing a permission action before it is needed. Its
+size and the perched avatar's clearance share constants with the native canvas,
+so larger cards fit at every companion size. Helper permission setup first requests
+the native alert; Settings opens through that alert or a separate explicit action,
+so the two windows do not compete for attention.
+
+When resetting local development grants, reset `PostEvent` as well as
+`ListenEvent` and `Accessibility` for the helper bundle. A cached denial of the
+parent event permission can keep Input Monitoring denied after `ListenEvent`
+alone is reset.
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.

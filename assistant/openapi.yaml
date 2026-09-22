@@ -7985,9 +7985,13 @@ paths:
             enum:
               - background
               - scheduled
+              - all
           description:
             Filter by conversation type. Pass "background" to list background and scheduled conversations together (the
-            back-compat umbrella), or "scheduled" to list only scheduled conversations.
+            back-compat umbrella), "scheduled" to list only scheduled conversations, or "all" for the union of the
+            standard listing and that umbrella, so one paginated cursor spans every type. Combine "all" with
+            archiveStatus=all for a whole-history read; rows are recency-ordered (COALESCE(last_message_at, updated_at)
+            descending) like every other list read, and pinned rows are never appended to it.
         - name: archiveStatus
           in: query
           required: false
@@ -12056,7 +12060,9 @@ paths:
     post:
       operationId: dictation_post
       summary: Process dictation
-      description: Classify voice input as dictation or action, clean up text, and apply user style preferences.
+      description:
+        Preserve dictated words with explicit dictionary and snippet replacements, classify actions, or edit
+        selected text when instructed.
       tags:
         - diagnostics
       requestBody:
@@ -15073,6 +15079,24 @@ paths:
                             - intent
                             - status
                           additionalProperties: false
+                        updates:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              skillId:
+                                type: string
+                              name:
+                                type: string
+                              summary:
+                                type: string
+                              conversationId:
+                                type: string
+                            required:
+                              - skillId
+                              - name
+                              - summary
+                            additionalProperties: false
                         category:
                           type: string
                           enum:
@@ -15308,6 +15332,24 @@ paths:
                       - intent
                       - status
                     additionalProperties: false
+                  updates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        skillId:
+                          type: string
+                        name:
+                          type: string
+                        summary:
+                          type: string
+                        conversationId:
+                          type: string
+                      required:
+                        - skillId
+                        - name
+                        - summary
+                      additionalProperties: false
                   category:
                     type: string
                     enum:
@@ -15637,6 +15679,24 @@ paths:
                             - intent
                             - status
                           additionalProperties: false
+                        updates:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              skillId:
+                                type: string
+                              name:
+                                type: string
+                              summary:
+                                type: string
+                              conversationId:
+                                type: string
+                            required:
+                              - skillId
+                              - name
+                              - summary
+                            additionalProperties: false
                         category:
                           type: string
                           enum:
@@ -21352,6 +21412,10 @@ paths:
                                         type: string
                                       mayRequireJavaScript:
                                         type: boolean
+                                      startIndexPastEnd:
+                                        type: boolean
+                                      providerWarning:
+                                        type: string
                                     required:
                                       - url
                                       - finalUrl
@@ -21966,6 +22030,10 @@ paths:
                                                 type: string
                                               mayRequireJavaScript:
                                                 type: boolean
+                                              startIndexPastEnd:
+                                                type: boolean
+                                              providerWarning:
+                                                type: string
                                             required:
                                               - url
                                               - finalUrl
@@ -24788,6 +24856,24 @@ paths:
                           - intent
                           - status
                         additionalProperties: false
+                      updates:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            skillId:
+                              type: string
+                            name:
+                              type: string
+                            summary:
+                              type: string
+                            conversationId:
+                              type: string
+                          required:
+                            - skillId
+                            - name
+                            - summary
+                          additionalProperties: false
                       category:
                         type: string
                         enum:
@@ -26885,7 +26971,12 @@ paths:
                   assistantId:
                     type: string
                   hasAssistantApiKey:
-                    type: boolean
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      Whether a managed assistant API key is stored. Null when the credential store could not be read, which is
+                      not evidence that no key is stored.
                   hasWebhookSecret:
                     type: boolean
                   clientInstallationId:

@@ -14,7 +14,10 @@
  * cannot leave either out.
  */
 
-import type { ToolActivityMetadata } from "@vellumai/assistant-api";
+import type {
+  AnsweredQuestion,
+  ToolActivityMetadata,
+} from "@vellumai/assistant-api";
 import type { ReactNode } from "react";
 
 import type { ToolDetailPayload } from "@/stores/viewer-store";
@@ -35,6 +38,12 @@ export interface ToolActivityRendererProps {
   activityMetadata: ToolActivityMetadata | undefined;
   /** Live streamed output tail while the call runs, when the tool emits one. */
   streamedOutput: string | undefined;
+  /**
+   * The settled `ask_question` record, live like `activityMetadata`.
+   * `undefined` while a prompt is outstanding, and for one that timed out or
+   * was aborted, which record no user decision.
+   */
+  answeredQuestion: AnsweredQuestion | undefined;
   /** Whether the call is still in flight. */
   isRunning: boolean;
   /** Whether the call ended in an error. */

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellLoading } from "@/components/detail-shell";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-content";
 import { providerConnectionDisplayName } from "@/domains/settings/ai/provider-editor-constants";
 import {
@@ -39,7 +39,7 @@ export function ProviderDetailPanel({
   // portal target. Null on the first render, so the actions land one commit
   // after the body.
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
-  const { data } = useQuery(
+  const { data, isLoading } = useQuery(
     inferenceProviderconnectionsGetOptions({
       path: { assistant_id: assistantId },
     }),
@@ -98,7 +98,9 @@ export function ProviderDetailPanel({
       {/* Wait for the list before mounting an edit session so the editor
           never snapshots an absent connection. The add flow has no
           snapshot dependency and mounts immediately. */}
-      {connectionName == null || connection != null ? (
+      {connectionName != null && isLoading ? (
+        <DetailShellLoading placement="panel" />
+      ) : connectionName == null || connection != null ? (
         <ProviderEditorContent
           mode={connection ? "edit" : "create"}
           connection={connection}

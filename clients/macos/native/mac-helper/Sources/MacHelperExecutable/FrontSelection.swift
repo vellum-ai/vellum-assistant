@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import MacHelperCore
 
 /// The text selected in the application in front.
 ///
@@ -31,7 +32,7 @@ enum FrontSelection {
         let truncated: Bool
         /// Whether the control the selection sits in takes text, so a hold
         /// asked to change the selection can put the result back over it.
-        /// See `isEditable`.
+        /// Unknown editability produces an unavailable read instead.
         let editable: Bool
     }
 
@@ -92,9 +93,11 @@ enum FrontSelection {
         var path: Path = .none
         var chars = 0
         var selection: Selection?
+        var unavailable = false
+        var activationError: AXError?
 
         var logLine: String {
-            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") chromium=\(chromium) focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars) editable=\(selection?.editable ?? false)"
+            "trusted=\(trusted) prompt=\(promptShown) app=\(bundleId ?? "-") chromium=\(chromium) focused=\(focused) role=\(role ?? "-") path=\(path.rawValue) chars=\(chars) editable=\(selection?.editable ?? false) unavailable=\(unavailable) activationErr=\(activationError.map { String($0.rawValue) } ?? "-")"
         }
     }
 
@@ -242,21 +245,18 @@ enum FrontSelection {
     /// Ask a Chromium application to build its web content's accessibility
     /// tree, which it keeps off until an assistive app asks for it. With it
     /// off, the focused element and its selected text do not exist to be
-    /// read. `AXManualAccessibility` is the attribute Chromium and Electron
-    /// take for this; `AXEnhancedUserInterface` would do it too, but also
-    /// makes the system treat the application as driven by VoiceOver, which
-    /// slows its window moves and resizes.
+    /// read. Electron's manual flag avoids enhanced UI's window-management
+    /// side effects; Chrome requires the enhanced UI flag.
     ///
-    /// Asked on every read rather than remembered: it is one call, and a
-    /// relaunched application starts with the tree off again. The build is
-    /// asynchronous, so the read that turns it on may still find nothing
-    /// focused and fall back to the copy.
-    private static func turnOnChromiumAccessibility(_ pid: pid_t) {
+    /// Activation is debounced by Chromium for two seconds. Retried reads
+    /// must not set the flag again or they postpone the tree's availability.
+    @discardableResult
+    private static func turnOnChromiumAccessibility(_ pid: pid_t) -> AXError {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, requestTimeoutSeconds)
-        _ = AXUIElementSetAttributeValue(
-            app, "AXManualAccessibility" as CFString, kCFBooleanTrue
-        )
+        return ChromiumAccessibility.enable { attribute in
+            AXUIElementSetAttributeValue(app, attribute as CFString, kCFBooleanTrue)
+        }
     }
 
     /// Whether text pasted right now would land in this element.
@@ -358,11 +358,12 @@ enum FrontSelection {
     }
 
     /// The current selection, and how it was found.
-    static func read() -> Outcome {
+    static func read(activateChromium: Bool = true) -> Outcome {
         var outcome = Outcome(trusted: AXIsProcessTrusted())
         let frontApp = NSWorkspace.shared.frontmostApplication
         outcome.bundleId = frontApp?.bundleIdentifier
         if !outcome.trusted {
+            outcome.unavailable = true
             if !promptedForTrust {
                 promptedForTrust = true
                 outcome.promptShown = true
@@ -371,45 +372,36 @@ enum FrontSelection {
             return outcome
         }
         outcome.chromium = isChromium(frontApp)
-        if outcome.chromium, let pid = frontApp?.processIdentifier {
-            turnOnChromiumAccessibility(pid)
+        if activateChromium, outcome.chromium, let pid = frontApp?.processIdentifier {
+            outcome.activationError = turnOnChromiumAccessibility(pid)
         }
 
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
         var focusedRef: CFTypeRef?
-        var focused: AXUIElement?
-        if AXUIElementCopyAttributeValue(
+        let focusStatus = AXUIElementCopyAttributeValue(
             systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
-        ) == .success,
+        )
+        guard focusStatus == .success,
             let focusedValue = focusedRef,
             CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
-        {
-            focused = (focusedValue as! AXUIElement)
-        } else if !outcome.chromium {
+        else {
+            outcome.unavailable = outcome.chromium || (focusStatus != .noValue && focusStatus != .attributeUnsupported)
             return outcome
         }
-        // A Chromium application with nothing focused goes on to the copy:
-        // until its accessibility tree has been built, which the call above
-        // only starts, a composer with a selection in it reads as nothing
-        // focused.
+        let focused = focusedValue as! AXUIElement
+        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+        outcome.focused = true
+        outcome.role = stringAttribute(focused, kAXRoleAttribute as CFString)
 
-        var text = ""
-        var path = Path.none
-        if let focused {
-            AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
-            outcome.focused = true
-            outcome.role = stringAttribute(focused, kAXRoleAttribute as CFString)
-
-            text = stringAttribute(focused, kAXSelectedTextAttribute as CFString) ?? ""
-            path = .selectedText
-            if isBlank(text) {
-                // Some text views answer the range but not the selected text
-                // itself; the value is the whole document, and the range picks
-                // the selection out of it.
-                text = selectionFromRange(focused) ?? ""
-                path = .range
-            }
+        let selectedText = stringAttribute(focused, kAXSelectedTextAttribute as CFString)
+        var text = selectedText ?? ""
+        let range = isBlank(text) ? selectedRange(focused) : nil
+        var path = Path.selectedText
+        if isBlank(text) {
+            // Some text views expose the range and value but not selected text.
+            text = selectionFromRange(focused, range: range) ?? ""
+            path = .range
         }
         if isBlank(text) {
             switch selectionFromCopy() {
@@ -424,6 +416,7 @@ enum FrontSelection {
         }
         guard !isBlank(text) else {
             outcome.path = path == .copySkipped ? .copySkipped : .none
+            outcome.unavailable = range.map { $0.length > 0 } ?? (selectedText == nil)
             return outcome
         }
 
@@ -436,14 +429,17 @@ enum FrontSelection {
         // answers every Accessibility read with a one-character placeholder
         // and only the copy carries its selection. Known edge: an editor
         // that copies the current line on an empty selection (VS Code) reads
-        // as a selection nothing is over. A copy with nothing focused has no
-        // control to go by and reads as not editable, so the hold asks about
-        // the selection rather than pasting over text it could not see.
+        // as a selection nothing is over.
         let editable: Bool
         if path == .copy {
-            editable = textControlRoles.contains(outcome.role ?? "")
+            editable = textControlRoles.contains(outcome.role ?? "") && !isDisabled(focused)
         } else {
-            editable = focused.map(isEditable) ?? false
+            let status = settability(focused)
+            guard status != .unknown else {
+                outcome.unavailable = true
+                return outcome
+            }
+            editable = status == .settable && !isDisabled(focused)
         }
         // Whitespace decides only whether anything is selected. What is
         // selected travels as it is: the indentation of a selected snippet is
@@ -458,25 +454,11 @@ enum FrontSelection {
         return outcome
     }
 
-    /// Whether the focused element takes text: its value or its selected text
-    /// is reported settable. Text fields and text views say so; static text,
-    /// web pages outside a contenteditable and read-only views do not. Asked
-    /// rather than inferred from the role because a text view can be
-    /// read-only and a web area can be an editor.
-    ///
-    /// An element that will not say reads as no here. This decides whether a
-    /// selection can be written back over, and writing over the user's text
-    /// on a guess is the mistake worth avoiding; `takesText` weighs the same
-    /// answer the other way, since what it risks is a paste going nowhere.
-    private static func isEditable(_ element: AXUIElement) -> Bool {
-        settability(element) == .settable
-    }
-
     private static func isBlank(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private static func selectionFromRange(_ element: AXUIElement) -> String? {
+    private static func selectedRange(_ element: AXUIElement) -> CFRange? {
         var rangeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
@@ -487,9 +469,14 @@ enum FrontSelection {
             return nil
         }
         var range = CFRange()
-        guard AXValueGetValue(rangeValue as! AXValue, .cfRange, &range), range.length > 0 else {
+        guard AXValueGetValue(rangeValue as! AXValue, .cfRange, &range) else {
             return nil
         }
+        return range
+    }
+
+    private static func selectionFromRange(_ element: AXUIElement, range: CFRange?) -> String? {
+        guard let range, range.length > 0 else { return nil }
         guard let value = stringAttribute(element, kAXValueAttribute as CFString) else {
             return nil
         }

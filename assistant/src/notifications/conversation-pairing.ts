@@ -61,6 +61,7 @@ import {
   isConversationSeedSane,
 } from "./conversation-seed-composer.js";
 import { isGuardianRequestSignalEvent } from "./guardian-feed-projection.js";
+import { signalMirrorsToHomeFeed } from "./home-feed-mirror.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ConversationAction,
@@ -274,7 +275,7 @@ export async function pairDeliveryWithConversation(
       signal.sourceEventName === ASSISTANT_REPLY_EVENT
     ) {
       return {
-        conversationId: resolveSourceConversationId(signal),
+        conversationId: resolveSourceConversation(signal)?.id ?? null,
         messageId: null,
         strategy,
         createdNewConversation: false,
@@ -767,12 +768,15 @@ async function resolveChannelDeliveryHome(params: {
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory.
  */
-function resolveSourceConversationId(signal: NotificationSignal): string | null {
+function resolveSourceConversation(
+  signal: NotificationSignal,
+): { id: string; conversationType?: string } | null {
   if (!signal.sourceContextId) {
     return null;
   }
   try {
-    return getConversation(signal.sourceContextId)?.id ?? null;
+    const row = getConversation(signal.sourceContextId);
+    return row ? { id: row.id, conversationType: row.conversationType } : null;
   } catch {
     return null;
   }
@@ -783,14 +787,25 @@ async function appendBodyToSourceConversation(
   channel: NotificationChannel,
   messageContent: string,
 ): Promise<{ conversationId: string; messageId: string } | null> {
-  const conversationId = resolveSourceConversationId(signal);
-  if (!conversationId) {
+  const source = resolveSourceConversation(signal);
+  if (!source) {
     return null;
   }
+  const conversationId = source.id;
 
-  const message = await addMessage(conversationId, "assistant", messageContent, {
-    skipIndexing: true,
-  });
+  const message = await addMessage(
+    conversationId,
+    "assistant",
+    messageContent,
+    {
+      skipIndexing: true,
+      // A notification the bell carries is bookkeeping about the
+      // conversation, not activity in it, so it must not bounce a chat the
+      // user just marked Done back into the sidebar. One the bell does not
+      // carry has this transcript as its only home, and the chat resurfaces.
+      skipResurface: signalMirrorsToHomeFeed(signal, source.conversationType),
+    },
+  );
   // `addMessage` projects attention metadata alone, so a client with this
   // conversation open needs the messages tag to refetch the transcript. A
   // notification the user taps through to has every chance of landing on an

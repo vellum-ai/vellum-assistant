@@ -70,6 +70,7 @@
   "assistantInboxRoute": {
     "loading": "Opening the inbox…",
     "setupFailed": "Couldn't set up the address.",
+    "setupIncomplete": "The address wasn't created. Try again in a moment.",
     "setupSucceeded": "{address} is ready.",
     "replyPrompt": "Reply to the email with id {id} in your inbox (from {sender}, subject \"{subject}\"). Read it with `assistant email download {id}` first, then draft a reply and show it to me before sending.",
     "mailFailed": "Couldn't load the mail.",

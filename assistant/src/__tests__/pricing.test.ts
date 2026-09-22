@@ -135,6 +135,39 @@ describe("resolvePricing", () => {
       expect(result.estimatedCostUsd).toBeCloseTo(0.5 + 0.625 + 0.05, 10);
     });
 
+    test("bills GPT-6 Sol at published short-context rates", () => {
+      const result = resolvePricingForUsage("openai", "gpt-6-sol", {
+        directInputTokens: 50_000,
+        outputTokens: 50_000,
+        cacheCreationInputTokens: 50_000,
+        cacheReadInputTokens: 50_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // 0.05M x $2 direct + 0.05M x $2.5 write + 0.05M x $0.2 read
+      // + 0.05M x $10 output.
+      expect(result.estimatedCostUsd).toBeCloseTo(0.1 + 0.125 + 0.01 + 0.5, 10);
+    });
+
+    test("bills GPT-6 Luna at the long-context tier above 272k", () => {
+      const result = resolvePricingForUsage("openai", "gpt-6-luna", {
+        directInputTokens: 500_000,
+        outputTokens: 1_000_000,
+        cacheCreationInputTokens: 500_000,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      // Tier rates: 0.5M x $0.2 direct + 0.5M x $0.25 write + 1M x $0.02 read
+      // + 1M x $0.75 output.
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        0.1 + 0.125 + 0.02 + 0.75,
+        10,
+      );
+    });
+
     test("bills GPT-6 Astra at the long-context tier above 272k", () => {
       const result = resolvePricingForUsage("openai", "gpt-6-astra", {
         directInputTokens: 500_000,

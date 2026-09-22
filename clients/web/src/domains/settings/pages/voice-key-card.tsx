@@ -3,8 +3,8 @@
  *
  * One key, held to dictate and double-tapped for a call. Fn out of the box, a
  * modifier set of the user's own, or nothing. The card is also where the
- * Input Monitoring grant is asked for again: the key is armed on launch and
- * asks then, so this is for the user who said no and has come back.
+ * Input Monitoring grant is managed: choosing a key asks for an initial grant,
+ * while the recovery action opens System Settings for a denied grant.
  *
  * Absent on hosts with no helper to watch the raw keyboard, since there is
  * nothing there to choose.
@@ -31,6 +31,7 @@ import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-opt
 import { useTranslation } from "@/i18n";
 import {
   getSystemPermissionsState,
+  openSystemPermissionSettings,
   requestSystemPermission,
 } from "@/runtime/system-permissions";
 import { useVoiceKeyRegistrationStore } from "@/stores/voice-key-registration-store";
@@ -106,6 +107,12 @@ export function VoiceKeyCard() {
 
   const askForInputMonitoring = useCallback(() => {
     void requestSystemPermission("inputMonitoring").then(refreshPermission);
+  }, [refreshPermission]);
+
+  const openInputMonitoringSettings = useCallback(() => {
+    void openSystemPermissionSettings("inputMonitoring").then(
+      refreshPermission,
+    );
   }, [refreshPermission]);
 
   const choose = useCallback(
@@ -253,7 +260,7 @@ export function VoiceKeyCard() {
               <Info className="mt-0.5 h-3 w-3 shrink-0" />
               <span>{t("voiceKeyCard.needsInputMonitoring")}</span>
             </div>
-            <Button variant="outlined" onClick={askForInputMonitoring}>
+            <Button variant="outlined" onClick={openInputMonitoringSettings}>
               {t("voiceKeyCard.allowInputMonitoring")}
             </Button>
           </div>

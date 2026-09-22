@@ -11,6 +11,7 @@ let mockVelayWebhooksEnabled = false;
 let mockPlatformBaseUrl = "";
 let mockPlatformAssistantId = "";
 let mockSecureKeys: Record<string, string> = {};
+let mockSecureKeysUnreachable = false;
 let mockConfig: { ingress?: { publicBaseUrl?: string; enabled?: boolean } } =
   {};
 
@@ -65,7 +66,12 @@ mock.module("../ipc/gateway-client.js", () => ({
 const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
-  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? undefined,
+  getSecureKeyAsync: async (key: string) =>
+    mockSecureKeysUnreachable ? undefined : (mockSecureKeys[key] ?? undefined),
+  getSecureKeyResultAsync: async (key: string) =>
+    mockSecureKeysUnreachable
+      ? { value: undefined, unreachable: true }
+      : { value: mockSecureKeys[key] ?? undefined, unreachable: false },
 }));
 
 const actualLoader = await import("../config/loader.js");
@@ -92,6 +98,7 @@ describe("platform callback registration", () => {
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
     mockSecureKeys = {};
+    mockSecureKeysUnreachable = false;
     mockConfig = {};
     setIngressPublicBaseUrl(undefined);
     delete process.env.ASSISTANT_API_KEY;
@@ -152,6 +159,43 @@ describe("platform callback registration", () => {
     expect(context.enabled).toBe(true);
     expect(context.platformBaseUrl).toBe("https://platform.example.com");
     expect(context.assistantId).toBe("33333333-4444-4555-8666-777777777777");
+    expect(context.hasAssistantApiKey).toBe(true);
+    expect(context.authHeader).toBe("Api-Key env-key");
+  });
+
+  test("reports the key as missing when the store answers and holds none", async () => {
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockPlatformAssistantId = "44444444-5555-4666-8777-888888888888";
+
+    const context = await resolvePlatformCallbackRegistrationContext();
+
+    expect(context.hasAssistantApiKey).toBe(false);
+    expect(context.authHeader).toBeNull();
+    expect(context.enabled).toBe(false);
+  });
+
+  test("reports the key state as unknown when the store did not answer", async () => {
+    // A client that provisions a key when it sees none must not be told
+    // "none" by a daemon whose store did not answer.
+    mockSecureKeysUnreachable = true;
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockPlatformAssistantId = "44444444-5555-4666-8777-888888888888";
+
+    const context = await resolvePlatformCallbackRegistrationContext();
+
+    expect(context.hasAssistantApiKey).toBeNull();
+    expect(context.authHeader).toBeNull();
+    expect(context.enabled).toBe(false);
+  });
+
+  test("an environment key counts as present even when the store did not answer", async () => {
+    mockSecureKeysUnreachable = true;
+    process.env.ASSISTANT_API_KEY = "env-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+    mockPlatformAssistantId = "44444444-5555-4666-8777-888888888888";
+
+    const context = await resolvePlatformCallbackRegistrationContext();
+
     expect(context.hasAssistantApiKey).toBe(true);
     expect(context.authHeader).toBe("Api-Key env-key");
   });
@@ -402,6 +446,7 @@ describe("resolveCallbackUrl resolution order", () => {
     mockPlatformBaseUrl = "";
     mockPlatformAssistantId = "";
     mockSecureKeys = {};
+    mockSecureKeysUnreachable = false;
     mockConfig = {};
     setIngressPublicBaseUrl(undefined);
     delete process.env.ASSISTANT_API_KEY;

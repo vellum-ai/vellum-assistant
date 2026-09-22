@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 
-import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getConversationProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
@@ -199,7 +199,9 @@ export async function executeManageWorkflows(
       // workspace-wide active profile. Read-only — leaves use this to pick a
       // valid `profile` for `run_workflow` (an unknown profile throws).
       const { llm } = loadConfig();
-      const profiles = getUserSelectableProfilesForProvider(
+      // A workflow leaf runs chat turns, so this is the conversation view,
+      // which leaves out the managed Jev profile.
+      const profiles = getConversationProfilesForProvider(
         llm?.profiles,
         llm?.defaultProvider ?? null,
       );

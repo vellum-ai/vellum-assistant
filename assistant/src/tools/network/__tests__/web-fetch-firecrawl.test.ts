@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
 
@@ -131,6 +139,25 @@ describe("executeFirecrawlScrape", () => {
     expect(result.isError).toBe(false);
     expect(result.activityMetadata?.webFetch?.truncated).toBe(true);
     expect(result.status).toContain("truncated");
+  });
+
+  test("carries the provider's warning and a start past the end in metadata", async () => {
+    spyOn(globalThis, "fetch").mockResolvedValue(
+      scrapeResponse({
+        success: true,
+        warning: "The page was served from cache.",
+        data: { markdown: "abcdefghij", metadata: { statusCode: 200 } },
+      }),
+    );
+
+    const result = await executeFirecrawlScrape(
+      { url: "https://example.com", start_index: 50 },
+      { apiKey: "fc-key" },
+    );
+    expect(result.isError).toBe(false);
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.providerWarning).toBe("The page was served from cache.");
+    expect(meta?.startIndexPastEnd).toBe(true);
   });
 
   test("empty markdown yields a no-content marker, not an error", async () => {

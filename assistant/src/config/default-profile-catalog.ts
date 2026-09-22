@@ -8,6 +8,7 @@ import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
 import {
+  AUTO_PROFILE_KEY,
   BACKUP_PROFILE_KEYS,
   type BackupProfileKey,
   DEFAULT_PROFILE_KEYS,
@@ -15,12 +16,15 @@ import {
   type DefaultProfileKey,
   type DefaultProfileProvider,
   FALLBACK_PROFILE_BY_KEY,
-  isBackupProfileKey,
   isDefaultProfileKey,
   isDefaultProfileProvider,
+  isFlagGatedProfileKey,
+  isManagedOnlyProfileKey,
+  JEV_MANAGED_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
+import { profileSupportsTextGeneration } from "./profile-text-generation.js";
 import {
   backupProfilesResolveUnderDefaultProvider,
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
@@ -386,17 +390,59 @@ export const PROFILE_IMPLS: Record<
 >;
 
 /**
+ * The managed Jev profile: TypeSafe's System One decision model through the
+ * platform proxy. Managed column only, because the platform is the only
+ * route the catalog offers for it here, and never a conversation profile,
+ * because `jev-latest` returns structured answers rather than chat text
+ * (`supportsText: false` on the `typesafe` catalog entry). Its budget is
+ * TypeSafe's published request limit rather than the default context window.
+ */
+export const JEV_MANAGED_PROFILE_TEMPLATE: DefaultProfileTemplate = {
+  model: "jev-latest",
+  provider: "vellum",
+  source: "managed",
+  label: "Jev",
+  description:
+    "TypeSafe decision model for yes/no verdicts, for the voice judges and memory selection",
+  maxTokens: 4096,
+  thinking: { enabled: false, streamThinking: false },
+  contextWindow: { maxInputTokens: 32_000 },
+};
+
+/**
+ * The Auto profile: the managed Balanced body under its own label, so that
+ * anything dispatching the name directly runs Balanced. The per-message
+ * choice among the defaults happens in the agent loop, not here (see
+ * `AUTO_PROFILE_KEY`). No `fallbackProfile`: the code-owned fallback mapping
+ * is keyed by default profile, and a direct dispatch of this name is already
+ * the fallback path. Flag-gated like `os-beta`: NOT in
+ * `MANAGED_PROFILE_TEMPLATES`, so the unconditional boot seed never creates
+ * it; the flag-gated profile reconcile materializes it while the
+ * `auto-profile` feature flag is on.
+ */
+export const AUTO_PROFILE_TEMPLATE: DefaultProfileTemplate = (() => {
+  const { fallbackProfile: _fallbackProfile, ...balanced } =
+    VELLUM_PROFILE_IMPLS.balanced;
+  return {
+    ...balanced,
+    label: "Auto",
+    description: "Picks the profile that fits each message, in beta",
+  };
+})();
+
+/**
  * Managed profiles, i.e. the `vellum` column keyed by profile name, plus the
- * managed backup profiles. Backups come after the primaries, which is what
- * places them after the primaries in the seeded `profileOrder`: the seeder
- * inserts missing managed keys in this record's order. Keyed by the
- * user-facing defaults only: an internal profile is code-resolved and never
- * listed or ordered.
+ * managed backup profiles and the managed Jev profile. Backups come after the
+ * primaries, which is what places them after the primaries in the seeded
+ * `profileOrder`: the seeder inserts missing managed keys in this record's
+ * order. Keyed by the user-facing defaults only: an internal profile is
+ * code-resolved and never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries([
     ...DEFAULT_PROFILE_KEYS.map((key) => [key, PROFILE_IMPLS[key].vellum]),
     ...BACKUP_PROFILE_KEYS.map((key) => [key, BACKUP_PROFILE_IMPLS[key]]),
+    [JEV_MANAGED_PROFILE_KEY, JEV_MANAGED_PROFILE_TEMPLATE],
   ]);
 
 /**
@@ -484,6 +530,9 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
 export const CODE_OWNED_PROFILE_NAMES = new Set<string>([
   "latency-optimized",
   ...BACKUP_PROFILE_KEYS,
+  // A shadow could repoint the judges at a chat model, which answers a
+  // yes/no question with prose the verdict parser cannot read.
+  JEV_MANAGED_PROFILE_KEY,
 ]);
 
 // All managed profiles, including the flag-gated os-beta, are invariant:
@@ -494,6 +543,8 @@ export const CODE_OWNED_PROFILE_NAMES = new Set<string>([
 export const INVARIANT_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
+  JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -507,6 +558,8 @@ export const INVARIANT_PROFILE_NAMES = new Set<string>([
 export const MANAGED_PROFILE_NAMES = new Set<string>([
   ...DEFAULT_PROFILE_KEYS,
   ...BACKUP_PROFILE_KEYS,
+  JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
   OS_BETA_PROFILE_KEY,
 ]);
 
@@ -590,6 +643,19 @@ for (const key of BACKUP_PROFILE_KEYS) {
   }
 }
 
+// The managed Jev profile pins a model the platform proxy must front, and the
+// judges depend on it being the non-text TypeSafe model rather than a chat
+// model that happens to share the id.
+if (
+  getManagedUpstream(JEV_MANAGED_PROFILE_TEMPLATE.model ?? "") !== "typesafe"
+) {
+  throw new Error(
+    `JEV_MANAGED_PROFILE_TEMPLATE references model "${JEV_MANAGED_PROFILE_TEMPLATE.model ?? ""}" ` +
+      `which the managed route does not serve through typesafe. ` +
+      `Update model-catalog.ts, platform-proxy/constants.ts, or default-profile-catalog.ts.`,
+  );
+}
+
 // Provider choices without a named column materialize from the shared BYOK
 // templates; verify each one's resolved model lands in the catalog.
 for (const provider of DEFAULT_PROVIDER_CHOICES) {
@@ -621,6 +687,14 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
     const impl = BACKUP_PROFILE_IMPLS[key];
     entries[key] = materializeProfile(impl, impl.provider);
   }
+  entries[JEV_MANAGED_PROFILE_KEY] = materializeProfile(
+    JEV_MANAGED_PROFILE_TEMPLATE,
+    JEV_MANAGED_PROFILE_TEMPLATE.provider,
+  );
+  entries[AUTO_PROFILE_KEY] = materializeProfile(
+    AUTO_PROFILE_TEMPLATE,
+    AUTO_PROFILE_TEMPLATE.provider,
+  );
   entries[OS_BETA_PROFILE_KEY] = materializeProfile(
     OS_BETA_PROFILE_TEMPLATE,
     OS_BETA_PROFILE_TEMPLATE.provider,
@@ -697,12 +771,13 @@ function resolveAgainstBody(
   if (body == null) {
     // A managed stub is the workspace's slot for a code-owned profile, never
     // a profile of its own, so with no body behind it there is nothing to
-    // resolve. Only a backup name reaches this branch with a stub (the
-    // default keys always have a body), and it reaches it on the columns
-    // where the backups do not exist. Resolving to the stub would list a
-    // profile with no provider or model and let a reference to it look
-    // valid, which is precisely what `LLMSchema` rejects on those columns.
-    if (isBackupProfileKey(name) && workspace?.source === "managed") {
+    // resolve. Only a managed-only name (a backup, the Jev profile) reaches
+    // this branch with a stub (the default keys always have a body), and it
+    // reaches it on the columns where those profiles do not exist. Resolving
+    // to the stub would list a profile with no provider or model and let a
+    // reference to it look valid, which is precisely what `LLMSchema` rejects
+    // on those columns.
+    if (isManagedOnlyProfileKey(name) && workspace?.source === "managed") {
       return undefined;
     }
     return workspace;
@@ -711,7 +786,7 @@ function resolveAgainstBody(
     return { ...body };
   }
   if (workspace == null) {
-    return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
+    return isFlagGatedProfileKey(name) ? undefined : { ...body };
   }
   if (workspace.source !== "managed") {
     return workspace;
@@ -787,14 +862,14 @@ function defaultProfileBodyForProvider(
   defaultProvider: DefaultProviderConfig | null,
 ): ProfileEntry | undefined {
   if (!isDefaultProfileKey(name)) {
-    // Backup profiles are companions of the managed (`vellum`) column only:
-    // under a BYOK or chatgpt default provider the primaries carry no
-    // `fallbackProfile` pointers, and the backups must not materialize
-    // either, since the install may hold no credential for the backup's
+    // Backup profiles and the managed Jev profile exist on the managed
+    // (`vellum`) column only: under a BYOK or chatgpt default provider the
+    // primaries carry no `fallbackProfile` pointers, and neither may
+    // materialize, since the install may hold no credential for their
     // provider. A null defaultProvider predates `llm.defaultProvider` and
-    // resolves to the managed column, so it keeps its backups.
+    // resolves to the managed column, so it keeps them.
     if (
-      isBackupProfileKey(name) &&
+      isManagedOnlyProfileKey(name) &&
       !backupProfilesResolveUnderDefaultProvider(defaultProvider)
     ) {
       return undefined;
@@ -920,6 +995,30 @@ export function getUserSelectableProfilesForProvider(
   );
   for (const name of BACKUP_PROFILE_KEYS) {
     delete selectable[name];
+  }
+  return selectable;
+}
+
+/**
+ * The profiles a conversation can run on: the user-selectable view minus any
+ * profile whose model returns structured answers rather than chat text (the
+ * managed Jev profile). Every surface that picks or validates a conversation
+ * profile (the `/model` command, a per-conversation pin, the plugin and
+ * workflow listings) reads this view; the call-site override pickers keep
+ * the wider selectable view, since the verdict sites are what Jev is for.
+ */
+export function getConversationProfilesForProvider(
+  workspaceProfiles: Record<string, ProfileEntry> | undefined,
+  defaultProvider: DefaultProviderConfig | null,
+): Record<string, ProfileEntry> {
+  const selectable = getUserSelectableProfilesForProvider(
+    workspaceProfiles,
+    defaultProvider,
+  );
+  for (const [name, entry] of Object.entries(selectable)) {
+    if (!profileSupportsTextGeneration(entry, selectable)) {
+      delete selectable[name];
+    }
   }
   return selectable;
 }

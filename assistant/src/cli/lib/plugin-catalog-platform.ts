@@ -7,15 +7,17 @@
  * catalog sourced from the platform is indistinguishable from one read off
  * GitHub.
  *
- * Every failure mode (non-2xx, unreachable/aborted, malformed body) throws
- * {@link PluginCatalogUnavailableError} — the fetcher never returns a partial
- * or silently-empty catalog, so a caller can safely fall back to a bundled
- * offline copy instead of mistaking an outage for "no plugins".
+ * Every failure mode (non-2xx, unreachable/aborted, malformed envelope)
+ * throws {@link PluginCatalogUnavailableError}, so a caller never mistakes an
+ * outage for "no plugins". Rows are validated one at a time: a row with an
+ * invalid `integration` is kept without it, and a row that fails the base
+ * row schema is skipped, so one bad row never blanks the whole catalog.
  */
 
 import { z } from "zod";
 
 import { getPlatformBaseUrl } from "../../config/env.js";
+import { getLogger } from "../../util/logger.js";
 import {
   type MarketplaceEntry,
   mcpIntegrationSchema,
@@ -27,9 +29,12 @@ import {
   type SearchPluginsDeps,
 } from "./search-plugins.js";
 
+const log = getLogger("plugin-catalog");
+
 /**
  * One flattened row from the platform catalog. Unknown keys (`id`,
- * `display_name`) are accepted and dropped — zod strips them by default.
+ * `display_name`) are accepted and dropped (zod strips them by default).
+ * `integration` is validated separately by {@link integrationSchema}.
  */
 const platformPluginRowSchema = z.object({
   name: z.string(),
@@ -41,11 +46,13 @@ const platformPluginRowSchema = z.object({
   category: z.string().nullable().optional(),
   homepage: z.string().nullable().optional(),
   license: z.string().nullable().optional(),
-  integration: mcpIntegrationSchema.nullable().optional(),
+  integration: z.unknown(),
 });
 
+const integrationSchema = mcpIntegrationSchema.nullable().optional();
+
 const platformCatalogSchema = z.object({
-  plugins: z.array(platformPluginRowSchema),
+  plugins: z.array(z.unknown()),
 });
 
 /**
@@ -99,9 +106,21 @@ export async function fetchPluginCatalogFromPlatform(
   }
 
   const entries: MarketplaceEntry[] = [];
-  for (const row of parsed.data.plugins) {
+  const skippedRows: string[] = [];
+  const droppedIntegrations: string[] = [];
+  for (const [index, rawRow] of parsed.data.plugins.entries()) {
+    const rowResult = platformPluginRowSchema.safeParse(rawRow);
+    if (!rowResult.success) {
+      skippedRows.push(describeInvalidRow(rawRow, index));
+      continue;
+    }
+    const row = rowResult.data;
     if (!row.repo || !row.ref) {
       continue;
+    }
+    const integrationResult = integrationSchema.safeParse(row.integration);
+    if (!integrationResult.success) {
+      droppedIntegrations.push(row.name);
     }
     entries.push({
       name: row.name,
@@ -116,12 +135,32 @@ export async function fetchPluginCatalogFromPlatform(
       category: row.category ?? undefined,
       homepage: row.homepage ?? undefined,
       license: row.license ?? undefined,
-      integration: row.integration ?? undefined,
+      integration: integrationResult.success
+        ? (integrationResult.data ?? undefined)
+        : undefined,
     });
+  }
+
+  if (skippedRows.length > 0 || droppedIntegrations.length > 0) {
+    log.warn(
+      { skippedRows, droppedIntegrations },
+      "platform plugin catalog contained invalid rows; skipped rows and dropped integrations",
+    );
   }
 
   return {
     ref: opts?.ref ?? "platform",
     matches: projectMarketplaceEntries(entries),
   };
+}
+
+/** Name of an invalid row for logging, or its position when it has none. */
+function describeInvalidRow(row: unknown, index: number): string {
+  if (row && typeof row === "object" && "name" in row) {
+    const name = (row as { name: unknown }).name;
+    if (typeof name === "string" && name.length > 0) {
+      return name;
+    }
+  }
+  return `#${index}`;
 }

@@ -15,9 +15,16 @@ import { Button, Tag, Typography } from "@vellumai/design-library";
 import { HomeGenericDetail } from "../detail-panel/home-generic-detail";
 import { HomeGuardianRequestCard } from "../detail-panel/home-guardian-request-card";
 import { HomeToolPermissionCard } from "../detail-panel/home-tool-permission-card";
+import { HomeUpdatesList } from "../detail-panel/home-updates-list";
 import { FeedItemStatusActions } from "../feed-item-status-actions";
 import type { FeedItemEntityLink } from "../hooks/use-feed-item-entity-links";
-import { guardianLabelKey, resolveFeedItemTitle } from "../utils";
+import { useFeedItemReceiptTitle } from "../hooks/use-feed-item-receipt-title";
+import type { FeedItemUpdateLinksResult } from "../hooks/use-feed-item-update-links";
+import {
+  getFeedItemUpdates,
+  guardianLabelKey,
+  resolveFeedItemTitle,
+} from "../utils";
 
 /**
  * Layout of the panel's header row. Shared with the notifications list so the
@@ -66,6 +73,11 @@ export interface NotificationsBellDetailProps {
   entityLinks: FeedItemEntityLink[];
   /** True while a list one of those links depends on has yet to resolve. */
   areEntityLinksPending: boolean;
+  /**
+   * The targets a skill-update receipt's list links to, from
+   * `useFeedItemUpdateLinks`. Empty sets and not pending for any other item.
+   */
+  updateLinks: FeedItemUpdateLinksResult;
   /** True while an action item's conversation is being created. */
   isActionPending: boolean;
   onBack: () => void;
@@ -91,6 +103,7 @@ export function NotificationsBellDetail({
   areConversationListsPending,
   entityLinks,
   areEntityLinksPending,
+  updateLinks,
   isActionPending,
   onBack,
   onGoToConversation,
@@ -102,14 +115,16 @@ export function NotificationsBellDetail({
   const { t } = useTranslation("home");
   const conversationId = item.conversationId ?? null;
   const actions = item.actions ?? [];
+  const isReceipt = getFeedItemUpdates(item).length > 0;
 
   // A guardian request's panel is titled by the kind of request; the card
-  // below renders the item's own title as its heading. Every other item is
-  // titled by its title.
+  // below renders the item's own title as its heading. A skill-update receipt
+  // is titled by what it lists. Every other item is titled by its title.
   const guardianTitleKey = guardianLabelKey(item);
+  const receiptTitle = useFeedItemReceiptTitle(item);
   const panelTitle = guardianTitleKey
     ? t(guardianTitleKey)
-    : resolveFeedItemTitle(item);
+    : (receiptTitle ?? resolveFeedItemTitle(item));
   // While the request waits its title is the callout, as a pill. A settled
   // request needs nothing of anyone, so the same name reads as plain text.
   const isTitleAwaitingAction = isPendingGuardianFeedItem(item);
@@ -207,6 +222,15 @@ export function NotificationsBellDetail({
           <HomeToolPermissionCard item={item} />
         ) : item.detailPanel?.kind === "permissionChat" ? (
           <HomeGuardianRequestCard item={item} />
+        ) : isReceipt ? (
+          <HomeUpdatesList
+            item={item}
+            validSkillIds={updateLinks.validSkillIds}
+            validConversationIds={updateLinks.validConversationIds}
+            isValidationPending={updateLinks.isPending}
+            onNavigate={onNavigate}
+            onGoToConversation={onGoToConversation}
+          />
         ) : (
           <HomeGenericDetail item={item} className={BODY_LEADING_CLASS} />
         )}
