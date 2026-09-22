@@ -13,6 +13,11 @@ import type { FileSink } from "bun";
  * rejection escapes it, reaches the process's `unhandledRejection` handler,
  * and in the daemon that handler shuts the whole process down.
  *
+ * On Linux, Bun occasionally treats a zero-byte write to the dead worker's
+ * pipe as end-of-file and resolves that promise with the bytes written so
+ * far instead. `onFailure` then never runs, and the caller learns of the
+ * death only when the worker's stdout ends.
+ *
  * `onFailure` runs at most once per call, even though `write` and `flush` can
  * each report the same broken pipe.
  */
