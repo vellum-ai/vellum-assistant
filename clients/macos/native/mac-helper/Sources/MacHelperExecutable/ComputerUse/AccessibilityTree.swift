@@ -600,7 +600,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 frame: frame,
                 isEnabled: isEnabled,
                 isFocused: isFocused,
-                children: [],
+                children: textDescription != nil ? childElements : [],
                 roleDescription: roleDescription,
                 identifier: identifier,
                 url: url,
