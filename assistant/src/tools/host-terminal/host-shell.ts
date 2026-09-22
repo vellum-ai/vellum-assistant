@@ -165,6 +165,7 @@ export const hostShellTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    const cronRunId = context.cronRunId ?? undefined;
     const parsed = hostShellInputSchema.safeParse(input);
     if (!parsed.success) {
       return invalidToolInputResult("host_bash", parsed.error);
@@ -317,6 +318,7 @@ export const hostShellTool = {
                   : `Background host command completed (id=${bgId}):`;
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
+              cronRunId,
               hint: framing,
               source: "background-tool",
               persistTriggerAsEvent: true,
@@ -365,6 +367,7 @@ export const hostShellTool = {
             );
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
+              cronRunId,
               hint:
                 status === "cancelled"
                   ? `Background host command cancelled (id=${bgId}):`
@@ -536,6 +539,7 @@ export const hostShellTool = {
               : `Background host command completed (id=${bgId}):`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
+          cronRunId,
           hint: framing,
           source: "background-tool",
           persistTriggerAsEvent: true,
@@ -587,6 +591,7 @@ export const hostShellTool = {
         );
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
+          cronRunId,
           hint:
             status === "cancelled"
               ? `Background host command cancelled (id=${bgId}):`
