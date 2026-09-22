@@ -35,6 +35,9 @@ function seedMemoryEnabled(enabled: boolean): void {
 mock.module("../../../../persistence/conversation-crud.js", () => ({
   getConversation: () => null,
   getConversationSource: () => null,
+  // The compaction entry point falls back to this when a turn carries no
+  // trust context; these cases all name their actor, so it is never reached.
+  getConversationRecentProvenanceTrustClass: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
