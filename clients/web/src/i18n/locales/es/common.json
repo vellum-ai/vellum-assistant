@@ -196,6 +196,34 @@
       "skip": "Omitir"
     }
   },
+  "companionTourEntry": {
+    "body": "Ahora puedo acompañarte en cualquier lugar de tu escritorio.",
+    "cards": {
+      "context": {
+        "body": "Déjame ver lo que ves para ayudarte con todo el contexto.",
+        "title": "Muéstramelo, no lo expliques"
+      },
+      "flow": {
+        "body": "Háblame sin salir de la app que estás usando.",
+        "title": "No pierdas el ritmo"
+      },
+      "together": {
+        "body": "Habla, señala y avanza conmigo.",
+        "title": "Trabajemos juntos"
+      }
+    },
+    "close": "Cerrar",
+    "confirm": {
+      "body": "Solo lleva un minuto. Me hace ilusión enseñarte lo que puedo hacer desde tu escritorio.",
+      "keep": "Hacer el recorrido",
+      "skip": "Omitir por ahora",
+      "title": "¿Omitir el recorrido?"
+    },
+    "previewLabel": "Tu compañero de escritorio",
+    "reopen": "Volver a abrir la vista previa del recorrido",
+    "start": "Iniciar el recorrido",
+    "title": "Estoy donde tú trabajas"
+  },
   "companionPopover": {
     "allow": "Permitir",
     "confirm": "Confirmar",

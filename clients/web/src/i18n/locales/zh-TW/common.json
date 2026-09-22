@@ -196,6 +196,34 @@
       "skip": "暫時略過"
     }
   },
+  "companionTourEntry": {
+    "body": "現在，無論你在桌面上的哪個位置，我都能陪你一起工作。",
+    "cards": {
+      "context": {
+        "body": "讓我看到你所看到的內容，結合情境為你提供協助。",
+        "title": "無需解釋，直接展示"
+      },
+      "flow": {
+        "body": "無需離開目前的 App，隨時都能找到我。",
+        "title": "保持專注和節奏"
+      },
+      "together": {
+        "body": "和我交談、指點，一起推進工作。",
+        "title": "並肩協作"
+      }
+    },
+    "close": "關閉",
+    "confirm": {
+      "body": "只需大約一分鐘。我迫不及待想向你展示我能在桌面上做些什麼。",
+      "keep": "開始導覽",
+      "skip": "暫時略過",
+      "title": "略過導覽？"
+    },
+    "previewLabel": "你的桌面助理",
+    "reopen": "重新開啟導覽預覽",
+    "start": "開始導覽",
+    "title": "在你工作的地方與我相遇"
+  },
   "companionPopover": {
     "allow": "允許",
     "confirm": "確認",

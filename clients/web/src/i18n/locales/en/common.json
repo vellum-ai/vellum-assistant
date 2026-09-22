@@ -196,6 +196,34 @@
       "skip": "Skip for now"
     }
   },
+  "companionTourEntry": {
+    "body": "I can now join you anywhere on your desktop.",
+    "cards": {
+      "context": {
+        "body": "Let me see what you see and help in context.",
+        "title": "Show, don’t explain"
+      },
+      "flow": {
+        "body": "Reach me without leaving the app you’re in.",
+        "title": "Stay in your flow"
+      },
+      "together": {
+        "body": "Talk, point, and make progress together.",
+        "title": "Work side by side"
+      }
+    },
+    "close": "Close",
+    "confirm": {
+      "body": "It’ll take about a minute. I’m excited to show you what I can do from your desktop.",
+      "keep": "Take the tour",
+      "skip": "Skip for now",
+      "title": "Skip the tour?"
+    },
+    "previewLabel": "Your desktop companion",
+    "reopen": "Reopen tour preview",
+    "start": "Start the tour",
+    "title": "Meet me where you work"
+  },
   "companionPopover": {
     "allow": "Allow",
     "confirm": "Confirm",
