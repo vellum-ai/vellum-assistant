@@ -6,6 +6,79 @@ import {
   validateInputAgainstSchema,
 } from "../skills/validate-input.js";
 
+describe("nested input validation", () => {
+  const schema = {
+    properties: {
+      options: {
+        type: "object",
+        properties: { label: { type: "string" } },
+        required: ["label"],
+      },
+    },
+  };
+
+  test("reports nested required fields and types with their path", () => {
+    expect(
+      validateInputAgainstSchema("example", { options: {} }, schema),
+    ).toEqual({
+      ok: false,
+      errors: ["options.label is required"],
+    });
+    expect(
+      validateInputAgainstSchema("example", { options: { label: 42 } }, schema),
+    ).toEqual({
+      ok: false,
+      errors: ["options.label must be a string"],
+    });
+  });
+
+  test("preserves open nested objects and only rejects explicitly closed extra fields", () => {
+    const input = { options: { label: "Example", extra: true } };
+    expect(validateInputAgainstSchema("example", input, schema)).toEqual({
+      ok: true,
+    });
+    expect(
+      validateInputAgainstSchema("example", input, {
+        properties: {
+          options: {
+            ...schema.properties.options,
+            additionalProperties: false,
+          },
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      errors: ['Unknown parameter "options.extra". Supported: "label"'],
+    });
+  });
+
+  test("does not treat a richer oneOf as a presence-only union", () => {
+    expect(
+      validateInputAgainstSchema(
+        "example",
+        { options: { label: "Example" } },
+        {
+          properties: {
+            options: {
+              ...schema.properties.options,
+              oneOf: [
+                {
+                  required: ["label"],
+                  properties: { label: { const: "Example" } },
+                },
+                {
+                  required: ["label"],
+                  properties: { label: { const: "Other" } },
+                },
+              ],
+            },
+          },
+        },
+      ),
+    ).toEqual({ ok: true });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // required
 // ---------------------------------------------------------------------------
