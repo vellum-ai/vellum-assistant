@@ -997,6 +997,7 @@
   },
   "detailShell": {
     "close": "關閉",
-    "closePanel": "關閉面板"
+    "closePanel": "關閉面板",
+    "loading": "載入中…"
   }
 }

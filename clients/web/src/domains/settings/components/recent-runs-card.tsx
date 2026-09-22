@@ -1,7 +1,8 @@
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { DetailShellLoading, DetailShellNotice } from "@/components/detail-shell";
 import { InsetDetailCard } from "@/components/inset-detail-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import type { ScheduleRun } from "@/domains/settings/types/schedules";
@@ -66,14 +67,12 @@ export function RecentRunsCard({
   return (
     <InsetDetailCard title={t("recentRunsCard.title")}>
       {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
-        </div>
+        <DetailShellLoading placement="section" />
       ) : !runs || runs.length === 0 ? (
         <>
-          <p className="py-4 text-center text-body-medium-lighter text-[var(--content-tertiary)] italic">
+          <DetailShellNotice placement="section">
             {resolvedEmptyMessage}
-          </p>
+          </DetailShellNotice>
           {loadMoreControl}
         </>
       ) : (

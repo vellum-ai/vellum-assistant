@@ -485,7 +485,7 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <DetailShellNotice>
+                  <DetailShellNotice placement="section">
                     {t("subagentDetailPanel.noEventsYet")}
                   </DetailShellNotice>
                 )}

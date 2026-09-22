@@ -303,6 +303,7 @@
   },
   "detailShell": {
     "close": "Закрыть",
-    "closePanel": "Закрыть панель"
+    "closePanel": "Закрыть панель",
+    "loading": "Загрузка…"
   }
 }

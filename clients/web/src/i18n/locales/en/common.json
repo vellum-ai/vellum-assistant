@@ -999,6 +999,7 @@
   },
   "detailShell": {
     "close": "Close",
-    "closePanel": "Close panel"
+    "closePanel": "Close panel",
+    "loading": "Loading…"
   }
 }

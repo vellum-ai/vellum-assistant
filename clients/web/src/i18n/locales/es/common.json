@@ -961,6 +961,7 @@
   },
   "detailShell": {
     "close": "Cerrar",
-    "closePanel": "Cerrar panel"
+    "closePanel": "Cerrar panel",
+    "loading": "Cargando…"
   }
 }

@@ -14,6 +14,7 @@
 
 import { Typography } from "@vellumai/design-library";
 
+import { DetailShellNotice } from "@/components/detail-shell";
 import { SectionLabel } from "@/components/detail-primitives";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
@@ -68,13 +69,9 @@ export function WebSearchDetailView({
             }}
           />
         ) : finished ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
+          <DetailShellNotice placement="section">
             {t("webSearchDetailView.noSources")}
-          </Typography>
+          </DetailShellNotice>
         ) : (
           <ToolOutputBody
             text={typeof result === "string" ? result : ""}
