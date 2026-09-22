@@ -346,7 +346,11 @@ function buildMarkdownComponents(
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
     // break reads as a full blank line — distinct from the 24px hard break a
     // single `\n` produces. Smaller margins make the two nearly identical.
-    p: ({ children }) => <p className="mb-6 last:mb-0">{children}</p>,
+    p: ({ node: _node, children, ...rest }) => (
+      <p {...rest} className="mb-6 last:mb-0">
+        {children}
+      </p>
+    ),
     // One step of the type scale per heading level, `#` through `######`,
     // with no level sharing a step with the one below it. The weight is the
     // step's own: a heading reads as a heading because the scale says a title
@@ -367,15 +371,17 @@ function buildMarkdownComponents(
         {children}
       </h3>
     ),
-    ul: ({ children }) => (
-      <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
+    ul: ({ node: _node, children, ...rest }) => (
+      <ul {...rest} className="mb-2 list-disc pl-5 last:mb-0">
+        {children}
+      </ul>
     ),
     // `start` must be forwarded: react-markdown emits `<ol start="N">` for a
     // list that begins at a non-1 number (a bare "3." answer, or a list the
     // model continues from a prior number). Dropping it silently renumbers
     // every such list to 1 — e.g. "3." would render as "1.".
-    ol: ({ children, start }) => (
-      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">
+    ol: ({ node: _node, children, ...rest }) => (
+      <ol {...rest} className="mb-2 list-decimal pl-5 last:mb-0">
         {children}
       </ol>
     ),
@@ -405,8 +411,8 @@ function buildMarkdownComponents(
     // `value` is forwarded so a list item whose source ordinal breaks the
     // running sequence (set by remarkPreserveOrderedListNumbers) renders at its
     // typed number via the HTML `<li value="N">` attribute.
-    li: ({ children, value }) => (
-      <li value={value} className="mb-0.5">
+    li: ({ node: _node, children, ...rest }) => (
+      <li {...rest} className="mb-0.5">
         {children}
       </li>
     ),
@@ -475,7 +481,10 @@ function buildMarkdownComponents(
       </td>
     ),
     hr: () => <hr className="my-3 border-[var(--border-subtle)]" />,
-    img: ({ src, alt }) => {
+    // `rest` carries what a file's own `<img>` tag said about its picture —
+    // width, height, title — after sanitising. Rebuilding the element from
+    // src and alt alone silently resizes every image a README lays out.
+    img: ({ node: _node, src, alt, ...rest }) => {
       const srcStr = typeof src === "string" ? src : "";
       const altStr = typeof alt === "string" ? alt : "";
       // Every src goes to the consumer's component, absolute host paths and
@@ -492,7 +501,12 @@ function buildMarkdownComponents(
         srcStr.startsWith(".");
       if (remoteImages || isLocal) {
         return (
-          <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
+          <img
+            {...rest}
+            src={srcStr}
+            alt={altStr}
+            className="my-1 max-w-full rounded"
+          />
         );
       }
       return (
