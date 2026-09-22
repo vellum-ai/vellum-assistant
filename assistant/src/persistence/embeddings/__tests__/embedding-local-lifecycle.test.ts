@@ -81,6 +81,35 @@ function pendingWriteProc(pid = 4244) {
   };
 }
 
+/**
+ * A subprocess whose stdout the test closes, to drive the reader loop that
+ * settles requests the pipe never reported a failure for.
+ */
+function stdoutProc(pid = 4245) {
+  let closeStdout: () => void = () => {};
+  const stdout = new ReadableStream<Uint8Array>({
+    start(controller) {
+      closeStdout = () => controller.close();
+    },
+  });
+  let resolveExit: (code: number) => void = () => {};
+  const exited = new Promise<number>((r) => {
+    resolveExit = r;
+  });
+  return {
+    pid,
+    killed: false,
+    exited,
+    stdout,
+    closeStdout: () => closeStdout(),
+    kill() {
+      this.killed = true;
+      resolveExit(0);
+    },
+    stdin: { write: () => 0, flush: () => 0 },
+  };
+}
+
 /** A subprocess that stays "alive" until killed, so exit can be observed. */
 function liveProc(pid = 4243) {
   let resolveExit: (code: number) => void = () => {};
@@ -305,6 +334,28 @@ describe("broken worker pipe", () => {
     const response = await request;
 
     expect(response.error).toContain("worker pipe write failed");
+    expect(backend.pendingRequests.size).toBe(0);
+  });
+
+  /**
+   * Bun does not always report a dead worker through the write: on Linux it
+   * occasionally resolves the pending write with a short count instead of
+   * rejecting it, and `writeWorkerLine` then stays silent. Nothing times a
+   * request out, so the stdout reader ending is the only thing that settles
+   * it.
+   */
+  test("stdout ending settles a request the pipe never reported a failure for", async () => {
+    const backend = newBackend();
+    const proc = stdoutProc();
+    backend.workerProc = proc;
+    backend.startStdoutReader();
+
+    const inFlight = backend.sendRequest(["hello"]);
+    proc.closeStdout();
+
+    await expect(inFlight).resolves.toMatchObject({
+      error: expect.stringContaining("exited unexpectedly"),
+    });
     expect(backend.pendingRequests.size).toBe(0);
   });
 
