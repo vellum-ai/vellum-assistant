@@ -72,9 +72,11 @@ const turn: MemoryRoutingTurn = {
   recentContext: "",
 };
 
-const pool = {
+const pool: Parameters<typeof selectPool>[0] = {
   stable: [],
-  finder: [{ slug: "page-a" as Slug, descriptor: "a descriptor" }],
+  finder: [
+    { slug: "page-a" as Slug, descriptor: "a descriptor", lane: "needle" },
+  ],
 };
 
 describe("selectPool", () => {
@@ -133,6 +135,8 @@ describe("selectPool", () => {
     expect(await selectPool(pool, turn)).toEqual({
       pages: [{ slug: "page-a", sections: [] }],
       keptAll: false,
+      pool,
+      turn,
     });
   });
 
@@ -144,6 +148,8 @@ describe("selectPool", () => {
     expect(await selectPool(pool, turn)).toEqual({
       pages: [{ slug: "page-a", sections: [] }],
       keptAll: true,
+      pool,
+      turn,
     });
   });
 
@@ -157,14 +163,14 @@ describe("selectPool", () => {
           input: { ids: [] },
         },
       ]);
-    const candidate = {
+    const candidate: Parameters<typeof renderFinderLine>[0] = {
       slug: "page-a" as Slug,
       descriptor: "a descriptor",
       lane: "needle",
     };
     await selectPool(
       {
-        stable: [{ slug: "page-s" as Slug, card: "card s" }],
+        stable: [{ slug: "page-s" as Slug, card: "card s", lane: "core" }],
         finder: [candidate],
       },
       turn,
@@ -177,9 +183,12 @@ describe("selectPool", () => {
   });
 
   test("an empty candidate pool returns no selections", async () => {
-    expect(await selectPool({ stable: [], finder: [] }, turn)).toEqual({
+    const emptyPool = { stable: [], finder: [] };
+    expect(await selectPool(emptyPool, turn)).toEqual({
       pages: [],
       keptAll: false,
+      pool: emptyPool,
+      turn,
     });
   });
 });

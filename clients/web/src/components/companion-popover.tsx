@@ -941,6 +941,7 @@ export function PillButton({
 }) {
   return (
     <Button
+      shape="pill"
       type={type}
       disabled={disabled}
       variant={
@@ -951,7 +952,7 @@ export function PillButton({
             : "ghost"
       }
       className={cn(
-        "h-8 rounded-full px-3",
+        "h-8 px-3",
         tone === "secondary" &&
           "bg-[var(--surface-lift)] hover:bg-[var(--surface-active)]",
         tone === "negative" && "bg-[var(--system-negative-weak)]",

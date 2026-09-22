@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { schedulesByIdRunsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { type SeedQueryCache, withQueryCache } from "@/lib/story-query-cache";
 
 import {
   ScheduleDetailPanel,
@@ -46,29 +46,21 @@ const SCHEDULE: ScheduleDetailPanelProps["schedule"] = {
   disarmReason: null,
 } as ScheduleDetailPanelProps["schedule"];
 
-function seededClient() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
+const seedCache: SeedQueryCache = (client) => {
   client.setQueryData(
     schedulesByIdRunsGetQueryKey({
       path: { assistant_id: ASSISTANT_ID, id: SCHEDULE.id },
     }),
     { runs: [] },
   );
-  return client;
-}
+};
 
-function withClient(client: QueryClient) {
-  return function Decorator(Story: () => React.ReactElement) {
-    return (
-      <QueryClientProvider client={client}>
-        <div className="h-[640px] w-[420px]">
-          <Story />
-        </div>
-      </QueryClientProvider>
-    );
-  };
+function withPanelBox(Story: () => React.ReactElement) {
+  return (
+    <div className="h-[640px] w-[420px]">
+      <Story />
+    </div>
+  );
 }
 
 const meta: Meta<typeof ScheduleDetailPanel> = {
@@ -88,17 +80,17 @@ export default meta;
 type Story = StoryObj<typeof ScheduleDetailPanel>;
 
 export const Active: Story = {
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
 export const PluginSourced: Story = {
   args: { schedule: { ...SCHEDULE, sourceKey: "plugin:github/digest" } },
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
 export const PastOneShot: Story = {
   args: { isPast: true },
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };
 
 export const PendingOneShot: Story = {
@@ -115,5 +107,5 @@ export const PendingOneShot: Story = {
       lastStatus: null,
     },
   },
-  decorators: [withClient(seededClient())],
+  decorators: [withPanelBox, withQueryCache(seedCache)],
 };

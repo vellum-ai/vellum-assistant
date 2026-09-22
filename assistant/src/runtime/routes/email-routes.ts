@@ -169,7 +169,7 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
     );
   }
 
-  const statusData = (await statusResponse.json()) as {
+  return (await statusResponse.json()) as {
     address: string;
     status: string;
     created_at: string;
@@ -181,8 +181,6 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
       received_this_month: number;
     };
   };
-
-  return statusData;
 }
 
 async function handleEmailList({ queryParams = {} }: RouteHandlerArgs) {
@@ -239,8 +237,7 @@ async function handleEmailDownload({ queryParams = {} }: RouteHandlerArgs) {
     throw new RouteError(String(detail), "DOWNLOAD_FAILED", response.status);
   }
 
-  const msg = await response.json();
-  return msg;
+  return response.json();
 }
 
 async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
@@ -323,11 +320,10 @@ async function handleEmailSend({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(String(detail));
   }
 
-  const data = (await response.json()) as {
+  return (await response.json()) as {
     delivery_id: string;
     status: string;
   };
-  return data;
 }
 
 // ── Attachment handlers ───────────────────────────────────────────────

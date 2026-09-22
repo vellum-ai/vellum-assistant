@@ -9,7 +9,7 @@
  * submitted.
  */
 
-import { CheckCircle, Loader2 } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { Button, Card, Input, Typography } from "@vellumai/design-library";
@@ -218,9 +218,7 @@ export function ContactRecordCard({
               type="submit"
               variant={isDelete ? "danger" : "primary"}
               disabled={!canSubmit}
-              leftIcon={
-                isSubmitting ? <Loader2 className="animate-spin" /> : undefined
-              }
+              loading={isSubmitting}
             >
               {isSubmitting
                 ? t("contactRecordCard.saving")

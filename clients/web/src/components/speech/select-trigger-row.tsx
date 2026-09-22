@@ -39,7 +39,7 @@ export function SelectTriggerRow({
     <button
       type="button"
       className={cn(
-        "flex items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-left text-[var(--content-default)] transition-colors focus:outline-none data-[state=open]:border-[var(--border-active)]",
+        "flex items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] text-left text-[var(--content-default)] transition-colors focus:outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] data-[state=open]:border-[var(--border-active)]",
         compact
           ? "h-7 min-w-44 px-2.5 text-body-small-default"
           : "h-9 w-full px-3 text-body-medium-lighter",

@@ -74,6 +74,11 @@ mock.module("@/lib/local-mode", () => ({ isLocalClient: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => nativePlatform,
 }));
+// The consent link goes through `ExternalAnchor`; stub its click handler so it
+// does not reach for exports the partial native-auth mock above leaves out.
+mock.module("@/utils/native-anchor", () => ({
+  handleNativeAnchorClick: () => {},
+}));
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: { use: { user: () => ({ id: "user-1" }) } },
   useHasPlatformSession: () => false,
@@ -91,7 +96,10 @@ mock.module("@/components/onboarding-layout", () => ({
 mock.module("@/domains/onboarding/components/step-indicator-dots", () => ({
   StepIndicatorDots: () => null,
 }));
-mock.module("lucide-react", () => ({ EyeOff: () => null }));
+mock.module("lucide-react", () => ({
+  EyeOff: () => null,
+  ExternalLink: () => null,
+}));
 mock.module("@vellumai/design-library/components/button", () => ({
   Button: ({
     children,

@@ -33,6 +33,7 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionPopoverAnswer,
   CompanionPopoverView,
@@ -640,6 +641,27 @@ export interface VellumBridge {
      */
     onIntroStage(callback: (staged: boolean) => void): () => void;
     /**
+     * Which call control the run is asking for a chord for, or `null` when it
+     * is asking for none, for a window that has just mounted: a push that
+     * landed before it subscribed is gone, exactly as for `getIntroStage`.
+     */
+    getIntroChord(): Promise<CompanionIntroCallControl | null>;
+    /**
+     * Which call control the introduction is currently asking the user to
+     * press the shortcut for, or `null` when it is asking for none.
+     *
+     * Sent to the app's window, not to the surface's, for the reason the
+     * staging is: the chord is armed by the window that can hear one, and the
+     * card that asked for it is a different renderer. Three beats ask, each
+     * naming one control, and the rest of the run and the whole of the rest of
+     * the install ask for nothing: while a binding is armed the host takes
+     * those presses, so this fires on every change and `null` is as important
+     * as the rest.
+     */
+    onIntroChord(
+      callback: (control: CompanionIntroCallControl | null) => void,
+    ): () => void;
+    /**
      * A moment of the run worth counting, as main saw it.
      *
      * Sent to the app's window for the reason the staging is, and one more:
@@ -781,6 +803,14 @@ export interface VellumBridge {
      * reads as having no scroll to let through.
      */
     setFrameScrolling?(scrolling: boolean): void;
+    /**
+     * Tell main the frame's page has drawn the border, from the frame's own
+     * window. Main holds a new frame off the screen until this arrives: a
+     * frame shown before its page has drawn anything stays blank on a whole
+     * display. Absent on a shell that predates it, which shows the frame
+     * without being told.
+     */
+    frameDrawn?(): void;
     /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame

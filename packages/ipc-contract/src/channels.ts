@@ -215,6 +215,7 @@ export const COMPANION_SET_ANNOTATION_TOOL =
 export const COMPANION_ANNOTATE_SHARE = "vellum:companion:annotateShare";
 export const COMPANION_SET_FRAME_SCROLLING =
   "vellum:companion:setFrameScrolling";
+export const COMPANION_FRAME_DRAWN = "vellum:companion:frameDrawn";
 export const COMPANION_CAPTURE_SCREEN = "vellum:companion:captureScreen";
 export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";

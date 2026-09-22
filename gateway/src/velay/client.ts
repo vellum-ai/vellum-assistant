@@ -28,6 +28,10 @@ import {
   type VelayHttpRequestFrame,
   type VelayRegisteredFrame,
 } from "./protocol.js";
+import {
+  encodeBinaryWebSocketFrame,
+  VELAY_BINARY_WEBSOCKET_HEADER,
+} from "./binary-websocket.js";
 import { VelayWebSocketBridge } from "./websocket-bridge.js";
 
 const log = getLogger("velay-client");
@@ -355,6 +359,7 @@ export class VelayTunnelClient {
         protocols: [VELAY_TUNNEL_SUBPROTOCOL],
         headers: {
           Authorization: `Api-Key ${apiKey}`,
+          [VELAY_BINARY_WEBSOCKET_HEADER]: "1",
           // Declares the path allowlist Velay enforces for inbound proxied
           // traffic on this tunnel. Read per attempt so a reconnect picks up
           // webhook routes registered since the last one. See
@@ -464,6 +469,7 @@ export class VelayTunnelClient {
       case VELAY_FRAME_TYPES.httpRequest:
         await this.handleHttpRequestFrame(frame, originWs);
         return;
+      case "websocket_binary":
       case VELAY_FRAME_TYPES.websocketOpen:
       case VELAY_FRAME_TYPES.websocketMessage:
       case VELAY_FRAME_TYPES.websocketClose:
@@ -667,7 +673,11 @@ export class VelayTunnelClient {
     }
 
     try {
-      ws.send(JSON.stringify(frame));
+      ws.send(
+        frame.type === "websocket_binary"
+          ? encodeBinaryWebSocketFrame(frame)
+          : JSON.stringify(frame),
+      );
       return true;
     } catch (err) {
       log.warn(

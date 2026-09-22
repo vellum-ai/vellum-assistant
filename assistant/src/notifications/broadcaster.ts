@@ -241,8 +241,8 @@ export interface ConversationCreatedInfo {
   /** Semantic source from the signal producer (e.g. "schedule", "reminder"). */
   source?: string;
   /**
-   * Mirrors the vellum adapter's `silent` flag. When true the client
-   * must skip the fallback OS banner — the sidebar entry still appears.
+   * Mirrors the vellum adapter's `silent` flag (true for low- and
+   * medium-urgency signals).
    */
   silent: boolean;
 }
@@ -354,10 +354,9 @@ export class NotificationBroadcaster {
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
-    // timeout) can delay it past the macOS deep-link retry window. Platform
-    // sorts second: the vellum intent carries remotePushDispatched, so its
-    // deferred send (below) flushes right after the platform outcome is known
-    // instead of waiting behind slower channels.
+    // timeout) can delay it. Platform sorts second: the vellum intent carries
+    // remotePushDispatched, so its deferred send (below) flushes right after
+    // the platform outcome is known instead of waiting behind slower channels.
     const dispatchRank = (channel: NotificationChannel): number => {
       if (channel === "vellum") {
         return 0;

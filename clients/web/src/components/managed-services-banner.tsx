@@ -2,19 +2,20 @@ import type { PropsWithChildren } from "react";
 
 import { ExternalLink, Info } from "lucide-react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { Trans } from "@/i18n";
 
 function ManagedServicesPricingLink({ children }: PropsWithChildren) {
   return (
-    <a
+    <ExternalAnchor
       href="https://www.vellum.ai/docs/pricing"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-[var(--primary-base)] hover:underline"
+      tone="default"
+      className="inline-flex items-center gap-1"
+      glyph={false}
     >
       {children}
       <ExternalLink className="h-3.5 w-3.5" />
-    </a>
+    </ExternalAnchor>
   );
 }
 

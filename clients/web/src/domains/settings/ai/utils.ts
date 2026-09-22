@@ -141,3 +141,10 @@ export function getWebSearchProviderKeyStorage(provider: string): string {
 export function getWebFetchProviderKeyStorage(provider: string): string {
   return WEB_FETCH_PROVIDER_KEY_STORAGE[provider] ?? "";
 }
+
+export function allowsKeylessCustomWebProviderBase(
+  provider: string,
+  hasCustomApiBase: boolean,
+): boolean {
+  return provider === "fastcrw" && hasCustomApiBase;
+}

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { Trans, useTranslation } from "@/i18n";
@@ -97,7 +98,7 @@ export function SlackChannelTypeDefaults({
                 trustRules: (
                   <Link
                     to={routes.settings.privacy}
-                    className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+                    className={textLinkVariants()}
                   />
                 ),
               }}

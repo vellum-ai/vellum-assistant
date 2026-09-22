@@ -5,7 +5,6 @@ import {
   EyeOff,
   Globe,
   Info,
-  Loader2,
   Lock,
   Wrench,
   type LucideIcon,
@@ -203,11 +202,7 @@ export function SecretPromptCard({
                 type="submit"
                 variant="primary"
                 disabled={!canSubmit}
-                leftIcon={
-                  isSubmitting ? (
-                    <Loader2 className="animate-spin" />
-                  ) : undefined
-                }
+                loading={isSubmitting}
               >
                 {isSubmitting ? t("secretPromptCard.saving") : t("secretPromptCard.save")}
               </Button>

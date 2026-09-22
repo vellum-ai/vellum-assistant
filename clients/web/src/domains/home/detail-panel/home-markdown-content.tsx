@@ -2,7 +2,7 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { cn } from "@vellumai/design-library";
 
 import { decodeLiteralLineBreaks } from "../decode-literal-line-breaks";
@@ -33,16 +33,9 @@ const markdownComponents: Components = {
     <em style={{ color: "var(--content-default)" }}>{children}</em>
   ),
   a: ({ href, children }) => (
-    <a
-      href={href}
-      className="underline"
-      style={{ color: "var(--content-link)" }}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => handleNativeAnchorClick(e, href)}
-    >
+    <ExternalAnchor href={href} tone="default" glyph={false}>
       {children}
-    </a>
+    </ExternalAnchor>
   ),
   ul: ({ children }) => (
     <ul

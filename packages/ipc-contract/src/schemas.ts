@@ -21,6 +21,7 @@ import {
   COMPANION_ANNOTATION_TOOLS,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
+  COMPANION_INTRO_CALL_CONTROLS,
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
   NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
@@ -32,6 +33,9 @@ import {
   VERIFIED_NOTIFICATION_NAME_PROVENANCES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
+  VOICE_ACTIVITY_WORK_STATES,
+  VOICE_ACTIVITY_WORK_TEXT_MAX,
+  VOICE_ACTIVITY_WORK_MAX,
   COMPANION_DICTATION_OFFER_MAX,
   COMPANION_POPOVER_ACTIONS_MAX,
   COMPANION_PICKER_MICROPHONES,
@@ -218,6 +222,15 @@ export const windowAttentionPayloadSchema = z.object({
  */
 export const voiceActivityPhaseSchema = z.enum(VOICE_ACTIVITY_PHASES);
 
+export const voiceActivityWorkSchema = z.object({
+  id: z.string().max(200),
+  kind: z.enum(["turn", "subagent"]),
+  title: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
+  step: z.string().max(VOICE_ACTIVITY_WORK_TEXT_MAX),
+  state: z.enum(VOICE_ACTIVITY_WORK_STATES),
+  startedAt: z.number().finite(),
+});
+
 export const voiceActivityContentSchema = z.object({
   phase: voiceActivityPhaseSchema,
   label: z.string(),
@@ -226,6 +239,10 @@ export const voiceActivityContentSchema = z.object({
   outputMuted: z.boolean(),
   detail: z.string(),
   approvalRequestId: z.string(),
+  work: z
+    .array(voiceActivityWorkSchema)
+    .max(VOICE_ACTIVITY_WORK_MAX)
+    .optional(),
 });
 
 export const voiceActivityStartSchema = voiceActivityContentSchema.extend({
@@ -413,9 +430,7 @@ export const companionPopoverSchema = z.discriminatedUnion("kind", [
     kind: z.literal("microphones"),
     id: z.literal(COMPANION_PICKER_MICROPHONES),
     options: z
-      .array(
-        z.object({ id: z.string().max(512), label: z.string().max(200) }),
-      )
+      .array(z.object({ id: z.string().max(512), label: z.string().max(200) }))
       .max(COMPANION_PICKER_OPTIONS_MAX),
     selected: z.string().max(512),
     needsPermission: z.boolean(),
@@ -530,6 +545,11 @@ export const companionContextSchema = z.object({
         id: z.string().max(64),
         text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
       }),
+      z.object({
+        reason: z.literal("paste-failed"),
+        id: z.string().max(64),
+        text: z.string().max(COMPANION_DICTATION_OFFER_MAX),
+      }),
     ])
     .optional(),
   // Optional for the reason `dictationOffer` is. Caught rather than refused:
@@ -542,6 +562,14 @@ export const companionContextSchema = z.object({
   // as a press having happened, and the only shape that can say that is a whole
   // number that goes up.
   voiceKeyTaps: z.number().int().nonnegative().default(0),
+  // Presses of a call shortcut made on the beats that ask for one, counted.
+  // Bounded for the reason the taps are: the card reads a step in it as a
+  // chord having been pressed.
+  introChordPresses: z.number().int().nonnegative().default(0),
+  // Which control that press was for. Optional rather than defaulted, for the
+  // reason `captureTarget` is: every value it can hold names a press that
+  // happened, and absence is the only way to say none has.
+  introChordControl: z.enum(COMPANION_INTRO_CALL_CONTROLS).optional(),
 });
 
 // ---------------------------------------------------------------------------

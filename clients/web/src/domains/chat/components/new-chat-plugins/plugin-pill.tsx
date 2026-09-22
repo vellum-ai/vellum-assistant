@@ -13,6 +13,7 @@ export function PluginPill({ name, selected, onToggle }: PluginPillProps) {
   const { t } = useTranslation("chat");
   return (
     <Button
+      shape="pill"
       variant="outlined"
       active={selected}
       leftIcon={<Plug className="h-4 w-4 shrink-0" aria-hidden />}
@@ -26,7 +27,7 @@ export function PluginPill({ name, selected, onToggle }: PluginPillProps) {
       tintColor={
         selected ? "var(--content-default)" : "var(--content-secondary)"
       }
-      className="h-[34px] rounded-full pl-2.5 pr-3"
+      className="h-[34px] pl-2.5 pr-3"
     >
       {name}
     </Button>

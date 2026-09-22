@@ -10,6 +10,8 @@
     "loadingAria": "Cargando las aplicaciones",
     "retry": "Reintentar",
     "import": "Importar",
+    "newDocument": "Nuevo documento",
+    "newDocumentFailed": "No se pudo crear el documento. Inténtalo de nuevo.",
     "searchPlaceholder": "Buscar en tu biblioteca",
     "noMatches": "Ninguna aplicación ni documento coincide con “{query}”",
     "pinned": "Fijados",

@@ -1,62 +1,63 @@
-import { useTranslation } from "@/i18n";
 /**
- * Nested detail view for a subagent "Searching the web" query pill: the search
- * query rendered verbatim, then the sources it returned as the same favicon
- * source chips the timeline uses. Opened in-place by `SubagentDetailPanel` when
- * a query pill is clicked. It is the search analogue of the thinking pill's
- * reasoning view.
+ * The body for a web search: the query as written, then the sources it
+ * returned as the same favicon source chips the timeline uses. Every host of a
+ * tool detail renders it through the renderer registry.
  *
- * Static / presentational: reads only the `searchQuery` + `searchResults` the
- * panel already built into the `ToolDetailPayload` (see
- * `toolDetailPayloadFromToolCall`), so it never re-parses or fetches.
+ * Its result states come from `ToolOutputBody`, like every renderer that owns
+ * its output: a search still running says so, a refused one says it did not
+ * run, and a failure shows its error. Only a finished search with no results
+ * says it found no sources.
+ *
+ * It reads the `searchQuery` and `searchResults` its payload was built with
+ * (see `toolDetailPayloadFromToolCall`), so it never re-parses or fetches.
  */
 
 import { Typography } from "@vellumai/design-library";
 
+import { SectionLabel } from "@/components/detail-primitives";
+import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
+import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { WebSearchStepRow } from "@/domains/chat/components/web-search/web-search-step-row";
-import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { useTranslation } from "@/i18n";
 
-export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
+export function WebSearchDetailView({
+  detail,
+  result,
+  isRunning,
+  isError,
+  isDenied,
+}: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const query = detail.searchQuery ?? "";
   const results = detail.searchResults ?? [];
+  const finished = !isRunning && !isError && !isDenied;
 
   return (
     <div className="flex flex-col gap-5">
-      {query ? (
-        <div className="flex flex-col gap-2">
-          <Typography
-            variant="body-medium-default"
-            as="h3"
-            className="text-[var(--content-emphasised)]"
-          >
-            {t("webSearchDetailView.query")}
-          </Typography>
+      {query && (
+        <div>
+          <SectionLabel>{t("webSearchDetailView.query")}</SectionLabel>
           <Typography
             variant="body-medium-lighter"
             as="p"
-            className="break-words leading-relaxed text-[var(--content-default)]"
+            className="break-words text-[var(--content-default)]"
           >
-            {`"${query}"`}
+            {query}
           </Typography>
         </div>
-      ) : null}
+      )}
 
-      <div className="flex flex-col gap-2">
-        <Typography
-          variant="body-medium-default"
-          as="h3"
-          className="text-[var(--content-emphasised)]"
-        >
+      <div>
+        <SectionLabel>
           {results.length > 0
             ? t("webSearchDetailView.sourcesWithCount", {
                 count: results.length,
               })
             : t("webSearchDetailView.sources")}
-        </Typography>
+        </SectionLabel>
         {results.length > 0 ? (
-          // Reuse the timeline's source-chip cluster so the detail and the
-          // timeline present identical visuals for the same sources.
+          // The timeline's own source-chip cluster, so the detail and the
+          // timeline show the same sources the same way.
           <WebSearchStepRow
             step={{
               kind: "web_search",
@@ -66,13 +67,21 @@ export function WebSearchDetailView({ detail }: { detail: ToolDetailPayload }) {
               results,
             }}
           />
-        ) : (
+        ) : finished ? (
           <Typography
             variant="body-small-default"
+            as="p"
             className="text-[var(--content-tertiary)]"
           >
             {t("webSearchDetailView.noSources")}
           </Typography>
+        ) : (
+          <ToolOutputBody
+            text={typeof result === "string" ? result : ""}
+            isDenied={isDenied}
+            isRunning={isRunning}
+            isError={isError}
+          />
         )}
       </div>
     </div>

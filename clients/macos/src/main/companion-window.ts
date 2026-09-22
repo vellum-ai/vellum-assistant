@@ -28,11 +28,13 @@ import {
   companionAnnotationStrokeSchema,
   companionAnnotationToolSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
+  COMPANION_BASE_CAPTURE_PICKER_WIDTH,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   COMPANION_INTRO_VERSION,
+  companionIntroCallControlFor,
   companionBoxFor,
   companionCardSideFor,
   companionDockIsSide,
@@ -56,6 +58,7 @@ import {
   type CompanionContext,
   type CompanionIntroAction,
   type CompanionIntroBeat,
+  type CompanionIntroCallControl,
   type CompanionIntroEvent,
   type CompanionIntroReport,
   type CompanionPopover,
@@ -317,10 +320,20 @@ export const geometryFor = (
     // holds for the row, read up from the avatar's centre. Whole for the
     // reason the width is twice a whole half.
     const sideHalf = Math.round(maxPillWidth / 2 + gap + avatarBox + pad);
+    // Across, the capture picker stands beside the column rather than over
+    // it, so the side facing the middle of the screen holds the column's
+    // cross reach, the gap and the whole card. The other side hangs off the
+    // display's edge, where a wider canvas costs nothing.
+    const pickerReach = Math.round(
+      companionLowerReachFor(avatarBox, optionsBox) +
+        gap +
+        COMPANION_BASE_CAPTURE_PICKER_WIDTH * companionScaleFor(optionsBox) +
+        pad,
+    );
     return {
       avatarBox,
       optionsBox,
-      canvasWidth,
+      canvasWidth: Math.max(canvasWidth, pickerReach * 2),
       canvasHeight: sideHalf * 2,
       riseAbove: sideHalf,
       dropBelow: sideHalf,
@@ -677,6 +690,60 @@ const setIntroScrim = (on: boolean): void => {
 };
 
 /**
+ * Which call control the beat on screen is asking for a chord for, or `null`
+ * when it is asking for none, which is most of the run and all of the rest of
+ * the install.
+ *
+ * The beats that draw a call control draw the chord for it beside the button,
+ * and the window that can hear a chord is the app's rather than the surface's.
+ * So main, which is the side that holds the beat, is the side that says which
+ * chord is worth taking off the desktop.
+ *
+ * **Which beats those are is the contract's to say**
+ * ({@link companionIntroCallControlFor}), not this file's. A copy of the
+ * answer here is a chord main arms for a card the surface draws no shortcut
+ * on, or a shortcut on a card that nothing is listening for. All this adds is
+ * the `null` the wire carries absence as.
+ */
+const introChordFor = (
+  beat: CompanionIntroBeat | null,
+): CompanionIntroCallControl | null =>
+  companionIntroCallControlFor(beat) ?? null;
+
+/**
+ * What the app's window was last told to listen for, so the run's other five
+ * beats cost it nothing.
+ *
+ * The beat moves on every press and the answer below moves four times in a
+ * whole run, and each move of it arms or releases a binding that takes keys
+ * from whatever the user is working in.
+ */
+let introChordAsked: CompanionIntroCallControl | null = null;
+
+/**
+ * Move the run to a beat, and tell the app's window when that changes which
+ * chord it should be listening for.
+ *
+ * Every move of {@link intro} goes through here, because the arming has to
+ * follow the beat exactly: a binding left up past the card that asked for it
+ * is Option+S doing nothing in the user's own editor, and one that never went
+ * up is a card asking for a key that answers nothing.
+ */
+const setIntroBeat = (next: CompanionIntroBeat | null): void => {
+  intro = next;
+  const control = introChordFor(next);
+  if (control === introChordAsked) {
+    return;
+  }
+  introChordAsked = control;
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+  win.webContents.send("vellum:companion:introChord", control);
+};
+
+/**
  * Take the surface out of the staged run, whether it ended by being watched,
  * by being put away, or by the window going. The app's window is told either
  * way, so nothing is left dimmed.
@@ -829,7 +896,7 @@ const finishIntro = (ending: IntroEnding): void => {
     ending === "end" || ending === "offer" ? "completed" : "dismissed",
     intro,
   );
-  intro = null;
+  setIntroBeat(null);
   writeCompanionIntroSeen(COMPANION_INTRO_VERSION);
   if (introStaged) {
     landIntroHome();
@@ -1039,6 +1106,7 @@ let context: CompanionContext = {
   watching: false,
   captureCount: 0,
   voiceKeyTaps: 0,
+  introChordPresses: 0,
 };
 
 /**
@@ -1095,6 +1163,12 @@ const currentState = (): CompanionSurfaceState => {
     // reads a step in this as the real key having been pressed, and a publisher
     // that reports no taps has reported none.
     voiceKeyTaps: context.voiceKeyTaps ?? 0,
+    // Settled to zero for the reason the taps are: the card lights a chip on a
+    // step in this, and a publisher reporting no presses has made none.
+    introChordPresses: context.introChordPresses ?? 0,
+    // Passed through as it arrived, absence included, the way `captureTarget`
+    // is: it names the press the count belongs to, and no press has no name.
+    introChordControl: context.introChordControl,
     // Passed through as it arrived, for the reason `watchRetro` is: every
     // shape it can hold names something being read, and absence is the whole
     // screen.
@@ -2020,10 +2094,20 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
- * The frame window that has not painted yet, so nothing shows it before its
- * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ * The frame window whose page has not drawn the border yet, so nothing shows
+ * it before {@link revealFrame} does. See {@link placeWatchFrame}.
  */
-let frameAwaitingPaint: BrowserWindow | null = null;
+let frameAwaitingDraw: BrowserWindow | null = null;
+
+/** Shows {@link frameAwaitingDraw} if its page never reports the border. */
+let frameDrawFallback: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * How long a new frame waits on its page before being shown anyway. Well past
+ * the few hundred milliseconds the page takes to draw, so it only fires for a
+ * page that will not report at all.
+ */
+const FRAME_DRAW_TIMEOUT_MS = 3000;
 
 /**
  * Give the frame the mouse, or give it back to the desktop.
@@ -2062,9 +2146,9 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  // `focus` puts a window on screen, and a frame still waiting on its first
-  // paint must stay off it. The paint runs this again.
-  if (frame !== frameAwaitingPaint) {
+  // `focus` puts a window on screen, and a frame still waiting on its page to
+  // draw must stay off it. `revealFrame` runs this again.
+  if (frame !== frameAwaitingDraw) {
     frame.focus();
   }
 };
@@ -2655,9 +2739,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    // A frame still waiting on its first paint is shown by that paint.
-    // Shown any earlier, it is the frame that never reaches the screen.
-    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
+    // A frame still waiting on its page is shown by `revealFrame`. Shown any
+    // earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingDraw) {
       existing.showInactive();
     }
     return;
@@ -2667,13 +2751,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
-    // **Shown once its page has painted, never before.** A frame put on
-    // screen while its page is still loading stays blank on a whole display:
-    // the page draws the border and the label, and the screen keeps showing
-    // the empty window until something makes macOS take it again (Mission
-    // Control, or showing the window a second time). Moving it, resizing it
-    // and repainting the page do not.
-    showWhenReady: true,
+    // **Shown once its page has drawn the border, never before.** A frame put
+    // on screen before then stays blank on a whole display: the page goes on
+    // drawing the border and the label, and the screen keeps showing the
+    // empty window until something makes macOS take the window's contents
+    // again (Mission Control, capturing the window, or showing it a second
+    // time). Moving it, resizing it, reordering it and repainting the page do
+    // not. The page's first paint (`ready-to-show`) is too early: the border
+    // waits on the companion state, which the page asks for after it loads.
+    callerShows: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2695,15 +2781,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
-  frameAwaitingPaint = win;
-  win.once("ready-to-show", () => {
-    if (frameAwaitingPaint === win) {
-      frameAwaitingPaint = null;
-    }
-    // Key status is lent with a `focus` that would have shown the window
-    // early, so a mode that was on when this frame opened takes it now.
-    applyFrameMouse();
-  });
+  awaitFrameDraw(win);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
@@ -2715,6 +2793,51 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   // Marks still up are drawn on this window from here on, so the presses
   // they can be heard as are measured out on it.
   armCoachmarkPressWatch();
+};
+
+/**
+ * Hold a new frame off the screen until its page reports the border drawn, or
+ * until {@link FRAME_DRAW_TIMEOUT_MS} passes without a report.
+ */
+const awaitFrameDraw = (win: BrowserWindow): void => {
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+  }
+  frameAwaitingDraw = win;
+  frameDrawFallback = setTimeout(() => {
+    revealFrame(win);
+  }, FRAME_DRAW_TIMEOUT_MS);
+  win.once("closed", () => {
+    if (frameAwaitingDraw === win) {
+      frameAwaitingDraw = null;
+      if (frameDrawFallback !== null) {
+        clearTimeout(frameDrawFallback);
+        frameDrawFallback = null;
+      }
+    }
+  });
+};
+
+/**
+ * Put a frame that was waiting on its page on the screen. Settles: a frame
+ * already shown, or replaced by a newer one, is left alone.
+ */
+const revealFrame = (win: BrowserWindow): void => {
+  if (frameAwaitingDraw !== win) {
+    return;
+  }
+  frameAwaitingDraw = null;
+  if (frameDrawFallback !== null) {
+    clearTimeout(frameDrawFallback);
+    frameDrawFallback = null;
+  }
+  if (win.isDestroyed()) {
+    return;
+  }
+  win.showInactive();
+  // Key status is lent with a `focus` that would have shown the window
+  // early, so a mode that was on when this frame opened takes it now.
+  applyFrameMouse();
 };
 
 /**
@@ -3659,6 +3782,22 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * The frame's page has drawn the border, from the frame's own window. Taken
+   * only from the window waiting on it, so another page cannot show the frame
+   * early.
+   */
+  on("vellum:companion:frameDrawn", z.tuple([]), (_args, event) => {
+    const frame = frameAwaitingDraw;
+    if (
+      frame !== null &&
+      !frame.isDestroyed() &&
+      event.sender === frame.webContents
+    ) {
+      revealFrame(frame);
+    }
+  });
+
+  /**
    * A mark drawn on the frame, delivered to the renderer holding the session
    * the way Share's press is.
    *
@@ -4040,7 +4179,7 @@ export const installCompanionWindow = (): void => {
         if (next === null) {
           finishIntro(introEndingFor(action));
         } else {
-          intro = next;
+          setIntroBeat(next);
           // `try` mid-run holds the beat, and a beat held is not a beat
           // reached.
           if (next !== from) {
@@ -4326,6 +4465,14 @@ export const installCompanionWindow = (): void => {
   // "not dimmed", because it is not.
   handle("vellum:companion:getIntroStage", z.tuple([]), () => introScrim);
 
+  // Which chord the run is asking for, pulled by the app's window on mount for
+  // the reason the staging is pulled: that window reloads, and a push made
+  // while it was away is gone. Read off the beat rather than off what was last
+  // pushed, since the beat is the fact and the push is only how it travelled.
+  handle("vellum:companion:getIntroChord", z.tuple([]), () =>
+    introChordFor(intro),
+  );
+
   // The reports that had no window to go to, handed over on the pull the app's
   // window makes once it is listening. Taken rather than read: a report handed
   // over twice is a funnel row counted twice, and the window that asked is the
@@ -4356,7 +4503,7 @@ export const openCompanionWindow = (): void => {
   // created so the state its route pulls on mount already carries the beat,
   // rather than the surface appearing plain and being annotated a frame later.
   if (readCompanionIntroSeenVersion() < COMPANION_INTRO_VERSION) {
-    intro = COMPANION_INTRO_BEATS[0];
+    setIntroBeat(COMPANION_INTRO_BEATS[0]);
     // Taken once, here, for the whole run. See {@link introMicGranted}: the
     // last beat can win the grant mid-run, and a run counted in two cohorts is
     // one whose conversions land where its exposures are not.

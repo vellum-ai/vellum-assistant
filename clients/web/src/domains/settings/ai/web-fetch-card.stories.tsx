@@ -1,16 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { WebFetchCard } from "@/domains/settings/ai/web-fetch-card";
-
-// No network in Storybook — disable retries so the config query falls back to
-// localStorage defaults (provider = "default") instead of spinning.
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { retry: false, refetchOnWindowFocus: false, staleTime: Infinity },
-  },
-});
+import { withQueryCache } from "@/lib/story-query-cache";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const meta: Meta<typeof WebFetchCard> = {
   title: "Settings/AI/WebFetchCard",
@@ -23,13 +15,15 @@ const meta: Meta<typeof WebFetchCard> = {
         activeAssistantId: "story-assistant",
       });
       return (
-        <QueryClientProvider client={queryClient}>
-          <div style={{ maxWidth: 640, padding: 24 }}>
-            <Story />
-          </div>
-        </QueryClientProvider>
+        <div style={{ maxWidth: 640, padding: 24 }}>
+          <Story />
+        </div>
       );
     },
+    // No network in Storybook, and the cache never retries, so the config
+    // query falls back to localStorage defaults (provider = "default")
+    // instead of spinning.
+    withQueryCache(),
   ],
 };
 

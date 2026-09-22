@@ -2,6 +2,7 @@ import type { OutgoingHttpHeaders } from "node:http";
 
 import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
 
+import type { VelayBinaryWebSocketFrame } from "./binary-websocket.js";
 import { addVelayBridgeAuthHeader } from "./bridge-auth.js";
 import {
   binaryLikeToBytes,
@@ -40,6 +41,7 @@ type WebSocketConstructorWithHeaders = {
 
 type BridgeConnection = {
   ws: WebSocket;
+  binaryMessages: boolean;
   opened: boolean;
   openErrorSent: boolean;
   pendingMessages: PendingMessage[];
@@ -63,6 +65,7 @@ export class VelayWebSocketBridge {
       case VELAY_FRAME_TYPES.websocketOpen:
         this.open(frame);
         return;
+      case "websocket_binary":
       case VELAY_FRAME_TYPES.websocketMessage:
         this.message(frame);
         return;
@@ -102,6 +105,8 @@ export class VelayWebSocketBridge {
 
     const connection: BridgeConnection = {
       ws,
+      binaryMessages:
+        frame.binary_messages === true && frame.path === "/v1/desktop/stream",
       opened: false,
       openErrorSent: false,
       pendingMessages: [],
@@ -147,11 +152,17 @@ export class VelayWebSocketBridge {
     });
   }
 
-  message(frame: VelayWebSocketMessageFrame): void {
+  message(frame: VelayWebSocketMessageFrame | VelayBinaryWebSocketFrame): void {
     const connection = this.connections.get(frame.connection_id);
     if (!connection) return;
 
-    const message = decodeVelayMessage(frame);
+    if (frame.type === "websocket_binary" && !connection.binaryMessages) {
+      return;
+    }
+    const message =
+      frame.type === "websocket_binary"
+        ? frame.payload
+        : decodeVelayMessage(frame);
     if (message === undefined) {
       this.closeConnection(
         frame.connection_id,
@@ -213,7 +224,14 @@ export class VelayWebSocketBridge {
   ): Promise<void> {
     if (this.connections.get(connectionId) !== connection) return;
 
-    const message = await encodeLocalMessage(connectionId, data);
+    const message: VelayFrame =
+      connection.binaryMessages && typeof data !== "string"
+        ? {
+            type: "websocket_binary",
+            connection_id: connectionId,
+            payload: await binaryLikeToBytes(data),
+          }
+        : await encodeLocalMessage(connectionId, data);
     if (this.connections.get(connectionId) !== connection) return;
     this.sendFrame(message);
   }

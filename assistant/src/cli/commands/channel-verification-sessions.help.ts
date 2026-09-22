@@ -44,7 +44,11 @@ Examples:
           description:
             "Destination address for outbound verification (handle, phone number, user ID, or email address)",
         },
-        { flags: "--rebind", description: "Replace existing guardian binding" },
+        {
+          flags: "--rebind",
+          description:
+            "Create a code although the channel already has a guardian (see below)",
+        },
         {
           flags: "--conversation-id <conversationId>",
           description: "Conversation ID for inbound challenges",
@@ -74,7 +78,13 @@ Routes between three creation modes based on the provided options:
   2. Outbound: --channel <ch> --destination <dest>
      Sends a verification code to the given destination. Supports telegram
      (handle or chat ID), phone (E.164 number), slack and discord (user ID),
-     and email. Use --rebind to replace an existing guardian binding.
+     and email.
+
+--rebind creates a code although the channel already has a guardian. On
+telegram, slack, discord and email, only the account already bound can redeem
+that code, which is how the same guardian verifies again. A code never moves
+the guardian to a different account there: run "revoke" first, then create
+without --rebind. On phone, an outbound code replaces the bound number.
 
   3. Inbound: --channel <ch> (no --destination)
      Generates a challenge secret for the guardian to send back on the

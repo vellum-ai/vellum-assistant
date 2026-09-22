@@ -156,8 +156,14 @@ export function isPrivateNetworkOrigin(req: Request): boolean {
 /**
  * Extract and validate a bearer token from the Authorization header.
  * Returns the token string if present, or null.
+ *
+ * The scheme is matched case-insensitively, per RFC 7235 and to match the
+ * gateway's own parsing. An empty credential returns null.
  */
 export function extractBearerToken(req: Request): string | null {
   const authHeader = req.headers.get("authorization");
-  return authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!authHeader?.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  return authHeader.slice(7) || null;
 }

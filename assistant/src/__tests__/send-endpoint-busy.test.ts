@@ -302,8 +302,10 @@ function makePendingApprovalConversation(
 // Tests
 // ---------------------------------------------------------------------------
 
-const TEST_TOKEN = "test-bearer-token-send";
-const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
+// This suite mocks isHttpAuthDisabled() to true, so a request carrying no
+// bearer authenticates through the dev bypass. A bearer that is present is
+// verified against the signing key, which these tests do not set up.
+const AUTH_HEADERS: Record<string, string> = {};
 
 describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   let server: RuntimeHttpServer;

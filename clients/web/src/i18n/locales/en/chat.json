@@ -164,14 +164,8 @@
     "reconnectButton": "Reconnect",
     "title": "Desktop",
     "unavailable": "The virtual desktop isn't available on this assistant.",
-    "installButton": "Install virtual desktop",
     "checkingSetup": "Checking virtual desktop setup…",
-    "installingPackages": "Installing virtual desktop components…",
-    "installingChrome": "Installing Google Chrome…",
-    "checkingInstall": "Checking the installation…",
-    "installFailed": "Installation failed. Try again to finish setup.",
-    "setupRequestFailed": "Could not check virtual desktop setup. Reconnect to try again.",
-    "setupUnsupported": "Virtual desktop installation requires a Linux x64 or ARM64 container with administrator access."
+    "setupRequestFailed": "Could not check virtual desktop setup. Reconnect to try again."
   },
   "assistantNavItem": {
     "newChat": "New Chat"
@@ -714,6 +708,8 @@
     "markRead": "Mark as read",
     "markUnread": "Mark as unread",
     "moveToGroup": "Move to group",
+    "newDocument": "New Document",
+    "newDocumentFailed": "Couldn't create the document. Try again.",
     "newGroup": "New group…",
     "openInNewWindow": "Open in New Window",
     "pin": "Pin",
@@ -861,6 +857,7 @@
     "notFound": "Document not found."
   },
   "dynamicPageSurface": {
+    "collapse": "Collapse",
     "titleFallback": "Dynamic content"
   },
   "exportProgressModal": {
@@ -900,6 +897,7 @@
     "accepted": "Accepted: {types}",
     "dropHint": "Drag and drop files here, or click to browse",
     "maxSize": "Max size: {size}",
+    "removeFile": "Remove {name}",
     "upload": "Upload",
     "uploading": "Uploading..."
   },
@@ -1544,6 +1542,10 @@
     "cancel": "Cancel",
     "placeholder": "Type your reply…"
   },
+  "rawDisclosure": {
+    "input": "Raw input",
+    "output": "Raw output"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Copy request payload",
     "copyResponsePayloadAriaLabel": "Copy response payload",
@@ -1697,7 +1699,8 @@
     "titleFallback": "Skill"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · running"
+    "runningSuffix": " · running",
+    "unnamedTool": "Skill tool"
   },
   "skillLoadCard": {
     "view": "View"
@@ -1710,10 +1713,6 @@
     "provides": "Provides",
     "unnamedSkill": "Skill",
     "usedSkill": "Used Skill"
-  },
-  "skillLoadOutput": {
-    "output": "Output",
-    "outputFormatAria": "Output format"
   },
   "skillToolList": {
     "fromSkill": "From {name}"
@@ -1839,12 +1838,10 @@
   },
   "toolInputParameters": {
     "parameters": "Parameters",
-    "rawInput": "Raw input",
     "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}",
-    "rawOutput": "Raw output"
+    "moreCount": "{count, plural, one {# more in Raw output} other {# more in Raw output}}"
   },
   "valueFields": {
     "copyValue": "Copy {label}"
@@ -1966,12 +1963,12 @@
     "workflowFinished": "Workflow finished"
   },
   "wakeDetailPanel": {
-    "close": "Close",
     "details": "Details",
     "result": "Result",
     "runStatus": "Run status",
     "title": "Conversation woke",
-    "workflow": "Workflow"
+    "workflow": "Workflow",
+    "closeAria": "Close details"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1981,13 +1978,9 @@
     "now": "Now"
   },
   "webFetchDetailView": {
-    "content": "Content",
     "fetchFailed": "Fetch failed.",
     "fetching": "Fetching…",
-    "noContent": "No content extracted.",
-    "rawResult": "Raw result",
-    "viewExtracted": "View extracted",
-    "viewRaw": "View raw"
+    "noContent": "No content extracted."
   },
   "webSearchDetailView": {
     "noSources": "No sources found.",
@@ -2090,5 +2083,23 @@
     "skip": "Skip",
     "showMore": "Show more",
     "showLess": "Show less"
+  },
+  "rememberDetail": {
+    "saved": "Saved",
+    "saving": "Saving",
+    "notSaved": "Not saved"
+  },
+  "recallDetail": {
+    "searchedFor": "Searched for",
+    "scope": "{depth} · {sources}",
+    "answer": "Answer",
+    "evidence": "{count, plural, one {# result} other {# results}}",
+    "noEvidence": "Nothing relevant turned up.",
+    "degraded": "Some places couldn't be fully searched",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Memory} conversations {Conversations} workspace {Workspace files} other {{source}}}",
+    "depth": "{depth, select, fast {Quick search} standard {Standard search} deep {Deep search} other {Search}}"
   }
 }

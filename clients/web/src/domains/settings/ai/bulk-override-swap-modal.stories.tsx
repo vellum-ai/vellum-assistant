@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { BulkOverrideSwapModal } from "@/domains/settings/ai/bulk-override-swap-modal";
+import { withQueryCache } from "@/lib/story-query-cache";
 
 const ASSISTANT_ID = "story-assistant";
 
@@ -68,17 +68,7 @@ const meta: Meta<typeof BulkOverrideSwapModal> = {
     onClose: () => {},
     onApplied: () => {},
   },
-  decorators: [
-    (Story) => (
-      <QueryClientProvider
-        client={
-          new QueryClient({ defaultOptions: { queries: { retry: false } } })
-        }
-      >
-        <Story />
-      </QueryClientProvider>
-    ),
-  ],
+  decorators: [withQueryCache()],
 };
 
 export default meta;

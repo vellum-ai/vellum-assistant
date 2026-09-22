@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useState, type ChangeEvent, type KeyboardEvent } from "react";
 
 import {
@@ -149,7 +148,7 @@ export function AutoTopUpDailyLimitModal({
             variant="primary"
             onClick={handleSave}
             disabled={saving}
-            leftIcon={saving ? <Loader2 className="animate-spin" /> : undefined}
+            loading={saving}
             data-testid="auto-top-up-daily-limit-save-button"
           >
             {saving

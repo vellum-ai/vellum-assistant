@@ -3181,6 +3181,27 @@ describe("VoiceRoom: camera", () => {
         await waitFor(() => expect(flashControl()).not.toBeNull());
       }
 
+      test("hangs flash and flip off one inset, as one circle", async () => {
+        await openNativeCamera(FLASH_CAPABLE);
+
+        const flash = flashControl()!;
+        const flip = screen.getByRole("button", { name: "Flip camera" });
+
+        expect(flash.className).toContain("left-[var(--camera-flank-inset)]");
+        expect(flip.className).toContain("right-[var(--camera-flank-inset)]");
+        expect(flash.className).toContain("size-13");
+        expect(flip.className).toContain("size-13");
+
+        // The row is what publishes the value, so both flanks have to sit
+        // inside it or their own side resolves to `auto`. 30px is the floor,
+        // which the side safe-area insets only ever deepen.
+        const row = flash.closest("[style*='--camera-flank-inset']");
+        expect(row?.getAttribute("style")).toContain(
+          "--camera-flank-inset: max(30px,",
+        );
+        expect(row?.contains(flip)).toBe(true);
+      });
+
       test("takes the control away in Live on a camera with no lamp", async () => {
         await openNativeCamera(FLASH_CAPABLE);
 

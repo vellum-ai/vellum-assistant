@@ -19,7 +19,11 @@ import {
   type ReactNode,
 } from "react";
 
-import { Typography, type TypographyAs } from "@vellumai/design-library";
+import {
+  CardRoot,
+  Typography,
+  type TypographyAs,
+} from "@vellumai/design-library";
 
 import { CopyButton } from "@/components/copy-button";
 import { useOverflows } from "@/hooks/use-overflows";
@@ -152,6 +156,7 @@ function Fold({
         <button
           type="button"
           onClick={toggle}
+          aria-expanded={expanded}
           className="mt-2 w-full border-t border-[var(--border-base)] pt-2 text-left"
         >
           <Typography
@@ -169,14 +174,9 @@ function Fold({
   );
 }
 
-const DETAIL_BLOCK_VARIANT_CLASSES = {
-  outlined: "rounded-lg border border-[var(--border-base)]",
-  filled: "rounded-xl",
-} as const;
-
 interface DetailBlockProps {
   /** `outlined` carries a hairline border; `filled` is the bare surface. */
-  variant?: keyof typeof DETAIL_BLOCK_VARIANT_CLASSES;
+  variant?: "outlined" | "filled";
   /** Text the copy button copies. Without it the block has no copy button. */
   copyText?: string;
   /** Names the content while it scrolls, once opened past the fold. */
@@ -187,7 +187,8 @@ interface DetailBlockProps {
 /**
  * The surface long content sits on in a detail panel: clamped behind Show more
  * when it runs long, with a copy button in its top-right corner when there is
- * text to copy.
+ * text to copy. It is a design-library `CardRoot` on the overlay surface, since the
+ * panel it sits in is itself the lift surface a default card would take.
  *
  * It owns the conditions its parts depend on. The copy button is
  * absolutely positioned, so the block is its containing block, and it reserves
@@ -205,10 +206,12 @@ export function DetailBlock({
   const hasCopy = copyText !== undefined;
 
   return (
-    <div
+    <CardRoot
+      surface="overlay"
+      padding="sm"
+      bordered={variant === "outlined"}
       className={cn(
-        "relative bg-[var(--surface-overlay)] p-3",
-        DETAIL_BLOCK_VARIANT_CLASSES[variant],
+        "relative",
         hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
       )}
     >
@@ -220,7 +223,7 @@ export function DetailBlock({
           className="absolute right-2 top-2"
         />
       )}
-    </div>
+    </CardRoot>
   );
 }
 

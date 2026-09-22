@@ -11,7 +11,7 @@
  * cache. If that seam moves, these stories move with it instead of silently
  * drifting.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useLayoutEffect } from "react";
 
@@ -22,11 +22,10 @@ import type {
   PlanIdEnum,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useAuthStore } from "@/stores/auth-store";
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const queryClient = createStoryQueryClient();
 
 function makeSubscription(planId: PlanIdEnum): SubscriptionResponse {
   return {

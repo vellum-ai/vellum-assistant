@@ -2,7 +2,7 @@
  * Shared helper for computer-use skill wrapper scripts.
  *
  * Each wrapper calls forwardComputerUseProxyTool() to delegate execution to
- * the proxy resolver, which forwards the call to the connected desktop client.
+ * the proxy resolver, which selects the connected or virtual desktop.
  */
 
 import { formatDesktopAppRequired } from "../capability-offer.js";

@@ -816,9 +816,8 @@ export function HatchingScreen() {
               <Button
                 asChild
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
                   {t(getDesktopAppDownloadActionKey(desktopAppPlatform))}
@@ -839,9 +838,8 @@ export function HatchingScreen() {
             {apiKeyRejected ? (
               <Button
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
                 onClick={() =>
                   void navigate(
                     hostingParam
@@ -856,9 +854,8 @@ export function HatchingScreen() {
             ) : (
               <Button
                 variant="primary"
-                size="regular"
+                size={electron ? "regular" : "large"}
                 fullWidth
-                className={electron ? undefined : "h-11 text-base"}
                 onClick={() => {
                   segmentStartRef.current = 0;
                   segmentStartTimeRef.current = Date.now();
@@ -877,9 +874,8 @@ export function HatchingScreen() {
             )}
             <Button
               variant="outlined"
-              size="regular"
+              size={electron ? "regular" : "large"}
               fullWidth
-              className={electron ? undefined : "h-11 text-base"}
               onClick={() =>
                 void navigate(
                   useLocalHatch

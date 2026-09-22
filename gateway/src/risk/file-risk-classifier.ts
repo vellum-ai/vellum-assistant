@@ -11,11 +11,11 @@
  *   targeting the actor token signing key or the monitoring data directory
  *   (snapshot files may contain secrets).
  * - file_write / file_edit: Low by default, Medium when the target resolves
- *   outside the sandbox working directory on a non-containerized install,
- *   High if targeting skill source code, the workspace hooks directory, the
- *   user plugins directory, the workspace tools directory, the workspace
- *   routes directory, the workspace workflows directory, or the monitoring
- *   data directory.
+ *   outside the sandbox working directory on a non-containerized install or
+ *   lands in an app authoring sink (the user plugins directory or the
+ *   workspace routes directory), High if targeting skill source code, the
+ *   workspace hooks directory, the workspace tools directory, the workspace
+ *   workflows directory, or the monitoring data directory.
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code, the workspace hooks directory, the user plugins
@@ -28,18 +28,27 @@
  *   routes directory, the workspace workflows directory, or the monitoring
  *   data directory.
  *
- * The tools and routes directories are escalated for the same reason as
- * plugins: any file written under `<workspace>/tools/` is dynamic-imported
- * and executed as a registered tool by the workspace-tool loader (and its
- * live file watcher), and any file under `<workspace>/routes/` is
- * dynamic-imported and executed as an HTTP route handler. A write to either
- * is a code-injection sink, so it must clear the same High-risk approval gate
- * as hooks and plugins.
+ * The tools and routes directories are code-injection sinks for the same
+ * reason as plugins: any file written under `<workspace>/tools/` is
+ * dynamic-imported and executed as a registered tool by the workspace-tool
+ * loader (and its live file watcher), and any file under `<workspace>/routes/`
+ * is dynamic-imported and executed as an HTTP route handler.
  *
  * The workflows directory is escalated for the same reason: any file under
  * `<workspace>/workflows/` is a saved workflow whose source is executed (in the
  * sandbox, and unattended when triggered by a schedule), so it must clear the
  * same High-risk gate.
+ *
+ * The plugins and routes directories are where apps are built: a plugin
+ * bundles its apps and their backing routes, and a workspace app's backend
+ * lives under `<workspace>/routes/`. Building and iterating on an app writes
+ * them on every turn, so a sandbox file write there classifies Medium: it
+ * auto-approves at the default threshold and still prompts at a stricter one.
+ * The same write through bash (`cat >`, `tee`, `sed -i`) classifies Medium or
+ * lower, so High on the file tools would gate only the well-behaved path.
+ * Host file tools keep High for every sink, and non-guardian actors stay on
+ * the assistant's capability floor for all of them
+ * (`isControlPlaneWorkspaceWrite`).
  *
  * Gateway adaptation: accepts a FileClassificationContext parameter instead
  * of importing assistant platform utilities directly. The assistant is
@@ -459,11 +468,18 @@ function buildFileAllowlistOptions(
 }
 
 /**
+ * Which file tools are writing: the sandbox file tools (`file_write`,
+ * `file_edit`) or the host file tools (`host_file_write`, `host_file_edit`,
+ * `host_file_transfer`). Sets the level of an app authoring sink.
+ */
+type SinkLane = "sandbox" | "host";
+
+/**
  * Classify a resolved (absolute) path against the code-injection sink
- * directories: skill source, hooks, plugins, tools, routes, and workflows. A
- * write to any of these plants code the daemon later executes, so it must clear
- * the High-risk approval gate. Returns a High assessment when the path lands in
- * a sink, or `null` when it doesn't.
+ * directories: skill source, hooks, plugins, tools, routes, workflows, and
+ * monitoring. A write to any of these plants code the daemon later executes.
+ * Every sink is High except the app authoring sinks (plugins and routes) in the
+ * sandbox lane, which are Medium. Returns `null` when the path lands in no sink.
  *
  * `verb` distinguishes the user-facing reason: "Writes" for write/edit tools,
  * "Transfers" for host_file_transfer.
@@ -472,33 +488,49 @@ function classifyCodeInjectionSink(
   resolvedPath: string,
   context: FileClassificationContext,
   verb: "Writes" | "Transfers",
+  lane: SinkLane,
   allowlistOptions: AllowlistOption[],
 ): RiskAssessment | null {
-  const high = (target: string): RiskAssessment => ({
-    riskLevel: "high",
+  const sink = (
+    target: string,
+    riskLevel: "medium" | "high" = "high",
+  ): RiskAssessment => ({
+    riskLevel,
     reason: `${verb} to ${target}`,
     scopeOptions: [],
     matchType: "registry",
     allowlistOptions,
   });
-  if (isSkillSourcePath(resolvedPath, context))
-    return high("skill source code");
-  if (isHooksPath(resolvedPath, context)) return high("hooks directory");
-  if (isPluginsPath(resolvedPath, context)) return high("plugins directory");
-  if (isToolsPath(resolvedPath, context)) return high("tools directory");
-  if (isRoutesPath(resolvedPath, context)) return high("routes directory");
-  if (isWorkflowsPath(resolvedPath, context))
-    return high("workflows directory");
-  if (isMonitoringPath(resolvedPath, context))
-    return high("monitoring directory");
+  const appAuthoringRisk = lane === "sandbox" ? "medium" : "high";
+  if (isSkillSourcePath(resolvedPath, context)) {
+    return sink("skill source code");
+  }
+  if (isHooksPath(resolvedPath, context)) {
+    return sink("hooks directory");
+  }
+  if (isPluginsPath(resolvedPath, context)) {
+    return sink("plugins directory", appAuthoringRisk);
+  }
+  if (isToolsPath(resolvedPath, context)) {
+    return sink("tools directory");
+  }
+  if (isRoutesPath(resolvedPath, context)) {
+    return sink("routes directory", appAuthoringRisk);
+  }
+  if (isWorkflowsPath(resolvedPath, context)) {
+    return sink("workflows directory");
+  }
+  if (isMonitoringPath(resolvedPath, context)) {
+    return sink("monitoring directory");
+  }
   return null;
 }
 
 /**
  * Run {@link classifyCodeInjectionSink} against both the lexical and the
- * symlink-resolved path, escalating if EITHER lands in a sink. A symlink can
- * mask a protected target two ways — a benign name pointing into a protected
- * dir (caught by the real path), or a path lexically inside a protected dir
+ * symlink-resolved path, returning the higher-risk match. A symlink can mask a
+ * protected target two ways: a benign name pointing into a protected dir
+ * (caught by the real path), or a path lexically inside a protected dir
  * pointing elsewhere, where the loader still executes the file through the
  * protected location (caught by the lexical path). When the two paths are
  * equal the check runs once.
@@ -508,17 +540,30 @@ function classifyCodeInjectionSinkEither(
   realPath: string,
   context: FileClassificationContext,
   verb: "Writes" | "Transfers",
+  lane: SinkLane,
   allowlistOptions: AllowlistOption[],
 ): RiskAssessment | null {
   const lexicalSink = classifyCodeInjectionSink(
     lexicalPath,
     context,
     verb,
+    lane,
     allowlistOptions,
   );
-  if (lexicalSink) return lexicalSink;
-  if (realPath === lexicalPath) return null;
-  return classifyCodeInjectionSink(realPath, context, verb, allowlistOptions);
+  if (realPath === lexicalPath) {
+    return lexicalSink;
+  }
+  const realSink = classifyCodeInjectionSink(
+    realPath,
+    context,
+    verb,
+    lane,
+    allowlistOptions,
+  );
+  if (!realSink || lexicalSink?.riskLevel === "high") {
+    return lexicalSink;
+  }
+  return realSink;
 }
 
 // -- Classifier ---------------------------------------------------------------
@@ -528,7 +573,7 @@ function classifyCodeInjectionSinkEither(
  *
  * Classifies all seven file tool types by risk level, with escalation paths
  * for the code-injection sinks (skill source, hooks, plugins, tools, routes,
- * and workflows) and the actor token signing key.
+ * workflows, and monitoring) and the actor token signing key.
  *
  * Unlike the assistant version, this classifier accepts a
  * FileClassificationContext parameter on classify() instead of importing
@@ -634,6 +679,7 @@ export class FileRiskClassifier implements RiskClassifier<
             realPath,
             context,
             "Writes",
+            "sandbox",
             allowlistOptions,
           );
           if (sink) {
@@ -701,6 +747,7 @@ export class FileRiskClassifier implements RiskClassifier<
             realDest,
             context,
             "Transfers",
+            "host",
             allowlistOptions,
           );
           if (destSink) {
@@ -720,6 +767,7 @@ export class FileRiskClassifier implements RiskClassifier<
             realPath,
             context,
             actionVerb,
+            "host",
             allowlistOptions,
           );
           if (sink) {

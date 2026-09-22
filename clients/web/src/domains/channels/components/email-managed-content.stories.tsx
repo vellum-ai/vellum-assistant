@@ -9,7 +9,7 @@
  * entitled / explicitly-not-entitled / unknown, and only the middle one shows
  * the wall. An unknown subscription fails open to the form.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useLayoutEffect } from "react";
 
@@ -17,14 +17,13 @@ import { EmailManagedContent } from "@/domains/channels/components/email-managed
 import { organizationsBillingSubscriptionRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { LS_ASSISTANT_INBOX_HIDDEN } from "@/utils/local-settings-keys";
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const queryClient = createStoryQueryClient();
 
 const NOT_ENTITLED: SubscriptionResponse = {
   plan_id: "base",

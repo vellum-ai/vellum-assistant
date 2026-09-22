@@ -79,6 +79,9 @@ export class VellumManagedFluxRealtimeTranscriber implements StreamingTranscribe
   private redialOnClose = false;
   private stopping = false;
   private closedEmitted = false;
+  // Consumers see one stream across relay reconnects, with one turn sequence.
+  private turnIndexOffset = 0;
+  private latestTurnIndex = -1;
 
   constructor(
     connection: SpeechRelayConnection,
@@ -225,6 +228,15 @@ export class VellumManagedFluxRealtimeTranscriber implements StreamingTranscribe
       return;
     }
 
+    if (
+      (event.type === "turn-start" || event.type === "turn-end") &&
+      event.turnIndex !== undefined
+    ) {
+      const turnIndex = this.turnIndexOffset + event.turnIndex;
+      this.latestTurnIndex = Math.max(this.latestTurnIndex, turnIndex);
+      this.emit({ ...event, turnIndex });
+      return;
+    }
     this.emit(event);
   }
 
@@ -236,6 +248,7 @@ export class VellumManagedFluxRealtimeTranscriber implements StreamingTranscribe
   private beginRedial(): void {
     log.info("Managed Flux relay session hit velay's duration cap, re-dialing");
     this.inner = null;
+    this.turnIndexOffset = this.latestTurnIndex + 1;
     void (async () => {
       try {
         const inner = await this.dial();

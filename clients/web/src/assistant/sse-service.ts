@@ -2,11 +2,11 @@
  * Assistant-scoped SSE connection — the non-React core.
  *
  * Owns: opening the daemon's `/v1/events` stream for the active
- * assistant, republishing every envelope on the bus as `sse.event`,
- * publishing `sse.opened` / `sse.closed` lifecycle signals, and the
- * bounce policy that recovers half-dead sockets across renderer
- * visibility, system suspend/wake, screen lock/unlock, and
- * reachability-driven retries.
+ * assistant, republishing every envelope on the bus as `sse.event`
+ * (a task's worth per drain, see `docs/EVENT_BUS.md`), publishing
+ * `sse.opened` / `sse.closed` lifecycle signals, and the bounce policy
+ * that recovers half-dead sockets across renderer visibility, system
+ * suspend/wake, screen lock/unlock, and reachability-driven retries.
  *
  * Producer + consumer: republishes SSE events into the bus AND
  * subscribes to bus events (`app.hidden`, `app.resume`, `power.*`,
@@ -25,6 +25,7 @@
  */
 
 import * as Sentry from "@sentry/react";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
@@ -157,7 +158,12 @@ export const sseService: SseService = {
     let lastAppResumeAt = 0;
     let lastPowerActionAt = 0;
     let nextOpenCause:
-      "fresh" | "error" | "watchdog" | "resume" | "debug" | "anchor" = "fresh";
+      | "fresh"
+      | "error"
+      | "watchdog"
+      | "resume"
+      | "debug"
+      | "anchor" = "fresh";
     // Pending timer for a delayed debug-triggered reconnect, so detach
     // can cancel a reconnect that hasn't fired yet.
     let debugReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -173,6 +179,74 @@ export const sseService: SseService = {
         clearTimeout(hiddenTeardownTimer);
         hiddenTeardownTimer = null;
       }
+    };
+
+    // Envelopes received since the last drain, in arrival order. The
+    // transport hands them over one per microtask (its `for await` read
+    // loop), and React flushes a synchronous commit in the microtask after
+    // every store write, so publishing from that callback costs one full
+    // commit per envelope. A chunk or a reconnect replay of N envelopes is
+    // then N back-to-back commits inside one task, which is what trips
+    // React's nested-update limit (`Maximum update depth exceeded`) and
+    // keeps a slower renderer saturated for the length of a reply.
+    // Publishing the whole run from a single task lets React batch every
+    // write the run causes into one commit. Each envelope still reaches
+    // every handler, synchronously from `publish`, in arrival order.
+    const pendingEnvelopes: AssistantEventEnvelope[] = [];
+    let draining = false;
+    const flushPendingEnvelopes = (): void => {
+      // A handler can reach a teardown path, which flushes. The run in
+      // progress already owns the queue, so the nested call has nothing to do.
+      if (draining) {
+        return;
+      }
+      draining = true;
+      // Counts envelopes handed to `publish`, the one in flight included, so
+      // a throw that escapes it removes exactly what was delivered. The bus
+      // catches handler errors itself; this keeps the queue from depending
+      // on that. Whatever is left drains on the next task.
+      let published = 0;
+      try {
+        while (published < pendingEnvelopes.length) {
+          const envelope = pendingEnvelopes[published];
+          published += 1;
+          publish("sse.event", envelope);
+        }
+      } finally {
+        pendingEnvelopes.splice(0, published);
+        draining = false;
+        if (pendingEnvelopes.length > 0) {
+          scheduleDrain();
+        }
+      }
+    };
+    // The drain runs from a `MessageChannel` task. It has to be a task so
+    // the transport's microtask chain finishes first, and it cannot be a
+    // timer or an animation frame: browsers throttle timers in a background
+    // tab (to once a minute after five hidden minutes) and stop animation
+    // frames outright, while this stream stays open through the hidden grace
+    // window to deliver notifications.
+    const drainChannel = new MessageChannel();
+    let drainScheduled = false;
+    const scheduleDrain = (): void => {
+      if (!drainScheduled) {
+        drainScheduled = true;
+        drainChannel.port2.postMessage(null);
+      }
+    };
+    drainChannel.port1.onmessage = () => {
+      drainScheduled = false;
+      flushPendingEnvelopes();
+    };
+    const enqueueEnvelope = (envelope: AssistantEventEnvelope): void => {
+      // Detach closes the drain channel, so an envelope from a stream that
+      // is still winding down would sit here unpublished. Its seq never
+      // advanced the reconnect cursor, and the next attach starts cold.
+      if (cancelled) {
+        return;
+      }
+      pendingEnvelopes.push(envelope);
+      scheduleDrain();
     };
 
     const openConnection = () => {
@@ -203,9 +277,7 @@ export const sseService: SseService = {
         ownStream === null || ownStream === current;
       const stream = subscribeEvents(
         assistantId,
-        (envelope) => {
-          publish("sse.event", envelope);
-        },
+        enqueueEnvelope,
         (err) => {
           Sentry.addBreadcrumb({
             category: "event_bus.sse",
@@ -217,11 +289,13 @@ export const sseService: SseService = {
           }
           setCurrent(null);
           setConnected(false);
+          flushPendingEnvelopes();
           publish("sse.closed", { reason: err.message });
         },
         {
           onReconnect: (cause) => {
             if (everOpened && isLiveStream()) {
+              flushPendingEnvelopes();
               publish("sse.opened", { assistantId, cause });
             }
           },
@@ -233,6 +307,7 @@ export const sseService: SseService = {
             // when its handle is created, so an attempt that never connects
             // does not fan out a reconcile across every domain.
             if (firstOpen && isLiveStream()) {
+              flushPendingEnvelopes();
               publish("sse.opened", { assistantId, cause: causeAtOpen });
             }
           },
@@ -259,6 +334,10 @@ export const sseService: SseService = {
       // whatever opens next is fresh rather than suspect.
       clearHiddenTeardownTimer();
       hiddenAt = null;
+      // Envelopes already received belong to the stream being dropped.
+      // Publishing them first keeps them ahead of whatever the next
+      // connection announces.
+      flushPendingEnvelopes();
       current?.cancel();
       setCurrent(null);
       setConnected(false);
@@ -491,6 +570,10 @@ export const sseService: SseService = {
       unsubPowerUnlock();
       unsubReachabilityRetry();
       unsubAnchorRequested();
+      flushPendingEnvelopes();
+      drainChannel.port1.onmessage = null;
+      drainChannel.port1.close();
+      drainChannel.port2.close();
       current?.cancel();
       setCurrent(null);
       setConnected(false);

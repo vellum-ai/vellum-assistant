@@ -2880,6 +2880,61 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{id}/debug-bundle-upload-url/:
+    post:
+      operationId: assistants_debug_bundle_upload_url_create
+      description: Returns a signed PUT URL the assistant uploads a debug-profile
+        .vbundle to, so Vellum staff can open it on a debug clone. Only while the
+        owner's staff access grant is active. Bundles are deleted after seven days.
+      summary: Mint a signed upload URL for a debug bundle
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      - in: path
+        name: id
+        schema:
+          type: string
+          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebugBundleUploadUrl'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{id}/operational/status/:
     get:
       operationId: assistants_operational_status_detail_read
@@ -6272,7 +6327,7 @@ components:
           type: boolean
           readOnly: true
           description: True when the owner chose to keep access on until they turn
-            it off.
+            it off, in which case access_consent_expires_at is null.
       required:
       - access_consent_expires_at
       - access_consent_never_expires
@@ -7455,6 +7510,23 @@ components:
       - daily_limit_snoozed
       - daily_limit_snoozed_day_bucket
       - day_bucket
+    DebugBundleUploadUrl:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Signed PUT URL. Upload the debug bundle here with Content-Type
+            application/octet-stream.
+        bundle_key:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - bundle_key
+      - expires_at
+      - url
     DetailResponse:
       type: object
       properties:

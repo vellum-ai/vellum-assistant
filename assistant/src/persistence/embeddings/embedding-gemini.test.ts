@@ -439,6 +439,23 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     expect(vectors.map((v) => v[0])).toEqual(texts(250).map(textIndex));
   });
 
+  test("managed text inputs use single calls from the first request and preserve vector order", async () => {
+    const fetchMock = routedFetch();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+      managedBaseUrl: "https://proxy.example.com/v1/runtime-proxy/gemini",
+      interCallDelayMs: 0,
+    });
+
+    expect(await backend.embed(texts(3))).toEqual([[0], [1], [2]]);
+    expect(await backend.embed(["t4", "t5"])).toEqual([[4], [5]]);
+    expect(calledUrls(fetchMock)).toEqual(
+      Array(5).fill(
+        "https://proxy.example.com/v1/runtime-proxy/gemini/v1beta/models/test-model:embedContent",
+      ),
+    );
+  });
+
   test("each batched request names the model with the models/ prefix and carries taskType and outputDimensionality", async () => {
     const fetchMock = routedFetch();
     globalThis.fetch = fetchMock as unknown as typeof fetch;

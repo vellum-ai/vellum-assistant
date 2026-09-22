@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import OpenAI from "openai";
 
@@ -8,6 +8,7 @@ import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
   type OpenAIChatCompletionsProviderOptions,
+  resetReasoningOptOutRejectersForTests,
 } from "../chat-completions-provider.js";
 
 type ReasoningDetail = {
@@ -778,6 +779,65 @@ function rejection(message: string, status = 400): Error {
 }
 
 describe("reasoning opt-out rejection fallback", () => {
+  beforeEach(() => {
+    resetReasoningOptOutRejectersForTests();
+  });
+
+  test("remembers a rejecting model and skips the opt-out on later requests", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("reasoning_effort 'none' is not supported for this model")],
+      OK_CHUNKS,
+    );
+    const send = () =>
+      provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+        { config: { effort: "none" } },
+      );
+
+    await send();
+    await send();
+
+    expect(requests).toHaveLength(3);
+    expect(
+      (requests[2] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBeUndefined();
+  });
+
+  test("does not remember when success needed a further compat retry", async () => {
+    // The broad /reasoning/ match misreads the reasoning_content round-trip
+    // error as an opt-out rejection; the request only succeeds after the
+    // backfill retry, so the opt-out itself was never proven unsupported.
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection("reasoning_content must be passed back to the API"),
+        rejection("reasoning_content must be passed back to the API"),
+      ],
+      OK_CHUNKS,
+    );
+    const messages = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+      },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "again" }],
+      },
+    ];
+
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+    await provider.sendMessage(messages, { config: { effort: "none" } });
+
+    expect(requests).toHaveLength(4);
+    expect(
+      (requests[3] as { reasoning_effort?: string }).reasoning_effort,
+    ).toBe("none");
+  });
+
   test("retries once without reasoning params when a model rejects the explicit opt-out", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("reasoning_effort 'none' is not supported for this model")],

@@ -1,9 +1,9 @@
-import { randomUUID } from "node:crypto";
-
 import { z } from "zod";
 
 import {
   addDocumentConversation,
+  createDocument,
+  DEFAULT_DOCUMENT_TITLE,
   deleteDocument,
   findInDocument,
   findRecentEmptyDocumentByTitle,
@@ -11,7 +11,6 @@ import {
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
   replaceInDocument,
-  saveDocument,
   searchDocumentsByTitle,
   updateDocumentContent,
 } from "../../documents/document-store.js";
@@ -283,7 +282,7 @@ export function executeDocumentCreate(
     return invalidToolInputResult("document_create", parsedInput.error);
   }
   throwIfCancelled(context);
-  const title = parsedInput.data.title || "Untitled Document";
+  const title = parsedInput.data.title || DEFAULT_DOCUMENT_TITLE;
   const initialContent = parsedInput.data.initial_content || "";
 
   const reused = maybeReuseEmptyDocument(title, initialContent, context);
@@ -291,21 +290,21 @@ export function executeDocumentCreate(
     return reused;
   }
 
-  const surfaceId = `doc-${randomUUID()}`;
-
   // Persist the document so any client (web or macOS) can fetch it via
   // GET /v1/documents/:id. The macOS client may later update the row
   // via document_save; ON CONFLICT DO UPDATE handles that.
-  const wordCount = initialContent
-    .split(/\s+/)
-    .filter((w) => w.length > 0).length;
-  saveDocument({
-    surfaceId,
+  const created = createDocument({
     conversationId: context.conversationId,
     title,
     content: initialContent,
-    wordCount,
   });
+  if (!created.success) {
+    return {
+      content: JSON.stringify({ success: false, error: created.error }),
+      isError: true,
+    };
+  }
+  const { surfaceId } = created;
 
   // Send document_editor_show message to open the built-in RTE
   if (context.sendToClient) {

@@ -203,8 +203,11 @@ describe("handleRemember — batch (array) content", () => {
       CONFIG,
     );
 
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("3");
+    expect(result).toEqual({
+      success: true,
+      message: "Saved 3 facts to knowledge base.",
+      facts: ["fact one", "fact two", "fact three"],
+    });
 
     const memoryDir = join(tmpWorkspace, "memory");
     const buffer = readFileSync(join(memoryDir, "buffer.md"), "utf-8");
@@ -245,11 +248,15 @@ describe("handleRemember — batch (array) content", () => {
 
   test("drops blank entries and rejects an all-empty array", () => {
     const ok = handleRemember(
-      { content: ["   ", "kept fact", ""] },
+      { content: ["   ", " kept fact ", ""] },
       "conv-batch-3",
       CONFIG,
     );
-    expect(ok.success).toBe(true);
+    expect(ok).toEqual({
+      success: true,
+      message: "Saved to knowledge base.",
+      facts: ["kept fact"],
+    });
     const buffer = readFileSync(
       join(tmpWorkspace, "memory", "buffer.md"),
       "utf-8",

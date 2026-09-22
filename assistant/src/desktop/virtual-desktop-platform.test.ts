@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { setOverridesForTesting } from "../__tests__/feature-flag-test-helpers.js";
 import { shouldUseVirtualDesktopBrowser } from "../browser/virtual-desktop-target.js";
 import { executeDesktopBrowserOperation } from "./desktop-browser-operations.js";
-import { desktopDependencyInstaller } from "./desktop-dependencies.js";
+import { desktopDependencies } from "./desktop-dependencies.js";
 
 const originalPlatform = process.env.IS_PLATFORM;
 const originalContainerized = process.env.IS_CONTAINERIZED;
@@ -15,15 +15,13 @@ const context = {
   transportInterface: "web" as const,
   clientOs: "web" as const,
 };
-let status: ReturnType<
-  typeof spyOn<typeof desktopDependencyInstaller, "getStatus">
->;
+let status: ReturnType<typeof spyOn<typeof desktopDependencies, "getStatus">>;
 
 beforeEach(() => {
   process.env.IS_CONTAINERIZED = "true";
   process.env.IS_PLATFORM = "false";
   setOverridesForTesting({ "assistant-desktop": true });
-  status = spyOn(desktopDependencyInstaller, "getStatus").mockReturnValue({
+  status = spyOn(desktopDependencies, "getStatus").mockReturnValue({
     state: "ready",
   });
 });
@@ -51,11 +49,9 @@ test("self-hosted Docker cannot automatically select or explicitly control virtu
   expect(status).not.toHaveBeenCalled();
 });
 
-test("platform web conversations select virtual Chrome before and during installation", () => {
+test("platform web conversations select virtual Chrome even when image components are missing", () => {
   process.env.IS_PLATFORM = "true";
   expect(shouldUseVirtualDesktopBrowser(undefined, {}, context)).toBe(true);
-  status.mockReturnValue({ state: "installing" });
-  expect(shouldUseVirtualDesktopBrowser(undefined, {}, context)).toBe(true);
-  status.mockReturnValue({ state: "required" });
+  status.mockReturnValue({ state: "failed" });
   expect(shouldUseVirtualDesktopBrowser(undefined, {}, context)).toBe(true);
 });

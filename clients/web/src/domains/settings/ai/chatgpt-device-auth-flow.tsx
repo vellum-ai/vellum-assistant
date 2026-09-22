@@ -27,10 +27,7 @@ interface ChatgptDeviceAuthFlowProps {
 /** The security-settings destination named inside the stalled-flow hint. */
 function ChatgptSettingsLink({ children }: PropsWithChildren) {
   return (
-    <ExternalAnchor
-      href={CHATGPT_SECURITY_SETTINGS_URL}
-      className="underline hover:opacity-80"
-    >
+    <ExternalAnchor href={CHATGPT_SECURITY_SETTINGS_URL} tone="quiet">
       {children}
     </ExternalAnchor>
   );

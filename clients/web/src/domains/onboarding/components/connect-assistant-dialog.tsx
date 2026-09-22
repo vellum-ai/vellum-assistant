@@ -379,7 +379,7 @@ function ConnectAssistantDialog({
                   <span
                     className={
                       retrying
-                        ? "text-[color:var(--system-warning-strong)]"
+                        ? "text-[color:var(--system-mid-strong)]"
                         : undefined
                     }
                   >

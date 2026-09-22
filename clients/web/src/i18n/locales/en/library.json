@@ -10,6 +10,8 @@
     "loadingAria": "Loading apps",
     "retry": "Retry",
     "import": "Import",
+    "newDocument": "New Document",
+    "newDocumentFailed": "Couldn't create the document. Try again.",
     "searchPlaceholder": "Search your library",
     "noMatches": "No apps or documents matched “{query}”",
     "pinned": "Pinned",

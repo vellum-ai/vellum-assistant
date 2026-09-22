@@ -1,6 +1,6 @@
-import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
 import { useTranslation } from "@/i18n";
 import {
@@ -72,14 +72,14 @@ export function VercelTokenDialog({
             >
               {t("vercelTokenDialog.body")}
             </Typography>
-            <a
+            <ExternalAnchor
               href="https://vercel.com/account/tokens"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-body-medium-default text-(--primary-base) hover:underline"
+              tone="default"
+              className="text-body-medium-default"
+              glyph={false}
             >
               {t("vercelTokenDialog.createToken")}
-            </a>
+            </ExternalAnchor>
             <Input
               type="password"
               placeholder={t("vercelTokenDialog.tokenPlaceholder")}
@@ -102,9 +102,7 @@ export function VercelTokenDialog({
             variant="primary"
             onClick={handleSave}
             disabled={isSaving || !token.trim()}
-            leftIcon={
-              isSaving ? <Loader2 className="animate-spin" /> : undefined
-            }
+            loading={isSaving}
           >
             {isSaving
               ? t("vercelTokenDialog.saving")

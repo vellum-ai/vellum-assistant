@@ -1,4 +1,3 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +10,7 @@ import {
   presetFromThreshold,
 } from "@/utils/threshold-presets";
 import { Card } from "@vellumai/design-library/components/card";
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Select } from "@vellumai/design-library/components/select";
 
 function Divider() {
@@ -45,7 +45,6 @@ export function RiskToleranceSettings() {
   const [autonomousPresetId, setAutonomousPresetId] =
     useState<string>("conservative");
   const [headlessPresetId, setHeadlessPresetId] = useState<string>("strict");
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const hasUserInteracted = useRef(false);
   const [hasLoadedInitial, setHasLoadedInitial] = useState(false);
@@ -195,24 +194,12 @@ export function RiskToleranceSettings() {
 
         <Divider />
 
-        <div>
-          <button
-            type="button"
-            onClick={() => setAdvancedOpen((o) => !o)}
-            className="flex items-center gap-1 text-[var(--content-secondary)] hover:text-[var(--content-default)] transition-colors"
-            aria-expanded={advancedOpen}
-          >
-            {advancedOpen ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-            <span className="text-body-medium-default">
-              {t("riskToleranceSettings.advanced")}
-            </span>
-          </button>
+        <Disclosure.Root>
+          <Disclosure.Trigger size="medium">
+            {t("riskToleranceSettings.advanced")}
+          </Disclosure.Trigger>
 
-          <div className={advancedOpen ? "mt-4 space-y-4" : "hidden"}>
+          <Disclosure.Content keepMounted className="mt-4 space-y-4">
             <div>
               <div className="text-body-medium-default text-[var(--content-default)]">
                 {t("riskToleranceSettings.backgroundTitle")}
@@ -258,8 +245,8 @@ export function RiskToleranceSettings() {
                 </p>
               )}
             </div>
-          </div>
-        </div>
+          </Disclosure.Content>
+        </Disclosure.Root>
       </div>
     </Card>
   );

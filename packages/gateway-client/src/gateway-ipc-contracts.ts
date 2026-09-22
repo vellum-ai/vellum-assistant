@@ -43,6 +43,26 @@ export type GatewayLogsTailRouteParams = z.infer<
   typeof GatewayLogsTailRouteParamsSchema
 >;
 
+/**
+ * `gateway_debug_export`: a consistent copy of the gateway database plus its
+ * recent log files, as one gzipped tar, for a debug bundle. No params.
+ */
+export const GatewayDebugExportIpcParamsSchema = z
+  .object({})
+  .strict()
+  .default({});
+
+export const GatewayDebugExportIpcResponseSchema = z.object({
+  ok: z.literal(true),
+  /** `tar.gz` bytes, base64. Contains gateway.sqlite and gateway-logs/. */
+  archive_base64: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+});
+
+export type GatewayDebugExportIpcResponse = z.infer<
+  typeof GatewayDebugExportIpcResponseSchema
+>;
+
 export const GatewayLogsTailIpcResponseSchema = z.object({
   lines: z.array(z.record(z.string(), z.unknown())),
   truncated: z.boolean(),

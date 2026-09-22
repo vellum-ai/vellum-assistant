@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Loader2, Puzzle, Trash2 } from "lucide-react";
+import { ArrowDownToLine, Puzzle, Trash2 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { PluginIcon } from "@/components/plugins/plugin-icon";
@@ -151,7 +151,8 @@ export function PluginListRow({
           isInstalling ? (
             <Button
               type="button"
-              iconOnly={<Loader2 className="animate-spin" aria-hidden />}
+              loading
+              iconOnly={<ArrowDownToLine aria-hidden />}
               disabled
               aria-label={t("pluginListRow.installingAriaLabel")}
               expandOnMobile={false}
@@ -185,13 +186,8 @@ export function PluginListRow({
             <Button
               type="button"
               variant="dangerOutline"
-              iconOnly={
-                isRemoving ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 aria-hidden />
-                )
-              }
+              loading={isRemoving}
+              iconOnly={<Trash2 aria-hidden />}
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove?.();

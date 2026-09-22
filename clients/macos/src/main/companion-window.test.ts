@@ -8,8 +8,10 @@ import {
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
   COMPANION_INTRO_BEATS,
+  COMPANION_INTRO_CALL_CONTROLS,
   COMPANION_INTRO_VERSION,
   COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_CAPTURE_PICKER_WIDTH,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_BASE_RESTING_PILL_HEIGHT,
   COMPANION_POPOVER_INSET,
@@ -18,6 +20,7 @@ import {
   companionLowerReachFor,
   companionBoxFor,
   companionCardSideFor,
+  companionGapFor,
   companionNearEdgeFor,
   companionScaleFor,
   type CompanionDock,
@@ -167,7 +170,7 @@ const surface = {
   },
 };
 
-type Invoker = (args: unknown[]) => unknown;
+type Invoker = (args: unknown[], sender?: unknown) => unknown;
 
 /**
  * The renderer behind IPC sends, including the lifecycle a running call owns
@@ -192,8 +195,10 @@ const register =
     schema: { parse: (input: unknown) => unknown },
     fn: (args: never, event: { sender: EventEmitter }) => unknown,
   ): void => {
-    into.set(channel, (args) =>
-      fn(schema.parse(args) as never, { sender: mainRenderer }),
+    into.set(channel, (args, sender) =>
+      fn(schema.parse(args) as never, {
+        sender: (sender ?? mainRenderer) as EventEmitter,
+      }),
     );
   };
 
@@ -572,13 +577,9 @@ const openGlow = (options: {
     },
     isDestroyed: () => false,
     on: () => {},
-    // Painted at once: the real window's first paint is the renderer's.
-    once: (event, listener) => {
-      if (event === "ready-to-show") {
-        listener();
-      }
-    },
-    visible: true,
+    once: () => {},
+    // Main shows the frame itself, once its page has drawn: see `drawFrame`.
+    visible: !frame,
     hide: () => {
       window.visible = false;
     },
@@ -855,11 +856,28 @@ const fireVisibilityChange = (): void => {
 
 /** Send on a channel exactly as a renderer would, schema and all. */
 const send = (channel: string, ...args: unknown[]): void => {
+  sendFrom(undefined, channel, ...args);
+};
+
+/** {@link send}, from a renderer other than the app window's. */
+const sendFrom = (
+  sender: unknown,
+  channel: string,
+  ...args: unknown[]
+): void => {
   const listener = listeners.get(channel);
   if (!listener) {
     throw new Error(`No listener registered for ${channel}`);
   }
-  listener(args);
+  listener(args, sender);
+};
+
+/** The frame's page reporting its border drawn, from the frame's own window. */
+const drawFrame = (): void => {
+  if (!glow) {
+    throw new Error("No frame to draw");
+  }
+  sendFrom(glow.webContents, "vellum:companion:frameDrawn");
 };
 
 /**
@@ -1530,10 +1548,32 @@ describe("the edge a call's bar docks to", () => {
         const side = geometryFor("small", "small", dock);
         expect(side.riseAbove).toBe(side.dropBelow);
         expect(side.canvasHeight).toBe(side.riseAbove * 2);
-        expect(side.canvasWidth).toBe(GEOMETRY.canvasWidth);
         const scale = companionScaleFor(side.optionsBox);
         expect(side.riseAbove).toBeGreaterThanOrEqual(
           (COMPANION_BASE_MAX_PILL_WIDTH * scale) / 2 + side.avatarBox,
+        );
+      }
+    });
+
+    /**
+     * The capture picker stands beside the column, facing the middle of the
+     * screen, so half the canvas has to hold the column's cross reach, the
+     * gap and the whole card. Never narrower than the row's canvas.
+     */
+    test("reaches past the column far enough to hold the capture picker", () => {
+      for (const [avatar, options] of [
+        ["small", "small"],
+        ["huge", "small"],
+        ["small", "huge"],
+      ] as const) {
+        const side = geometryFor(avatar, options, "left");
+        const row = geometryFor(avatar, options);
+        expect(side.canvasWidth).toBeGreaterThanOrEqual(row.canvasWidth);
+        expect(side.canvasWidth / 2).toBeGreaterThanOrEqual(
+          companionLowerReachFor(side.avatarBox, side.optionsBox) +
+            companionGapFor(side.avatarBox, side.optionsBox) +
+            COMPANION_BASE_CAPTURE_PICKER_WIDTH *
+              companionScaleFor(side.optionsBox),
         );
       }
     });
@@ -2178,6 +2218,7 @@ describe("the light a watch session puts on the display", () => {
       }),
     );
     await Bun.sleep(0);
+    drawFrame();
     expect(glow?.visible).toBe(true);
     // Minimized: the helper no longer lists it.
     windowBounds = null;
@@ -3250,6 +3291,27 @@ describe("the watch session main relays", () => {
   test("reads a context with no taps as no taps", () => {
     send("vellum:companion:setContext", context());
     expect(state().voiceKeyTaps).toBe(0);
+  });
+
+  /**
+   * Presses of a call's shortcut, which the three call beats' chips answer.
+   * The chord reaches only the window that armed it, so this count and the
+   * control it names are the surface's only evidence of one.
+   */
+  test("carries the shortcut presses and their control into pushed state", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ introChordPresses: 2, introChordControl: "draw" }),
+    );
+    expect(state().introChordPresses).toBe(2);
+    expect(state().introChordControl).toBe("draw");
+  });
+
+  /** A publisher that reports no presses has heard none, and names nothing. */
+  test("reads a context with no shortcut presses as none", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().introChordPresses).toBe(0);
+    expect(state().introChordControl).toBeUndefined();
   });
 
   /**
@@ -4848,6 +4910,7 @@ describe("companion window: drawing on what is shared", () => {
    */
   test("drawing on lends the frame key status, so its pencil can show", () => {
     shareDisplay();
+    drawFrame();
     expect(glow?.focusable).toBe(false);
     expect(glow?.key).toBe(false);
     send("vellum:companion:setAnnotating", true);
@@ -4871,6 +4934,7 @@ describe("companion window: drawing on what is shared", () => {
   /** The mode is still on across a scroll, and the mouse is coming back. */
   test("a scroll the frame steps aside for leaves its key status alone", () => {
     shareDisplay();
+    drawFrame();
     send("vellum:companion:setAnnotating", true);
     send("vellum:companion:setFrameScrolling", true);
     expect(glow?.focusable).toBe(true);
@@ -4884,9 +4948,49 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:setContext", context());
     expect(glow).toBeNull();
     shareDisplay();
+    drawFrame();
     send("vellum:companion:setAnnotating", true);
     expect(glow?.focusable).toBe(true);
     expect(glow?.key).toBe(true);
+  });
+
+  /**
+   * Shown before its page has drawn the border, a frame on a whole display
+   * stays blank: the screen keeps the empty window it was shown with. So main
+   * holds it until the page says the border is there.
+   */
+  test("a new frame stays off the screen until its page draws the border", () => {
+    shareDisplay();
+    expect(glow?.visible).toBe(false);
+    drawFrame();
+    expect(glow?.visible).toBe(true);
+  });
+
+  test("placing the frame again before the border is drawn leaves it hidden", () => {
+    shareDisplay();
+    shareDisplay();
+    expect(glow?.visible).toBe(false);
+  });
+
+  test("a drawn report from another window does not show the frame", () => {
+    shareDisplay();
+    send("vellum:companion:frameDrawn");
+    expect(glow?.visible).toBe(false);
+  });
+
+  test("drawing turned on before the border is drawn takes key with it", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.key).toBe(false);
+    drawFrame();
+    expect(glow?.visible).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  test("a page that never reports is shown anyway", async () => {
+    shareDisplay();
+    await Bun.sleep(3100);
+    expect(glow?.visible).toBe(true);
   });
 
   /**
@@ -5934,6 +6038,131 @@ describe("companion window: pointing at what is shared", () => {
  * neither renderer. The app's own window carries the reports out, so what these
  * cases watch is what main sends it.
  */
+/**
+ * Which chord the run is asking the app's window to listen for.
+ *
+ * Three beats draw a call control beside the shortcut that reaches it, and the
+ * chip on that card lights when the real keys are pressed. Only the app's
+ * window can hear a chord, and only main knows which beat is up, so main says
+ * when a card is asking and for what. It matters more than a push usually
+ * would: while the binding is armed the host takes Option+S, so a beat named
+ * here that is not on screen is a key taken out of the user's own editor.
+ */
+describe("the chord the introduction asks for", () => {
+  /** Every control main has named for the app's window, most recent last. */
+  const asked = (): (string | null)[] =>
+    mainSends
+      .filter((sent) => sent.channel === "vellum:companion:introChord")
+      .map((sent) => sent.payload as string | null);
+
+  /** What a window mounting mid-run pulls, which is the beat rather than the push. */
+  const introChord = (): string | null => {
+    const pull = invocable.get("vellum:companion:getIntroChord");
+    if (!pull) {
+      throw new Error("No handler registered for vellum:companion:getIntroChord");
+    }
+    return pull([]) as string | null;
+  };
+
+  /** An install owed a run, with the surface reaching the screen. */
+  const startIntro = (): void => {
+    introSeen = 0;
+    companionOpen = false;
+    openCompanionWindow();
+    mainSends.length = 0;
+  };
+
+  /** Walk the run forward, which is what the card's Next does. */
+  const walk = (steps: number): void => {
+    for (let i = 0; i < steps; i++) {
+      send("vellum:companion:advanceIntro", "next");
+    }
+  };
+
+  afterEach(() => {
+    // Ended through the tray's own path, the way the reports' cases end theirs:
+    // main holds the beat across a window closing, so only an answer to the
+    // introduction clears it.
+    setCompanionSurfaceVisible(false);
+    takeReports();
+    mainSends.length = 0;
+  });
+
+  /** Five of the eight beats draw no control, and the run opens on one of them. */
+  test("asks for nothing on a beat that draws no control", () => {
+    startIntro();
+
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([]);
+  });
+
+  test("names the control once the run reaches a beat that draws one", () => {
+    startIntro();
+
+    // idle, meet, talk, key, and then the first of the call's three.
+    walk(4);
+
+    expect(state().intro).toBe("share");
+    expect(introChord()).toBe("share");
+    expect(asked()).toEqual(["share"]);
+  });
+
+  /**
+   * One push per change rather than one per press. The beat moves on every
+   * Next and this answer moves four times in a whole run, and each move of it
+   * arms or releases a binding out on the desktop.
+   */
+  test("says nothing walking between beats that ask for nothing", () => {
+    startIntro();
+
+    walk(3);
+
+    expect(state().intro).toBe("key");
+    expect(asked()).toEqual([]);
+  });
+
+  /**
+   * Read off the contract's own list rather than spelled again here, because
+   * that list is what the card draws its chips from and what the binding takes
+   * its keys from: a control added there and not armed here is a shortcut
+   * printed on a card that nothing is listening for.
+   */
+  test("names every control the contract carries, in the run's order", () => {
+    startIntro();
+
+    walk(COMPANION_INTRO_BEATS.length - 1);
+
+    expect(asked().filter((control) => control !== null)).toEqual([
+      ...COMPANION_INTRO_CALL_CONTROLS,
+    ]);
+  });
+
+  /** The last of the three is walked off onto the offer, which asks for none. */
+  test("gives the key back when the run walks off the last of them", () => {
+    startIntro();
+    walk(6);
+    mainSends.length = 0;
+
+    walk(1);
+
+    expect(state().intro).toBe("try");
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([null]);
+  });
+
+  /** A run refused mid-beat is a binding nobody is left to release. */
+  test("gives the key back when the run is dismissed on one of them", () => {
+    startIntro();
+    walk(4);
+    mainSends.length = 0;
+
+    send("vellum:companion:advanceIntro", "dismiss");
+
+    expect(introChord()).toBeNull();
+    expect(asked()).toEqual([null]);
+  });
+});
+
 describe("the introduction's reports", () => {
   /** Every report main has handed the app's window, most recent last. */
   const reports = (): CompanionIntroReport[] =>

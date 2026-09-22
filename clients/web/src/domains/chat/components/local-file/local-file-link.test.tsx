@@ -122,7 +122,8 @@ describe("LocalFileLink", () => {
 
     const className = screen.getByRole("link").getAttribute("class") ?? "";
     expect(className).toContain("inline-flex");
-    expect(className).toContain("text-[var(--system-positive-strong)]");
+    // The library's link look: the link ink, underlined at rest.
+    expect(className).toContain("text-[color:var(--content-link)]");
     expect(className).toContain("underline");
   });
 

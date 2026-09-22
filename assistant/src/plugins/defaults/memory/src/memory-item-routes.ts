@@ -1162,6 +1162,7 @@ export const ROUTES: RouteDefinition[] = [
         return result;
       }
       maybeEnqueueConsolidationForCreate(config);
+      const created = { success: true, message: result.message };
 
       // Resolve the pending graph-node id of the entry just appended so the
       // client can fly the map to it. Matched by this request's content
@@ -1179,7 +1180,7 @@ export const ROUTES: RouteDefinition[] = [
       } catch (err) {
         log.warn({ err }, "Failed to resolve pending node id after create");
       }
-      return pendingNodeId ? { ...result, pendingNodeId } : result;
+      return pendingNodeId ? { ...created, pendingNodeId } : created;
     },
   },
 ];

@@ -50,6 +50,20 @@ describe("resolveSubagentStepDetail", () => {
     expect(detail?.status).toBe("completed");
   });
 
+  test("carries the canonical call's structured result, which the events lack", () => {
+    const remember = { facts: ["Prefers window seats."] };
+    const detail = resolveSubagentStepDetail(
+      {
+        ...runningCall,
+        name: "remember",
+        result: "Saved to knowledge base.",
+        activityMetadata: { remember },
+      },
+      eventDetail({ toolName: "remember" }),
+    );
+    expect(detail?.activityMetadata).toEqual({ remember });
+  });
+
   test("fills a still-running canonical copy from the finished events", () => {
     const detail = resolveSubagentStepDetail(runningCall, eventDetail());
     expect(detail?.result).toBe("event-output");

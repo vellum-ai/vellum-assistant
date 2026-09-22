@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 
 import { z } from "zod";
 
+import {
+  decodeBinaryWebSocketFrame,
+  type VelayBinaryWebSocketFrame,
+} from "./binary-websocket.js";
+
 export const VELAY_TUNNEL_SUBPROTOCOL = "velay-tunnel-v1";
 
 export const VELAY_FRAME_TYPES = {
@@ -56,6 +61,7 @@ export type VelayWebSocketOpenFrame = {
   raw_query?: string;
   headers: VelayHeaders;
   subprotocol?: string;
+  binary_messages?: boolean;
 };
 
 export type VelayWebSocketOpenedFrame = {
@@ -88,6 +94,7 @@ export type VelayHeartbeatFrame = {
 };
 
 export type VelayFrame =
+  | VelayBinaryWebSocketFrame
   | VelayRegisteredFrame
   | VelayHttpRequestFrame
   | VelayHttpResponseFrame
@@ -99,6 +106,7 @@ export type VelayFrame =
   | VelayHeartbeatFrame;
 
 export type VelayWebSocketInboundFrame =
+  | VelayBinaryWebSocketFrame
   | VelayWebSocketOpenFrame
   | VelayWebSocketMessageFrame
   | VelayWebSocketCloseFrame;
@@ -128,6 +136,7 @@ const websocketOpenFrameSchema = z.object({
   raw_query: z.string().optional(),
   headers: headersSchema,
   subprotocol: z.string().optional(),
+  binary_messages: z.boolean().optional(),
 });
 
 const websocketMessageTypeSchema = z.enum([
@@ -163,6 +172,15 @@ const inboundFrameSchema = z.discriminatedUnion("type", [
 ]);
 
 export function parseVelayFrame(data: unknown): VelayFrame | undefined {
+  const bytes =
+    data instanceof ArrayBuffer
+      ? new Uint8Array(data)
+      : ArrayBuffer.isView(data)
+        ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : undefined;
+  if (bytes?.[0] === 1) {
+    return decodeBinaryWebSocketFrame(bytes);
+  }
   const raw = decodeWebSocketData(data);
   if (raw === undefined) return undefined;
 

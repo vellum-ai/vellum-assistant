@@ -1,5 +1,5 @@
-import { ChevronRight } from "lucide-react";
 
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -91,7 +91,7 @@ export function ProfileModalitiesSection({
             return (
               <tr key={modality}>
                 <th
-                  className="py-2 pr-3 font-medium text-[var(--content-primary)]"
+                  className="py-2 pr-3 font-medium text-[var(--content-default)]"
                   scope="row"
                 >
                   <div>{label}</div>
@@ -154,19 +154,11 @@ export function ProfileModalitiesSection({
   }
 
   return (
-    <div>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => onExpandedChange?.(!expanded)}
-        className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-      >
-        <ChevronRight
-          className={`h-4 w-4 transition-transform ${expanded ? "rotate-90" : ""}`}
-        />
-        <span>{t("profileModalitiesSection.title")}</span>
-      </button>
-      {expanded ? <div className="mt-4">{table}</div> : null}
-    </div>
+    <Disclosure.Root open={expanded} onOpenChange={onExpandedChange}>
+      <Disclosure.Trigger fullWidth>
+        {t("profileModalitiesSection.title")}
+      </Disclosure.Trigger>
+      <Disclosure.Content className="mt-4">{table}</Disclosure.Content>
+    </Disclosure.Root>
   );
 }

@@ -49,11 +49,11 @@ export function ChannelSourceLinkPill({
 
   return (
     <Button
+      shape="pill"
       asChild
       variant="ghost"
       active
       leftIcon={icon}
-      className="rounded-full"
       tintColor="var(--content-default)"
     >
       <a

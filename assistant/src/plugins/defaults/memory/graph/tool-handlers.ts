@@ -8,6 +8,7 @@
 
 import { join } from "node:path";
 
+import type { RememberInput } from "../../../../api/remember-tool.js";
 import {
   isMemoryEnabled,
   usesConceptPageMemory,
@@ -31,33 +32,23 @@ import { type CapabilityKind, capabilityKind } from "./types.js";
 // remember handler — appends to the memory/ buffer + daily archive
 // ---------------------------------------------------------------------------
 
-export interface RememberInput {
-  /**
-   * The fact(s) to remember. A single string records one fact; an array
-   * records several independent facts in one call (each becomes its own
-   * timestamped entry), so a single turn can batch unrelated facts instead of
-   * calling `remember` once per fact.
-   */
-  content: string | string[];
-  finish_turn?: boolean;
-}
-
-export interface RememberResult {
-  success: boolean;
-  message: string;
-}
+export type RememberResult =
+  | {
+      success: true;
+      message: string;
+      /** The facts saved, trimmed, in the order they were given. */
+      facts: string[];
+    }
+  | { success: false; message: string };
 
 /**
  * Normalize the `remember` content input to a list of non-empty facts.
  * Accepts the single-string form or the batch array form, trims each fact, and
  * drops blanks so an empty or whitespace-only input yields no facts.
  */
-function normalizeFacts(content: string | string[]): string[] {
+function normalizeFacts(content: RememberInput["content"]): string[] {
   const raw = Array.isArray(content) ? content : [content];
-  return raw
-    .filter((fact): fact is string => typeof fact === "string")
-    .map((fact) => fact.trim())
-    .filter((fact) => fact.length > 0);
+  return raw.map((fact) => fact.trim()).filter((fact) => fact.length > 0);
 }
 
 function rememberSuccessMessage(count: number): string {
@@ -96,7 +87,7 @@ export function handleRemember(
     now,
   });
 
-  return { success: true, message };
+  return { success: true, message, facts };
 }
 
 // ---------------------------------------------------------------------------

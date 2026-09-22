@@ -24,10 +24,7 @@ const SESSION_RAIL_CLASS =
   "ml-[7px] border-l border-[var(--border-element)] pl-4";
 
 export type SessionGroupMode =
-  | "computerUse"
-  | "browser"
-  | "liveVision"
-  | "ambient";
+  "computerUse" | "browser" | "liveVision" | "ambient";
 
 const MODE_ICONS: Record<SessionGroupMode, LucideIcon> = {
   computerUse: Monitor,
@@ -231,7 +228,6 @@ export function SessionGroupRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const descriptor = describeSessionGroupSummary(summary);
-  const inlineHeader = mode === "browser" || mode === "computerUse";
   const ModeIcon = MODE_ICONS[mode];
   const title = t(MODE_TITLE_KEYS[mode]);
   const summaryText = formatSummary(
@@ -265,24 +261,6 @@ export function SessionGroupRow({
     onOpenChange(nextOpen);
   };
 
-  const chevron = (
-    <ChevronRight
-      aria-hidden
-      className="size-4 shrink-0 text-[var(--content-tertiary)] transition-transform duration-[var(--anim-standard)] ease-[var(--anim-spring)] group-data-[state=open]:rotate-90 motion-reduce:transition-none"
-    />
-  );
-  const summaryLabel = (
-    <Typography
-      variant="body-small-lighter"
-      className={cn(
-        "text-[var(--content-tertiary)]",
-        !inlineHeader && "truncate",
-      )}
-    >
-      {summaryText}
-    </Typography>
-  );
-
   return (
     <Collapsible.Root
       type="single"
@@ -312,27 +290,15 @@ export function SessionGroupRow({
           data-testid="session-group-trigger"
           className={cn(
             "group text-left transition-colors hover:bg-[var(--surface-hover)]",
-            inlineHeader
-              ? "-mx-1.5 w-fit max-w-full flex-none items-start gap-2 rounded-md px-1.5 py-1.5"
-              : "w-full gap-2.5 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3 py-2.5 data-[state=open]:bg-[var(--surface-hover)]",
+            "-mx-1.5 w-fit max-w-full flex-none items-center gap-2 rounded-md px-1.5 py-1.5",
             "animate-in fade-in [animation-duration:var(--anim-standard)] motion-reduce:animate-none motion-reduce:transition-none",
           )}
         >
           <ModeIcon
             aria-hidden
-            className={cn(
-              "size-4 shrink-0 text-[var(--content-tertiary)]",
-              inlineHeader && "mt-0.5",
-            )}
+            className="size-4 shrink-0 text-[var(--content-tertiary)]"
           />
-          <span
-            className={cn(
-              "flex min-w-0",
-              inlineHeader
-                ? "flex-wrap items-center gap-x-2 gap-y-1"
-                : "flex-1 flex-col",
-            )}
-          >
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="flex items-center gap-2">
               <Typography
                 variant="body-medium-default"
@@ -348,20 +314,23 @@ export function SessionGroupRow({
                 />
               ) : null}
             </span>
-            {inlineHeader ? (
-              <span className="flex min-w-0 items-center gap-2">
-                <span
-                  aria-hidden
-                  className="h-3 w-px shrink-0 bg-[var(--border-element)]"
-                />
-                {summaryLabel}
-                {chevron}
-              </span>
-            ) : (
-              summaryLabel
-            )}
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                aria-hidden
+                className="h-3 w-px shrink-0 bg-[var(--border-element)]"
+              />
+              <Typography
+                variant="body-small-lighter"
+                className="text-[var(--content-tertiary)]"
+              >
+                {summaryText}
+              </Typography>
+              <ChevronRight
+                aria-hidden
+                className="size-4 shrink-0 text-[var(--content-tertiary)] transition-transform duration-[var(--anim-standard)] ease-[var(--anim-spring)] group-data-[state=open]:rotate-90 motion-reduce:transition-none"
+              />
+            </span>
           </span>
-          {!inlineHeader ? chevron : null}
         </Collapsible.Trigger>
         <Collapsible.Content
           ref={contentRef}

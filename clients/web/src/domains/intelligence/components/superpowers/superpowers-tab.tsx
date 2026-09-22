@@ -957,7 +957,7 @@ function ErrorState() {
       <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
         <TriangleAlert
           className="mb-3 h-8 w-8"
-          style={{ color: "var(--system-danger)" }}
+          style={{ color: "var(--system-negative-strong)" }}
           aria-hidden
         />
         <h3

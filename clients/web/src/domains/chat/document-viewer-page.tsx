@@ -292,7 +292,7 @@ export function DocumentViewerPage() {
       {state.needsConversation && (
         <div
           role="status"
-          className="flex shrink-0 flex-col gap-2 border-b border-[var(--border-default)] p-3"
+          className="flex shrink-0 flex-col gap-2 border-b border-[var(--border-base)] p-3"
         >
           <Typography variant="body-small-default">
             {t("documentConversation.missing")}

@@ -29,6 +29,7 @@ import type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
@@ -99,6 +100,7 @@ export type {
   CompanionGrowth,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
@@ -405,6 +407,15 @@ declare global {
         getIntroStage?(): Promise<boolean>;
         onIntroStage?(callback: (staged: boolean) => void): () => void;
         /**
+         * Optional for the same reason: a shell that predates the run's call
+         * beats asks for no chord. Pushed to the app's own window only, since
+         * that is the window a chord reaches.
+         */
+        getIntroChord?(): Promise<CompanionIntroCallControl | null>;
+        onIntroChord?(
+          callback: (control: CompanionIntroCallControl | null) => void,
+        ): () => void;
+        /**
          * Optional for the same reason: a shell that predates the run reports
          * nothing about it. Pushed to the app's own window only, since it is
          * the window that can report one.
@@ -430,6 +441,7 @@ declare global {
           ink: string,
         ): void;
         setFrameScrolling?(scrolling: boolean): void;
+        frameDrawn?(): void;
         sharedFrame?(target: WatchCaptureTarget): void;
         captureScreen?(
           target: WatchCaptureTarget,

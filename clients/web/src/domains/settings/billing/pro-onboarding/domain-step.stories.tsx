@@ -19,7 +19,7 @@
  * message; "Skip" posts too and exits on either outcome.
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useLayoutEffect } from "react";
 
 import {
@@ -27,6 +27,7 @@ import {
   assistantsRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { PaginatedAssistantDomainList } from "@/generated/api/types.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 import { DomainStep } from "./domain-step";
@@ -62,14 +63,12 @@ const domainsQueryKey = assistantsDomainsListQueryKey({
   path: { assistant_id: STORY_ASSISTANT_ID },
 });
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+const queryClient = createStoryQueryClient((client) => {
+  client.setQueryData(
+    assistantsRetrieveQueryKey({ path: { id: STORY_ASSISTANT_ID } }),
+    makeStoryAssistant(STORY_ASSISTANT_ID),
+  );
 });
-
-queryClient.setQueryData(
-  assistantsRetrieveQueryKey({ path: { id: STORY_ASSISTANT_ID } }),
-  makeStoryAssistant(STORY_ASSISTANT_ID),
-);
 
 /**
  * Answers the domains read the way the `locked` control says. The write sits in

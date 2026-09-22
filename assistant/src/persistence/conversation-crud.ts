@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync } from "node:fs";
 
+import { TrustClassSchema } from "@vellumai/gateway-client";
 import {
   and,
   asc,
@@ -50,7 +51,6 @@ import type { ContentBlock } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishConversationListAndMetadataChanged } from "../runtime/sync/resource-sync-events.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
-import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
@@ -390,7 +390,7 @@ export const messageMetadataSchema = z
      * trust status changes later. Used by the memory write gate (indexer)
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
-    provenanceTrustClass: trustClassSchema.optional(),
+    provenanceTrustClass: TrustClassSchema.optional(),
     /**
      * Model that actually served this assistant row, carried on the agent
      * loop's `message_complete` event (the provider's `response.model`, the

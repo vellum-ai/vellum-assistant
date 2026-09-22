@@ -3,8 +3,13 @@ import {
   SENTINEL_REDACTION_VERSION,
 } from "@vellumai/service-contracts/redacted-credential";
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
 import { AnsweredQuestionSchema } from "../../api/events/question-answered.js";
+import {
+  type ToolActivityMetadata,
+  ToolActivityMetadataSchema,
+} from "../../api/events/tool-result.js";
 import type {
   ConversationContentBlock,
   ConversationMessageAttachment,
@@ -244,6 +249,33 @@ export interface ConversationCreateOptions {
    * appear in the sidebar's Recents grouping.
    */
   conversationType?: ConversationCreateType;
+}
+
+/** One schema per activity entry, so each entry validates on its own. */
+const ACTIVITY_ENTRY_SCHEMAS = Object.entries(
+  ToolActivityMetadataSchema.shape,
+).map(([key, schema]) => z.object({ [key]: schema }));
+
+/**
+ * Validates a persisted `_activityMetadata` rider one tool's entry at a time.
+ * Cards render these fields directly, so an entry that no longer matches its
+ * schema is dropped (its card degrades to the result text) without taking a
+ * valid sibling entry with it.
+ */
+function readPersistedActivityMetadata(
+  value: unknown,
+): ToolActivityMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const activity: ToolActivityMetadata = {};
+  for (const schema of ACTIVITY_ENTRY_SCHEMAS) {
+    const parsed = schema.safeParse(value);
+    if (parsed.success) {
+      Object.assign(activity, parsed.data);
+    }
+  }
+  return Object.keys(activity).length > 0 ? activity : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -661,12 +693,12 @@ export function renderHistoryContent(
         entry.riskDirectoryScopeOptions =
           block._riskDirectoryScopeOptions as HistoryToolCall["riskDirectoryScopeOptions"];
       }
-      // Read back tool activity (web_search / web_fetch) persisted by
-      // `annotatePersistedAssistantMessage` so the activity card survives a
-      // history reopen instead of degrading to the plain result text.
-      if (isRecord(block._activityMetadata)) {
-        entry.activityMetadata =
-          block._activityMetadata as HistoryToolCall["activityMetadata"];
+      // Read back tool activity persisted by `annotatePersistedAssistantMessage`
+      // so the activity card survives a history reopen instead of degrading to
+      // the plain result text.
+      const activity = readPersistedActivityMetadata(block._activityMetadata);
+      if (activity) {
+        entry.activityMetadata = activity;
       }
       // Read back the answered `ask_question` record so the answered card
       // rehydrates from history. Validated (rather than trusted like the
@@ -708,9 +740,9 @@ export function renderHistoryContent(
       }
       // Native server tools (Anthropic web_search) persist their activity on
       // the server_tool_use block, so read it back here too.
-      if (isRecord(block._activityMetadata)) {
-        entry.activityMetadata =
-          block._activityMetadata as HistoryToolCall["activityMetadata"];
+      const activity = readPersistedActivityMetadata(block._activityMetadata);
+      if (activity) {
+        entry.activityMetadata = activity;
       }
       toolCalls.push(entry);
       if (id) {

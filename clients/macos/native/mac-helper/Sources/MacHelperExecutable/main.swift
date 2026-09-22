@@ -313,6 +313,22 @@ final class MacHelper: @unchecked Sendable {
             }
             return self.readFrontFocus()
         }
+        // Command plus a key, sent to the application in front: the paste
+        // that lands dictation at the cursor and the undo that takes it back.
+        router.register("keys.shortcut") { [weak self] params in
+            guard
+                let object = params as? [String: Any],
+                let name = object["key"] as? String,
+                let key = FrontShortcut.keys[name]
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "keys.shortcut requires key \"v\" or \"z\""
+                )
+            }
+            let outcome = FrontShortcut.post(key: key)
+            self?.log("front shortcut: cmd+\(name) \(outcome.rawValue)")
+            return ["outcome": outcome.rawValue]
+        }
         router.register("permission.status") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")

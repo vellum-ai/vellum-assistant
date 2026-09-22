@@ -57,6 +57,7 @@ import { CompanionShareAnnotation } from "@/components/companion-share-annotatio
 import { useTranslation } from "@/i18n";
 import {
   getCompanionState,
+  reportCompanionFrameDrawn,
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
 import type {
@@ -181,6 +182,35 @@ function useObservedCaptures(captureCount: number, watching: boolean): number {
   return observed;
 }
 
+/**
+ * Tell main, once, that the border is on the page, so it can put the window on
+ * the screen. Two animation frames after the border mounts: the first runs
+ * before the frame holding the border is painted, the second after it.
+ *
+ * Main holds the window until this lands because a frame shown before its page
+ * has drawn stays blank on a whole display, and the border is not there on the
+ * page's first paint: it waits on the companion state.
+ */
+function useReportFrameDrawn(lit: boolean): void {
+  const reported = useRef(false);
+  useEffect(() => {
+    if (!lit || reported.current) {
+      return;
+    }
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        reported.current = true;
+        reportCompanionFrameDrawn();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [lit]);
+}
+
 export function CompanionWatchFramePage() {
   const [state, setState] = useState<CompanionSurfaceState | null>(null);
 
@@ -207,6 +237,7 @@ export function CompanionWatchFramePage() {
   // answer serves both.
   const read = framedRead(watching, state?.screenShare);
   const lit = read !== null;
+  useReportFrameDrawn(lit);
   // Counted against the watch session alone. `captureCount` is that session's
   // total and a share does not advance it, so a share left holding the frame
   // after a watch ended would sit on the last count that session reported and

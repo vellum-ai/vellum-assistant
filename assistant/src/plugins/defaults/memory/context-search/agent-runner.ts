@@ -4,8 +4,13 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
+import { getConfiguredProvider } from "@vellumai/plugin-api";
 
+import type {
+  RecallMetadata,
+  RecallSearchedSource,
+  RecallSource,
+} from "../../../../api/events/tool-result.js";
 import { redactSecrets } from "../../../../security/secret-scanner.js";
 import {
   buildRecallAgentPromptBundle,
@@ -15,6 +20,8 @@ import {
   validateFinishRecallPayload,
 } from "./agent-protocol.js";
 import {
+  buildRecallActivity,
+  compactText,
   formatDeterministicRecallAnswer,
   formatRecallFooter,
 } from "./format.js";
@@ -25,6 +32,7 @@ import {
   normalizeRecallMaxResults,
   normalizeRecallSources,
 } from "./limits.js";
+import type { RecallInput } from "./recall-input.js";
 import {
   type DeterministicRecallSearchOptions,
   type DeterministicRecallSearchResult,
@@ -39,9 +47,7 @@ import {
 import type {
   RecallAnswer,
   RecallEvidence,
-  RecallInput,
   RecallSearchContext,
-  RecallSource,
 } from "./types.js";
 
 type AgenticRecallFallbackReason =
@@ -90,6 +96,7 @@ interface AgenticRecallDebug {
 
 interface AgenticRecallAnswer extends RecallAnswer {
   content: string;
+  activity: RecallMetadata;
   debug: AgenticRecallDebug;
 }
 
@@ -266,6 +273,12 @@ export async function runAgenticRecall(
     options.searchOptions,
   );
   let evidence = [...seedResult.evidence];
+  // How each source fared across every search this recall runs, the latest
+  // search of a source standing: the seed alone would hide a follow-up that
+  // degraded, or keep a degradation a later search recovered from.
+  let searchedSources = seedResult.searchedSources;
+  const currentResult = (): DeterministicRecallSearchResult =>
+    withFallbackEvidence({ ...seedResult, searchedSources }, evidence);
   const autoInspect = await runAutomaticWorkspaceInspection(
     normalizedInput,
     context,
@@ -323,7 +336,7 @@ export async function runAgenticRecall(
         evidence,
         debug,
         normalizedInput,
-        withFallbackEvidence(seedResult, evidence),
+        currentResult(),
       );
       if (finishResult.ok) {
         return finishResult.answer;
@@ -380,6 +393,10 @@ export async function runAgenticRecall(
         );
         debug.searchCalls.push(searchResult.debug);
         evidence = mergeEvidence(evidence, searchResult.evidence);
+        searchedSources = mergeSearchedSources(
+          searchedSources,
+          searchResult.searchedSources,
+        );
       }
     }
 
@@ -396,7 +413,7 @@ export async function runAgenticRecall(
       evidence,
       debug,
       context,
-      searchResult: withFallbackEvidence(seedResult, evidence),
+      searchResult: currentResult(),
     });
     if (finalFinish.ok) {
       return finalFinish.answer;
@@ -406,7 +423,7 @@ export async function runAgenticRecall(
   }
 
   return deterministicFallback(
-    withFallbackEvidence(seedResult, evidence),
+    currentResult(),
     debug,
     fallbackReason,
     fallbackDetail,
@@ -480,6 +497,7 @@ async function runSeedRecallSearch(
   }
 
   let evidence = [...baseResult.evidence];
+  let searchedSources = baseResult.searchedSources;
   for (const query of expansionQueries) {
     const expansionResult = await runDeterministicRecallSearch(
       {
@@ -492,9 +510,33 @@ async function runSeedRecallSearch(
       searchOptions,
     );
     evidence = mergeEvidence(evidence, expansionResult.evidence);
+    searchedSources = mergeSearchedSources(
+      searchedSources,
+      expansionResult.searchedSources,
+    );
   }
 
-  return withFallbackEvidence(baseResult, evidence);
+  return withFallbackEvidence({ ...baseResult, searchedSources }, evidence);
+}
+
+/**
+ * Fold a later search's per-source notes into the running record: a source
+ * the later search covered takes its newer note, in its existing place; a
+ * source it adds goes at the end. Evidence counts are recomputed from the
+ * merged evidence by {@link withFallbackEvidence}.
+ */
+function mergeSearchedSources(
+  current: readonly RecallSearchedSource[],
+  later: readonly RecallSearchedSource[],
+): RecallSearchedSource[] {
+  const laterBySource = new Map(later.map((note) => [note.source, note]));
+  const merged = current.map((note) => laterBySource.get(note.source) ?? note);
+  for (const note of later) {
+    if (!current.some((existing) => existing.source === note.source)) {
+      merged.push(note);
+    }
+  }
+  return merged;
 }
 
 function buildReferentExpansionQueries(query: string): string[] {
@@ -698,11 +740,12 @@ function finishRecallFromToolUse(
     citationIds: finish.citationIds,
     ...(finish.unresolved ? { unresolved: finish.unresolved } : {}),
   };
+  const availableEvidence = shouldAppendAvailableEvidence(finish)
+    ? selectAvailableEvidence(input.query, allEvidence, citedEvidence)
+    : [];
   const content = formatAgenticRecallContent({
     answer: finish.answer,
-    availableEvidence: shouldAppendAvailableEvidence(finish)
-      ? selectAvailableEvidence(input.query, allEvidence, citedEvidence)
-      : [],
+    availableEvidence,
     footer: formatRecallFooter({
       searchedSources: searchResult.searchedSources,
       inspectCalls: debug.inspectCalls,
@@ -715,6 +758,15 @@ function finishRecallFromToolUse(
       content,
       answer: content,
       evidence: citedEvidence,
+      // Available evidence opens with the cited items, so it is the fuller
+      // list whenever the text carries it.
+      activity: buildRecallActivity({
+        input,
+        searchedSources: searchResult.searchedSources,
+        evidence:
+          availableEvidence.length > 0 ? availableEvidence : citedEvidence,
+        answer: finish.answer,
+      }),
       debug,
     },
   };
@@ -856,17 +908,6 @@ function formatAvailableEvidence(evidence: readonly RecallEvidence[]): string {
   ].join("\n");
 }
 
-function compactText(text: string, maxChars: number): string {
-  const compacted = text.trim().replace(/\s+/g, " ");
-  if (compacted.length <= maxChars) {
-    return compacted;
-  }
-  if (maxChars <= 3) {
-    return safeStringSlice(compacted, 0, maxChars);
-  }
-  return `${safeStringSlice(compacted, 0, maxChars - 3).trimEnd()}...`;
-}
-
 function dedupeEvidenceById(
   evidence: readonly RecallEvidence[],
 ): RecallEvidence[] {
@@ -892,6 +933,7 @@ async function executeSearchSources(
   searchOptions: DeterministicRecallSearchOptions | undefined,
 ): Promise<{
   evidence: RecallEvidence[];
+  searchedSources: RecallSearchedSource[];
   debug: AgenticRecallSearchDebug;
 }> {
   const query = readSearchQuery(payload.query);
@@ -915,6 +957,7 @@ async function executeSearchSources(
   if (!query || sources.length === 0) {
     return {
       evidence: [],
+      searchedSources: [],
       debug: {
         ...debug,
         error: !query
@@ -937,12 +980,20 @@ async function executeSearchSources(
     );
     return {
       evidence: result.evidence,
+      searchedSources: result.searchedSources,
       debug: { ...debug, evidenceCount: result.evidence.length },
     };
   } catch (err) {
+    const error = errorToMessage(err);
     return {
       evidence: [],
-      debug: { ...debug, error: errorToMessage(err) },
+      searchedSources: sources.map((source) => ({
+        source,
+        status: "degraded",
+        evidenceCount: 0,
+        error,
+      })),
+      debug: { ...debug, error },
     };
   }
 }
@@ -1296,6 +1347,11 @@ function deterministicFallback(
     content: fallback.answer,
     answer: fallback.answer,
     evidence: fallback.evidence,
+    activity: buildRecallActivity({
+      input: result.input,
+      searchedSources: result.searchedSources,
+      evidence: fallback.evidence,
+    }),
     debug: {
       ...debug,
       mode: "deterministic_fallback",

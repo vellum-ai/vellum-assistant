@@ -11,7 +11,9 @@ The end-to-end lifecycle of interactive guardian requests (approvals, questions)
 
 ## Single-Guardian Invariant
 
-Each assistant instance serves exactly one guardian. Multi-guardian is not supported and will never be. All connections, browser sessions, approval channels, and trust contexts within a single assistant process belong to the same guardian principal. Do not introduce guardian-keyed maps, per-guardian routing logic, or multi-guardian multiplexing — they add complexity without a real use case and create the false impression that cross-guardian isolation is required.
+Each assistant instance serves exactly one guardian. Multi-guardian is not supported and will never be. Only that guardian's principal decides guardian requests: `applyGuardianDecision()` requires it exactly. Do not introduce guardian-keyed maps, per-guardian routing logic, or multi-guardian multiplexing; they add complexity without a real use case and create the false impression that cross-guardian isolation is required.
+
+One guardian does not mean one person connected. The event stream (`GET /v1/events`) admits any actor principal with `chat.read`, so a non-guardian actor can hold a valid connection. Routes that must be guardian-only set `requireGuardian: true`, which `routes/http-adapter.ts` enforces with `requireBoundGuardian` (`runtime/auth/require-bound-guardian.ts`). Content meant only for the guardian is scoped to the guardian's principal at delivery (`targetActorPrincipalId` on the event hub), never assumed safe because it reached a connection.
 
 ## Guardian Verification Invariant
 

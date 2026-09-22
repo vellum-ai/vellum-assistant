@@ -5,8 +5,7 @@
  * the new one is confirmed working.
  *
  * Only the Electron host renders it (gated by the caller in `general-page.tsx`).
- * Platform-to-local teleport is GA; local-to-platform stays behind the
- * `teleport` client feature flag.
+ * Both teleport directions are GA.
  */
 
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -16,7 +15,6 @@ import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { resolveDesktopHostOS } from "@/runtime/platform-detection";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -32,7 +30,6 @@ export function TeleportCard() {
   const { t } = useTranslation("settings");
   const teleport = useTeleport();
   const { destination, phase } = teleport;
-  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   // Both directions go through the platform API (export/import signed URLs,
   // managed hatch), so the card needs a platform session either way.
   const platformGate = usePlatformGate();
@@ -40,12 +37,6 @@ export function TeleportCard() {
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
   if (!destination || platformGate === "gated") {
-    return null;
-  }
-  // Only gate the idle offer. Mid-transfer the selected assistant can flip to
-  // the freshly hatched local target (which reads as local-to-platform), and
-  // hiding the card then would strand the progress, verify, and error controls.
-  if (phase.kind === "idle" && destination === "platform" && !teleportEnabled) {
     return null;
   }
 

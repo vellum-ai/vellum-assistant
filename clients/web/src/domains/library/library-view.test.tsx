@@ -97,14 +97,18 @@ const APP: AppSummary = {
   origin: "workspace",
 };
 
-function renderView() {
+function renderView(props: Partial<Parameters<typeof LibraryView>[0]> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <HeaderTrailing />
-      <LibraryView assistantId="assistant-123" onOpenApp={() => {}} />
+      <LibraryView
+        assistantId="assistant-123"
+        onOpenApp={() => {}}
+        {...props}
+      />
     </QueryClientProvider>,
   );
 }
@@ -206,5 +210,39 @@ describe("LibraryView import affordance", () => {
     expect(
       container.querySelector('input[type="file"]')?.getAttribute("accept"),
     ).toBeNull();
+  });
+});
+
+describe("LibraryView new document affordance", () => {
+  test("omits New Document when the view is given no handler", () => {
+    renderView();
+
+    expect(screen.queryByRole("button", { name: /New Document/ })).toBeNull();
+  });
+
+  test("shows New Document on the empty library and runs the handler", () => {
+    const onNewDocument = mock(() => {});
+    renderView({ onNewDocument });
+
+    screen.getByRole("button", { name: /New Document/ }).click();
+    expect(onNewDocument).toHaveBeenCalledTimes(1);
+  });
+
+  test("disables New Document while a document is being created", () => {
+    renderView({ onNewDocument: () => {}, isCreatingDocument: true });
+
+    expect(
+      screen
+        .getByRole("button", { name: /New Document/ })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  test("uses an icon-only New Document action in the mobile top bar", () => {
+    isMobileRef.value = true;
+    renderView({ onNewDocument: () => {} });
+
+    const button = screen.getByRole("button", { name: "New Document" });
+    expect(button.textContent).toBe("");
   });
 });

@@ -115,7 +115,7 @@ export async function signBundle(
   const { signature, keyId } = await requestSignature(canonicalPayload);
 
   // 5. Build SignatureJson
-  const signatureJson: SignatureJson = {
+  return {
     algorithm: "ed25519",
     signer: {
       key_id: keyId,
@@ -124,6 +124,4 @@ export async function signBundle(
     content_hashes: contentHashes,
     signature,
   };
-
-  return signatureJson;
 }

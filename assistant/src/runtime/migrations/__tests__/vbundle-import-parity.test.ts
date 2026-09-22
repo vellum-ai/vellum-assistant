@@ -33,7 +33,10 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { buildVBundle } from "../vbundle-builder.js";
-import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
+import {
+  analyzeImport,
+  DefaultPathResolver,
+} from "../vbundle-import-analyzer.js";
 import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
 import { defaultV1Options } from "./v1-test-helpers.js";
@@ -415,5 +418,68 @@ describe("vbundle import parity (buffer vs streaming)", () => {
 
     expect(bufferMap.has("marker.txt")).toBe(true);
     expect(streamMap.has("marker.txt")).toBe(true);
+  });
+
+  test("F — debug-profile gateway entry: both importers drain it and write nothing", async () => {
+    const configJson = JSON.stringify({ version: 1 });
+    const { archive, manifest } = buildVBundle({
+      files: [
+        { path: "workspace/data/db/assistant.db", data: new Uint8Array(8) },
+        {
+          path: "workspace/config.json",
+          data: new TextEncoder().encode(configJson),
+        },
+        {
+          path: "gateway/export.tar.gz",
+          data: new TextEncoder().encode("not-a-real-tarball"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    // Preflight must not block on the gateway entry, or the CLI would
+    // refuse the restore before either importer runs.
+    const preflight = analyzeImport({
+      manifest,
+      pathResolver: new DefaultPathResolver(bufferWs),
+    });
+    expect(preflight.can_import).toBe(true);
+    expect(preflight.conflicts).toEqual([]);
+
+    mkdirSync(bufferWs, { recursive: true });
+    mkdirSync(streamWs, { recursive: true });
+
+    const bufferResult = commitImport({
+      archiveData: archive,
+      pathResolver: new DefaultPathResolver(bufferWs),
+      workspaceDir: bufferWs,
+    });
+    const streamResult = await streamCommitImport({
+      source: Readable.from([Buffer.from(archive)]),
+      pathResolver: new DefaultPathResolver(streamWs),
+      workspaceDir: streamWs,
+    });
+    if (!bufferResult.ok || !streamResult.ok) {
+      throw new Error("import unexpectedly failed");
+    }
+
+    const bufferMap = walkDiskTree(bufferWs);
+    const streamMap = walkDiskTree(streamWs);
+
+    expect(streamMap).toEqual(bufferMap);
+    expect(bufferMap.has("config.json")).toBe(true);
+    expect(bufferMap.has("data/db/assistant.db")).toBe(true);
+    for (const relPath of bufferMap.keys()) {
+      expect(relPath.startsWith("gateway")).toBe(false);
+    }
+    // Skipped silently, like a retired path: counted, but no
+    // "no known disk target" warning.
+    for (const { report } of [bufferResult, streamResult]) {
+      expect(report.warnings).toEqual([]);
+      const gateway = report.files.find(
+        (f) => f.path === "gateway/export.tar.gz",
+      );
+      expect(gateway?.action).toBe("skipped");
+    }
   });
 });

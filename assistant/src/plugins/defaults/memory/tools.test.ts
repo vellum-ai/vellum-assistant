@@ -11,7 +11,10 @@ import {
   test,
 } from "bun:test";
 
+import { z } from "zod";
+
 import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import type { RecallMetadata } from "../../../api/events/tool-result.js";
 import type { ToolContext } from "../../../tools/types.js";
 
 let tmpWorkspace: string;
@@ -31,6 +34,14 @@ const recallCalls: Array<{
   context: Record<string, unknown>;
 }> = [];
 let recallContent = "agentic recall answer";
+const recallActivity: RecallMetadata = {
+  query: "guardian recall",
+  depth: "standard",
+  sources: ["memory"],
+  answer: "agentic recall answer",
+  evidence: [],
+  searchedSources: [{ source: "memory", status: "searched", evidenceCount: 0 }],
+};
 
 mock.module("./v1/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: { pkbRoot: string; absPath: string }) => {
@@ -52,6 +63,7 @@ mock.module("./context-search/agent-runner.js", () => ({
       content: recallContent,
       answer: recallContent,
       evidence: [],
+      activity: recallActivity,
       debug: { mode: "agentic" },
     };
   },
@@ -146,6 +158,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "agentic recall answer",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
     expect(recallCalls).toHaveLength(1);
     expect(recallCalls[0]?.input).toEqual({ query: "guardian recall" });
@@ -179,6 +192,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "agentic recall answer",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
     expect(recallCalls).toHaveLength(1);
     expect(recallCalls[0]?.input).toEqual({
@@ -186,6 +200,37 @@ describe("recallTool.execute", () => {
       sources: ["memory", "workspace"],
       max_results: 4,
       depth: "deep",
+    });
+  });
+
+  test("refuses an unknown source before searching", async () => {
+    const result = await recallTool.execute(
+      { query: "launch notes", sources: ["calendar"] },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "recall"');
+    expect(result.content).toContain("sources.0");
+    expect(recallCalls).toHaveLength(0);
+  });
+
+  test("reads null optionals as omitted and leaves max_results to the clamp", async () => {
+    await recallTool.execute(
+      {
+        query: "launch notes",
+        sources: null,
+        depth: null,
+        max_results: 50,
+        activity: "Looking up launch notes",
+      },
+      makeContext(),
+    );
+
+    expect(recallCalls[0]?.input).toEqual({
+      query: "launch notes",
+      max_results: 50,
+      activity: "Looking up launch notes",
     });
   });
 
@@ -200,6 +245,7 @@ describe("recallTool.execute", () => {
     expect(result).toEqual({
       content: "Found evidence:\n\n- [workspace] fallback note",
       isError: false,
+      activityMetadata: { recall: recallActivity },
     });
   });
 
@@ -317,6 +363,7 @@ describe("rememberTool.execute — memory access", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Not saved");
+      expect(result.activityMetadata).toBeUndefined();
       // The turn continues so the model can relay the refusal.
       expect(result.yieldToUser).toBeUndefined();
       const bufferPath = join(tmpWorkspace, "memory", "buffer.md");
@@ -336,10 +383,13 @@ describe("rememberTool.execute — batch (array) content", () => {
 
   test("records every fact from an array in the memory buffer", async () => {
     const result = await rememberTool.execute(
-      { content: ["batch fact A", "batch fact B"] },
+      { content: [" batch fact A ", "batch fact B", "  "] },
       makeContext(),
     );
     expect(result.isError).toBe(false);
+    expect(result.activityMetadata).toEqual({
+      remember: { facts: ["batch fact A", "batch fact B"] },
+    });
 
     const bufferContents = readFileSync(
       join(tmpWorkspace, "memory", "buffer.md"),
@@ -351,13 +401,55 @@ describe("rememberTool.execute — batch (array) content", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
+  test("refuses a non-string fact without writing any of the batch", async () => {
+    const result = await rememberTool.execute(
+      { content: ["a fact beside a number", 42] },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "remember"');
+    const bufferPath = join(tmpWorkspace, "memory", "buffer.md");
+    const buffer = existsSync(bufferPath)
+      ? readFileSync(bufferPath, "utf-8")
+      : "";
+    expect(buffer).not.toContain("a fact beside a number");
+  });
+
   test("rejects an all-blank array without writing or enqueueing", async () => {
     const result = await rememberTool.execute(
       { content: ["  ", ""] },
       makeContext(),
     );
     expect(result.isError).toBe(true);
+    expect(result.activityMetadata).toBeUndefined();
     expect(enqueueCalls).toHaveLength(0);
+  });
+});
+
+/** The advertised `content` description, read as the provider serializes it. */
+function contentDescription(schema: Record<string, unknown>): string {
+  return z
+    .object({
+      properties: z.object({ content: z.object({ description: z.string() }) }),
+    })
+    .parse(schema).properties.content.description;
+}
+
+describe("rememberTool definition", () => {
+  test("advertises the schema it parses with", () => {
+    const schema = rememberTool.input_schema;
+
+    expect(schema.required).toEqual(["content"]);
+    expect(schema.properties).toMatchObject({
+      content: {
+        anyOf: [
+          { type: "string" },
+          { type: "array", items: { type: "string" }, minItems: 1 },
+        ],
+      },
+      finish_turn: { type: "boolean" },
+    });
   });
 });
 
@@ -369,14 +461,14 @@ describe("rememberTool definition — page-hint guidance gating", () => {
 
   test("omits the [[slug]] hint guidance in v1/PKB mode", () => {
     setConfig("memory", { v2: { enabled: false } });
-    expect(
-      rememberTool.input_schema.properties.content.description,
-    ).not.toContain("[[slug]]");
+    expect(contentDescription(rememberTool.input_schema)).not.toContain(
+      "[[slug]]",
+    );
   });
 
   test("includes the [[slug]] hint guidance under concept-page memory (v2)", () => {
     setConfig("memory", { v2: { enabled: true } });
-    expect(rememberTool.input_schema.properties.content.description).toContain(
+    expect(contentDescription(rememberTool.input_schema)).toContain(
       "[[slug]] wikilinks",
     );
     // The gate must survive JSON serialization — that's how the schema
@@ -388,7 +480,7 @@ describe("rememberTool definition — page-hint guidance gating", () => {
 
   test("includes the [[slug]] hint guidance when v3 is live with the v2 flag off", () => {
     setConfig("memory", { v2: { enabled: false }, v3: { live: true } });
-    expect(rememberTool.input_schema.properties.content.description).toContain(
+    expect(contentDescription(rememberTool.input_schema)).toContain(
       "[[slug]] wikilinks",
     );
   });
@@ -396,8 +488,8 @@ describe("rememberTool definition — page-hint guidance gating", () => {
   test("re-resolves against config on each read, without re-registration", () => {
     const schema = rememberTool.input_schema;
     setConfig("memory", { v2: { enabled: true } });
-    expect(schema.properties.content.description).toContain("[[slug]]");
+    expect(contentDescription(schema)).toContain("[[slug]]");
     setConfig("memory", { v2: { enabled: false } });
-    expect(schema.properties.content.description).not.toContain("[[slug]]");
+    expect(contentDescription(schema)).not.toContain("[[slug]]");
   });
 });

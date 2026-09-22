@@ -164,14 +164,8 @@
     "reconnectButton": "重新连接",
     "title": "桌面",
     "unavailable": "此助理不支持虚拟桌面。",
-    "installButton": "安装虚拟桌面",
     "checkingSetup": "正在检查虚拟桌面设置…",
-    "installingPackages": "正在安装虚拟桌面组件…",
-    "installingChrome": "正在安装 Google Chrome…",
-    "checkingInstall": "正在检查安装…",
-    "installFailed": "安装失败。请重试以完成设置。",
-    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。",
-    "setupUnsupported": "虚拟桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。"
   },
   "assistantNavItem": {
     "newChat": "新建聊天"
@@ -703,6 +697,8 @@
     "markRead": "标记为已读",
     "markUnread": "标记为未读",
     "moveToGroup": "移动到群组",
+    "newDocument": "新建文档",
+    "newDocumentFailed": "无法创建文档。请重试。",
     "newGroup": "新建群组…",
     "openInNewWindow": "在新窗口中打开",
     "pin": "置顶",
@@ -850,6 +846,7 @@
     "notFound": "未找到文档。"
   },
   "dynamicPageSurface": {
+    "collapse": "收起",
     "titleFallback": "动态内容"
   },
   "exportProgressModal": {
@@ -889,6 +886,7 @@
     "accepted": "接受：{types}",
     "dropHint": "将文件拖放到此处，或点击浏览",
     "maxSize": "最大大小：{size}",
+    "removeFile": "移除 {name}",
     "upload": "上传",
     "uploading": "正在上传..."
   },
@@ -1533,6 +1531,10 @@
     "cancel": "取消",
     "placeholder": "输入您的回复…"
   },
+  "rawDisclosure": {
+    "input": "原始输入",
+    "output": "原始输出"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "复制请求负载",
     "copyResponsePayloadAriaLabel": "复制响应负载",
@@ -1686,7 +1688,8 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "runningSuffix": " · 正在运行"
+    "runningSuffix": " · 正在运行",
+    "unnamedTool": "技能工具"
   },
   "skillLoadCard": {
     "view": "查看"
@@ -1699,10 +1702,6 @@
     "provides": "提供",
     "unnamedSkill": "技能",
     "usedSkill": "已用技能"
-  },
-  "skillLoadOutput": {
-    "output": "输出",
-    "outputFormatAria": "输出格式"
   },
   "skillToolList": {
     "fromSkill": "来自 {name}"
@@ -1828,12 +1827,10 @@
   },
   "toolInputParameters": {
     "parameters": "参数",
-    "rawInput": "原始输入",
     "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}",
-    "rawOutput": "原始输出"
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输出”}}"
   },
   "valueFields": {
     "copyValue": "复制 {label}"
@@ -1955,12 +1952,12 @@
     "workflowFinished": "工作流已完成"
   },
   "wakeDetailPanel": {
-    "close": "关闭",
     "details": "详细信息",
     "result": "结果",
     "runStatus": "运行状态",
     "title": "对话已唤醒",
-    "workflow": "工作流"
+    "workflow": "工作流",
+    "closeAria": "关闭详情"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1970,13 +1967,9 @@
     "now": "现在"
   },
   "webFetchDetailView": {
-    "content": "内容",
     "fetchFailed": "获取失败。",
     "fetching": "正在获取…",
-    "noContent": "未提取到内容。",
-    "rawResult": "原始结果",
-    "viewExtracted": "查看已提取内容",
-    "viewRaw": "查看原始内容"
+    "noContent": "未提取到内容。"
   },
   "webSearchDetailView": {
     "noSources": "未找到来源。",
@@ -2090,5 +2083,23 @@
     "skip": "跳过",
     "showMore": "展开",
     "showLess": "收起"
+  },
+  "rememberDetail": {
+    "saved": "已保存",
+    "saving": "正在保存",
+    "notSaved": "未保存"
+  },
+  "recallDetail": {
+    "searchedFor": "搜索内容",
+    "scope": "{depth} · {sources}",
+    "answer": "回答",
+    "evidence": "{count, plural, other {# 条结果}}",
+    "noEvidence": "没有找到相关内容。",
+    "degraded": "部分位置未能完整搜索",
+    "degradedSource": "{source}：{error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {记忆} conversations {对话} workspace {工作区文件} other {{source}}}",
+    "depth": "{depth, select, fast {快速搜索} standard {标准搜索} deep {深度搜索} other {搜索}}"
   }
 }

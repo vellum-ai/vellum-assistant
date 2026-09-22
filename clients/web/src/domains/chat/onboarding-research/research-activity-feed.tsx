@@ -20,7 +20,7 @@ import { Search } from "lucide-react";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { SourceFavicon } from "@/domains/chat/onboarding-research/source-favicon";
 

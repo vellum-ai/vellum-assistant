@@ -1,7 +1,7 @@
 /**
- * The card that holds out a dictation's words, whichever of the two things
- * left them in hand: another app pasted its own version of them, or nothing
- * in front would take them.
+ * The card that holds out a dictation's words, whichever of the three things
+ * left them in hand: another app pasted its own version of them, nothing in
+ * front would take them, or the paste into what would did not go through.
  *
  * A card beside the pill rather than a body inside it, for the reason the
  * introduction and the Teach picker are: the pill is one line tall and the
@@ -28,6 +28,18 @@ import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow"
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
+
+/**
+ * The catalog key for why words that were never pasted are on offer, shared
+ * by the card's heading and the pill beside it so the two cannot disagree.
+ */
+export function unplacedOfferLabelKey(
+  reason: Exclude<CompanionDictationOfferWords["reason"], "claimed">,
+) {
+  return reason === "paste-failed"
+    ? ("companionSurface.offerPasteFailed" as const)
+    : ("companionSurface.offerNowhere" as const);
+}
 
 /** The same fixed width the other cards take, for the same reason. */
 const CARD_WIDTH = 260;
@@ -63,7 +75,7 @@ export function CompanionDictationOffer({
   const title =
     offer.reason === "claimed"
       ? t("companionSurface.offerVersion")
-      : t("companionSurface.offerNowhere");
+      : t(unplacedOfferLabelKey(offer.reason));
   // The same derivation the introduction places its card by: hung off the
   // creature's own edge, since the pill is beside the creature in this phase
   // and its width is the words' rather than a fixed one.

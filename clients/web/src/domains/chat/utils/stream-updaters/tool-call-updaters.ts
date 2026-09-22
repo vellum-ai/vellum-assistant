@@ -21,7 +21,7 @@ import type {
   RiskScopeOption,
 } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import {
   tailIsAssistant,
   findAssistantRowIndexByMessageId,
