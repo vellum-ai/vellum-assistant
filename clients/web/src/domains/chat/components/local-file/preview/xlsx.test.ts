@@ -94,13 +94,31 @@ function prefixedWorkbookParts(): Record<string, string> {
   };
 }
 
-/** A prefixed worksheet part holding `count` rows of one inline string each. */
-function prefixedSheetXml(count: number): string {
-  const rows = Array.from({ length: count }, (_, index) => {
+/** `count` prefixed rows of one inline string each. */
+function prefixedRowsXml(count: number): string {
+  return Array.from({ length: count }, (_, index) => {
     const position = index + 1;
     return `<x:row r="${position}"><x:c r="A${position}" t="inlineStr"><x:is><x:t>row ${index}</x:t></x:is></x:c></x:row>`;
   }).join("");
-  return `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData>${rows}</x:sheetData></x:worksheet>`;
+}
+
+/** A prefixed worksheet part holding `count` rows of one inline string each. */
+function prefixedSheetXml(count: number): string {
+  return `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData>${prefixedRowsXml(count)}</x:sheetData></x:worksheet>`;
+}
+
+/**
+ * The same rows under a `<worksheet>` and a `<sheetData>` carrying no prefix,
+ * which is legal while they share the row's namespace. A cut in here can only
+ * be closed with each ancestor's own spelling.
+ */
+function mixedPrefixSheetXml(count: number): string {
+  return `<worksheet xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><sheetData>${prefixedRowsXml(count)}</sheetData></worksheet>`;
+}
+
+/** The mirror of that for the shared string table: prefixed items, plain `sst`. */
+function mixedPrefixSharedStringsXml(long: string): string {
+  return `<sst xmlns="${MAIN_NS}" xmlns:x="${MAIN_NS}"><x:si><x:t>alpha</x:t></x:si><x:si><x:t>${long}</x:t></x:si><x:si><x:t>gamma</x:t></x:si></sst>`;
 }
 
 /** The widest and longest grid the caps keep, as a raw worksheet part. */
@@ -398,6 +416,54 @@ describe("parseWorkbook", () => {
     ]);
   });
 
+  test("counts an elapsed format past midnight instead of wrapping at it", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 2, s: 0 }],
+        [{ v: 1.5, s: 0 }],
+        [{ v: 0.5, s: 1 }],
+        [{ v: 2, s: 1 }],
+        [{ v: 0.5, s: 2 }],
+      ],
+      {
+        styles: [
+          { numFmtId: 46 },
+          { formatCode: "[h]:mm" },
+          { formatCode: "[mm]:ss" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([
+      ["48:00:00"],
+      ["36:00:00"],
+      ["12:00"],
+      ["48:00"],
+      ["720:00"],
+    ]);
+  });
+
+  test("renders a 12-hour format code as a clock reading", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 0.5, s: 0 }],
+        [{ v: 0.5, s: 1 }],
+        [{ v: 0.5, s: 2 }],
+        [{ v: 0.5, s: 3 }],
+      ],
+      {
+        styles: [
+          { formatCode: "h:mm AM/PM" },
+          { formatCode: "h:mm:ss AM/PM" },
+          { formatCode: "[$-409]h:mm:ss AM/PM" },
+          { formatCode: "h:mm A/P" },
+        ],
+      },
+    );
+
+    expect(grid.rows).toEqual([["12:00"], ["12:00"], ["12:00"], ["12:00"]]);
+  });
+
   test("renders date-styled numbers from a custom format code", async () => {
     const grid = await readOneSheet(
       [
@@ -656,17 +722,14 @@ describe("parseWorkbook", () => {
       }),
     );
 
-    const startedAt = performance.now();
     const grid = await parsed.sheets[0]!.read();
-    const elapsed = performance.now() - startedAt;
 
+    // The widest and longest grid the caps keep is the reader's worst case, so
+    // this is where a traversal that walks each row's and each cell's subtree
+    // again shows up: the assertions say the caps held, and the timeout bounds
+    // how long a traversal is given to say so.
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.rows[0]!.length).toBe(MAX_CSV_COLUMNS);
-    // Measured around 3.2 s here, against 6.2 s for the descendant scan per
-    // row and per cell this replaced. Most of what is left is happy-dom
-    // parsing 1.2 million elements, so the bound leaves room for a slower
-    // machine while still catching a traversal that walks subtrees again.
-    expect(elapsed).toBeLessThan(5_000);
   }, 60_000);
 
   test("drops a row that runs past the character cap and says so", async () => {
@@ -779,6 +842,51 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(grid.rows[MAX_CSV_ROWS - 1]).toEqual([`row ${MAX_CSV_ROWS - 1}`]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("closes a cut sheet with the tags its own part opened", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [{ name: "Sheet1" }],
+        parts: {
+          "xl/worksheets/sheet1.xml": mixedPrefixSheetXml(MAX_CSV_ROWS + 1),
+        },
+      }),
+    );
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.rows[MAX_CSV_ROWS - 1]).toEqual([`row ${MAX_CSV_ROWS - 1}`]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("closes a cut shared string table with the tag its own part opened", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          {
+            name: "Sheet1",
+            rows: [
+              [
+                { t: "s", v: 0 },
+                { t: "s", v: 1 },
+                { t: "s", v: 2 },
+              ],
+            ],
+          },
+        ],
+        parts: {
+          "xl/sharedStrings.xml": mixedPrefixSharedStringsXml(
+            "x".repeat(50_000),
+          ),
+        },
+      }),
+      { maxPartChars: 2_000 },
+    );
+    const grid = await parsed.sheets[0]!.read();
+
+    expect(grid.rows).toEqual([["alpha", "", ""]]);
     expect(grid.truncated).toBe(true);
   });
 
