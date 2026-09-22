@@ -557,7 +557,7 @@
       "scope": "both",
       "key": "vellum-trusted-contacts",
       "label": "Vellum Trusted Contacts",
-      "description": "Lets a guardian give another person access to talk to their assistant in the Vellum UI as a trusted contact. Gates contact-role token minting in the gateway, trusted-contact trust resolution for `vellum` channel principals in the daemon, and the daemon's trusted-contact route allowlist. Off: none of those surfaces admit a contact, and the assistant stays reachable only by its guardian.",
+      "description": "Lets a guardian give another person access to talk to their assistant in the Vellum UI as a trusted contact. Gates contact-role token minting in the gateway, trusted-contact trust resolution for `vellum` channel principals, and the assistant's trusted-contact route allowlist. Off: none of those surfaces admit a contact, and the assistant stays reachable only by its guardian.",
       "defaultEnabled": false
     }
   ]
