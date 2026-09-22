@@ -15,6 +15,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -339,6 +340,7 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
   ImageComponent?: MarkdownImageComponent,
+  remoteImages = false,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
@@ -488,7 +490,7 @@ function buildMarkdownComponents(
         srcStr.startsWith("data:") ||
         srcStr.startsWith("blob:") ||
         srcStr.startsWith(".");
-      if (isLocal) {
+      if (remoteImages || isLocal) {
         return (
           <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />
         );
@@ -1078,12 +1080,35 @@ export interface MarkdownMessageProps {
    */
   incremental?: boolean;
   /**
-   * What the content is. `message` (the default) is chat: the transcript's
-   * scale, maths, and no raw HTML. `document` is file content: a document
-   * scale, embedded HTML parsed and sanitised, frontmatter stripped, and `$`
-   * left as a dollar sign.
+   * Parse embedded HTML into real elements, then sanitise it. Off by default:
+   * a message is model-authored, and parsing HTML there would let it put
+   * markup into the app. A file someone opened uses HTML for layout, so a
+   * file surface turns it on.
    */
-  variant?: MarkdownVariant;
+  parseHtml?: boolean;
+  /**
+   * Load images from anywhere. Off by default: a remote image in
+   * model-authored text is a request to a third party, so it draws as a
+   * placeholder instead. A file's own screenshots and badges are its content.
+   */
+  remoteImages?: boolean;
+  /**
+   * Read `$…$` and `\(…\)` as maths. On by default. File content turns it
+   * off: a README's `$HOME` is a shell variable and a price list's `$40` is a
+   * price, and neither is an equation.
+   */
+  math?: boolean;
+  /**
+   * What a leading YAML block is. `content` (the default) renders it as the
+   * markdown it looks like. `metadata` parses it as frontmatter, so it is not
+   * drawn as content; the source view still shows it.
+   */
+  frontmatter?: "content" | "metadata";
+  /**
+   * The type scale. `message` (the default) is the transcript's. `document`
+   * is file content, which carries its own heading hierarchy.
+   */
+  scale?: MarkdownScale;
 }
 
 /**
@@ -1258,14 +1283,6 @@ function buildDocumentComponents(
   };
 }
 
-/**
- * Strip a leading YAML frontmatter block. It is metadata for the surrounding
- * system, not content for whoever opened the file.
- */
-function stripFrontmatter(content: string): string {
-  return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-}
-
 const REMARK_PLUGINS: PluggableList = [
   remarkGfm,
   remarkMath,
@@ -1273,17 +1290,16 @@ const REMARK_PLUGINS: PluggableList = [
   remarkDisplayMathBlocks,
 ];
 
-/**
- * A document carries no maths: a shell README's `$VAR` and a price list's
- * `$40` are dollars, and reading them as maths would rewrite what the file
- * plainly says.
- */
-const DOCUMENT_REMARK_PLUGINS: PluggableList = [
+/** A leading YAML block, parsed as metadata rather than drawn as content. */
+const FRONTMATTER_PLUGIN: Pluggable = [remarkFrontmatter, ["yaml"]];
+
+/** Without maths, the two maths plugins and their rewrites drop out. */
+const PROSE_REMARK_PLUGINS: PluggableList = [
   remarkGfm,
   remarkPreserveOrderedListNumbers,
 ];
 
-export type MarkdownVariant = "message" | "document";
+export type MarkdownScale = "message" | "document";
 
 interface MarkdownBlockProps {
   content: string;
@@ -1291,7 +1307,8 @@ interface MarkdownBlockProps {
   components: Components;
   rehypePlugins: Pluggable[];
   urlTransform: ((url: string) => string) | undefined;
-  variant: MarkdownVariant;
+  remarkPlugins: PluggableList;
+  math: boolean;
 }
 
 /**
@@ -1306,11 +1323,13 @@ function MarkdownBlock({
   components,
   rehypePlugins,
   urlTransform,
-  variant,
+  remarkPlugins,
+  math,
 }: MarkdownBlockProps) {
   const processed = useMemo(() => {
-    // A document has no maths, so none of the maths rewrites apply to it.
-    if (variant === "document") {
+    // The maths rewrites exist to protect maths from prose and prose from
+    // maths, so without maths none of them apply.
+    if (!math) {
       return hardLineBreaks ? hardBreakNewlines(content) : content;
     }
     const escaped = escapeCurrencyDollars(content);
@@ -1318,12 +1337,10 @@ function MarkdownBlock({
     // Last: currency escaping would otherwise read a converted `\(5\)` as an
     // amount and escape the `$` it just introduced.
     return convertLatexDelimiters(broken);
-  }, [content, hardLineBreaks, variant]);
+  }, [content, hardLineBreaks, math]);
   return (
     <ReactMarkdown
-      remarkPlugins={
-        variant === "document" ? DOCUMENT_REMARK_PLUGINS : REMARK_PLUGINS
-      }
+      remarkPlugins={remarkPlugins}
       rehypePlugins={rehypePlugins}
       components={components}
       urlTransform={urlTransform}
@@ -1363,26 +1380,35 @@ export function MarkdownMessage({
   extraRehypePlugins,
   extraComponents,
   incremental = false,
-  variant = "message",
+  parseHtml = false,
+  remoteImages = false,
+  math = true,
+  frontmatter = "content",
+  scale = "message",
 }: MarkdownMessageProps) {
-  const isDocument = variant === "document";
-  // Frontmatter is metadata for the system around the file, so it is stripped
-  // before the split as well as before the parse: a block boundary inside it
-  // would otherwise leave half of it on screen.
-  const source = isDocument ? stripFrontmatter(content) : content;
-  const blocks = useIncrementalMarkdownBlocks(incremental ? source : "");
+  const isDocument = scale === "document";
+  const blocks = useIncrementalMarkdownBlocks(incremental ? content : "");
+  const remarkPlugins = useMemo(
+    () => [
+      ...(math ? REMARK_PLUGINS : PROSE_REMARK_PLUGINS),
+      // Parsed rather than removed: the block becomes a frontmatter node with
+      // no renderer, so it draws nothing while the source still carries it.
+      ...(frontmatter === "metadata" ? [FRONTMATTER_PLUGIN] : []),
+    ],
+    [math, frontmatter],
+  );
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(
     () =>
       ({
         ...(isDocument
           ? buildDocumentComponents(Link)
-          : buildMarkdownComponents(Link, imageComponent)),
+          : buildMarkdownComponents(Link, imageComponent, remoteImages)),
         // Custom tag names from consumer rehype plugins are not part of
         // react-markdown's intrinsic `Components` key set, hence the cast.
         ...extraComponents,
       }) as Components,
-    [Link, imageComponent, extraComponents, isDocument],
+    [Link, imageComponent, extraComponents, isDocument, remoteImages],
   );
   // Loosest possible trigger on purpose: every construct remark-math can
   // treat as math contains a dollar sign, or one of the `\(` / `\[` openers
@@ -1391,7 +1417,7 @@ export function MarkdownMessage({
   // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
   // reverse, and the only cost of a false positive is a lazy chunk load.
   const needsMath =
-    !isDocument &&
+    math &&
     (content.includes("$") ||
       content.includes("\\(") ||
       content.includes("\\["));
@@ -1401,11 +1427,11 @@ export function MarkdownMessage({
       // A document's embedded HTML is reparsed into real elements and then
       // sanitised, in that order so sanitising sees elements rather than text.
       // Without it react-markdown prints the tags a README uses for layout.
-      ...(isDocument ? [rehypeRaw, rehypeSanitize] : []),
+      ...(parseHtml ? [rehypeRaw, rehypeSanitize] : []),
       ...(katexPlugin === null ? [] : [katexPlugin]),
       ...(extraRehypePlugins ?? []),
     ],
-    [isDocument, katexPlugin, extraRehypePlugins],
+    [parseHtml, katexPlugin, extraRehypePlugins],
   );
   return (
     <div
@@ -1430,17 +1456,19 @@ export function MarkdownMessage({
             components={components}
             rehypePlugins={rehypePlugins}
             urlTransform={urlTransform}
-            variant={variant}
+            remarkPlugins={remarkPlugins}
+            math={math}
           />
         ))
       ) : (
         <MemoizedMarkdownBlock
-          content={source}
+          content={content}
           hardLineBreaks={hardLineBreaks}
           components={components}
           rehypePlugins={rehypePlugins}
           urlTransform={urlTransform}
-          variant={variant}
+          remarkPlugins={remarkPlugins}
+          math={math}
         />
       )}
     </div>

@@ -1,9 +1,10 @@
 /**
  * Markdown FILE content: a README, a skill's instructions, a note.
  *
- * The rendering itself is `MarkdownMessage`'s `document` variant, so a file
- * and a chat message go through one renderer rather than two that drift. This
- * wrapper supplies what only the app knows: links open through
+ * The rendering itself is `MarkdownMessage`, so a file and a chat message go
+ * through one renderer rather than two that drift. This wrapper is where the
+ * decisions that make content a file rather than a message are written down
+ * once, and it supplies what only the app knows: links open through
  * `ExternalAnchor`, which the native shells need to open a link at all.
  */
 
@@ -44,8 +45,15 @@ export function FileMarkdown({ content }: { content: string }) {
   return (
     <MarkdownMessage
       content={content}
-      variant="document"
       linkComponent={FileLink}
+      // What a file is, decision by decision: its embedded HTML is layout it
+      // wrote for itself, its images are its own, its `$` is a shell variable
+      // or a price, and its leading YAML block is metadata about it.
+      parseHtml
+      remoteImages
+      math={false}
+      frontmatter="metadata"
+      scale="document"
     />
   );
 }

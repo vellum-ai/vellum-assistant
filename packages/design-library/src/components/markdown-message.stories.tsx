@@ -240,7 +240,11 @@ export const IncrementalStreaming: Story = {
  */
 export const Document: Story = {
   args: {
-    variant: "document",
+    parseHtml: true,
+    remoteImages: true,
+    math: false,
+    frontmatter: "metadata",
+    scale: "document",
     content: [
       "---",
       "title: Caveman",
