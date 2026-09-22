@@ -27,8 +27,11 @@ export function RowGlyph({ children }: { children: ReactNode }) {
 }
 
 export interface QuestionRowContentsProps {
-  badgeNumber: number;
-  showBadge: boolean;
+  /**
+   * The key that picks this option, shown as a badge. Left out where no key
+   * picks it: a touch device, or the tool drawer, where nothing is pressable.
+   */
+  badge?: number;
   label: string;
   description?: string;
   showCheck: boolean;
@@ -41,8 +44,7 @@ export interface QuestionRowContentsProps {
 }
 
 export function QuestionRowContents({
-  badgeNumber,
-  showBadge,
+  badge,
   label,
   description,
   showCheck,
@@ -50,7 +52,7 @@ export function QuestionRowContents({
 }: QuestionRowContentsProps) {
   return (
     <span className="flex w-full min-w-0 items-center gap-3">
-      {showBadge && <RowGlyph>{badgeNumber}</RowGlyph>}
+      {badge !== undefined && <RowGlyph>{badge}</RowGlyph>}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Typography
           variant="body-medium-default"

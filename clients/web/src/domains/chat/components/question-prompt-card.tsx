@@ -523,8 +523,7 @@ export function QuestionPromptBody({
                   })}
                 >
                   <QuestionRowContents
-                    badgeNumber={badgeNumber}
-                    showBadge={showHotkeyBadges}
+                    badge={showHotkeyBadges ? badgeNumber : undefined}
                     label={option.label}
                     description={option.description}
                     showCheck={isSelected}

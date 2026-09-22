@@ -21,6 +21,8 @@
  * tool-use id to tie them back to this call.
  */
 
+import type { ReactNode } from "react";
+
 import { AskQuestionInputSchema } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
 
@@ -89,7 +91,7 @@ function QuestionBlock({
 }: {
   question: string;
   description?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -136,14 +138,12 @@ function QuestionOptions({
 }) {
   return (
     <ul className="flex flex-col gap-1">
-      {options.map((option, index) => {
+      {options.map((option) => {
         const chosen =
           chosenOptionId !== undefined && option.id === chosenOptionId;
         return (
           <li key={option.id ?? option.label} className="rounded-md p-1.5">
             <QuestionRowContents
-              badgeNumber={index + 1}
-              showBadge={false}
               label={option.label}
               description={option.description}
               showCheck={false}
@@ -208,7 +208,7 @@ export function AskQuestionDetail({
       <div>
         <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
         <ToolOutputBody
-          text={settled ? "" : text}
+          text={text}
           isRunning={isRunning}
           isDenied={false}
           isError={false}
