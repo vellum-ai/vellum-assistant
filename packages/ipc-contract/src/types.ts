@@ -183,6 +183,11 @@ export type VellumCommand =
    * that already happened, ready to redraw the prompt on the next push.
    */
   | { kind: "answerWatchRetro"; open: boolean }
+  /** Deliver a pop-out's recovery offer to the main renderer, or clear it. */
+  | {
+      kind: "setUnplacedDictationOffer";
+      offer: UnplacedDictationOffer | null;
+    }
   /**
    * Answer the offer the surface makes when a dictation ends with its words
    * still in hand: put Vellum's version in place of what another app pasted,
@@ -1648,7 +1653,12 @@ interface OfferedDictation {
 
 export type CompanionDictationOffer =
   | (OfferedDictation & { reason: "claimed"; app: string })
-  | (OfferedDictation & { reason: "no-text-field" | "paste-failed" });
+  | (OfferedDictation & UnplacedDictationOffer);
+
+export interface UnplacedDictationOffer {
+  text: string;
+  reason: "no-text-field" | "paste-failed";
+}
 
 /**
  * The most an offered dictation can be, in characters. One bound for the

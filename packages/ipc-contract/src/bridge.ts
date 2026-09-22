@@ -51,6 +51,7 @@ import type {
   DictationPartialEvent,
   DictationPartialsResult,
   DictationOfferAnswer,
+  UnplacedDictationOffer,
   DictationTranscribeResult,
   DownloadDoneEvent,
   ModifierHold,
@@ -869,6 +870,7 @@ export interface VellumBridge {
      * holding it.
      */
     answerDictationOffer(answer: DictationOfferAnswer, offerId: string): void;
+    setUnplacedDictationOffer(offer: UnplacedDictationOffer | null): void;
     /**
      * Answer the popover beside the surface, naming the popover it was drawn
      * for. See the `answerCompanionPopover` command.

@@ -50,6 +50,7 @@ import { companionIntroStaged } from "@/runtime/companion-intro-stage";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { frontmostApp } from "@/runtime/running-apps";
 import { useConversationStore } from "@/stores/conversation-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -245,6 +246,21 @@ function saveTranscriptDraft(text: string, assistantId: string | null): void {
 export function GlobalPushToTalkBridge({
   assistantId,
 }: GlobalPushToTalkBridgeProps) {
+  useVellumCommands({
+    setUnplacedDictationOffer: (command) => {
+      if (
+        command.kind !== "setUnplacedDictationOffer" ||
+        isPopoutWindowLifetime()
+      ) {
+        return;
+      }
+      if (command.offer) {
+        setUnplacedDictationOffer(command.offer.text, command.offer.reason);
+      } else {
+        clearDictationOffer();
+      }
+    },
+  });
   const fallbackVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
   const voicePhase = useVoiceRecordingStore.use.phase();
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);

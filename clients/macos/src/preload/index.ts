@@ -84,6 +84,7 @@ import {
 import {
   createBundleConfirmBridge,
   createDeepLinksBridge,
+  createDictationOfferBridge,
   createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
@@ -661,6 +662,7 @@ const bridge: VellumBridge = {
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
     },
+    ...createDictationOfferBridge(ipcRenderer),
     answerDictationOffer: (
       answer: DictationOfferAnswer,
       offerId: string,

@@ -40,6 +40,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  UnplacedDictationOffer,
   CompanionPopoverAnswer,
   CompanionPopoverView,
   CompanionPicker,
@@ -450,6 +451,7 @@ declare global {
           target: WatchCaptureTarget,
         ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        setUnplacedDictationOffer?(offer: UnplacedDictationOffer | null): void;
         answerDictationOffer?(
           answer: DictationOfferAnswer,
           offerId: string,
