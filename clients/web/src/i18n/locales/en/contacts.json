@@ -8,9 +8,6 @@
     "deleting": "Deleting…",
     "connect": "Connect",
     "connecting": "Connecting…",
-    "manage": "Manage",
-    "disconnect": "Disconnect",
-    "disconnecting": "Disconnecting…",
     "cancel": "Cancel",
     "back": "Back",
     "verify": "Verify",
@@ -43,7 +40,8 @@
     "saveFailed": "Failed to save contact",
     "verifyFailed": "Failed to verify channel",
     "rosterLoadFailed": "Couldn’t load the workspace roster. Check the Slack connection and try again.",
-    "emptyBody": "Select a contact"
+    "emptyBody": "Select a contact",
+    "notFoundBody": "This contact isn’t available."
   },
   "contactsList": {
     "heading": "Entries",
@@ -54,8 +52,7 @@
     "verified": "Verified",
     "unverified": "Unverified",
     "you": "You",
-    "youNamed": "{name} (You)",
-    "assistantFallback": "Your Assistant"
+    "youNamed": "{name} (You)"
   },
   "contactDetailView": {
     "namePlaceholder": "Give this human a name",
@@ -92,15 +89,6 @@
     "channelsTitle": "Channels",
     "channelsSubtitle": "Once verified, your assistant will recognize you when you message from these channels.",
     "setupLabel": "Verify me"
-  },
-  "assistantChannelsDetail": {
-    "title": "{name} (Your Assistant)",
-    "channelsTitle": "Channels",
-    "channelsSubtitle": "Where {name} can be reached."
-  },
-  "assistantContactChannels": {
-    "disconnectConfirmTitle": "Disconnect {channel}?",
-    "disconnectConfirmMessage": "This clears the stored credentials for this channel. You can reconnect later."
   },
   "accountLink": {
     "linked": "Linked as @{username}",

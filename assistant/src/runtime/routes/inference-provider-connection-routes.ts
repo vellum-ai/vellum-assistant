@@ -24,8 +24,10 @@ import {
   CHATGPT_SUBSCRIPTION_CONNECTION_NAME,
   type ConnectionModel,
   ConnectionModelSchema,
+  type ConnectionProvider,
   ConnectionProviderSchema,
   deriveAuthForProvider,
+  normalizeConnectionProvider,
   ProviderConnectionSchema,
   PROVIDERS_ALLOWING_CUSTOM_BASE_URL,
   VALID_CONNECTION_PROVIDERS,
@@ -379,8 +381,15 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Provider "chatgpt" is reserved for the "${CHATGPT_SUBSCRIPTION_CONNECTION_NAME}" connection. Run the ChatGPT sign-in flow to connect a subscription.`,
     );
   }
+  // Resolved before auth derivation so an opencode.ai endpoint is held to
+  // OpenCode's keyed auth rather than the keyless option the generic
+  // provider allows.
+  const resolvedProvider = normalizeConnectionProvider(
+    providerResult.data,
+    body.base_url,
+  ) as ConnectionProvider;
   const authResult = AuthSchema.safeParse(
-    auth ?? deriveConnectionAuth(providerResult.data, body.credential),
+    auth ?? deriveConnectionAuth(resolvedProvider, body.credential),
   );
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
@@ -388,7 +397,7 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   // Asserted on derived auth as well: derivation pairs every provider
   // correctly except the chatgpt identity, whose fallthrough would mint
   // api_key auth from a bare credential.
-  assertAuthMatchesProvider(providerResult.data, authResult.data);
+  assertAuthMatchesProvider(resolvedProvider, authResult.data);
 
   const labelRaw = body.label;
   if (
@@ -401,18 +410,15 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = await parseCustomProviderFields(
-    body,
-    providerResult.data,
-  );
+  const customFields = await parseCustomProviderFields(body, resolvedProvider);
 
   // Same event-loop turn as the write: no await separates this check from
   // createConnection, so concurrent requests cannot both pass it.
-  assertValidCustomProviderIdentity(providerResult.data, labelRaw, name);
+  assertValidCustomProviderIdentity(resolvedProvider, labelRaw, name);
 
   const result = createConnection(getDb(), {
     name,
-    provider: providerResult.data,
+    provider: resolvedProvider,
     auth: authResult.data,
     ...(labelRaw !== undefined ? { label: labelRaw as string | null } : {}),
     ...customFields,
@@ -525,6 +531,17 @@ async function handleUpdateConnection({
     );
   }
   const customFields = await parseCustomProviderFields(body, existing.provider);
+  // Provider is immutable on PATCH, and profiles bound to this row under the
+  // legacy `{provider, provider_connection}` shape declare its kind, so the
+  // row cannot be repointed at an endpoint that needs a different kind.
+  if (
+    normalizeConnectionProvider(existing.provider, customFields.baseUrl) !==
+    existing.provider
+  ) {
+    throw new BadRequestError(
+      `base_url points at OpenCode, which needs an "opencode" connection. Create a new connection with provider "opencode" instead of repointing "${name}".`,
+    );
+  }
 
   // Only a CHANGED label is validated: keeping a stored label — whatever it
   // is — must never block unrelated edits (key rotation, models).

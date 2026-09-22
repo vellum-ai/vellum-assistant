@@ -769,6 +769,12 @@ graph TB
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
+## Dictation
+
+Composer and global-shortcut dictation send the speech recognizer's transcript to `POST /v1/dictation` before insertion. The `interactionClassifier` call site returns only a dictation/action label; model-generated text never replaces the transcript. Dictation applies only the user's explicit snippet and dictionary replacements and preserves all other wording, including hedging, negation, repetitions, and sentence order. Action responses carry the original transcript. Speech-provider formatting remains part of recognition, and there is no automatic cleanup setting.
+
+When selected text is supplied, the same call site distinguishes a requested edit from a question about the selection and produces an edit only for that explicit flow. Dictation profiles remain persisted in `dictation-profiles.json`; their style prompts apply to selected-text edits.
+
 ## Live Voice Task Outcomes
 
 Subagent updates for a conversation with an active live-voice call are claimed by

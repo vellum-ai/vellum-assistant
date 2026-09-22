@@ -81,7 +81,6 @@
     "screenshotFallbackAria": "预览电脑屏幕截图",
     "screenshotFallbackTitle": "电脑屏幕截图",
     "screenshotTitle": "来自“{activity}”的屏幕截图",
-    "thinkingTitle": "思考中",
     "viewThinkingAria": "查看思考过程"
   },
   "computerUseScreenshotPreview": {
@@ -1826,6 +1825,9 @@
   },
   "textSelectionPopover": {
     "reply": "回复"
+  },
+  "thinkingDetail": {
+    "title": "思考中"
   },
   "tiptapDocumentEditor": {
     "adding": "正在添加…",

@@ -60,7 +60,7 @@ function ThinkingDetailBody({
   return (
     <DetailShell
       Glyph={Brain}
-      title={detail.title}
+      title={t("thinkingDetail.title")}
       closeLabel={t("toolDetailPanel.closeAria")}
       closeVariant="outlined"
       onClose={onClose}

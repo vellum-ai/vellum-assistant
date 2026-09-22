@@ -105,43 +105,30 @@ describe("companionLayoutFor", () => {
 /**
  * How far the introduction's card starts from the avatar's centre.
  *
- * Its own distance rather than the pill's, because the pill stands on the
- * creature's baseline rather than being centred on it. Every beat but the first
- * holds the pill open, so a card that only cleared the creature would be drawn
- * over the thing it is describing.
+ * The pill and creature share a centre, so the card clears whichever of their
+ * boxes reaches further on the side it grows into.
  */
 describe("the introduction's step off the creature", () => {
   /**
-   * Even at the authored pair the pill is the taller thing upward: its bottom
-   * is 14 above the centre and it is a whole box tall, so its top stands 30 up
-   * where the creature's box reaches 22. Downward that baseline is inside the
-   * creature's box, so the creature is what has to be cleared.
+   * At the authored pair both boxes reach 22 points from the shared centre.
    */
   test("clears whichever reaches further when the two boxes agree", () => {
     const layout = companionLayoutFor(44, 44);
-    expect(layout.introStepOff("up")).toBe(42);
+    expect(layout.introStepOff("up")).toBe(34);
     expect(layout.introStepOff("down")).toBe(34);
   });
 
   /**
-   * A small creature under a large pill: standing on the baseline puts the
-   * pill's top 96 points above the avatar's centre where the creature reaches
-   * only 22, so the card has to start past the pill.
+   * A small creature inside a large pill clears half the pill plus the gap on
+   * either side of the shared centre.
    */
   test("clears a pill that stands taller than the creature", () => {
     const layout = companionLayoutFor(44, 110);
-    const pillTop = 110 - 14;
-    expect(layout.introStepOff("up")).toBe(pillTop + 12);
-    expect(layout.introStepOff("up")).toBeGreaterThan(pillTop);
+    expect(layout.introStepOff("up")).toBe(67);
+    expect(layout.introStepOff("down")).toBe(67);
   });
 
-  /**
-   * Downward there is nothing to clear but the creature: the pill's bottom edge
-   * is the creature's baseline, which sits inside the creature's own box
-   * whatever the pill's size.
-   */
-  test("takes the creature's own bottom growing downward", () => {
-    expect(companionLayoutFor(44, 110).introStepOff("down")).toBe(34);
+  test("takes the creature's own edge when it is larger", () => {
     expect(companionLayoutFor(110, 44).introStepOff("down")).toBe(67);
   });
 });

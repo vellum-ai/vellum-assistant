@@ -30,6 +30,7 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "@vellumai/design-library";
 
+import { forceMobile } from "@/components/force-mobile-story-decorator";
 import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
 import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
@@ -38,7 +39,6 @@ import {
   inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
-import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
 
 /** This header's own conversation, distinct from the panel stories' fixture ids. */
@@ -107,54 +107,6 @@ function Harness({
     />
   );
 }
-
-/** Swap `window.matchMedia`; `configurable` so the teardown can put it back. */
-function setMatchMedia(impl: typeof window.matchMedia) {
-  Object.defineProperty(window, "matchMedia", {
-    value: impl,
-    configurable: true,
-    writable: true,
-  });
-}
-
-/**
- * Forces the mobile branch of `useIsMobile` for the duration of the story.
- *
- * Overriding the media query beats resizing the preview iframe: the story then
- * shows the mobile composition regardless of the viewport the docs page happens
- * to render at.
- */
-const forceMobile: Decorator = function ForceMobile(Story) {
-  // Installed from a `useState` initializer, which runs exactly once and during
-  // this decorator's render, i.e. before the story samples the query. An
-  // identity check against the saved original would not work here: `bind`
-  // returns a new function object, so it never compares equal to the global.
-  const [original] = useState(() => {
-    const saved = window.matchMedia.bind(window);
-    setMatchMedia(((query: string) => {
-      const result = saved(query);
-      if (query !== MOBILE_MEDIA_QUERY) {
-        return result;
-      }
-      return {
-        ...result,
-        media: query,
-        matches: true,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      } as MediaQueryList;
-    }) as typeof window.matchMedia);
-    return saved;
-  });
-  useEffect(() => {
-    return () => setMatchMedia(original);
-  }, [original]);
-  return <Story />;
-};
 
 /**
  * Opens the Chat Info panel for this header's conversation, so the Assets

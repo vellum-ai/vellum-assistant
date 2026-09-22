@@ -248,7 +248,7 @@ export function WorkflowDetailPanel({
                   {t("workflowDetailPanel.subagents")}
                 </SectionLabel>
                 {sortedLeaves.length === 0 ? (
-                  <DetailShellNotice>
+                  <DetailShellNotice placement="section">
                     {t("workflowDetailPanel.noSubagentsYet")}
                   </DetailShellNotice>
                 ) : (

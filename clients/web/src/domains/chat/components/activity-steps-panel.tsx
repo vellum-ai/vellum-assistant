@@ -22,7 +22,7 @@
 import { ChevronLeft } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 import { isComputerUseToolCall } from "@vellumai/assistant-api";
 
 import {
@@ -52,6 +52,10 @@ import {
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
+import {
+  StepDetailGlyph,
+  useStepDetailTitle,
+} from "@/domains/chat/components/step-detail-header";
 import {
   ToolDetailBody,
   ToolDetailHeaderTitle,
@@ -193,6 +197,7 @@ function ActivityStepsPanelTarget({
   // timeline. Local state — the drawer level is navigation within the panel,
   // not shared app state.
   const [stepDetail, setStepDetail] = useState<ToolDetailPayload | null>(null);
+  const stepTitle = useStepDetailTitle(stepDetail);
 
   const anchorToolCallId =
     payload.groupToolCallIds?.[0] ?? payload.toolCalls[0]?.id;
@@ -284,33 +289,33 @@ function ActivityStepsPanelTarget({
   return (
     <div ref={panelRef} className="contents">
       <DetailShell
-        // Drilled into a step, the back control takes the leading slot the glyph
-        // would occupy: same placement, variant, and spacing as the subagent,
-        // workflow, and ACP run panels' Back buttons.
+        // Drilled into a step, the leading slot holds the Back button and the
+        // step's glyph, as the subagent panel heads a step it drills into.
         icon={
           stepDetail ? (
-            <Button
-              variant="outlined"
-              iconOnly={<ChevronLeft />}
-              aria-label={t("activityStepsPanel.backAria")}
-              tooltip={t("activityStepsPanel.backTooltip")}
-              onClick={() => setStepDetail(null)}
-              className="shrink-0"
-            />
+            <>
+              <Button
+                variant="outlined"
+                iconOnly={<ChevronLeft />}
+                aria-label={t("activityStepsPanel.backAria")}
+                tooltip={t("activityStepsPanel.backTooltip")}
+                onClick={() => setStepDetail(null)}
+                className="shrink-0"
+              />
+              <StepDetailGlyph
+                detail={stepDetail}
+                source={TRANSCRIPT_TOOL_CALL_SOURCE}
+              />
+            </>
           ) : undefined
         }
+        // Shown only where `titleNode` is absent: a thinking step.
+        title={stepTitle}
         titleNode={
           stepDetail ? (
             // Drilled into a step: the step's title replaces the run summary, so
             // the header always names what the body shows.
-            stepDetail.kind === "thinking" ? (
-              <Typography
-                variant="title-medium"
-                className="min-w-0 shrink truncate py-0.5 leading-snug text-[var(--content-default)]"
-              >
-                {t("activityStepsPanel.thinkingTitle")}
-              </Typography>
-            ) : (
+            stepDetail.kind === "thinking" ? undefined : (
               <ToolDetailHeaderTitle
                 detail={stepDetail}
                 source={TRANSCRIPT_TOOL_CALL_SOURCE}
@@ -461,7 +466,7 @@ function TimelineStep({
             kind: "thinking",
             toolCallId: "",
             toolName: "",
-            title: t("activityStepsPanel.thinkingTitle"),
+            title: t("thinkingDetail.title"),
             activity: "",
             input: {},
             status: "completed",

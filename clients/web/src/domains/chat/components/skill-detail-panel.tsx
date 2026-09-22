@@ -15,17 +15,17 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Brain, Loader2, MoreHorizontal, Trash2 } from "lucide-react";
+import { Brain, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { Button, Menu, Typography } from "@vellumai/design-library";
+import { Button, Menu, Notice, Typography } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 import { FileMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
-import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
+import { DetailShell, DetailShellLoading } from "@/components/detail-shell";
 import {
   skillsByIdGetOptions,
   useSkillsByIdDeleteMutation,
@@ -165,13 +165,9 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
             degrades to the cached render, while an error with nothing to
             show surfaces the failure. */}
         {skillQuery.isError && !skill ? (
-          <DetailShellNotice>
-            {t("skillDetailPanel.loadError")}
-          </DetailShellNotice>
+          <Notice tone="error">{t("skillDetailPanel.loadError")}</Notice>
         ) : isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />
-          </div>
+          <DetailShellLoading placement="panel" />
         ) : (
           <>
             {skill?.description && (

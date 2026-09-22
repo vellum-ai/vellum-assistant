@@ -176,6 +176,31 @@ export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
  * `models` list (openai-compatible endpoints have no fixed upstream, so the
  * user must supply both).
  */
+/**
+ * An openai-compatible connection whose endpoint is opencode.ai is an
+ * OpenCode connection: zen/go rejects requests without the session headers
+ * only the opencode adapter and probe send, so the generic adapter can never
+ * dispatch against it. Applied on create so the row is stored as provider
+ * "opencode" and every provider-keyed path treats it as one.
+ */
+export function normalizeConnectionProvider(
+  provider: string,
+  baseUrl: unknown,
+): string {
+  if (provider !== "openai-compatible" || typeof baseUrl !== "string") {
+    return provider;
+  }
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return provider;
+  }
+  return host === "opencode.ai" || host.endsWith(".opencode.ai")
+    ? "opencode"
+    : provider;
+}
+
 export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
   new Set(["openai-compatible"]);
 

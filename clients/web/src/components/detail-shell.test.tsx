@@ -1,13 +1,14 @@
 /**
- * The two header/body pieces every drawer panel draws from one place: the
- * quiet centred line an empty or failed body renders, and the "title · N"
- * cluster the header shows in place of a plain title.
+ * The pieces every drawer panel draws from one place: the empty and loading
+ * states, placed under a section heading or as the whole body, and the
+ * "title · N" cluster the header shows in place of a plain title.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
 import {
+  DetailShellLoading,
   DetailShellNotice,
   DetailShellTitleWithCount,
 } from "@/components/detail-shell";
@@ -15,12 +16,42 @@ import {
 afterEach(cleanup);
 
 describe("DetailShellNotice", () => {
-  test("renders the copy as a centred paragraph", () => {
-    render(<DetailShellNotice>Nothing here yet</DetailShellNotice>);
+  test("under a section heading, reads left-aligned as the section's content", () => {
+    render(
+      <DetailShellNotice placement="section">
+        Nothing here yet
+      </DetailShellNotice>,
+    );
 
     const notice = screen.getByText("Nothing here yet");
     expect(notice.tagName).toBe("P");
-    expect(notice.className).toContain("text-center");
+    expect(notice.className).not.toContain("text-center");
+  });
+
+  test("as the whole body, is centred", () => {
+    render(
+      <DetailShellNotice placement="panel">Nothing here yet</DetailShellNotice>,
+    );
+
+    expect(screen.getByText("Nothing here yet").className).toContain(
+      "text-center",
+    );
+  });
+});
+
+describe("DetailShellLoading", () => {
+  test("under a section heading, names what is loading beside the spinner", () => {
+    render(<DetailShellLoading placement="section" label="Loading runs…" />);
+
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe("Loading runs…");
+  });
+
+  test("as the whole body, the spinner stands alone and is labelled", () => {
+    render(<DetailShellLoading placement="panel" />);
+
+    const status = screen.getByRole("status", { name: "Loading…" });
+    expect(status.textContent).toBe("");
   });
 });
 
