@@ -414,6 +414,40 @@ describe("useSectionConversations", () => {
     expect(result.current.hasMore).toBe(true);
   });
 
+  /* The derived stand-in can be empty while the section is not, so an empty
+     section may only say so once its own read has answered. */
+  test("is unresolved while its read is pending or its first fetch failed", () => {
+    openGate();
+    serverPending = true;
+    const pending = renderSection(pinnedSection());
+    expect(pending.result.current.resolved).toBe(false);
+    pending.unmount();
+
+    serverPending = false;
+    serverErrored = true;
+    serverHasData = false;
+    const failed = renderSection(pinnedSection());
+    expect(failed.result.current.resolved).toBe(false);
+  });
+
+  test("is resolved once its read answers", () => {
+    openGate();
+    serverRows = FROM_SERVER;
+
+    const { result } = renderSection(pinnedSection());
+
+    expect(result.current.resolved).toBe(true);
+  });
+
+  test("is resolved on the derived rows when there is no read to wait for", () => {
+    serverRows = FROM_SERVER;
+
+    const { result } = renderSection(pinnedSection());
+
+    expect(lastEnabled).toBe(false);
+    expect(result.current.resolved).toBe(true);
+  });
+
   test("getAllRows returns the derived rows below the gate without draining", async () => {
     serverRows = FROM_SERVER;
 

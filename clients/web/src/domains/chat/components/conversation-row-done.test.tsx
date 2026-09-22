@@ -10,7 +10,9 @@
  * The design library needs browser APIs its primitives assume, so the pieces
  * this file exercises are mocked down to plain elements: a `PanelItem` that
  * renders its own trailing slot, and a `ContextMenu` that renders its content
- * inline so the menu items are in the tree without a pointer gesture.
+ * inline so the menu items are in the tree without a pointer gesture. The row
+ * animates its exit on the elements its `PanelItem` and swipe box render, so
+ * both mocks keep the ref.
  */
 
 import {
@@ -22,22 +24,24 @@ import {
   mock,
   test,
 } from "bun:test";
-import { createElement, type ReactNode } from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { createElement, type ReactNode, type Ref } from "react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 mock.module("@vellumai/design-library", () => ({
   PanelItem: ({
     label,
     onSelect,
     trailingAction,
+    ref,
   }: {
     label: string;
     onSelect?: () => void;
     trailingAction?: ReactNode;
+    ref?: Ref<HTMLDivElement>;
   }) =>
     createElement(
       "div",
-      { "data-testid": "panel-item" },
+      { "data-testid": "panel-item", ref },
       createElement("button", { type: "button", onClick: onSelect }, label),
       trailingAction,
     ),
@@ -61,7 +65,13 @@ mock.module("@vellumai/design-library/utils/cn", () => ({
 }));
 
 mock.module("@/components/swipe-action-reveal", () => ({
-  SwipeActionReveal: ({ children }: { children: ReactNode }) => children,
+  SwipeActionReveal: ({
+    children,
+    ref,
+  }: {
+    children: ReactNode;
+    ref?: Ref<HTMLDivElement>;
+  }) => createElement("div", { ref }, children),
 }));
 
 mock.module("@/domains/chat/components/thread-status-indicator", () => ({
@@ -82,18 +92,12 @@ const CONVERSATION: Conversation = {
   title: "Launch review brief",
 };
 
-function renderRow(
-  ctx: Partial<ConversationListContextValue>,
-  rowProps: { animateDone?: boolean } = {},
-) {
+function renderRow(ctx: Partial<ConversationListContextValue>) {
   return render(
     createElement(
       ConversationListProvider,
       { value: { onSelect: () => {}, ...ctx } },
-      createElement(ConversationRow, {
-        conversation: CONVERSATION,
-        ...rowProps,
-      }),
+      createElement(ConversationRow, { conversation: CONVERSATION }),
     ),
   );
 }
@@ -173,7 +177,7 @@ describe("ConversationRow: sidebar-done on", () => {
     expect(queryByLabelText("Conversation actions")).toBeNull();
   });
 
-  test("the check is a focusable button that archives on activation", () => {
+  test("the check is a focusable button that archives on activation", async () => {
     const archived: string[] = [];
     const { getByLabelText } = renderRow({
       onArchive: (conversation) => archived.push(conversation.conversationId),
@@ -181,9 +185,10 @@ describe("ConversationRow: sidebar-done on", () => {
     const check = getByLabelText("Mark as done");
     expect(check.tagName).toBe("BUTTON");
     // A `<button>` answers Enter and Space as a click, so the pointer path
-    // and the keyboard path are the same handler.
+    // and the keyboard path are the same handler. The archive lands once the
+    // row has left.
     fireEvent.click(check);
-    expect(archived).toEqual(["conv-xyz"]);
+    await waitFor(() => expect(archived).toEqual(["conv-xyz"]));
   });
 
   test("selecting the row is unaffected by the check beside it", () => {
@@ -237,12 +242,9 @@ describe("ConversationRow: sidebar-done on", () => {
      send the archive the user asked for. */
   test("a row unmounted mid-collapse still archives", () => {
     const archived: string[] = [];
-    const { getByLabelText, unmount } = renderRow(
-      {
-        onArchive: (conversation) => archived.push(conversation.conversationId),
-      },
-      { animateDone: true },
-    );
+    const { getByLabelText, unmount } = renderRow({
+      onArchive: (conversation) => archived.push(conversation.conversationId),
+    });
 
     fireEvent.click(getByLabelText("Mark as done"));
     // The collapse is still running: nothing has been written yet.

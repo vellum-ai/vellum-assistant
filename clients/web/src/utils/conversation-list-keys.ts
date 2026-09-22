@@ -87,7 +87,7 @@ export const ARCHIVED_BACKGROUND_FILTER: ConversationListFilter = {
 };
 /**
  * Whole history in one cursor: every conversation type, archived and active
- * alike, recency-ordered. The Old chats page reads this instead of merging
+ * alike, recency-ordered. The All chats page reads this instead of merging
  * the four bucket caches, so one paginated window covers what the buckets
  * only cover by draining all of them.
  */

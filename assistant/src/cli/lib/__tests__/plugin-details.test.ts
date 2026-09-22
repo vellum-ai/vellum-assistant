@@ -513,6 +513,49 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.ref).toBe(historicalRef);
   });
 
+  test("hides a gated integration at an explicit historical ref", async () => {
+    const historicalRef = "a".repeat(40);
+    let fetchCalls = 0;
+    const fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected request", { status: 500 });
+    }) as FetchLike;
+
+    await expect(
+      getPluginDetails(
+        { name: "gamma", ref: historicalRef },
+        { fetch, workspacePluginsDir: workspace },
+      ),
+    ).rejects.toBeInstanceOf(PluginDetailsNotFoundError);
+    expect(fetchCalls).toBe(0);
+  });
+
+  test("keeps an installed gated integration visible at an explicit historical ref", async () => {
+    const target = join(workspace, "gamma");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "# Installed Gamma");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ version: "1.0.0", description: "local gamma" }),
+    );
+    let fetchCalls = 0;
+    const fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("unexpected request", { status: 500 });
+    }) as FetchLike;
+
+    const details = await getPluginDetails(
+      { name: "gamma", ref: "a".repeat(40) },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    expect(details.installed).toBe(true);
+    expect(details.readme).toBe("# Installed Gamma");
+    expect(details.description).toBe("local gamma");
+    expect(details.source).toBeNull();
+    expect(fetchCalls).toBe(0);
+  });
+
   test("degrades gracefully when the historical marketplace fetch fails", async () => {
     // GIVEN an installed copy and a historical ref whose marketplace fetch errors
     const historicalRef = "a".repeat(40);
