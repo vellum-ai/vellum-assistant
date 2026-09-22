@@ -266,7 +266,6 @@
     "unmuteAssistantNamed": "Activar sonido de {name}",
     "unmuteMicrophone": "Activar micrófono",
     "chooseMicrophone": "Elegir micrófono",
-    "chooseVoice": "Elegir voz",
     "workCount": "{count, plural, =0 {Nada en curso} one {# tarea en curso} other {# tareas en curso}}",
     "workDone": "Hecho",
     "workStopped": "Detenido",

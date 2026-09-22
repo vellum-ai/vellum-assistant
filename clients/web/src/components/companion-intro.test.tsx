@@ -48,10 +48,8 @@ const offCanvasBottom = (top: string): number => {
  * Where the introduction's card lands beside the surface it is describing.
  *
  * Every beat but the first holds the pill open, so the card and the pill are on
- * screen together, and the pill stands on the creature's visible bottom rather
- * than being centred on it. A card that only cleared the creature would be
- * drawn over the controls it is captioning wherever the pill is the taller of
- * the two.
+ * screen together. The card clears whichever of the centred creature and pill
+ * reaches further toward it.
  */
 describe("the companion introduction's clearance", () => {
   test("fits the larger card above the perched creature at every size pairing", () => {
@@ -85,9 +83,8 @@ describe("the companion introduction's clearance", () => {
   });
 
   /**
-   * A small creature under a large pill, which is the pair that separates the
-   * two rules: the creature's box reaches 22 points above its centre and the
-   * pill 96, so a step off the creature alone lands the card inside the pill.
+   * A small creature inside a large pill, which is the pair that makes the pill
+   * rather than the creature decide the card's clearance.
    */
   test("clears a pill that stands taller than the creature", () => {
     const { container: surface } = render(
@@ -98,13 +95,14 @@ describe("the companion introduction's clearance", () => {
     );
 
     // The pill is the one element on the surface whose width animates. It
-    // hangs off its own line by a whole row, so its top edge is that much
-    // further off the canvas's bottom edge than its anchor.
+    // is centred on its line, so its top edge is half a row further off the
+    // canvas's bottom edge than its anchor.
     const pill = surface.querySelector<HTMLElement>(".transition-\\[width\\]");
     if (!pill) {
       throw new Error("Expected the surface to render");
     }
-    const pillTop = offCanvasBottom(pill.style.top) + COMPANION_BASE_AVATAR_BOX;
+    const pillTop =
+      offCanvasBottom(pill.style.top) + COMPANION_BASE_AVATAR_BOX / 2;
 
     // How far the card is then stepped up off its own anchor.
     const card = cardOf(intro);
@@ -137,10 +135,9 @@ describe("the companion introduction's clearance", () => {
       />,
     );
 
-    // The step down for 44 under 110 is the creature's own box below the
-    // baseline, so its half box plus the gap: 22 + 12 points, over the 2.5
-    // scale the options box leaves the canvas at.
-    expect(cardOf(container).style.transform).toBe("translateY(13.6px)");
+    // The 110-point pill reaches 55 points from the shared centre, then keeps
+    // the 12-point gap. The wrapper's 2.5 scale leaves 26.8 authored units.
+    expect(cardOf(container).style.transform).toBe("translateY(26.8px)");
   });
 
   /**
@@ -166,13 +163,13 @@ describe("the companion introduction's clearance", () => {
       return Number(found[1]);
     };
 
-    // A beat with nothing between the card and the creature clears the pill and
-    // the gap, which is `companionLayoutFor`'s own answer: 30 + 12 here.
+    // A beat with nothing between the card and the creature clears their shared
+    // 22-point half box and the 12-point gap.
     expect(
       COMPANION_INTRO_BEATS.filter(
         (beat) => introSpotlight(beat) === undefined,
       ).map(stepFor),
-    ).toEqual([42, 42, 42, 42, 42]);
+    ).toEqual([34, 34, 34, 34, 34]);
 
     // A beat that walks the creature clears where it stands: its own step off
     // the line (22 + 12), the hop over the bar (22), its half box (22), and
@@ -460,9 +457,9 @@ describe("the introduction's shortcut chip", () => {
       <CompanionIntro beat="draw" chordPresses={4} chordControl="draw" />,
     );
 
-    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className).not.toContain(
-      "emerald",
-    );
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className,
+    ).not.toContain("emerald");
   });
 
   /** Walking on to the next beat asks again, so the next chip starts grey. */
@@ -480,9 +477,9 @@ describe("the introduction's shortcut chip", () => {
     rerender(
       <CompanionIntro beat="draw" chordPresses={1} chordControl="share" />,
     );
-    expect(chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className).not.toContain(
-      "emerald",
-    );
+    expect(
+      chipOf(container, INTRO_DEMO_SHORTCUTS.draw).className,
+    ).not.toContain("emerald");
   });
 
   /**
