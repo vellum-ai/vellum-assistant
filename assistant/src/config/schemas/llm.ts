@@ -19,6 +19,7 @@ import {
   FALLBACK_PROFILE_BY_KEY,
   isDefaultProfileKey,
   isManagedOnlyProfileKey,
+  JEV_MANAGED_PROFILE_CALL_SITES,
   JEV_MANAGED_PROFILE_KEY,
   MANAGED_ONLY_PROFILE_KEYS,
 } from "../default-profile-names.js";
@@ -1034,6 +1035,20 @@ export const LLMSchema = z
           code: "custom",
           path: ["callSites", siteId, "profile"],
           message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" ${unresolvableProfileReason(siteConfig.profile, backupsResolve)}`,
+        });
+        continue;
+      }
+      // The Jev profile answers with structured verdicts, so only the sites
+      // built to read one may pin it; a text-producing site would receive
+      // output it cannot use.
+      if (
+        siteConfig.profile === JEV_MANAGED_PROFILE_KEY &&
+        !(JEV_MANAGED_PROFILE_CALL_SITES as readonly string[]).includes(siteId)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["callSites", siteId, "profile"],
+          message: `Profile "${JEV_MANAGED_PROFILE_KEY}" returns structured answers rather than chat text, so it can only be pinned to ${JEV_MANAGED_PROFILE_CALL_SITES.join(", ")}`,
         });
       }
     }

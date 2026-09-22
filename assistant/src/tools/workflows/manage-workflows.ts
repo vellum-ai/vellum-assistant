@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { loadConfig } from "../../config/loader.js";
+import { profileSupportsTextGeneration } from "../../config/profile-text-generation.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
@@ -203,9 +204,15 @@ export async function executeManageWorkflows(
         llm?.profiles,
         llm?.defaultProvider ?? null,
       );
+      // A workflow leaf runs chat turns, so a profile whose model returns
+      // structured verdicts rather than text (the managed Jev profile) is
+      // not a valid pick and is left out, as `run_workflow` would reject it.
+      const textProfiles = Object.keys(profiles).filter((name) =>
+        profileSupportsTextGeneration(profiles[name]!, profiles),
+      );
       return {
         content: JSON.stringify({
-          profiles: Object.keys(profiles).sort(),
+          profiles: textProfiles.sort(),
           activeProfile:
             typeof llm?.activeProfile === "string" ? llm.activeProfile : null,
         }),

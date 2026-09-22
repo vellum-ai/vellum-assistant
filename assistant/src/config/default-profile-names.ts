@@ -78,6 +78,17 @@ export function isBackupProfileKey(value: string): value is BackupProfileKey {
 export const JEV_MANAGED_PROFILE_KEY = "jev-managed";
 
 /**
+ * The call sites that consume a structured verdict and so may be pinned to
+ * the Jev profile. Every other site expects chat text or a tool call, which
+ * the decision model never produces.
+ */
+export const JEV_MANAGED_PROFILE_CALL_SITES = [
+  "voiceEscalationJudge",
+  "voiceContinuationJudge",
+  "memoryV3SelectL2",
+] as const;
+
+/**
  * Keys whose profile exists on the managed (`vellum`) column only: the
  * backups and the Jev profile. Under a BYOK or ChatGPT default provider
  * these names have no body to resolve to.

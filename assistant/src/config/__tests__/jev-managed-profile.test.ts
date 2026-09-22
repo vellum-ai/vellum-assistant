@@ -15,6 +15,27 @@ describe("jev-managed as a call-site pin target", () => {
     ).toBe(true);
   });
 
+  test("can be pinned only to the verdict-consuming call sites", () => {
+    for (const site of [
+      "voiceEscalationJudge",
+      "voiceContinuationJudge",
+      "memoryV3SelectL2",
+    ]) {
+      expect(
+        LLMSchema.safeParse({
+          callSites: { [site]: { profile: "jev-managed" } },
+        }).success,
+      ).toBe(true);
+    }
+    const result = LLMSchema.safeParse({
+      callSites: { conversationTitle: { profile: "jev-managed" } },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain(
+      "can only be pinned to",
+    );
+  });
+
   test("is rejected as the active or advisor profile even on the managed column", () => {
     for (const field of ["activeProfile", "advisorProfile"] as const) {
       const result = LLMSchema.safeParse({ [field]: "jev-managed" });
