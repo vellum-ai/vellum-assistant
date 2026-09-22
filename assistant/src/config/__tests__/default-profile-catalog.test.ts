@@ -59,6 +59,25 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Jev profile routes jev-latest through TypeSafe and is managed-only", () => {
+    const jev = CODE_DEFAULT_PROFILE_ENTRIES["jev-managed"];
+    expect(jev.model).toBe("jev-latest");
+    expect(jev.provider_connection).toBeUndefined();
+    expect(resolveRoutingIdentity(jev.provider, jev.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "typesafe",
+    });
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", null),
+    ).toBeDefined();
+    expect(
+      resolveDefaultProfileForProvider(undefined, "jev-managed", {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      }),
+    ).toBeUndefined();
+  });
+
   test("the managed Balanced profile routes GLM 5.3 Flash through Fireworks", () => {
     const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
     expect(balanced.model).toBe("accounts/fireworks/models/glm-5p3-flash");
@@ -80,7 +99,7 @@ describe("getEffectiveProfiles", () => {
   test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
     const effective = getEffectiveProfiles(undefined);
     expect(Object.keys(effective).sort()).toEqual(
-      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS].sort(),
+      [...DEFAULT_PROFILE_KEYS, ...BACKUP_PROFILE_KEYS, "jev-managed"].sort(),
     );
     expect(getEffectiveProfile({}, "balanced")?.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,

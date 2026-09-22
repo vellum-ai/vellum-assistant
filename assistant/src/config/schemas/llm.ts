@@ -14,12 +14,13 @@ import {
   parseVellumModel,
 } from "../../providers/vellum-model-routing.js";
 import {
-  BACKUP_PROFILE_KEYS,
   DEFAULT_PROFILE_KEYS,
   DEFAULT_PROFILE_PROVIDERS,
   FALLBACK_PROFILE_BY_KEY,
-  isBackupProfileKey,
   isDefaultProfileKey,
+  isManagedOnlyProfileKey,
+  JEV_MANAGED_PROFILE_KEY,
+  MANAGED_ONLY_PROFILE_KEYS,
 } from "../default-profile-names.js";
 import { InputModalitiesSchema } from "../input-modalities.js";
 
@@ -766,10 +767,12 @@ function unresolvableProfileReason(
   name: string,
   backupsResolve: boolean,
 ): string {
-  return !backupsResolve &&
-    (BACKUP_PROFILE_KEYS as readonly string[]).includes(name)
-    ? "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider"
-    : "is not defined in llm.profiles";
+  if (backupsResolve || !isManagedOnlyProfileKey(name)) {
+    return "is not defined in llm.profiles";
+  }
+  return name === JEV_MANAGED_PROFILE_KEY
+    ? "is the managed Jev profile, which resolves only while llm.defaultProvider is the managed provider"
+    : "is a managed backup profile, which resolves only while llm.defaultProvider is the managed provider";
 }
 
 /**
@@ -800,7 +803,7 @@ function referenceableProfileKeys(
 ): string[] {
   return Object.entries(profiles ?? {})
     .filter(([name, value]) => {
-      if (backupsResolve || !isBackupProfileKey(name)) {
+      if (backupsResolve || !isManagedOnlyProfileKey(name)) {
         return true;
       }
       const entry =
@@ -854,7 +857,7 @@ export function collectFallbackProfileIssues(
   const profileNames = new Set([
     ...referenceableProfileKeys(profiles, backupsResolve),
     ...DEFAULT_PROFILE_KEYS,
-    ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
+    ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
   ]);
   const mixProfileNames = new Set(
     entries
@@ -1004,6 +1007,8 @@ export const LLMSchema = z
     // they join the set only under a managed `llm.defaultProvider`: on a BYOK
     // or ChatGPT default provider they have no body to resolve to, and
     // keeping the reference would strand a selection the picker cannot show.
+    // The managed Jev profile (`JEV_MANAGED_PROFILE_KEY`) is scoped the same
+    // way, as a pin target for the judge call sites.
     // The flag-gated `os-beta` is excluded: it resolves only while a
     // workspace entry exists, so a reference to it is valid only when that
     // entry is present in `config.profiles`. A backup name materialized as a
@@ -1018,7 +1023,7 @@ export const LLMSchema = z
         backupsResolve,
       ),
       ...DEFAULT_PROFILE_KEYS,
-      ...(backupsResolve ? BACKUP_PROFILE_KEYS : []),
+      ...(backupsResolve ? MANAGED_ONLY_PROFILE_KEYS : []),
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) {

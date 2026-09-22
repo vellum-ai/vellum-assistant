@@ -116,6 +116,7 @@ describe("managed-column-only scoping", () => {
     expect(Object.keys(MANAGED_PROFILE_TEMPLATES)).toEqual([
       ...DEFAULT_PROFILE_KEYS,
       ...BACKUP_PROFILE_KEYS,
+      "jev-managed",
     ]);
   });
 
