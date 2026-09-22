@@ -1,3 +1,4 @@
+import { JEV_MANAGED_PROFILE_KEY } from "./default-profile-names.js";
 import { type LLMCallSite } from "./schemas/llm.js";
 
 type CallSiteDefaultConfig = {
@@ -152,14 +153,14 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
-  // The escalation judge only runs when this site resolves to the TypeSafe
-  // provider (see calls/voice-escalation-judge.ts), so the shipped default is
-  // any ordinary profile: the judge stays off until a user pins a TypeSafe
-  // profile here.
-  voiceEscalationJudge: { profile: "cost-optimized" },
-  // Same arrangement for the barge-in continuation judge
-  // (live-voice/continuation-judge.ts): off until a TypeSafe profile is
-  // pinned here.
+  // The managed-only profile resolves through the Vellum connection. On a
+  // BYOK install it has no body, so the judge is unavailable and the front
+  // door's own decision stands.
+  voiceEscalationJudge: {
+    profile: JEV_MANAGED_PROFILE_KEY,
+  },
+  // The barge-in continuation judge remains off until a TypeSafe profile is
+  // pinned here (see live-voice/continuation-judge.ts).
   voiceContinuationJudge: { profile: "cost-optimized" },
   // Names the background continuation a barge-in spawns, from the interrupted
   // transcript. The label is fixed at spawn, so the call runs under a short
