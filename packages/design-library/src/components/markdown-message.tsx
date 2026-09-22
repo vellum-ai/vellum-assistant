@@ -347,27 +347,23 @@ function buildMarkdownComponents(
     // break reads as a full blank line — distinct from the 24px hard break a
     // single `\n` produces. Smaller margins make the two nearly identical.
     p: ({ children }) => <p className="mb-6 last:mb-0">{children}</p>,
-    // Markdown headings keep the canonical scale sizes but restore bold weight
-    // via `!font-bold` (the scale variants bake font-weight:500 into the utility,
-    // so a plain `font-bold` loses to the custom rule; `!important` wins).
-    h1: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h1 className="mb-2 mt-3 text-title-medium !font-bold first:mt-0">
+    // One step of the type scale per heading level, `#` through `######`,
+    // with no level sharing a step with the one below it. The weight is the
+    // step's own: a heading reads as a heading because the scale says a title
+    // is 500 against body's 400, so overriding the weight here would put this
+    // renderer's idea of a heading above the scale's.
+    h1: ({ node: _node, children, ...rest }) => (
+      <h1 {...rest} className="mb-2 mt-4 text-title-large first:mt-0">
         {children}
       </h1>
     ),
-    h2: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h2 className="mb-2 mt-3 text-title-small !font-bold first:mt-0">
+    h2: ({ node: _node, children, ...rest }) => (
+      <h2 {...rest} className="mb-2 mt-4 text-title-medium first:mt-0">
         {children}
       </h2>
     ),
-    h3: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h3 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+    h3: ({ node: _node, children, ...rest }) => (
+      <h3 {...rest} className="mb-2 mt-3 text-title-small first:mt-0">
         {children}
       </h3>
     ),
@@ -383,28 +379,26 @@ function buildMarkdownComponents(
         {children}
       </ol>
     ),
-    // h4-h6 are rare in assistant output but must not fall through to
-    // unstyled browser defaults (a Tailwind reset strips their size/weight,
-    // leaving them indistinguishable from body text). Keep them bold on a
-    // descending body scale.
-    h4: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h4 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">
+    // Below the three title steps the ramp continues through the body steps
+    // at their emphasised weight, so h4-h6 stay distinguishable from the
+    // paragraphs around them (a Tailwind reset strips the browser's own
+    // heading sizes) and from each other. h6, the last step, has no smaller
+    // size left to take, so it steps down in colour instead.
+    h4: ({ node: _node, children, ...rest }) => (
+      <h4 {...rest} className="mb-1 mt-3 text-body-medium-default first:mt-0">
         {children}
       </h4>
     ),
-    h5: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h5 className="mb-1 mt-2 text-body-small-lighter !font-bold first:mt-0">
+    h5: ({ node: _node, children, ...rest }) => (
+      <h5 {...rest} className="mb-1 mt-2 text-body-small-default first:mt-0">
         {children}
       </h5>
     ),
-    h6: ({ children }) => (
-      // typography: off-scale — bold weight override on canonical size
-
-      <h6 className="mb-1 mt-2 text-body-small-lighter !font-bold text-[var(--content-secondary)] first:mt-0">
+    h6: ({ node: _node, children, ...rest }) => (
+      <h6
+        {...rest}
+        className="mb-1 mt-2 text-body-small-default text-[var(--content-secondary)] first:mt-0"
+      >
         {children}
       </h6>
     ),
@@ -460,8 +454,11 @@ function buildMarkdownComponents(
     thead: ({ children }) => (
       <thead className="bg-[var(--surface-sunken)]">{children}</thead>
     ),
-    th: ({ children }) => (
+    // `rest` carries the column alignment GFM writes as an inline style, so a
+    // `:---:` column stays centred rather than silently falling back to left.
+    th: ({ node: _node, children, ...rest }) => (
       <th
+        {...rest}
         className={
           "border border-stone-200 px-2 py-1 text-left font-semibold [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600" /* typography: off-scale — no canonical variant */
         }
@@ -469,8 +466,11 @@ function buildMarkdownComponents(
         {children}
       </th>
     ),
-    td: ({ children }) => (
-      <td className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600">
+    td: ({ node: _node, children, ...rest }) => (
+      <td
+        {...rest}
+        className="border border-stone-200 px-2 py-1 [&_code]:whitespace-pre-wrap [&_code]:break-words [&_code]:box-decoration-clone dark:border-moss-600"
+      >
         {children}
       </td>
     ),
@@ -1104,183 +1104,6 @@ export interface MarkdownMessageProps {
    * drawn as content; the source view still shows it.
    */
   frontmatter?: "content" | "metadata";
-  /**
-   * The type scale. `message` (the default) is the transcript's. `document`
-   * is file content, which carries its own heading hierarchy.
-   */
-  scale?: MarkdownScale;
-}
-
-/**
- * Markdown file content: a README, a skill's instructions, a note. It carries
- * its own document structure (a title, headed sections, embedded HTML for
- * layout), so it reads at a document scale rather than a message one.
- */
-function buildDocumentComponents(
-  LinkComponent: MarkdownLinkComponent,
-): Components {
-  return {
-    h1: ({ node: _node, children, ...rest }) => (
-      <h1
-        {...rest}
-        className="mb-3 mt-4 text-title-large first:mt-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </h1>
-    ),
-    h2: ({ node: _node, children, ...rest }) => (
-      <h2
-        {...rest}
-        className="mb-2 mt-5 border-b pb-1 text-title-medium first:mt-0"
-        style={{
-          color: "var(--content-default)",
-          borderColor: "var(--border-base)",
-        }}
-      >
-        {children}
-      </h2>
-    ),
-    h3: ({ node: _node, children, ...rest }) => (
-      <h3
-        {...rest}
-        className="mb-2 mt-4 text-title-small first:mt-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </h3>
-    ),
-    h4: ({ node: _node, children, ...rest }) => (
-      <h4
-        {...rest}
-        className="mb-1 mt-3 text-body-medium-default first:mt-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </h4>
-    ),
-    p: ({ node: _node, children, ...rest }) => (
-      <p
-        {...rest}
-        className="mb-3 text-body-medium-lighter last:mb-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </p>
-    ),
-    ul: ({ children }) => (
-      <ul
-        className="mb-3 list-disc pl-6 text-body-medium-lighter last:mb-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </ul>
-    ),
-    ol: ({ children }) => (
-      <ol
-        className="mb-3 list-decimal pl-6 text-body-medium-lighter last:mb-0"
-        style={{ color: "var(--content-default)" }}
-      >
-        {children}
-      </ol>
-    ),
-    li: ({ children }) => <li className="mb-0.5">{children}</li>,
-    a: ({ href, children }) => (
-      <LinkComponent href={href}>{children}</LinkComponent>
-    ),
-    strong: ({ children }) => (
-      <strong style={{ color: "var(--content-default)" }}>{children}</strong>
-    ),
-    em: ({ children }) => (
-      <em style={{ color: "var(--content-default)" }}>{children}</em>
-    ),
-    code: ({ node: _node, className, children, ...rest }) => {
-      const isBlock = className?.startsWith("language-");
-      if (isBlock) {
-        return (
-          <code
-            {...rest}
-            className={`block overflow-x-auto rounded p-3 font-mono text-body-small-default ${className ?? ""}`}
-            style={{
-              backgroundColor:
-                "color-mix(in oklab, var(--content-default) 8%, transparent)",
-              color: "var(--content-default)",
-            }}
-          >
-            {children}
-          </code>
-        );
-      }
-      return (
-        <code
-          className="rounded px-1 py-0.5 font-mono text-[0.85em]"
-          style={{
-            backgroundColor:
-              "color-mix(in oklab, var(--content-default) 8%, transparent)",
-            color: "var(--content-default)",
-          }}
-        >
-          {children}
-        </code>
-      );
-    },
-    pre: ({ children }) => (
-      <pre
-        className="mb-3 overflow-x-auto rounded-md p-3 text-body-small-default last:mb-0"
-        style={{
-          backgroundColor:
-            "color-mix(in oklab, var(--content-default) 8%, transparent)",
-        }}
-      >
-        {children}
-      </pre>
-    ),
-    blockquote: ({ children }) => (
-      <blockquote
-        className="mb-3 border-l-2 pl-3 italic last:mb-0"
-        style={{
-          borderColor: "var(--primary-base, #3b82f6)",
-          color: "var(--content-secondary, var(--content-tertiary))",
-        }}
-      >
-        {children}
-      </blockquote>
-    ),
-    table: ({ children }) => (
-      <div className="mb-3 overflow-x-auto last:mb-0">
-        <table className="min-w-full border-collapse text-body-small-default">
-          {children}
-        </table>
-      </div>
-    ),
-    th: ({ node: _node, children, ...rest }) => (
-      <th
-        {...rest}
-        className="border px-2 py-1 text-left text-body-small-emphasised"
-        style={{
-          borderColor: "var(--border-base)",
-          color: "var(--content-default)",
-        }}
-      >
-        {children}
-      </th>
-    ),
-    td: ({ node: _node, children, ...rest }) => (
-      <td
-        {...rest}
-        className="border px-2 py-1"
-        style={{
-          borderColor: "var(--border-base)",
-          color: "var(--content-default)",
-        }}
-      >
-        {children}
-      </td>
-    ),
-    hr: () => (
-      <hr className="my-4" style={{ borderColor: "var(--border-base)" }} />
-    ),
-  };
 }
 
 const REMARK_PLUGINS: PluggableList = [
@@ -1298,8 +1121,6 @@ const PROSE_REMARK_PLUGINS: PluggableList = [
   remarkGfm,
   remarkPreserveOrderedListNumbers,
 ];
-
-export type MarkdownScale = "message" | "document";
 
 interface MarkdownBlockProps {
   content: string;
@@ -1384,9 +1205,7 @@ export function MarkdownMessage({
   remoteImages = false,
   math = true,
   frontmatter = "content",
-  scale = "message",
 }: MarkdownMessageProps) {
-  const isDocument = scale === "document";
   const blocks = useIncrementalMarkdownBlocks(incremental ? content : "");
   const remarkPlugins = useMemo(
     () => [
@@ -1401,14 +1220,12 @@ export function MarkdownMessage({
   const components = useMemo(
     () =>
       ({
-        ...(isDocument
-          ? buildDocumentComponents(Link)
-          : buildMarkdownComponents(Link, imageComponent, remoteImages)),
+        ...buildMarkdownComponents(Link, imageComponent, remoteImages),
         // Custom tag names from consumer rehype plugins are not part of
         // react-markdown's intrinsic `Components` key set, hence the cast.
         ...extraComponents,
       }) as Components,
-    [Link, imageComponent, extraComponents, isDocument, remoteImages],
+    [Link, imageComponent, extraComponents, remoteImages],
   );
   // Loosest possible trigger on purpose: every construct remark-math can
   // treat as math contains a dollar sign, or one of the `\(` / `\[` openers
@@ -1436,12 +1253,7 @@ export function MarkdownMessage({
   return (
     <div
       data-slot="markdown-message"
-      className={cn(
-        isDocument
-          ? "text-[var(--content-default)]"
-          : "text-chat text-[var(--content-default)]",
-        className,
-      )}
+      className={cn("text-chat text-[var(--content-default)]", className)}
       onCopy={handleSelectionCopy}
     >
       {incremental ? (

@@ -244,7 +244,6 @@ export const Document: Story = {
     remoteImages: true,
     math: false,
     frontmatter: "metadata",
-    scale: "document",
     content: [
       "---",
       "title: Caveman",

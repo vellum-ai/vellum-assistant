@@ -53,7 +53,6 @@ export function FileMarkdown({ content }: { content: string }) {
       remoteImages
       math={false}
       frontmatter="metadata"
-      scale="document"
     />
   );
 }
