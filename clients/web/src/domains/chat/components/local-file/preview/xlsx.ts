@@ -54,13 +54,37 @@ const MAX_SERIAL_1900 = 2_958_465;
  */
 const MAX_SERIAL_1904 = MAX_SERIAL_1900 - 1462;
 
-/** What a cell's number format renders its value as. */
-type NumberFormatKind = "none" | "date" | "time" | "datetime";
+/** Units an elapsed format counts in, largest first. */
+const ELAPSED_UNITS = ["hours", "minutes", "seconds"] as const;
+
+type ElapsedUnit = (typeof ELAPSED_UNITS)[number];
+
+/** The unit each elapsed placeholder letter counts in. */
+const ELAPSED_UNIT_BY_LETTER: Record<string, ElapsedUnit> = {
+  h: "hours",
+  m: "minutes",
+  s: "seconds",
+};
+
+/**
+ * What a cell's number format renders its value as. An `elapsed` format keeps
+ * the whole span it is handed instead of wrapping at midnight, so it carries
+ * the units its fields run between: `[h]:mm:ss` runs from hours to seconds,
+ * `[mm]:ss` from minutes to seconds.
+ */
+type NumberFormatKind =
+  | { kind: "none" | "date" | "time" | "datetime" }
+  | { kind: "elapsed"; from: ElapsedUnit; to: ElapsedUnit };
+
+/** What a cell renders as when nothing styles it as a date or a duration. */
+const PLAIN_NUMBER: NumberFormatKind = { kind: "none" };
 
 /**
  * What a built-in `numFmtId` renders. The date ids spell a calendar day, the
- * time ids a clock reading (including the elapsed formats 45 to 47), and 22 is
- * the one built-in that spells both.
+ * time ids a clock reading, 22 is the one built-in that spells both, and 46
+ * (`[h]:mm:ss`) is the one that counts elapsed hours. Ids 45 (`mm:ss`) and 47
+ * (`mm:ss.0`) read the minutes and seconds of a time of day, so they stay
+ * clock readings.
  */
 function builtInFormatKind(id: number): NumberFormatKind {
   if (
@@ -68,12 +92,15 @@ function builtInFormatKind(id: number): NumberFormatKind {
     (id >= 27 && id <= 36) ||
     (id >= 50 && id <= 58)
   ) {
-    return "date";
+    return { kind: "date" };
   }
-  if ((id >= 18 && id <= 21) || (id >= 45 && id <= 47)) {
-    return "time";
+  if (id === 46) {
+    return { kind: "elapsed", from: "hours", to: "seconds" };
   }
-  return id === 22 ? "datetime" : "none";
+  if ((id >= 18 && id <= 21) || id === 45 || id === 47) {
+    return { kind: "time" };
+  }
+  return id === 22 ? { kind: "datetime" } : PLAIN_NUMBER;
 }
 
 /** Characters that separate format tokens without spelling one. */
@@ -105,22 +132,73 @@ function nextToClockToken(
   return false;
 }
 
+/** A bracketed section that counts elapsed time instead of a clock reading. */
+const ELAPSED_BRACKET = /^\[(h+|m+|s+)\]$/i;
+
 /**
- * What a custom format code renders. Quoted literals, bracketed sections, and
- * backslash escapes can hold any letter without spelling a token, so they come
- * out before the placeholders are read. Bracket removal takes the elapsed
- * tokens (`[h]`, `[mm]`, `[ss]`) with it: elapsed formats reach the time
- * renderer through their built-in ids, and a custom code spelling nothing but
- * elapsed time renders as a plain number.
+ * The meridiem tokens. Their letters spell no placeholder of their own, and
+ * the `m` in each reads as a month beside the `a` or the `p`, which is what
+ * would otherwise classify a 12-hour code as a date.
+ */
+const MERIDIEM = /am\/pm|a\/p/g;
+
+/** The largest of `units`, which is the one `ELAPSED_UNITS` lists first. */
+function largestElapsedUnit(units: ReadonlySet<ElapsedUnit>): ElapsedUnit {
+  return ELAPSED_UNITS.find((unit) => units.has(unit)) ?? "hours";
+}
+
+/** The smallest of `units`, which is the one `ELAPSED_UNITS` lists last. */
+function smallestElapsedUnit(units: ReadonlySet<ElapsedUnit>): ElapsedUnit {
+  let smallest: ElapsedUnit = "hours";
+  for (const unit of ELAPSED_UNITS) {
+    if (units.has(unit)) {
+      smallest = unit;
+    }
+  }
+  return smallest;
+}
+
+/**
+ * What a custom format code renders. Quoted literals, bracketed sections, the
+ * meridiem tokens, and backslash escapes can each hold a letter that spells no
+ * placeholder, so they come out before the placeholders are read: a meridiem
+ * leaves a clock reading behind it, a colour or locale bracket leaves nothing,
+ * and a bracket spelling nothing but `h`, `m`, or `s` makes the code elapsed
+ * time, counted from its largest bracketed unit down to the smallest unit the
+ * code spells.
  */
 function formatCodeKind(code: string): NumberFormatKind {
-  const tokens = code
+  const bracketed = new Set<ElapsedUnit>();
+  const placeholders = code
     .replace(/"[^"]*"/g, "")
-    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\[[^\]]*\]/g, (section) => {
+      const elapsed = ELAPSED_BRACKET.exec(section);
+      if (elapsed !== null) {
+        bracketed.add(
+          ELAPSED_UNIT_BY_LETTER[elapsed[1]!.charAt(0).toLowerCase()]!,
+        );
+      }
+      return "";
+    })
     .replace(/\\./g, "")
     .toLowerCase();
+  const tokens = placeholders.replace(MERIDIEM, "");
+  const hasMeridiem = tokens.length !== placeholders.length;
+  if (bracketed.size > 0) {
+    const spelled = new Set(bracketed);
+    for (const [letter, unit] of Object.entries(ELAPSED_UNIT_BY_LETTER)) {
+      if (tokens.includes(letter)) {
+        spelled.add(unit);
+      }
+    }
+    return {
+      kind: "elapsed",
+      from: largestElapsedUnit(bracketed),
+      to: smallestElapsedUnit(spelled),
+    };
+  }
   let hasDate = /[yd]/.test(tokens);
-  let hasTime = /[hs]/.test(tokens);
+  let hasTime = hasMeridiem || /[hs]/.test(tokens);
   for (const run of tokens.matchAll(/m+/g)) {
     const start = run.index;
     const end = start + run[0].length;
@@ -134,9 +212,9 @@ function formatCodeKind(code: string): NumberFormatKind {
     }
   }
   if (hasDate) {
-    return hasTime ? "datetime" : "date";
+    return hasTime ? { kind: "datetime" } : { kind: "date" };
   }
-  return hasTime ? "time" : "none";
+  return hasTime ? { kind: "time" } : PLAIN_NUMBER;
 }
 
 /** Local part of a qualified name, so `rel:id` and `id` both read as `id`. */
@@ -264,10 +342,10 @@ interface BoundedPart {
   /** True when the read stopped before the end of the part. */
   truncated: boolean;
   /**
-   * Prefix the element at the cut carried, so the tags appended to close the
-   * part are spelled the way the part spells them.
+   * Qualified name of each element left open at the cut, innermost first and
+   * spelled the way the part itself opened it.
    */
-  prefix: string;
+  stillOpen: string[];
 }
 
 /** The repeating element a bounded read counts, by local name. */
@@ -423,21 +501,29 @@ function readWholePart(
  * Inflate `entry` only until `marker` has been seen past its limit or the text
  * passes `maxChars`, then cut it there and abandon the rest of the stream.
  * Either cut lands on the `<` of a marker, so the text ends on a complete
- * element and only the elements still open around it need closing. This is
- * what keeps a sheet with a million rows from being decompressed whole for a
- * preview that shows five thousand. A cap reached before a second marker would
- * leave nothing complete behind, so the read rejects rather than resolving a
- * part that reads as empty.
+ * element and only `ancestors`, innermost first, are left open around it. This
+ * is what keeps a sheet with a million rows from being decompressed whole for
+ * a preview that shows five thousand. A cap reached before a second marker
+ * would leave nothing complete behind, so the read rejects rather than
+ * resolving a part that reads as empty.
  */
 function readMarkedPart(
   entry: JSZip.JSZipObject,
   marker: PartMarker,
+  ancestors: string[],
   maxChars: number,
 ): Promise<BoundedPart> {
   let searchFrom = 0;
   let seen = 0;
   let lastMarkerAt = -1;
   let lastMarkerPrefix = "";
+  // Every ancestor opens before the first marker, so the scan has each one's
+  // own spelling in hand by the time a cut needs to close it. The marker's
+  // prefix is the fallback for an ancestor the scan never reached.
+  const unseen = [...ancestors];
+  const openedAs = new Map<string, string>();
+  const stillOpen = (): string[] =>
+    ancestors.map((name) => openedAs.get(name) ?? `${lastMarkerPrefix}${name}`);
 
   return streamPart(entry, {
     onChunk: (buffer, settle) => {
@@ -456,6 +542,18 @@ function readMarkedPart(
         }
         searchFrom = at + 1;
         if (match.kind === "other") {
+          // Only a tag the marker has already ruled out can be an ancestor,
+          // and ruling it out took its whole name, so a name that does not
+          // match this ancestor belongs to something else.
+          for (let index = 0; index < unseen.length; index += 1) {
+            const name = unseen[index]!;
+            const opened = matchStartTag(buffer, at, name);
+            if (opened.kind === "match") {
+              openedAs.set(name, `${opened.prefix}${name}`);
+              unseen.splice(index, 1);
+              break;
+            }
+          }
           continue;
         }
         seen += 1;
@@ -465,7 +563,7 @@ function readMarkedPart(
           settle.resolve({
             xml: buffer.slice(0, at),
             truncated: true,
-            prefix: match.prefix,
+            stillOpen: stillOpen(),
           });
           return;
         }
@@ -482,10 +580,10 @@ function readMarkedPart(
       settle.resolve({
         xml: buffer.slice(0, lastMarkerAt),
         truncated: true,
-        prefix: lastMarkerPrefix,
+        stillOpen: stillOpen(),
       });
     },
-    onEnd: (buffer) => ({ xml: buffer, truncated: false, prefix: "" }),
+    onEnd: (buffer) => ({ xml: buffer, truncated: false, stillOpen: [] }),
   });
 }
 
@@ -502,13 +600,13 @@ async function readPart(
 /**
  * XML for a part a bounded read may have cut. A cut lands at the start of an
  * element, so the elements still open around it are closed again, innermost
- * first and spelled with the prefix the part carries.
+ * first and spelled the way the part opened them.
  */
-function closeBoundedPart(part: BoundedPart, stillOpen: string[]): string {
+function closeBoundedPart(part: BoundedPart): string {
   if (!part.truncated) {
     return part.xml;
   }
-  const closing = stillOpen.map((name) => `</${part.prefix}${name}>`).join("");
+  const closing = part.stillOpen.map((name) => `</${name}>`).join("");
   return `${part.xml}${closing}`;
 }
 
@@ -671,6 +769,36 @@ function formatSerial(
   return at % MS_PER_DAY === 0 ? day : `${day} ${clock}`;
 }
 
+const SECONDS_PER_DAY = 86_400;
+
+/**
+ * Render a serial as a duration running from `from` down to `to`. An elapsed
+ * format keeps the whole span in its leading field, which is what `[h]:mm:ss`
+ * spells as 48:00:00 where a clock reading would wrap to midnight, so the
+ * fields are counted off the serial rather than off a `Date`.
+ */
+function formatElapsed(
+  serial: number,
+  from: ElapsedUnit,
+  to: ElapsedUnit,
+): string {
+  const total = Math.round(serial * SECONDS_PER_DAY);
+  const leading =
+    from === "hours"
+      ? Math.floor(total / 3600)
+      : from === "minutes"
+        ? Math.floor(total / 60)
+        : total;
+  const fields = [leading];
+  if (from === "hours" && to !== "hours") {
+    fields.push(Math.floor(total / 60) % 60);
+  }
+  if (to === "seconds" && from !== "seconds") {
+    fields.push(total % 60);
+  }
+  return fields.map(pad).join(":");
+}
+
 /**
  * A cell is either finished text or an index into the shared string table,
  * which is read only as far as the sheet pointing into it reaches.
@@ -760,9 +888,15 @@ function readCell(
   if (Number.isNaN(asNumber)) {
     return value;
   }
-  const kind = formatKinds[Number(cell.getAttribute("s") ?? "0")] ?? "none";
-  if (kind !== "none" && isDateSerial(asNumber, date1904)) {
-    return formatSerial(asNumber, kind, date1904);
+  const format =
+    formatKinds[Number(cell.getAttribute("s") ?? "0")] ?? PLAIN_NUMBER;
+  if (isDateSerial(asNumber, date1904)) {
+    if (format.kind === "elapsed") {
+      return formatElapsed(asNumber, format.from, format.to);
+    }
+    if (format.kind !== "none") {
+      return formatSerial(asNumber, format.kind, date1904);
+    }
   }
   return String(asNumber);
 }
@@ -868,12 +1002,10 @@ async function readSharedStringTable(
   const part = await readMarkedPart(
     entry,
     { localName: "si", limit: highestIndex + 1 },
+    ["sst"],
     maxPartChars,
   );
-  const root = parseXml(
-    closeBoundedPart(part, ["sst"]),
-    "xl/sharedStrings.xml",
-  );
+  const root = parseXml(closeBoundedPart(part), "xl/sharedStrings.xml");
   const table = findNamed(root, "sst");
   return {
     strings:
@@ -940,10 +1072,11 @@ async function readSheetGrid(
   const part = await readMarkedPart(
     entry,
     { localName: "row", limit: MAX_CSV_ROWS },
+    ["sheetData", "worksheet"],
     context.maxPartChars,
   );
   const read = readSheetRows(
-    parseXml(closeBoundedPart(part, ["sheetData", "worksheet"]), entry.name),
+    parseXml(closeBoundedPart(part), entry.name),
     context.formatKinds,
     context.date1904,
   );

@@ -177,11 +177,8 @@ function readRecords(
  * column and no bare numbers, while the data below it has at least one number.
  * Files that are entirely text therefore render without a header, which shows
  * every row rather than silently hiding one.
- *
- * Exported so the workbook reader shares it and a CSV and a sheet decide their
- * header row the same way.
  */
-export function looksLikeHeader(records: string[][]): boolean {
+function looksLikeHeader(records: string[][]): boolean {
   const first = records[0];
   if (!first || records.length < 2) {
     return false;
