@@ -210,9 +210,9 @@ export function ChatInfoPanel({
         return (
           <Notice
             key={source}
-            // A failed refresh still shows the saved results, so it warns;
-            // a source with nothing to show has failed.
-            tone={state.failure === "refresh" ? "warning" : "error"}
+            // A failed refresh or next page still shows what loaded, so it
+            // warns; a source with nothing to show has failed.
+            tone={state.hasData ? "warning" : "error"}
             actions={
               (!allFailed || level !== null) && (
                 <Button
