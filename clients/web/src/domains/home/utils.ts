@@ -67,11 +67,11 @@ export function getFeedItemScheduleId(item: FeedItem | null): string | null {
 }
 
 /**
- * Background skill-update notifications carry the id of the skill the
- * retrospective rewrote in `metadata.skillId` (emitted by
- * `notifyBackgroundSkillUpdate` in the daemon's `scaffold-managed` tool),
- * letting a detail view link to the skill it names. Returns null for feed
- * items not tied to a skill.
+ * A skill-update receipt naming one skill carries its id in
+ * `metadata.skillId` (set by the daemon's skill-update receipt job), letting
+ * a detail view link to the skill it names from the footer. Returns null for
+ * feed items not tied to one skill; a receipt spanning several links to each
+ * from its list instead.
  *
  * Only *updates* reach the feed. A newly authored skill announces itself with
  * an in-chat card instead (`skill-created-card.tsx`), which deep-links the same
