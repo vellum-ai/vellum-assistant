@@ -1,4 +1,8 @@
 {
+  "askQuestionDetail": {
+    "question": "Question",
+    "questions": "Questions"
+  },
   "conversationDoneToast": {
     "message": "Done",
     "undo": "Undo"

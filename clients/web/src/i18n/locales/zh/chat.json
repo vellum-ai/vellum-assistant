@@ -1,4 +1,8 @@
 {
+  "askQuestionDetail": {
+    "question": "问题",
+    "questions": "问题"
+  },
   "conversationDoneToast": {
     "message": "已完成",
     "undo": "撤销"

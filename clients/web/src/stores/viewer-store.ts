@@ -29,6 +29,7 @@
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
 
+import type { AnsweredQuestion } from "@vellumai/assistant-api";
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
@@ -423,6 +424,12 @@ export interface ToolDetailPayload {
    * flight. Unset for other kinds.
    */
   searchResults?: WebSearchResultItem[];
+  /**
+   * The `ask_question` record the daemon persists once a prompt settles: the
+   * questions as asked and what the user chose. Like `result`, an open-time
+   * snapshot the drawer falls back to when the call can't be resolved live.
+   */
+  answeredQuestion?: AnsweredQuestion;
   /**
    * The call's structured result, for the tools that report one alongside
    * their text. Like `result`, an open-time snapshot the drawer falls back to
