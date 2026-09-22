@@ -166,8 +166,9 @@ describe("SkillLoadDetail", () => {
 
   test("folds a body taller than the fold behind Show more", () => {
     // Only the body is tall here, so only it offers to open.
+    // Matches the rendered body prose, which only the body's fold contains.
     const restore = stubOverflow(
-      (el) => el.textContent?.includes("# App Builder") ?? false,
+      (el) => el.textContent?.includes("Detailed guidance") ?? false,
     );
     const { getByText, queryByText } = renderDetail();
     restore();
