@@ -320,7 +320,10 @@ export function AcpRunChatView({
               </div>
             )}
 
-            <ObjectiveSection task={entry.task} />
+            <ObjectiveSection
+              key={`objective-${entry.acpSessionId}`}
+              task={entry.task}
+            />
 
             {/* Blocks render on a vertical timeline rail with a dot on action
                 blocks (tool calls + plan), plus the first and last block so the
