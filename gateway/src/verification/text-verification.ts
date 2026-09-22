@@ -247,24 +247,31 @@ export async function tryTextVerificationIntercept(
   // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
   //    the verification, and so does a guardian code from an identity other
   //    than the one linked on the channel: the actor must not gain trusted
-  //    status nor see a
-  //    success reply, even though the code matched and the session consumed.
-  const sideEffectsVerified =
-    trustClass === "guardian"
-      ? await applyGuardianSideEffects({
-          sourceChannel,
-          canonicalUserId,
-          actorChatId,
-          actorDisplayName,
-          actorUsername,
-        })
-      : await applyTrustedContactSideEffects({
-          sourceChannel,
-          canonicalUserId,
-          actorChatId,
-          actorDisplayName,
-          actorUsername,
-        });
+  //    status nor see a success reply, even though the code matched and the
+  //    session consumed. Each purpose names its grant; a purpose this switch
+  //    does not name grants nothing, and adding one to the contract fails to
+  //    compile here until it does.
+  const actor = {
+    sourceChannel,
+    canonicalUserId,
+    actorChatId,
+    actorDisplayName,
+    actorUsername,
+  };
+  let sideEffectsVerified: boolean;
+  switch (trustClass) {
+    case "guardian":
+      sideEffectsVerified = await applyGuardianSideEffects(actor);
+      break;
+    case "trusted_contact":
+      sideEffectsVerified = await applyTrustedContactSideEffects(actor);
+      break;
+    default: {
+      const unnamed: never = trustClass;
+      log.error({ sourceChannel, trustClass: unnamed }, "Purpose has no grant");
+      sideEffectsVerified = false;
+    }
+  }
 
   if (!sideEffectsVerified) {
     log.warn(

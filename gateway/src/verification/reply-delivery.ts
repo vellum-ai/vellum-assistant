@@ -32,7 +32,7 @@ const DELIVERY_WAIT_MS = 10_000;
 // ---------------------------------------------------------------------------
 
 export function composeVerificationSuccessReply(
-  verificationType?: VerificationPurpose,
+  verificationType: VerificationPurpose,
 ): string {
   if (verificationType === "trusted_contact") {
     return "Verification successful! You can now message the assistant.";
