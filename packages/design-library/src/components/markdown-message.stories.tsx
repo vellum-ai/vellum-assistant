@@ -168,7 +168,7 @@ export const CurrencyAndMath: Story = {
 export const CurrencyInCodeAndLinks: Story = {
   args: {
     content: [
-      'Anthropic raised $65B — set `price="$5"` in the config.',
+      'Anthropic raised $65B, so set `price="$5"` in the config.',
       "",
       "```sh",
       'echo "$5 and $1,000"',

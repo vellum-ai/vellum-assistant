@@ -481,8 +481,8 @@ function buildMarkdownComponents(
       </td>
     ),
     hr: () => <hr className="my-3 border-[var(--border-subtle)]" />,
-    // `rest` carries what a file's own `<img>` tag said about its picture —
-    // width, height, title — after sanitising. Rebuilding the element from
+    // `rest` carries what a file's own `<img>` tag said about its picture:
+    // width, height and title, after sanitising. Rebuilding the element from
     // src and alt alone silently resizes every image a README lays out.
     img: ({ node: _node, src, alt, ...rest }) => {
       const srcStr = typeof src === "string" ? src : "";

@@ -51,6 +51,32 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("Hi");
   });
 
+  test('frontmatter="metadata" draws none of the block, fences and all', () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        frontmatter: "metadata",
+        content: "---\ntitle: Notes\nowner: platform\n---\n\n# Body",
+      }),
+    );
+
+    // Not just the --- fences: a leading YAML block is what the file says
+    // about itself, and a reader who wanted it opens the source.
+    expect(html).not.toContain("title: Notes");
+    expect(html).not.toContain("owner: platform");
+    expect(html).not.toContain("---");
+    expect(html).toContain("Body");
+  });
+
+  test("a leading YAML block is content by default", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "---\ntitle: Notes\n---\n\n# Body",
+      }),
+    );
+
+    expect(html).toContain("title: Notes");
+  });
+
   test("headings walk one type-scale step per level", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
