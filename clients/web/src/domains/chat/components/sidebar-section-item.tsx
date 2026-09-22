@@ -152,7 +152,7 @@ function SidebarSectionCardWithMenu({
   collapsedIndicator,
   isLast,
 }: SidebarSectionItemProps) {
-  const { conversations, hasMore, loadMore, getAllRows } =
+  const { conversations, hasMore, resolved, loadMore, getAllRows } =
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
@@ -342,7 +342,8 @@ function SidebarSectionCardWithMenu({
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The two sections that render at zero, so the two with anything to
-         say there. `ConversationNavSection` resolves this as
+         say there. Chats says it only once its own read has answered: before
+         that, an empty stand-in is not an empty section. `ConversationNavSection` resolves this as
          `children ?? <ConversationRowList/>`, so it has to be exactly
          `undefined` in every other case or a section would lose its rows to
          an empty node. Passed as a prop rather than as a JSX child for that
@@ -350,7 +351,7 @@ function SidebarSectionCardWithMenu({
       children={
         conversations.length > 0 ? undefined : isAssistantSection ? (
           <AssistantSectionEmptyState />
-        ) : section.type === "recents" ? (
+        ) : section.type === "recents" && resolved ? (
           <ChatsSectionEmptyState viewAllHref={viewAllHref} />
         ) : undefined
       }

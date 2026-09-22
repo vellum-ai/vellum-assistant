@@ -38,6 +38,7 @@ mock.module(
     useSectionConversations: () => ({
       conversations: SECTION_ROWS,
       hasMore: false,
+      resolved: true,
       loadMore: () => {},
       getAllRows: () => Promise.resolve(SECTION_ROWS),
     }),
