@@ -64,10 +64,12 @@ import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
+import { safeStringSlice } from "../util/unicode.js";
 import {
   SPOKEN_REPLY_LENGTH_RULE,
   SPOKEN_REPLY_PLAIN_TEXT_RULE,
 } from "./spoken-reply-rules.js";
+import { judgeAddressivity } from "./voice-addressivity-judge.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
@@ -540,6 +542,12 @@ export interface VoiceTurnOptions {
    * pre-bridge half (thinking frame, trust resolution) is attributable too.
    */
   launchedAtMs?: number;
+  /**
+   * Whether this utterance arrived while the assistant was still answering.
+   * Only the shadow addressivity judge reads it (JARVIS-1835), which needs
+   * to know whether it is looking at a fresh turn or a barge-in.
+   */
+  interruptedAssistant?: boolean;
 }
 
 export interface VoiceTurnHandle {
@@ -1993,6 +2001,46 @@ export async function startVoiceTurn(
       );
     }
   };
+
+  // Shadow only (JARVIS-1835): would a gate have treated this utterance as
+  // something the caller said to someone else? Nothing waits on the answer
+  // and nothing acts on it; the verdict is logged so real sessions can
+  // produce a false-ignore rate. Same history snapshot rule as the
+  // escalation judge, and the same exclusion of synthetic prompts.
+  if (opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt) {
+    const addressivityHistory = conversation.getMessages();
+    void judgeAddressivity({
+      conversationId: opts.conversationId,
+      history: addressivityHistory,
+      utterance: opts.content,
+      bargeIn: opts.interruptedAssistant === true,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    })
+      .then((judgement) => {
+        if (judgement.outcome === "unavailable") {
+          return;
+        }
+        log.info(
+          {
+            turnId,
+            conversationId: opts.conversationId,
+            outcome: judgement.outcome,
+            noul: judgement.noul,
+            latencyMs: judgement.latencyMs,
+            bargeIn: opts.interruptedAssistant === true,
+            // The words themselves are the unit of analysis: a verdict
+            // without them cannot be labeled after the fact.
+            utterance: safeStringSlice(opts.content.trim(), 0, 300),
+            shadow: true,
+          },
+          "Voice addressivity judged (shadow)",
+        );
+      })
+      .catch(() => {
+        // judgeAddressivity never rejects; a throw here would be a bug in
+        // the logging above, and a shadow observation must not fail a turn.
+      });
+  }
 
   // The escalation judge runs beside the front-door leg's model call, so its
   // verdict is usually in before the leg's first answer word. Snapshot the

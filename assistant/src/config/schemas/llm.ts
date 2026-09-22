@@ -231,6 +231,7 @@ export const LLMCallSiteEnum = z.enum([
   "voiceFrontDoor",
   "voiceEscalationJudge",
   "voiceContinuationJudge",
+  "voiceAddressivityJudge",
   "voiceContinuationLabel",
   "trustRuleSuggestion",
   "homeGreeting",

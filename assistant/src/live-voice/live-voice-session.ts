@@ -667,6 +667,10 @@ interface ActiveAssistantTurn {
   modeSessionDeliveryTurnId: string | null;
   // When the turn launched, for narration's turnElapsedMs.
   launchedAtMs: number;
+  // Whether this turn's utterance arrived while the assistant was mid-answer.
+  // Shadow-only today: it tells the addressivity judge which situation it is
+  // looking at (see calls/voice-addressivity-judge.ts).
+  interruptedAssistant: boolean;
   // Tool-activity log and spoken progress narration for the turn
   // (voice.frontModel.progress), shared with the phone driver.
   progress: ProgressCadence;
@@ -6155,6 +6159,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ? modeSessionDeliveryTurnId
         : null,
       launchedAtMs: Date.now(),
+      interruptedAssistant:
+        pending?.interruptedRequest != null || suspendedForegroundTask !== null,
       progress: createProgressCadence({
         config: progressConfigForCadence(
           this.frontModelConfig.progress,
@@ -6644,6 +6650,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         ...(leg.attachments ? { attachments: leg.attachments } : {}),
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,
+        ...(activeTurn.interruptedAssistant
+          ? { interruptedAssistant: true }
+          : {}),
         signal: activeTurn.abortController.signal,
         ...(activeTurn.taskOutcome !== null &&
         activeTurn.taskOutcome.source === "subagent"
