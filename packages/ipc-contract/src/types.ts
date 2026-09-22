@@ -338,6 +338,10 @@ export interface HotkeySelection {
   editable: boolean;
 }
 
+/** Null means no selection; an unavailable read must never authorize a paste. */
+export type HotkeySelectionResult =
+  HotkeySelection | { unavailable: true } | null;
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;

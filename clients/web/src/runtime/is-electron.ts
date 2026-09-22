@@ -56,7 +56,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   LocalAssistantStatusResult,
   LocalListDevicesResult,
   LocalPairingPollResult,
@@ -116,7 +116,7 @@ export type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
-  HotkeySelection,
+  HotkeySelectionResult,
   NotificationCategory,
   PowerEvent,
   PowerEventKind,
@@ -195,7 +195,7 @@ declare global {
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
           setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
-          readFrontSelection?(): Promise<HotkeySelection | null>;
+          readFrontSelection?(): Promise<HotkeySelectionResult>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
           ): () => void;

@@ -770,7 +770,7 @@ describe("installHotkeyHelper", () => {
     expect(await pending).toBeNull();
   });
 
-  test("reads a refused selection as no selection", async () => {
+  test("keeps a refused selection distinct from no selection", async () => {
     installHotkeyHelper();
 
     const pending = invokeReadFrontSelection();
@@ -781,7 +781,99 @@ describe("installHotkeyHelper", () => {
       ),
     );
 
-    expect(await pending).toBeNull();
+    expect(await pending).toEqual({ unavailable: true });
+  });
+
+  test("retries accessibility warmup with the original hold id", async () => {
+    installHotkeyHelper();
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"unavailable":true,"holdId":7}}\n',
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    expect(JSON.parse(lastChild!.stdin.writes[1]!)).toMatchObject({
+      method: "selection.read",
+      params: { holdId: 7 },
+    });
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":2,"result":{"selection":{"text":"Example passage","truncated":false,"editable":true}}}\n',
+      ),
+    );
+    expect(await pending).toEqual({
+      text: "Example passage",
+      truncated: false,
+      editable: true,
+    });
+  });
+
+  test("stops retrying when the hold or foreground app changes", async () => {
+    installHotkeyHelper();
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"unavailable":true,"holdId":7}}\n',
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":2,"result":{"unavailable":true}}\n'),
+    );
+    expect(await pending).toEqual({ unavailable: true });
+    expect(lastChild?.stdin.writes).toHaveLength(2);
+  });
+
+  test("does not retry a non-retryable capture failure", async () => {
+    installHotkeyHelper();
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"unavailable":true}}\n'),
+    );
+    expect(await pending).toEqual({ unavailable: true });
+    expect(lastChild?.stdin.writes).toHaveLength(1);
+  });
+
+  test("bounds warmup retries beyond Chromium's two-second debounce", async () => {
+    installHotkeyHelper();
+    const pending = invokeReadFrontSelection();
+    for (let id = 1; id <= 31; id++) {
+      while ((lastChild?.stdin.writes.length ?? 0) < id) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const request = JSON.parse(lastChild!.stdin.writes[id - 1]!);
+      expect(request.params).toEqual(id === 1 ? undefined : { holdId: 7 });
+      lastChild?.stdout.emit(
+        "data",
+        Buffer.from(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            result: { unavailable: true, holdId: 7 },
+          }) + "\n",
+        ),
+      );
+    }
+    expect(await pending).toEqual({ unavailable: true });
+    expect(lastChild?.stdin.writes).toHaveLength(31);
+  });
+
+  test("does not treat malformed selection data as no selection", async () => {
+    installHotkeyHelper();
+    const pending = invokeReadFrontSelection();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"selection":{"text":42}}}\n',
+      ),
+    );
+    expect(await pending).toEqual({ unavailable: true });
   });
 
   test("asks the helper which of the named apps are running", async () => {

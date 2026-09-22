@@ -1887,6 +1887,7 @@
     "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
+    "selectionUnavailable": "No se pudo leer el texto seleccionado. No se pegó nada. Vuelve a seleccionar el texto e inténtalo de nuevo; puedes copiar tus palabras dictadas.",
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   },
   "voiceFirstRunCard": {

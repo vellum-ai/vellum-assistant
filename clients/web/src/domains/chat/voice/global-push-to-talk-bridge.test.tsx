@@ -52,7 +52,10 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 }));
 
 type HoldStart = {
-  selection: { text: string; truncated: boolean; editable?: boolean } | null;
+  selection:
+    | { text: string; truncated: boolean; editable?: boolean }
+    | { unavailable: true }
+    | null;
 };
 let holdHandlers: {
   onHoldStart: (start: HoldStart) => void;
@@ -807,6 +810,31 @@ describe("a hold over an editable selection", () => {
   const withAssistantThatTellsEditsFromQuestions = () => {
     useAssistantIdentityStore.getState().setIdentity("asst", "0.11.9", "a1");
   };
+
+  test("preserves the transcript without pasting or asking when selection capture fails", async () => {
+    withAssistantThatTellsEditsFromQuestions();
+    nextTextInsertionStatus = "inserted";
+    const voiceInput = renderBridge("a1");
+    holdOver({ unavailable: true });
+    await act(async () => {
+      await voiceInput.onTranscript("make this friendlier");
+    });
+    expect(dictationCalls).toEqual([]);
+    expect(insertedTexts).toEqual([]);
+    expect(askedTexts).toEqual([]);
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "paste-failed",
+      text: "make this friendlier",
+    });
+    expect(useComposerStore.getState().input).toBe("make this friendlier");
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      formatVoiceError("dictation-selection-unavailable"),
+      { id: "voice-error:dictation-selection-unavailable" },
+    );
+    expect(useVoiceRecordingStore.getState().dictationInsertionError).toBe(
+      "dictation-selection-unavailable",
+    );
+  });
 
   test("pastes the edit over the selection", async () => {
     withAssistantThatTellsEditsFromQuestions();

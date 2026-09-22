@@ -1,7 +1,7 @@
 import type {
   ChordBinding,
   ChordRegistrationResult,
-  HotkeySelection,
+  HotkeySelectionResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   VoiceModeChord,
@@ -70,7 +70,7 @@ export async function setModifierHold(
  * `null` too off a host that cannot read one, since a hold that finds no
  * selection lands its words at the cursor, which is the right answer there.
  */
-export async function readFrontSelection(): Promise<HotkeySelection | null> {
+export async function readFrontSelection(): Promise<HotkeySelectionResult> {
   const read = window.vellum?.helper?.hotkey?.readFrontSelection;
   if (!isElectron() || typeof read !== "function") {
     return null;
@@ -78,7 +78,7 @@ export async function readFrontSelection(): Promise<HotkeySelection | null> {
   try {
     return await read();
   } catch {
-    return null;
+    return { unavailable: true };
   }
 }
 

@@ -58,7 +58,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
-  HotkeySelection,
+  HotkeySelectionResult,
   Lockfile,
   LockfileWriteResult,
   LocalAssistantStatusResult,
@@ -275,9 +275,10 @@ export interface VellumBridge {
       setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
       /**
        * What is highlighted in the application in front, or `null` when
-       * nothing is. Absent on shells whose helper cannot read it.
+       * nothing is, or unavailable when capture fails. Absent on shells
+       * whose helper cannot read it.
        */
-      readFrontSelection?(): Promise<HotkeySelection | null>;
+      readFrontSelection?(): Promise<HotkeySelectionResult>;
       onRegistrationChange?(callback: (active: boolean) => void): () => void;
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };

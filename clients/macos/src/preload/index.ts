@@ -41,7 +41,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
-  HotkeySelection,
+  HotkeySelectionResult,
   ChordBinding,
   ChordRegistrationResult,
   ModifierHold,
@@ -217,10 +217,10 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_CHORDS,
           binding,
         ) as Promise<ChordRegistrationResult>,
-      readFrontSelection: (): Promise<HotkeySelection | null> =>
+      readFrontSelection: (): Promise<HotkeySelectionResult> =>
         ipcRenderer.invoke(
           HELPER_HOTKEY_READ_FRONT_SELECTION,
-        ) as Promise<HotkeySelection | null>,
+        ) as Promise<HotkeySelectionResult>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
