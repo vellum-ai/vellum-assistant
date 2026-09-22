@@ -228,4 +228,64 @@ describe("mergePlatformCatalogWithBundledLocals", () => {
     expect(merged.matches[1]?.source.kind).toBe("local");
     expect(merged.ref).toBe("main");
   });
+  test("keeps the bundled integration when a platform row without one shadows it", () => {
+    const integration = {
+      kind: "mcp",
+      displayName: "Fathom",
+      documentationUrl: "https://example.com/docs",
+      verifiedAt: "2026-09-10",
+      verification: "documentation-only",
+      setup: { mode: "oauth", instructions: "Sign in." },
+      logo: "fathom.png",
+    } as const;
+    const platformIntegration = { ...integration, displayName: "Platform" };
+    const platform: PluginCatalog = {
+      ref: "main",
+      matches: [
+        {
+          name: "fathom",
+          path: "github:provider/fathom@pin",
+          category: null,
+          source: {
+            kind: "github",
+            repo: "provider/fathom",
+            ref: "0".repeat(40),
+          },
+        },
+        {
+          name: "linear",
+          path: "github:provider/linear@pin",
+          category: null,
+          integration: platformIntegration,
+          source: {
+            kind: "github",
+            repo: "provider/linear",
+            ref: "0".repeat(40),
+          },
+        },
+      ],
+    };
+    const bundled: PluginCatalog = {
+      ref: "bundled",
+      matches: ["fathom", "linear"].map((name) => ({
+        name,
+        path: `local:plugins/mcp-catalog/${name}@1.0.0`,
+        category: null,
+        integration,
+        source: {
+          kind: "local",
+          path: `plugins/mcp-catalog/${name}`,
+          version: "1.0.0",
+        },
+      })),
+    };
+
+    const merged = mergePlatformCatalogWithBundledLocals(platform, bundled);
+
+    const [fathom, linear] = merged.matches;
+    expect(fathom?.source.kind).toBe("github");
+    expect(fathom?.integration).toEqual(integration);
+    expect(linear?.source.kind).toBe("github");
+    expect(linear?.integration).toEqual(platformIntegration);
+  });
 });
