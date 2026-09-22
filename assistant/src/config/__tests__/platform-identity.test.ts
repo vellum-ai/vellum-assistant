@@ -223,6 +223,32 @@ describe("resolvePlatformAssistantId", () => {
     expect(headers.get("Authorization")).toBe("Api-Key replacement-key");
   });
 
+  test("retries validate inside the cooldown once a different base URL is stored", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl("https://old.example.com");
+    fetchImpl = async () => new Response("no", { status: 401 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(1);
+
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls[1]?.url).toBe(
+      `${BASE_URL}${PLATFORM_IDENTITY_VALIDATE_PATH}`,
+    );
+  });
+
   test("retries validate after a failed attempt once the cooldown is cleared", async () => {
     process.env.ASSISTANT_API_KEY = "assistant-key";
     setPlatformBaseUrl(BASE_URL);

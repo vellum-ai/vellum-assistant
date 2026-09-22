@@ -7,8 +7,7 @@
  * overrides (and `PLATFORM_ORGANIZATION_ID` / `PLATFORM_USER_ID` when set).
  * When the in-memory assistant id is empty, the next resolve retries
  * validate (single-flight, with a cooldown after a failed attempt that holds
- * only while the same API key is stored: a replacement key is fresh evidence
- * and is validated at once).
+ * only while the same API key and base URL are stored).
  */
 
 import { credentialKey } from "../security/credential-key.js";
@@ -123,16 +122,19 @@ async function readAssistantApiKey(): Promise<string> {
 }
 
 let ensureInFlight: Promise<void> | null = null;
-// The cooldown is bound to the key that failed: a rejected key keeps failing
-// and is not re-sent for ENSURE_COOLDOWN_MS, while a key stored since then
-// (the in-app repair rotates one and confirms it within the same second) is
-// validated on the next resolve.
-let failedApiKey: string | null = null;
+// The cooldown is bound to the credentials that failed: the same key against
+// the same base URL is not re-sent for ENSURE_COOLDOWN_MS, while a change to
+// either is validated on the next resolve.
+let failedFingerprint: string | null = null;
 let nextEnsureAttemptAt = 0;
+
+function identityFingerprint(apiKey: string, baseUrl: string): string {
+  return `${baseUrl}\0${apiKey}`;
+}
 
 export function _resetPlatformIdentityEnsureForTests(): void {
   ensureInFlight = null;
-  failedApiKey = null;
+  failedFingerprint = null;
   nextEnsureAttemptAt = 0;
 }
 
@@ -140,9 +142,9 @@ export function _resetPlatformIdentityEnsureForTests(): void {
  * Load in-memory platform ids from validate when they are missing.
  *
  * No-ops when the assistant id is already set, when auth prerequisites are
- * missing, or when the stored API key is the one a failed attempt used and
- * that attempt is still inside the cooldown window. Concurrent callers share
- * one in-flight request.
+ * missing, or when the stored API key and base URL are the ones a failed
+ * attempt used and that attempt is still inside the cooldown window.
+ * Concurrent callers share one in-flight request.
  */
 export async function ensurePlatformIdentityIds(): Promise<void> {
   if (getPlatformAssistantId()?.trim()) {
@@ -156,17 +158,21 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
         if (!apiKey || !baseUrl) {
           return;
         }
-        if (apiKey === failedApiKey && Date.now() < nextEnsureAttemptAt) {
+        const fingerprint = identityFingerprint(apiKey, baseUrl);
+        if (
+          fingerprint === failedFingerprint &&
+          Date.now() < nextEnsureAttemptAt
+        ) {
           return;
         }
         const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
         if (!ids) {
-          failedApiKey = apiKey;
+          failedFingerprint = fingerprint;
           nextEnsureAttemptAt = Date.now() + ENSURE_COOLDOWN_MS;
           return;
         }
         applyPlatformIdentityIds(ids);
-        failedApiKey = null;
+        failedFingerprint = null;
         nextEnsureAttemptAt = 0;
         log.info("Loaded platform identity from platform validate");
       } finally {
