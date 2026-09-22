@@ -240,6 +240,7 @@ export interface OpenedDbDocumentState {
  */
 export type WorkspaceFilePreviewKind =
   | "csv"
+  | "xlsx"
   | "markdown"
   | "text"
   | "pdf"
