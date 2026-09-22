@@ -5,6 +5,12 @@
  * from a sandboxed iframe and either forwards them to the provided callback
  * or proxies fetch requests through the parent's authenticated API client.
  *
+ * It also answers `vellum_context_request` with the host's current
+ * conversation selection. That is a read of host state rather than a proxy
+ * of an app request, and it is deliberately the only such read: the reply
+ * carries the two conversation ids and nothing else, so the bridge stays a
+ * narrow context API rather than general access to the host's stores.
+ *
  * Messages are routed by checking both `event.source` (must match the
  * iframe's `contentWindow`) and the `frameId` payload field (must match
  * the ID embedded in the bridge script). This provides defense-in-depth
@@ -17,6 +23,7 @@ import { type RefObject, useEffect, useRef } from "react";
 
 import { client } from "@/generated/api/client.gen";
 import { subscribe as busSubscribe } from "@/lib/event-bus";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   FETCH_PROXY_PATH_RE,
   getRelayableAppRoute,
@@ -139,6 +146,37 @@ export function useSandboxFetchProxy(
           return;
         }
         onOpenVellumLink?.(msg.href, msg.linkText);
+        return;
+      }
+
+      if (msg.type === "vellum_context_request") {
+        const { callId } = msg as { callId: string };
+        const sendContext = (response: Record<string, unknown>) => {
+          iframeRef.current?.contentWindow?.postMessage(response, "*");
+        };
+        if (!enabled) {
+          sendContext({
+            type: "vellum_context_response",
+            callId,
+            error: "Context bridge disabled",
+          });
+          return;
+        }
+        // Read at request time, never at mount: the host's selection moves
+        // while the app stays mounted (a split-view conversation switch), so
+        // a value captured when the effect ran would be stale from then on.
+        // `getState()` is the store's documented read outside the React
+        // render cycle, and reading it here rather than through a prop keeps
+        // the selection out of this effect's dependencies, so a switch never
+        // tears down and re-registers the listener.
+        const { activeConversationId, editingConversationId } =
+          useConversationStore.getState();
+        sendContext({
+          type: "vellum_context_response",
+          callId,
+          activeConversationId: activeConversationId ?? null,
+          editingConversationId: editingConversationId ?? null,
+        });
         return;
       }
 

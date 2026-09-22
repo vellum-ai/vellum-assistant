@@ -8,8 +8,9 @@
  *    which throw `SecurityError` in sandboxed contexts without `allow-same-origin`.
  * The app-side type of the `window.vellum` object injected here is declared in
  * `@vellumai/plugin-api`'s `app-globals.d.ts` (shipped as the package's
- * `/app` subpath). It currently types only `fetch`; keep it in sync if that
- * member's signature changes or another member is added to the declaration.
+ * `/app` subpath). It types `fetch` and `getContext`; keep it in sync if
+ * either member's signature changes or another member is added to the
+ * declaration.
  *
  * 2. **Action bridge** — `window.vellum.sendAction()` forwards surface actions to
  *    the parent via `postMessage`.
@@ -21,6 +22,12 @@
  *    `window.vellum.subscribe(filter, cb)` completes the trio with server→app
  *    push: the parent forwards scoped `sync_changed` invalidations so an app
  *    refreshes on demand instead of polling.
+ *    `window.vellum.getContext()` reads the host's current conversation
+ *    context. It is a request/response exchange rather than a value baked
+ *    into the document, because the host's selection changes under a mounted
+ *    app (a split-view conversation switch) and a value captured at mount
+ *    would be stale from then on. Read-only: it reports which conversation
+ *    the host has selected and nothing else.
  * 4. **Link interceptor** — catches clicks on `<a>` elements and opens them in
  *    new tabs via `window.open()`, which the `allow-popups` sandbox token
  *    permits. Without this, links inside sandboxed iframes are non-interactive
@@ -569,6 +576,8 @@ function buildBridgeLogicScript(
   window.vellum._pendingAssets = {};
   window.vellum._assetNextId = 1;
   window.vellum._assetCache = {};
+  window.vellum._pendingContexts = {};
+  window.vellum._contextNextId = 1;
   window.vellum._subs = {};
   window.vellum._subNextId = 1;
   window.addEventListener('message', function(event) {
@@ -592,6 +601,16 @@ function buildBridgeLogicScript(
         window.vellum._assetCache[pa.path] = url;
         pa.resolve(url);
       } catch (e) { pa.reject(e); }
+    }
+    if (d.type === 'vellum_context_response' && d.callId) {
+      var pc = window.vellum._pendingContexts[d.callId];
+      if (!pc) return;
+      delete window.vellum._pendingContexts[d.callId];
+      if (d.error) { pc.reject(new Error(d.error)); return; }
+      pc.resolve({
+        activeConversationId: d.activeConversationId || null,
+        editingConversationId: d.editingConversationId || null
+      });
     }
     if (d.type === 'vellum_event' && d.subId) {
       var s = window.vellum._subs[d.subId];
@@ -634,6 +653,20 @@ function buildBridgeLogicScript(
         frameId: ${jsonForScript(frameId)},
         callId: callId,
         path: path
+      }, '*');
+    });
+  };
+  window.vellum.getContext = function() {
+    // Deliberately uncached, unlike asset(): the host's selection moves while
+    // the app stays mounted, so every call asks again and reports what the
+    // host has selected at that moment.
+    return new Promise(function(resolve, reject) {
+      var callId = 'c' + (window.vellum._contextNextId++);
+      window.vellum._pendingContexts[callId] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({
+        type: 'vellum_context_request',
+        frameId: ${jsonForScript(frameId)},
+        callId: callId
       }, '*');
     });
   };

@@ -223,6 +223,36 @@ describe("injectBridge", () => {
     expect(out).not.toContain("window.vellum.fetch");
   });
 
+  it("includes the host context bridge when fetch option is true", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+    expect(out).toContain("vellum_context_request");
+    expect(out).toContain("vellum_context_response");
+    expect(out).toContain("window.vellum.getContext");
+  });
+
+  it("omits the host context bridge by default", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID);
+    expect(out).not.toContain("vellum_context_request");
+    expect(out).not.toContain("window.vellum.getContext");
+  });
+
+  it("asks the host for context instead of baking a conversation id in", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+    // The request payload carries only the frame and call ids: the
+    // conversation is whatever the host answers at call time, so a
+    // conversation switch under a mounted app cannot leave the app reading a
+    // value captured when its document was built.
+    expect(out).toContain("type: 'vellum_context_request'");
+    expect(out).not.toContain("activeConversationId:");
+    // And each call takes a fresh id rather than reusing a cached answer the
+    // way `asset()` does.
+    expect(out).toContain("window.vellum._contextNextId++");
+    expect(out).not.toContain("_contextCache");
+  });
+
   it("opts full app HTML into host-routed standard URLs", () => {
     const html = "<html><body></body></html>";
     const out = injectBridge(html, FRAME_ID, { relayAppRoutes: true });

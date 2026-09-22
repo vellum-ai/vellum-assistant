@@ -8,9 +8,10 @@
  * call `window.vellum.fetch(...)` without hand-declaring the global in every
  * project.
  *
- * Only `fetch` is typed for now — the surface the vast majority of apps
- * actually use. Other injected members are intentionally left undeclared until
- * there's a concrete need.
+ * Only `fetch` and `getContext` are typed for now: the surface the vast
+ * majority of apps actually use, plus the host context an app needs to act on
+ * the conversation the user is looking at. Other injected members are
+ * intentionally left undeclared until there's a concrete need.
  *
  * A plugin app that depends on `@vellumai/plugin-api` pulls this in via a
  * one-line reference (recommended — no runtime import, which apps can't rely
@@ -61,6 +62,27 @@ export interface VellumAppFetchResponse {
 }
 
 /**
+ * The host's current conversation selection, as returned by
+ * {@link VellumAppBridge.getContext}.
+ *
+ * Both ids are `null` when the host has nothing selected on that axis, which
+ * an app must handle: a conversation can be closed, and an app can be open
+ * with no conversation beside it.
+ */
+export interface VellumAppContext {
+  /**
+   * The conversation the user currently has open, or `null` when none is.
+   * This is the host's live navigation state, not a most-recently-used guess.
+   */
+  activeConversationId: string | null;
+  /**
+   * The conversation bound to the app in the side-by-side layout, or `null`
+   * when the app is not open beside one.
+   */
+  editingConversationId: string | null;
+}
+
+/**
  * The `window.vellum` bridge the host injects into a plugin app's sandboxed
  * iframe. Mirrors the runtime built by the assistant's `sandbox-bridge`.
  */
@@ -75,6 +97,20 @@ export interface VellumAppBridge {
     path: string,
     options?: VellumAppFetchInit,
   ): Promise<VellumAppFetchResponse>;
+
+  /**
+   * Read the host's current conversation context.
+   *
+   * Read-only, and resolved when the call is made rather than when the app
+   * mounted. The host's selection changes under a mounted app, so an app that
+   * needs the current conversation must call this each time it acts instead
+   * of caching the first answer.
+   *
+   * Knowing the conversation does not by itself grant the app anything on it:
+   * what an app may do with an id is whatever the routes and actions it
+   * already has allow.
+   */
+  getContext(): Promise<VellumAppContext>;
 }
 
 declare global {
