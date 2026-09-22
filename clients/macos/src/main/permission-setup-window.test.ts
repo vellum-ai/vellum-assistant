@@ -77,7 +77,9 @@ mock.module("node:fs/promises", () => ({
 mock.module("electron", () => ({
   app: {
     getPath: () => "/Applications/Vellum.app/Contents/MacOS/Vellum",
-    getFileIcon: async () => {
+    getFileIcon: async (_file: string, options: { size: string }) => {
+      // Electron does not support the large icon size on macOS.
+      expect(["small", "normal"]).toContain(options.size);
       await iconWait;
       return icon;
     },

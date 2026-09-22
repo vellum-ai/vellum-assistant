@@ -179,7 +179,7 @@ async function beginGuide(
   // Resolve only app-owned paths in main; a renderer cannot choose a drag payload.
   const [fileStat, icon] = await Promise.all([
     stat(file),
-    app.getFileIcon(file, { size: "large" }),
+    app.getFileIcon(file, { size: "normal" }),
   ]);
   if (!fileStat.isDirectory() || !file.endsWith(".app") || icon.isEmpty()) {
     throw new Error(
