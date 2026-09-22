@@ -66,6 +66,20 @@ let platformInstallCalls: Array<{ name: string; force?: boolean }> = [];
 let upgradePluginCalls: UpgradePluginOptions[] = [];
 let catalogMatches: PluginSearchMatch[] = [];
 let catalogError: Error | null = null;
+const CATALOG_COMMIT = "a".repeat(40);
+
+function githubCatalogMatch(name: string): PluginSearchMatch {
+  return {
+    name,
+    path: `github:example-org/${name}@${CATALOG_COMMIT}`,
+    category: null,
+    source: {
+      kind: "github",
+      repo: `example-org/${name}`,
+      ref: CATALOG_COMMIT,
+    },
+  };
+}
 
 /**
  * Queued daemon IPC responses. The default (empty queue) is a transport
@@ -269,7 +283,10 @@ beforeEach(() => {
   installPluginCalls = [];
   platformInstallCalls = [];
   upgradePluginCalls = [];
-  catalogMatches = [];
+  catalogMatches = [
+    githubCatalogMatch("example"),
+    githubCatalogMatch("imessage"),
+  ];
   catalogError = null;
   ipcResults = [];
   inspectResult = null;
@@ -484,6 +501,17 @@ describe("plugins install - declared-schedules consent", () => {
       { name: "example", force: undefined },
     ]);
     expect(r.exitCode).toBe(0);
+  });
+
+  test("does not use the outage fallback for a gated integration", async () => {
+    catalogError = new Error("catalog unavailable");
+
+    const r = await runCommand(["plugins", "install", "gamma"]);
+
+    expect(installPluginCalls).toHaveLength(0);
+    expect(platformInstallCalls).toHaveLength(0);
+    expect(r.stderr).toContain("not in the marketplace catalog");
+    expect(r.exitCode).toBe(1);
   });
 });
 

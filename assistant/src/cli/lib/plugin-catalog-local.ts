@@ -31,6 +31,7 @@ import {
 // Re-exported so `local`-tagged CLI commands can gate on platform features
 // without importing `platform/` directly (cli/no-daemon-internals allows lib).
 export { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
+export { isPluginCatalogEntryVisible };
 
 let memoizedEntries: readonly MarketplaceEntry[] | undefined;
 

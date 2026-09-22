@@ -238,6 +238,13 @@ export function registerPluginsCommand(program: Command): void {
               const platformEnabled =
                 libs.catalogLocal.arePlatformFeaturesEnabled();
               if (platformEnabled) {
+                if (!libs.catalogLocal.isPluginCatalogEntryVisible(nameOrUrl)) {
+                  console.error(
+                    `Plugin "${nameOrUrl}" is not in the marketplace catalog.`,
+                  );
+                  process.exitCode = 1;
+                  return;
+                }
                 let match;
                 let catalogResolved = false;
                 try {
