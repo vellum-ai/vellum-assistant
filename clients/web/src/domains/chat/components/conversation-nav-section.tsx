@@ -201,9 +201,7 @@ export function ConversationRowList({
     <ConversationRow
       key={conversation.conversationId}
       conversation={conversation}
-      /* Only a mounted list can let a row collapse out of it: virtuoso owns
-         a windowed row's geometry, so there the row simply goes. */
-      animateDone={!windows}
+      windowed={windows}
     />
   );
 
