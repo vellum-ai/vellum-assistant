@@ -1038,7 +1038,10 @@ export async function executeWebFetch(
       redirectCount,
       durationMs: Date.now() - startedAt,
       mayRequireJavaScript: mayRequireJavaScript || undefined,
-      startIndexPastEnd: startIndex > processed.length || undefined,
+      // Past the end of the page only when the whole page was downloaded: past
+      // a capped prefix, the page may still have content at that offset.
+      startIndexPastEnd:
+        (!body.truncated && startIndex > processed.length) || undefined,
     };
 
     if (!response.ok) {
