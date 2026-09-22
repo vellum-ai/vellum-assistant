@@ -16,15 +16,8 @@
 import type { AssistantEvent } from "../api/index.js";
 import type { ChannelId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  canDeferSend,
-  runWhenConversationIdle,
-} from "../daemon/conversation-admission.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import type { ContentBlock, MediaSource } from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
-
-const log = getLogger("plugin-api-conversation-turn");
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -293,6 +286,13 @@ export async function runConversationTurn(
   const { parseInterfaceId } = await import("../channels/types.js");
   const { resolveChannelCapabilities } =
     await import("../daemon/conversation-runtime-assembly.js");
+  // Loaded here rather than statically: a static edge out of plugin-api into
+  // the DB-graph modules this reaches breaks every plugin suite that
+  // partial-mocks one of them (`__tests__/import-graph-partial-mock.test.ts`).
+  const { canDeferSend, runWhenConversationIdle } =
+    await import("../daemon/conversation-admission.js");
+  const { getLogger } = await import("../util/logger.js");
+  const log = getLogger("plugin-api-conversation-turn");
 
   // Channel-addressed turns are inbound: the gateway classifies the sender
   // and the turn runs only if that actor clears the channel admission floor.

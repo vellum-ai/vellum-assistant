@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import type { AssistantEvent } from "../../api/index.js";
 import type { Conversation } from "../conversation.js";
 import {
@@ -12,7 +13,9 @@ import {
 import { CONVERSATION_BUSY_MESSAGE } from "../conversation-messaging.js";
 import {
   clearConversations,
+  removeSubagentConversation,
   setConversation,
+  setSubagentConversation,
 } from "../conversation-registry.js";
 import {
   beginTurnFinalization,
@@ -180,6 +183,34 @@ describe("runWhenConversationIdle", () => {
     expect(ranB).toBe(true); // B ran despite A being blocked
   });
 
+  test("defers for a busy subagent conversation, which lives in its own map", async () => {
+    const fake = makeFakeConversation(true);
+    const child = "conv-child";
+    setSubagentConversation(child, fake as unknown as Conversation);
+
+    try {
+      let ran = false;
+      const admitted = runWhenConversationIdle(
+        child,
+        async () => {
+          ran = true;
+        },
+        { origin: "subagent_guidance" },
+      );
+
+      await tick();
+      // Looking only in the top-level map would miss the child's lock here and
+      // run the send straight into a busy rejection.
+      expect(ran).toBe(false);
+
+      fake.release();
+      await admitted;
+      expect(ran).toBe(true);
+    } finally {
+      removeSubagentConversation(child, fake as unknown as Conversation);
+    }
+  });
+
   test("waits for the finished turn's boundary commit before running", async () => {
     register("conv-barrier", makeFakeConversation(false));
     const closeBarrier = beginTurnFinalization("conv-barrier");
@@ -195,6 +226,31 @@ describe("runWhenConversationIdle", () => {
 
     await tick();
     expect(ran).toBe(false); // idle, but the turn-boundary commit is still staging
+
+    closeBarrier();
+    await admitted;
+    expect(ran).toBe(true);
+  });
+
+  test("keeps waiting on a boundary commit that outlasts its budget", async () => {
+    setConfig("workspaceGit", { turnCommitMaxWaitMs: 1 });
+    register("conv-slow-barrier", makeFakeConversation(false));
+    const closeBarrier = beginTurnFinalization("conv-slow-barrier");
+
+    let ran = false;
+    const admitted = runWhenConversationIdle(
+      "conv-slow-barrier",
+      async () => {
+        ran = true;
+      },
+      channel,
+    );
+
+    // Well past the budget. Admitting on an elapsed budget is the exact
+    // cross-attribution the barrier exists to prevent, and giving up would lose
+    // the send, so it waits the barrier out however long that takes.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(ran).toBe(false);
 
     closeBarrier();
     await admitted;

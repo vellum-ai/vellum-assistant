@@ -17,7 +17,10 @@ import {
   getGuardianDelivery,
   guardianForChannel,
 } from "../../../contacts/guardian-delivery-reader.js";
-import { runWhenConversationIdle } from "../../../daemon/conversation-admission.js";
+import {
+  AdmissionOverflowError,
+  runWhenConversationIdle,
+} from "../../../daemon/conversation-admission.js";
 import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
 import type { TrustContext } from "../../../daemon/trust-context-types.js";
 import type { ProviderMessageMetadata } from "../../../messaging/provider-message-metadata.js";
@@ -433,6 +436,17 @@ export function processChannelMessageInBackground(
   void runWhenConversationIdle(conversationId, runChannelTurn, {
     origin: "channel",
   }).catch((err) => {
+    if (err instanceof AdmissionOverflowError) {
+      // The conversation is holding as many waiting sends as it may. The
+      // inbound row is still `pending`, so hand it to the retry sweep's
+      // non-burning lane rather than leaving it for a restart to recover.
+      log.warn(
+        { conversationId, eventId, pending: err.pending },
+        "Channel turn refused: too many sends are already waiting; deferring to the retry sweep",
+      );
+      deferRetryUntilIdle(eventId);
+      return;
+    }
     log.error(
       { err, conversationId, eventId },
       "Channel turn admission failed unexpectedly",

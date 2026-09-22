@@ -14,7 +14,10 @@ import type { AssistantEvent } from "../api/index.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { Conversation } from "../daemon/conversation.js";
-import { runWhenConversationIdle } from "../daemon/conversation-admission.js";
+import {
+  canDeferSend,
+  runWhenConversationIdle,
+} from "../daemon/conversation-admission.js";
 import {
   findConversation,
   removeSubagentConversation,
@@ -1547,14 +1550,17 @@ export class SubagentManager {
   /**
    * Deliver a follow-up message to a live subagent.
    *
+   * The message runs once the child is free to take it, behind anything sent
+   * before it. `sent` therefore says the turn is registered, not that it has
+   * finished; `busy` says the child is already holding as many waiting messages
+   * as it may and this one was not taken.
+   *
    * `opts.cronRunId` is the firing that produced THIS message, not the one the
    * subagent was spawned under: a continuation turn's spend belongs to the
-   * firing that asked for it. Only the immediately-processed turn carries it,
-   * since a queued message drains through the conversation's own queue, which
-   * holds no per-message run options.
+   * firing that asked for it.
    *
    * An advisor takes no follow-up (`one_shot`). A consult answers one question
-   * once, and a follow-up would escape the budget its spawn set: the drained
+   * once, and a follow-up would escape the budget its spawn set: the follow-up
    * turn starts after `runSubagent` has already settled the run and cleared the
    * runtime timer, so it would run on the premium profile under no ceiling at
    * all. Asking the advisor something else is a new consult, which gets its own
@@ -1564,7 +1570,9 @@ export class SubagentManager {
     subagentId: string,
     content: string,
     opts?: { cronRunId?: string | null },
-  ): Promise<"sent" | "empty" | "not_found" | "terminal" | "one_shot"> {
+  ): Promise<
+    "sent" | "empty" | "not_found" | "terminal" | "one_shot" | "busy"
+  > {
     const trimmed = content?.trim();
     if (!trimmed) {
       return "empty";
@@ -1579,6 +1587,13 @@ export class SubagentManager {
     }
     if (TERMINAL_STATUSES.has(managed.state.status) || !managed.conversation) {
       return "terminal";
+    }
+
+    // Answered before registering rather than through the registration's own
+    // rejection, which nothing awaits: the caller is told the message was not
+    // taken instead of being told it was sent and losing it.
+    if (!canDeferSend(managed.state.conversationId)) {
+      return "busy";
     }
 
     // Capture conversation before the deferral registers: `managed.conversation`

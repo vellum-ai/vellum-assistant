@@ -23,7 +23,7 @@
  *   flag before its turn-boundary commit runs, and that commit attributes the
  *   working tree to the turn that just ended. A send admitted in that window
  *   would have its first file writes swept into the previous turn's commit, so
- *   admission waits on {@link waitForTurnFinalization} too.
+ *   admission waits out the finalization barrier too, without a deadline.
  * - **An evicted conversation admits.** Idle release is event-driven, and a
  *   conversation disposed while a send waited would never fire its waiters. The
  *   wait re-reads the registry in slices, so a send addressed to a conversation
@@ -43,10 +43,10 @@ import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
 import { resolveTurnCommitWaitMs } from "./abort-watchdog.js";
 import { isConversationBusyError } from "./conversation-messaging.js";
-import { findConversation } from "./conversation-registry.js";
+import { findConversationOrSubagent } from "./conversation-registry.js";
 import {
   hasOpenTurnFinalization,
-  waitForTurnFinalization,
+  startAfterTurnFinalization,
 } from "./turn-finalization.js";
 
 const log = getLogger("conversation-admission");
@@ -229,13 +229,17 @@ async function waitUntilAdmissible(
 ): Promise<void> {
   let deferred = false;
   for (;;) {
-    const conversation = findConversation(conversationId);
+    const conversation = findConversationOrSubagent(conversationId);
+    // Subagent conversations are held in their own map, so the lookup is the
+    // union: a send addressed to a child has to see the child's lock, not miss
+    // it and run straight into a busy rejection.
+    //
     // A non-resident conversation is not mid-turn: `run` will hydrate and lock
     // it. Its own lock check is the authoritative guard, so a turn that races
     // in after this point surfaces as a busy error the retry above handles.
     if (!conversation || !conversation.isProcessing()) {
-      await waitForCommitBarrier(conversationId, origin);
-      const settled = findConversation(conversationId);
+      await waitForCommitBarrier(conversationId);
+      const settled = findConversationOrSubagent(conversationId);
       if (!settled || !settled.isProcessing()) {
         if (deferred) {
           log.info(
@@ -258,23 +262,24 @@ async function waitUntilAdmissible(
   }
 }
 
-async function waitForCommitBarrier(
-  conversationId: string,
-  origin: string,
-): Promise<void> {
+/**
+ * Wait out the finished turn's boundary barrier.
+ *
+ * The wait has no deadline, which is {@link startAfterTurnFinalization}'s own
+ * reasoning: admitting on a budget that elapsed is the exact cross-attribution
+ * the barrier exists to prevent, and giving up loses the message. The budget
+ * only decides when to say out loud that the barrier is taking unusually long.
+ */
+async function waitForCommitBarrier(conversationId: string): Promise<void> {
   if (!hasOpenTurnFinalization(conversationId)) {
     return;
   }
-  const budgetMs = resolveTurnCommitWaitMs(
+  const ceilingMs = resolveTurnCommitWaitMs(
     getConfig().workspaceGit?.turnCommitMaxWaitMs,
   );
-  const finalized = await waitForTurnFinalization(conversationId, budgetMs);
-  if (!finalized) {
-    log.warn(
-      { conversationId, origin, budgetMs },
-      "Turn finalization outlasted the commit budget; admitting the deferred send anyway rather than holding it indefinitely",
-    );
-  }
+  await new Promise<void>((resolve) => {
+    startAfterTurnFinalization(conversationId, ceilingMs, resolve);
+  });
 }
 
 /**
