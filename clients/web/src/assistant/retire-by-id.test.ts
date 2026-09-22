@@ -30,7 +30,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
   assistantsList: noop,
   assistantsRestartDetailCreate: noop,
   assistantsRetireDetailDestroy: retireDetail,
-  assistantsRetireDestroy: noop,
   assistantsRetrieve: noop,
 }));
 

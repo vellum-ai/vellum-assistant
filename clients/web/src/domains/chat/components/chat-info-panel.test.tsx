@@ -627,7 +627,10 @@ describe("ChatInfoPanel unsettled sources", () => {
   test("names the failed source in its drilled-in category", async () => {
     await renderChatInfo("files", { apps: [], afterSeed: failDocuments });
 
-    expect(screen.getByText("Documents could not be loaded.")).toBeDefined();
+    // Nothing of the source loaded, so it is an error, announced as one.
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Documents could not be loaded.",
+    );
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
   });
 });

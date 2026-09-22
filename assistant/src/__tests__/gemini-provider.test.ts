@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { MALFORMED_TOOL_CALL_MESSAGE } from "../providers/malformed-tool-call.js";
 import type {
   ContentBlock,
   Message,
@@ -207,6 +208,36 @@ describe("GeminiProvider", () => {
     expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.stopReason).toBe("STOP");
+  });
+
+  test("throws a status-less malformed tool-call error on MALFORMED_FUNCTION_CALL", async () => {
+    fakeChunks = [
+      textChunk(",featuredImage:{_type:image},patch:true}]})"),
+      finishChunk("MALFORMED_FUNCTION_CALL", 10, 5),
+    ];
+
+    const error = await provider
+      .sendMessage([{ role: "user", content: [{ type: "text", text: "Hi" }] }])
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+
+    expect(error).toBeInstanceOf(ProviderError);
+    const providerError = error as ProviderError;
+    expect(providerError.statusCode).toBeUndefined();
+    expect(providerError.message).toContain(MALFORMED_TOOL_CALL_MESSAGE);
+    expect(providerError.message).toContain("MALFORMED_FUNCTION_CALL");
+  });
+
+  test("throws a malformed tool-call error on UNEXPECTED_TOOL_CALL", async () => {
+    fakeChunks = [finishChunk("UNEXPECTED_TOOL_CALL", 10, 0)];
+
+    await expect(
+      provider.sendMessage([
+        { role: "user", content: [{ type: "text", text: "Hi" }] },
+      ]),
+    ).rejects.toThrow(MALFORMED_TOOL_CALL_MESSAGE);
   });
 
   // -----------------------------------------------------------------------

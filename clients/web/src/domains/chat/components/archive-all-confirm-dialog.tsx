@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { useTranslation } from "@/i18n";
+import { useConversationDoneLabels } from "@/utils/done-labels";
 
 import type { Conversation } from "@/types/conversation-types";
 import { ConfirmDialog } from "@vellumai/design-library";
 
 /**
- * Confirmation gate for the sidebar's section-header "Archive All…" action:
+ * Confirmation gate for the sidebar's section-header bulk action:
  * one click must never clear a whole section from the active view
  * (LUM-3036). The menu item requests via {@link useArchiveAllConfirmation};
- * the archive only runs on the dialog's explicit confirm.
+ * the archive only runs on the dialog's explicit confirm. What the dialog
+ * calls the action is {@link useConversationDoneLabels}' answer.
  *
  * Hosted by the chat layout next to the other sidebar dialogs
  * (`RenameDialogFromStore`, `GroupNameDialogFromStore`) rather than inside
@@ -82,21 +83,21 @@ export function ArchiveAllConfirmDialog({
   onConfirm,
   onCancel,
 }: ArchiveAllConfirmDialogProps) {
-  const { t } = useTranslation("chat");
+  const doneLabels = useConversationDoneLabels();
   const count = pending?.conversations.length ?? 0;
   return (
     <ConfirmDialog
       open={pending !== null}
-      title={t("archiveAllConfirmDialog.title")}
+      title={doneLabels.archiveAllTitle}
       message={
         pending
-          ? t("archiveAllConfirmDialog.message", {
+          ? doneLabels.archiveAllMessage({
               count,
               groupName: pending.groupName,
             })
           : ""
       }
-      confirmLabel={t("archiveAllConfirmDialog.confirm")}
+      confirmLabel={doneLabels.archiveAllConfirm}
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

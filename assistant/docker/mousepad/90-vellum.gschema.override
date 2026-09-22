@@ -1,0 +1,4 @@
+[org.xfce.mousepad.preferences.view]
+font-name='FreeSans 12'
+use-default-monospace-font=false
+word-wrap=true

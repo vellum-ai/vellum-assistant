@@ -829,12 +829,13 @@ export async function fetchCurrentUser(
 
 export async function rollbackPlatformAssistant(
   token: string,
+  assistantId: string,
   version?: string,
   platformUrl?: string,
 ): Promise<{ detail: string; version: string | null }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await loopbackSafeFetch(
-    `${resolvedUrl}/v1/assistants/rollback/`,
+    `${resolvedUrl}/v1/assistants/${encodeURIComponent(assistantId)}/rollback/`,
     {
       method: "POST",
       headers: await authHeaders(token, platformUrl),

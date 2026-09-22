@@ -28,6 +28,7 @@ import { createElement } from "react";
 import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
 import type * as ConversationRowModule from "@/domains/chat/components/conversation-row";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type { Conversation } from "@/types/conversation-types";
 
 /* Row rendering is not under test; a stub keeps this on the seam. Typed
@@ -316,5 +317,43 @@ describe("ConversationRowList expand", () => {
 
     expect(expandButton(container)).toBeNull();
     expect(scrollerOf(container)?.style.maxHeight).toBe("");
+  });
+});
+
+/* The control goes and the cap stays. Losing the cap along with the control
+   would let the rail's last section run its whole height, which is the one
+   thing the resting height exists to prevent. */
+describe("ConversationRowList expand under sidebar-done", () => {
+  afterEach(() => {
+    useClientFeatureFlagStore.setState({ sidebarDone: false });
+  });
+
+  test("the section still rests at the cap, with no control to grow it", () => {
+    useClientFeatureFlagStore.setState({ sidebarDone: true });
+    const container = renderList(undefined, {
+      items: MANY_ROWS,
+      isLast: true,
+      expandable: true,
+    });
+
+    expect(expandButton(container)).toBeNull();
+    expect(scrollerOf(container)?.style.maxHeight).toBe(
+      `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+    );
+  });
+
+  test("a section the user had grown is back at the resting height", () => {
+    useClientFeatureFlagStore.setState({ sidebarDone: true });
+    const container = renderList(undefined, {
+      items: MANY_ROWS,
+      isLast: true,
+      expandable: true,
+      expanded: true,
+    });
+
+    expect(expandButton(container)).toBeNull();
+    expect(scrollerOf(container)?.style.maxHeight).toBe(
+      `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+    );
   });
 });

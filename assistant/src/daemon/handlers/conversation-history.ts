@@ -14,6 +14,12 @@ export interface ConversationSearchParams {
   query: string;
   limit?: number;
   maxMessagesPerConversation?: number;
+  /**
+   * Reach archived conversations as well as live ones. Defaults to false, so
+   * this search matches what the sidebar shows. Callers opt in where an
+   * archived chat is a filed chat rather than a hidden one.
+   */
+  includeArchived?: boolean;
 }
 
 /** Search conversations and return results (no transport dependency). */
@@ -22,7 +28,10 @@ export async function performConversationSearch(
 ) {
   // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
   if (params.query.trim() === "*") {
-    const rows = listConversations({ limit: params.limit });
+    const rows = listConversations({
+      limit: params.limit,
+      archiveStatus: params.includeArchived ? "all" : "active",
+    });
     return rows.map((r) => ({
       conversationId: r.id,
       conversationTitle: r.title,
@@ -33,6 +42,7 @@ export async function performConversationSearch(
   return searchConversations(params.query, {
     limit: params.limit,
     maxMessagesPerConversation: params.maxMessagesPerConversation,
+    includeArchived: params.includeArchived,
   });
 }
 
