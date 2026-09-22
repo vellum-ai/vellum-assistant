@@ -183,8 +183,8 @@ const memoryCaptureGuidanceInjector: Injector = {
       source: ctx.conversationSource,
       memoryEnabled,
       retrospectiveEnabled,
-      trustClass: ctx.trust.trustClass,
-      rememberToolAvailable: ctx.canUseRememberTool !== false,
+      actorTrustClass: ctx.trust.trustClass,
+      rememberToolAvailable: ctx.canUseRememberTool,
     });
     return {
       id: "memory-capture-guidance",

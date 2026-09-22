@@ -233,12 +233,11 @@ export async function runRetrospectiveSweep(
         continue;
       }
 
-      // Memory trust boundary: never enqueue a retrospective (which runs under
-      // guardian trust with `remember`) for a conversation whose actor isn't
-      // memory-trusted. This is the sweep's equivalent of the per-message
-      // `isTrustedActor` gate the event triggers apply and the disposal net's
-      // capability check — without it the timer path would write untrusted
-      // contact content into long-term memory.
+      // Memory trust boundary: a retrospective runs under guardian trust with
+      // `remember`, so contact content must never reach it. The funnel below
+      // re-applies this same predicate over the actor named here; reading it
+      // first skips the cursor and message-count work for a conversation the
+      // funnel would refuse.
       const actorTrustClass =
         getConversationRecentProvenanceTrustClass(conversationId);
       if (!isRetrospectiveTrustedActor(actorTrustClass)) {

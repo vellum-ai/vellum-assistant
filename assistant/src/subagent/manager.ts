@@ -60,6 +60,13 @@ import {
 
 const log = getLogger("subagent-manager");
 
+/**
+ * `conversations.source` for a subagent's own conversation. Written both to
+ * the persisted row and to the live conversation's cached field, which
+ * runtime assembly classifies the turn from, so the two cannot disagree.
+ */
+const SUBAGENT_CONVERSATION_SOURCE = "subagent";
+
 /** How long to keep terminal subagent metadata after the live conversation is released (ms). */
 const TERMINAL_RETENTION_MS = 30 * 60 * 1000; // 30 minutes
 /** How often to sweep expired terminal entries (ms). */
@@ -612,7 +619,7 @@ export class SubagentManager {
     // far behind. See migration 362.
     const conversationRecord = await bootstrapConversation({
       conversationType: "background",
-      source: "subagent",
+      source: SUBAGENT_CONVERSATION_SOURCE,
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
@@ -759,7 +766,7 @@ export class SubagentManager {
     // runtime-assembly path (the background-turn flag and the memory capture
     // guidance both classify from them).
     conversation.conversationType = "background";
-    conversation.source = "subagent";
+    conversation.source = SUBAGENT_CONVERSATION_SOURCE;
 
     // Subagents execute as background child conversations, but their tool
     // permissions must still be scoped to the actor that spawned them. Without

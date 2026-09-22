@@ -22,10 +22,6 @@ const ON: Omit<RetrospectiveEligibilityInput, "conversationType" | "source"> = {
   actorTrustClass: "guardian",
 };
 
-/** The two config switches alone: the guidance resolver names its own actor
- *  through `trustClass`, so it does not take `actorTrustClass`. */
-const SWITCHES = { memoryEnabled: true, retrospectiveEnabled: true };
-
 /** Every trust class that is not the guardian and not a legacy blank. */
 const UNTRUSTED_CLASSES: string[] = [
   "trusted_contact",
@@ -156,9 +152,9 @@ describe("resolveMemoryCaptureGuidance", () => {
   test("a guardian turn with memory on and the tool present can write", () => {
     expect(
       resolveMemoryCaptureGuidance({
-        ...SWITCHES,
+        ...ON,
         ...STANDARD,
-        trustClass: "guardian",
+        actorTrustClass: "guardian",
       }),
     ).toEqual({ laterPass: { status: "conditional" }, canWriteMemory: true });
   });
@@ -167,7 +163,11 @@ describe("resolveMemoryCaptureGuidance", () => {
     "a %s turn cannot write and triggers no later pass",
     (trustClass) => {
       expect(
-        resolveMemoryCaptureGuidance({ ...SWITCHES, ...STANDARD, trustClass }),
+        resolveMemoryCaptureGuidance({
+          ...ON,
+          ...STANDARD,
+          actorTrustClass: trustClass,
+        }),
       ).toEqual({
         laterPass: { status: "ineligible", reason: "untrusted_actor" },
         canWriteMemory: false,
@@ -178,10 +178,10 @@ describe("resolveMemoryCaptureGuidance", () => {
   test("a guardian turn with memory off cannot write", () => {
     expect(
       resolveMemoryCaptureGuidance({
-        ...SWITCHES,
+        ...ON,
         ...STANDARD,
         memoryEnabled: false,
-        trustClass: "guardian",
+        actorTrustClass: "guardian",
       }),
     ).toEqual({
       laterPass: { status: "ineligible", reason: "memory_disabled" },
@@ -194,9 +194,9 @@ describe("resolveMemoryCaptureGuidance", () => {
     // guardian-trust with allowlists that leave the tool out.
     expect(
       resolveMemoryCaptureGuidance({
-        ...SWITCHES,
+        ...ON,
         ...STANDARD,
-        trustClass: "guardian",
+        actorTrustClass: "guardian",
         rememberToolAvailable: false,
       }),
     ).toEqual({ laterPass: { status: "conditional" }, canWriteMemory: false });
@@ -205,9 +205,9 @@ describe("resolveMemoryCaptureGuidance", () => {
   test("an omitted tool-surface answer makes no claim against the turn", () => {
     expect(
       resolveMemoryCaptureGuidance({
-        ...SWITCHES,
+        ...ON,
         ...STANDARD,
-        trustClass: "guardian",
+        actorTrustClass: "guardian",
       }).canWriteMemory,
     ).toBe(true);
   });
@@ -218,9 +218,9 @@ describe("resolveMemoryCaptureGuidance", () => {
     // to carry both halves.
     expect(
       resolveMemoryCaptureGuidance({
-        ...SWITCHES,
+        ...ON,
         ...STANDARD,
-        trustClass: undefined,
+        actorTrustClass: undefined,
       }),
     ).toEqual({ laterPass: { status: "conditional" }, canWriteMemory: false });
   });

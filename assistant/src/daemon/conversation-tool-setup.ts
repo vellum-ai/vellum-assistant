@@ -913,6 +913,33 @@ const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
 ] as const;
 
 /**
+ * A predicate over tool names answering "could this turn actually call it",
+ * with the turn's `tools.exclude` list and subagent allowlist read once.
+ *
+ * The allowlist is checked here as well as inside
+ * {@link isToolActiveForContext}, which skips it under
+ * `subagentToolGateMode === "execution"` by design: that mode keeps the full
+ * surface on the wire for cache parity and rejects the call in the executor
+ * instead. Skipping it is the right answer to "is this tool on the wire" and
+ * the wrong one to the question here. The memory retrospective wake is the
+ * live case, running in execution mode with an allowlist that names
+ * `skill_load` but neither the subagent dispatcher nor the spawn tool.
+ */
+function toolCallabilityForTurn(ctx: Conversation): (name: string) => boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  const allowlist = ctx.subagentAllowedTools;
+  return (name) =>
+    !excluded.has(name) &&
+    (allowlist === undefined || allowlist.has(name)) &&
+    isToolActiveForContext(name, ctx);
+}
+
+/**
  * Whether this turn could actually spawn a subagent, read off the resolved
  * tool surface rather than assumed.
  *
@@ -926,32 +953,12 @@ const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
  * work to subagents it cannot spawn invites it to defer work it must do inline.
  */
 export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
-  let excluded: ReadonlySet<string>;
-  try {
-    excluded = new Set(getConfig().tools.exclude);
-  } catch {
-    excluded = new Set<string>();
-  }
-  // A run carrying an allowlist is checked against it here whatever its gate
-  // mode. `isToolActiveForContext` skips the allowlist under
-  // `subagentToolGateMode === "execution"` by design, because that mode keeps
-  // the full surface on the wire for cache parity and rejects the call in the
-  // executor instead. That is the right answer to "is this tool on the wire"
-  // and the wrong one to "could this turn actually spawn": the memory
-  // retrospective wake runs in execution mode with an allowlist that names
-  // `skill_load` but neither the dispatcher nor the spawn tool, so a spawn is
-  // denied at execution. A wake replaying its source's recorded surface
-  // renders the source's delegation state in place of this answer
+  // A wake replaying its source's recorded surface renders the source's
+  // delegation state in place of this answer
   // (`Conversation.delegateIndependentTasksReplay`): a denied spawn attempt
   // costs one tool error, a system prompt that differs from the source's
   // costs the whole cached prefix behind it.
-  const allowlist = ctx.subagentAllowedTools;
-  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
-    (name) =>
-      !excluded.has(name) &&
-      (allowlist === undefined || allowlist.has(name)) &&
-      isToolActiveForContext(name, ctx),
-  );
+  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(toolCallabilityForTurn(ctx));
 }
 
 /**
@@ -965,29 +972,11 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
  * (`CONSOLIDATION_ALLOWED_TOOLS`) and the researcher and advisor subagent
  * roles are live examples.
  *
- * The allowlist is checked here as well as inside
- * {@link isToolActiveForContext}, for the reason
- * {@link canSpawnSubagentsForTurn} gives: under
- * `subagentToolGateMode === "execution"` the full surface stays on the wire
- * and the executor rejects the call instead, which is the right answer to "is
- * this tool on the wire" and the wrong one to "could this turn actually save".
- *
  * The memory capture guidance gates its `remember` wording on this, so a turn
  * is never told to save with a tool it cannot reach.
  */
 export function isRememberToolActiveForTurn(ctx: Conversation): boolean {
-  let excluded: ReadonlySet<string>;
-  try {
-    excluded = new Set(getConfig().tools.exclude);
-  } catch {
-    excluded = new Set<string>();
-  }
-  const allowlist = ctx.subagentAllowedTools;
-  return (
-    !excluded.has("remember") &&
-    (allowlist === undefined || allowlist.has("remember")) &&
-    isToolActiveForContext("remember", ctx)
-  );
+  return toolCallabilityForTurn(ctx)("remember");
 }
 
 /**

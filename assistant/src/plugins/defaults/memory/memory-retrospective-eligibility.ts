@@ -27,6 +27,7 @@
 
 import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
+import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 
@@ -44,7 +45,7 @@ import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js
  * trust boundary.
  */
 export function isRetrospectiveTrustedActor(
-  trustClass: string | undefined,
+  trustClass: TrustClass | (string & {}) | undefined,
 ): boolean {
   return trustClass === "guardian" || trustClass === undefined;
 }
@@ -92,7 +93,7 @@ export interface RetrospectiveEligibilityInput {
    * the injector the live turn's trust class. `undefined` is the legacy
    * no-provenance case and counts as trusted.
    */
-  actorTrustClass: string | undefined;
+  actorTrustClass: TrustClass | (string & {}) | undefined;
 }
 
 /**
@@ -150,8 +151,7 @@ export interface MemoryCaptureGuidance {
 }
 
 export function resolveMemoryCaptureGuidance(
-  input: Omit<RetrospectiveEligibilityInput, "actorTrustClass"> & {
-    trustClass: string | undefined;
+  input: RetrospectiveEligibilityInput & {
     /**
      * Whether `remember` resolves onto this turn's tool surface. Omitted
      * means "not known to be absent": a caller with no live conversation to
@@ -161,13 +161,10 @@ export function resolveMemoryCaptureGuidance(
   },
 ): MemoryCaptureGuidance {
   return {
-    laterPass: classifyRetrospectiveEligibility({
-      ...input,
-      actorTrustClass: input.trustClass,
-    }),
+    laterPass: classifyRetrospectiveEligibility(input),
     canWriteMemory:
       input.memoryEnabled &&
-      resolveCapabilities(input.trustClass).canAccessMemory &&
+      resolveCapabilities(input.actorTrustClass).canAccessMemory &&
       input.rememberToolAvailable !== false,
   };
 }

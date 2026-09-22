@@ -81,19 +81,24 @@ export function enqueueMemoryRetrospectiveIfEnabled(args: {
    * legacy no-provenance case and counts as trusted, matching the semantic
    * every trigger path already used.
    */
-  actorTrustClass: string | undefined;
+  actorTrustClass: TrustClass | (string & {}) | undefined;
 }): boolean {
   const { conversationId, trigger, actorTrustClass } = args;
 
   const memoryEnabled = isMemoryEnabled();
-  // A missing row classifies as an ordinary conversation, matching the
-  // per-row gates this replaces (each read "no row" as "no reason to skip").
-  const conversation = getConversation(conversationId);
+  const retrospectiveEnabled = memoryEnabled && isRetrospectiveEnabled();
+  // The row read is the only non-trivial cost in this funnel, and the two
+  // config switches outrank every reason it could supply, so it waits for
+  // them. A conversation with no row reads as an ordinary one: nothing about
+  // its identity can disqualify it.
+  const conversation = retrospectiveEnabled
+    ? getConversation(conversationId)
+    : null;
   const eligibility = classifyRetrospectiveEligibility({
     conversationType: conversation?.conversationType ?? "standard",
     source: conversation?.source ?? "user",
     memoryEnabled,
-    retrospectiveEnabled: memoryEnabled && isRetrospectiveEnabled(),
+    retrospectiveEnabled,
     actorTrustClass,
   });
   if (eligibility.status === "ineligible") {

@@ -23,6 +23,7 @@
 // over the assistant's own card. See `memory-retrospective-accounting.ts`.
 
 import type { AssistantConfig } from "../../../config/types.js";
+import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
@@ -83,7 +84,7 @@ export function shouldEnqueueRetrospective(args: {
 export function maybeEnqueueRetrospective(
   conversationId: string,
   config: AssistantConfig,
-  actorTrustClass: string | undefined,
+  actorTrustClass: TrustClass | (string & {}) | undefined,
 ): void {
   try {
     const state = getRetrospectiveState(conversationId);
