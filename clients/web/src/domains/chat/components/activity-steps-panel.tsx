@@ -306,7 +306,8 @@ function ActivityStepsPanelTarget({
             </>
           ) : undefined
         }
-        title={stepDetail?.kind === "thinking" ? stepTitle : undefined}
+        // Shown only where `titleNode` is absent: a thinking step.
+        title={stepTitle}
         titleNode={
           stepDetail ? (
             // Drilled into a step: the step's title replaces the run summary, so
