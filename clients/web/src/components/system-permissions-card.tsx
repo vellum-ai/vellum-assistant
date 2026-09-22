@@ -1,3 +1,8 @@
+import { Button } from "@vellumai/design-library/components/button";
+import {
+  openPermissionSetup,
+  supportsPermissionSetup,
+} from "@/runtime/permission-setup";
 import { useEffect, useMemo, useState } from "react";
 
 import { useTranslation, type TFunction } from "@/i18n";
@@ -421,6 +426,18 @@ export function SystemPermissionsCard({
       <h2 className="text-[18px] font-semibold leading-[22px] text-[var(--content-emphasised)]">
         {t("systemPermissionsCard.title")}
       </h2>
+      {supportsPermissionSetup() && (
+        <Button
+          variant="outlined"
+          size="regular"
+          className="mt-3"
+          onClick={() => {
+            void openPermissionSetup().catch(() => undefined);
+          }}
+        >
+          {t("permissionSetup.open")}
+        </Button>
+      )}
       {loading && rows.length === 0 ? (
         <div className="mt-6 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <LoadingSpinner />

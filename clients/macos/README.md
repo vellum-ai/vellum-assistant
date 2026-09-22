@@ -454,3 +454,29 @@ the established shape) rather than reaching into `window.vellum.*`
 directly from feature code. That keeps the platform-branching logic in
 one place and makes the cross-platform contract (web / iOS / Electron)
 live in TypeScript types.
+
+## Companion permission setup
+
+Open **Vellum > Companion Permissions…**, or **Settings > Privacy > Set up
+companion permissions**. Each permission explains the feature it enables and
+can be skipped. The screen includes Accessibility, Screen Recording, Microphone,
+Input Monitoring, Speech Recognition, Automation, and Notifications.
+
+Allowing Accessibility, Screen Recording, or Input Monitoring lifts the row into
+a floating guide over System Settings. Drag the app from the guide into the
+privacy list and enable its switch. **Show in Finder** provides a keyboard and
+manual-drag alternative. The label and icon come from the actual installed bundle,
+including development builds. Screen Recording and Input Monitoring use Vellum
+Helper; Accessibility uses the desktop app, matching the permission service.
+
+The guide follows the Settings window using the native helper's window inventory.
+If that inventory is unavailable it stays at the bottom of the current display.
+It closes when permission is granted, when Back is pressed, when replaced, or
+after five minutes. Motion respects macOS Reduce Motion. Other permissions keep
+their native prompts; opening the setup window itself requests no access.
+
+Implementation: `permission-setup-window.ts` owns the native window, app drag,
+Finder fallback, and polling. `permissions-service.ts` remains the source of
+permission state. The renderer uses the optional `permissions.setup` bridge and
+the standalone `/assistant/floating/permission-setup` and
+`/assistant/floating/permission-guide` routes.

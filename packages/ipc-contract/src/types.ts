@@ -404,6 +404,24 @@ export type ChordRegistrationResult = HotkeyRegistrationResult;
 // System permissions
 // ---------------------------------------------------------------------------
 
+export type DraggablePermissionKind =
+  "accessibility" | "screen" | "inputMonitoring";
+
+export interface PermissionGuideState {
+  id: number;
+  kind: DraggablePermissionKind;
+  appName: string;
+  appIcon: string;
+  error: boolean;
+}
+
+export interface PermissionSourceRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export const SYSTEM_PERMISSION_KINDS = [
   "accessibility",
   "screen",

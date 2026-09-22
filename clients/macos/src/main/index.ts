@@ -116,6 +116,7 @@ import {
   restoreNotifierDelegate,
 } from "./notifier";
 import { installPermissionsService } from "./permissions-service";
+import { installPermissionSetup } from "./permission-setup-window";
 import {
   installCompanionWindow,
   syncCompanionSurface,
@@ -440,7 +441,7 @@ app
     installLoginItem();
     installLoginItemIpc();
     installHotkeyHelper();
-    installPermissionsService();
+    installPermissionSetup(installPermissionsService());
     // Register the identity (assistant name) channel before About, the Tray,
     // and the main window install so their initial render reflects any name
     // the renderer publishes during bootstrap.

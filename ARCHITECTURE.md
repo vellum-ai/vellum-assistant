@@ -812,6 +812,34 @@ See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the
 
 With Flux turn detection enabled, microphone audio passes through for one second after locally detected speech, then room audio becomes digital silence. A bounded 200 ms buffer preserves the lead-in to resumed speech without replaying already-submitted audio. Confirmed playback echo becomes silence before buffering. Flux retains an elapsed-audio timeline through pauses. In hands-free Flux sessions, provider `StartOfTurn` owns interruption: local energy alone cannot emit `speech_started` or cancel a reply, even when provider end-of-turn handling is disabled. Other providers retain the local sustained-speech guard, and manual sessions retain client-owned interruption. Gate transitions, submission cadence, interruption source, and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
+## macOS Companion Permission Setup
+
+The Electron shell presents companion permissions in a standalone setup window.
+Accessibility, Screen Recording, and Input Monitoring can detach into a floating
+guide anchored to System Settings. The guide offers a native file drag of the
+TCC-owning application: the Electron app for Accessibility, the signed native
+helper for Screen Recording and Input Monitoring. Renderer messages carry a
+permission kind and guide id, never a filesystem path. Main accepts drag and
+Finder actions only from the current guide's WebContents.
+
+```mermaid
+flowchart LR
+    SETUP["Companion setup / existing permission UI"] --> SERVICE["PermissionsService"]
+    SERVICE --> GUIDE["Native permission guide"]
+    GUIDE --> SETTINGS["System Settings app list"]
+    HELPER["Native helper window inventory"] --> GUIDE
+    SERVICE -->|actual OS grant| STATE["Permission state broadcast"]
+    STATE --> SETUP
+    STATE -->|dismiss guide| GUIDE
+```
+
+The helper's existing window inventory provides Settings bounds without taking
+a screenshot or requesting Accessibility. The guide polls actual permission
+state, follows Settings across displays, and tears down its timers when dismissed,
+replaced, granted, or expired. Native prompt permissions retain their existing
+request path. The optional setup bridge preserves older-shell and other-platform
+behavior. See [the macOS client](clients/macos/README.md).
+
 ## Watch Sessions
 
 A watch session records what the user narrates while they work and reads their screen around it. The microphone and the socket live in the browser (`clients/web/src/domains/chat/watch/watch-controller.ts`); the cadence, the observations, and the timeline live in the daemon (`assistant/src/watch/watch-session-manager.ts`). The client draws nothing during a session: frames going the other way are lifecycle only, and the retrospective is a conversational turn after the socket is gone.

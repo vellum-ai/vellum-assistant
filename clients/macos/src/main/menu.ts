@@ -35,6 +35,7 @@ import {
 } from "./command-palette.client";
 import { setCompanionSurfaceVisible } from "./companion-window";
 import { areChromeDevToolsEnabled } from "./devtools";
+import { openPermissionSetup } from "./permission-setup-window";
 import { handle } from "./ipc";
 import { dispatchToMain } from "./main-window";
 
@@ -172,6 +173,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           click: () => dispatchMenuCommand({ kind: "openSettings" }),
         },
         { type: "separator" },
+        { label: "Companion Permissions…", click: () => openPermissionSetup() },
         ...cliItems,
         ...(cliItems.length > 0 ? [{ type: "separator" as const }] : []),
         { role: "services" },

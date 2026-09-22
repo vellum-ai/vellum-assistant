@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 import type { CompanionIntroBeat } from "@vellumai/ipc-contract";
 
+import {
+  beginPermissionGuide,
+  supportsPermissionSetup,
+} from "@/runtime/permission-setup";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   getSystemPermissionsState,
@@ -161,9 +165,12 @@ export function useCompanionIntroPermission(
             return;
           }
           const requesting = revision;
-          const result = companionIntroOpensSettings(kind, item)
-            ? await openSystemPermissionSettings(kind)
-            : await requestSystemPermission(kind);
+          const result =
+            kind !== "microphone" && supportsPermissionSetup()
+              ? await beginPermissionGuide(kind)
+              : companionIntroOpensSettings(kind, item)
+                ? await openSystemPermissionSettings(kind)
+                : await requestSystemPermission(kind);
           if (active) {
             if (requesting === revision) {
               record(result ? { ...permissions, [kind]: result } : null);

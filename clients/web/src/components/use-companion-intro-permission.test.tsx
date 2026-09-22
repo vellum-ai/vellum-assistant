@@ -44,6 +44,12 @@ let listener: ((state: SystemPermissionsState) => void) | null = null;
 const read = mock(async (): Promise<SystemPermissionsState | null> => current);
 const request = mock(async (kind: SystemPermissionKind) => current[kind]);
 const settings = mock(async (kind: SystemPermissionKind) => current[kind]);
+let setupSupported = false;
+const beginGuide = mock(async (kind: SystemPermissionKind) => current[kind]);
+mock.module("@/runtime/permission-setup", () => ({
+  supportsPermissionSetup: () => setupSupported,
+  beginPermissionGuide: beginGuide,
+}));
 const reportError = mock(() => {});
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: reportError,
@@ -63,6 +69,8 @@ const { useCompanionIntroPermission, companionIntroNeedsPermission } =
   await import("./use-companion-intro-permission");
 
 beforeEach(() => {
+  setupSupported = false;
+  beginGuide.mockClear();
   current = permissions("not-determined");
   read.mockReset();
   read.mockImplementation(async () => current);
@@ -86,6 +94,23 @@ async function known(view: ReturnType<typeof setup>) {
 }
 
 describe("companion tour permission setup", () => {
+  test.each([["key", "inputMonitoring"], ["share", "screen"]] as const)(
+    "%s opens the drag guide when the shell supports it",
+    async (beat, kind) => {
+      setupSupported = true;
+      const view = setup(beat);
+      await known(view);
+      act(() => view.result.current?.enable());
+      await known(view);
+      expect(beginGuide).toHaveBeenCalledWith(kind);
+      expect(request).not.toHaveBeenCalled();
+      expect(settings).not.toHaveBeenCalled();
+      current = permissions("granted");
+      act(() => listener?.(current));
+      expect(companionIntroNeedsPermission(view.result.current)).toBe(false);
+    },
+  );
+
   test.each([
     ["talk", "microphone", "not-determined", true, "request"],
     ["key", "inputMonitoring", "not-determined", true, "settings"],

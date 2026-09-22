@@ -139,9 +139,10 @@ The tour prefetches permission status during its opening cards and retains the
 latest result across steps and background checks. An initial check keeps the
 card shell visible without showing a permission action before it is needed. Its
 size and the perched avatar's clearance share constants with the native canvas,
-so larger cards fit at every companion size. Helper permission setup first requests
-the native alert; Settings opens through that alert or a separate explicit action,
-so the two windows do not compete for attention.
+so larger cards fit at every companion size. Shells with `permissions.setup`
+open the detachable drag guide for Input Monitoring and Screen Recording.
+Older shells request the native alert first; Settings opens through that alert
+or a separate explicit action, so the two windows do not compete for attention.
 
 When resetting local development grants, reset `PostEvent` as well as
 `ListenEvent` and `Accessibility` for the helper bundle. A cached denial of the
@@ -153,3 +154,17 @@ alone is reset.
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.
 - [`CAPACITOR.md`](./CAPACITOR.md) — Capacitor / iOS patterns (parallel host).
 - [`clients/macos/README.md`](../../../clients/macos/README.md) — Electron shell setup, dev scripts, main-process source layout.
+
+## macOS companion permission windows
+
+The optional `permissions.setup` bridge opens the companion setup window from
+Privacy settings. Its two standalone floating routes render the setup and the
+System Settings guide outside authentication middleware. `usePermissionGuide`
+mirrors main's guide state; existing `useSystemPermissionsState` supplies grants.
+A detached row is a placeholder until main closes the guide or observes a grant.
+
+The guide reports its measured height for translated copy, honors reduced motion,
+and sends its guide id for native dragging or Finder reveal. Main resolves the
+app bundle and validates the originating guide window. Older shells omit this
+bridge and keep the existing permissions card. The shared preload factory is
+installed only by the macOS shell.

@@ -375,6 +375,29 @@ export const routeTree = [
     },
   },
 
+  {
+    path: "/assistant/floating/permission-setup",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/permission-setup-page").then(
+          (m) => m.PermissionSetupPage,
+        ),
+    },
+  },
+  {
+    path: "/assistant/floating/permission-guide",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/permission-guide-page").then(
+          (m) => m.PermissionGuidePage,
+        ),
+    },
+  },
+
   // Companion surface: the always-present floating avatar, rendered inside a
   // transparent Electron canvas that never resizes (LUM-3086). Standalone like
   // the dictation overlay, outside auth middleware and RootLayout, so it paints
