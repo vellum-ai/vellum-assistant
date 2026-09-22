@@ -29,6 +29,7 @@ import { useNavigate } from "react-router";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
+import { ChatsSectionEmptyState } from "@/domains/chat/components/chats-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { SectionViewAllLink } from "@/domains/chat/components/section-view-all-link";
 import {
@@ -127,7 +128,7 @@ export function SidebarSectionItem({
   collapsedIndicator,
   isLast,
 }: SidebarSectionItemProps) {
-  const { conversations, hasMore, loadMore, getAllRows } =
+  const { conversations, hasMore, resolved, loadMore, getAllRows } =
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
@@ -297,15 +298,18 @@ export function SidebarSectionItem({
       onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
-      /* The only section that renders at zero, so the only one with anything
-         to say there. `ConversationNavSection` resolves this as
+      /* The two sections that render at zero, so the two with anything to
+         say there. Chats says it only once its own read has answered: before
+         that, an empty stand-in is not an empty section. `ConversationNavSection` resolves this as
          `children ?? <ConversationRowList/>`, so it has to be exactly
          `undefined` in every other case or a section would lose its rows to
          an empty node. Passed as a prop rather than as a JSX child for that
          reason: it keeps the absent case unambiguous. */
       children={
-        isAssistantSection && conversations.length === 0 ? (
+        conversations.length > 0 ? undefined : isAssistantSection ? (
           <AssistantSectionEmptyState />
+        ) : section.type === "recents" && resolved ? (
+          <ChatsSectionEmptyState viewAllHref={viewAllHref} />
         ) : undefined
       }
     />

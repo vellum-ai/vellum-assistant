@@ -313,3 +313,29 @@ export const Mobile: Story = {
     variant: "overlay",
   },
 };
+
+/** Every chat in Chats marked done: what the section says once it is clear. */
+export const ChatsEmpty: Story = {
+  name: "Flag on · Chats empty",
+  decorators: [withDesktopShell],
+  beforeEach: () => seed("asst-done-empty", true),
+  args: {
+    assistantId: "asst-done-empty",
+    seedConversations: CONVERSATIONS.filter(
+      (row) => !row.conversationId.startsWith("r"),
+    ),
+    variant: "rail",
+  },
+};
+
+/** No chats at all, before the flag: a new assistant's first sidebar. */
+export const ChatsEmptyFlagOff: Story = {
+  name: "Flag off · no chats yet",
+  decorators: [withDesktopShell],
+  beforeEach: () => seed("asst-done-empty-off", false),
+  args: {
+    assistantId: "asst-done-empty-off",
+    seedConversations: [],
+    variant: "rail",
+  },
+};
