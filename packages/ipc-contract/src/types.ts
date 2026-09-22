@@ -2663,6 +2663,15 @@ export const COMPANION_INTRO_ACTIONS = [
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
+/** What the app's announcement asks main to do with a due introduction. */
+export const COMPANION_INTRO_ANNOUNCEMENT_ACTIONS = [
+  "start",
+  "dismiss",
+] as const;
+
+export type CompanionIntroAnnouncementAction =
+  (typeof COMPANION_INTRO_ANNOUNCEMENT_ACTIONS)[number];
+
 /**
  * The moments of a run worth counting.
  *

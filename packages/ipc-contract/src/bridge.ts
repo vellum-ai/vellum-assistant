@@ -33,6 +33,7 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionIntroAnnouncementAction,
   CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionPopoverAnswer,
@@ -623,6 +624,12 @@ export interface VellumBridge {
   companion?: {
     getState(): Promise<CompanionSurfaceState | null>;
     onState(callback: (state: CompanionSurfaceState) => void): () => void;
+    /** Whether the app should announce a due introduction before it begins. */
+    getIntroAnnouncement(): Promise<boolean>;
+    /** Start or skip the introduction announced in the app. */
+    answerIntroAnnouncement(action: CompanionIntroAnnouncementAction): void;
+    /** Fires whenever the app's introduction announcement opens or closes. */
+    onIntroAnnouncement(callback: (open: boolean) => void): () => void;
     /**
      * Whether a run is staged right now, for a window that has just mounted
      * its scrim: a push that landed before it subscribed is gone, exactly as
