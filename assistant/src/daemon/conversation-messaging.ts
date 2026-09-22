@@ -1,6 +1,6 @@
 /**
- * Conversation messaging methods: enqueue, persistUserMessage,
- * redirectToSecurePrompt, and queue/confirmation helpers.
+ * Conversation messaging methods: persistUserMessage,
+ * redirectToSecurePrompt, and confirmation helpers.
  *
  * Extracted from Conversation to keep the class focused on coordination.
  */
@@ -15,7 +15,6 @@ import {
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
-import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -52,7 +51,6 @@ import {
   extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
-  isSuppressedQueuedMessage,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -77,11 +75,9 @@ import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { CONVERSATION_BUSY_MESSAGE } from "./conversation-busy-error.js";
 import type { ConversationModeSessionCoordinator } from "./conversation-mode-session.js";
-import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { actorAuthorProvenance } from "./message-provenance.js";
-import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { bestEffortModeSessionTracking } from "./mode-session-tracking.js";
 import {
   assembleUserContentBlocks,
@@ -244,7 +240,6 @@ export interface MessagingConversationContext {
   >;
   /** See {@link Conversation.currentTurnClientMessageId}. */
   currentTurnClientMessageId?: string;
-  readonly queue: MessageQueue;
   trustContext?: TrustContext;
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
@@ -289,7 +284,7 @@ function serializeUserContentBlocks(
  * Serialize the user message as PERSISTED into `messages.content` for callers
  * that hold raw attachments (slash-command branches): the message text followed
  * by the attachments as inline base64 blocks. The regular upload path persists
- * `workspace_ref` blocks instead (see `persistQueuedMessageBody`).
+ * `workspace_ref` blocks instead (see `persistUserMessageBody`).
  */
 export async function serializePersistedUserMessageContent(
   content: string,
@@ -807,153 +802,9 @@ export function buildProviderMetaForPersistence(params: {
   return JSON.stringify(parsed.data);
 }
 
-// ── EnqueueMessageOptions ────────────────────────────────────────────
-
-/** Options for `enqueueMessage`. Only `content` is required; everything
- *  else has a sensible default or is genuinely optional. */
-export interface EnqueueMessageOptions {
-  content: string;
-  attachments?: UserMessageAttachment[];
-  onEvent?: (msg: AssistantEvent) => void;
-  requestId?: string;
-  activeSurfaceId?: string;
-  currentPage?: string;
-  metadata?: Record<string, unknown>;
-  isInteractive?: boolean;
-  displayContent?: string;
-  transport?: ConversationTransportMetadata;
-  clientMessageId?: string;
-  /** JWT-verified requester principal captured for queued host-proxy routing. */
-  sourceActorPrincipalId?: string;
-  /** Auth context snapshot captured for queued turn-scoped authorization. */
-  authContext?: AuthContext;
-  /**
-   * Sender's trust, for the drain to run this message under. Defaults to the
-   * conversation's trust at enqueue time, which the sending route has just
-   * set to this sender.
-   */
-  trustContext?: TrustContext;
-  /**
-   * Queue the message even when the conversation reads idle, instead of taking
-   * the idle fast path that stores nothing.
-   *
-   * The fast path exists so a caller that races a turn ending can notice and
-   * run the message itself. The interrupt fallback cannot: it reaches here
-   * precisely because the turn it stopped left the conversation in a state this
-   * send must not run against (a turn-boundary commit still staging the working
-   * tree, a `tool_use` repair that could not be persisted), so the message has
-   * to wait for a drain rather than be run now or dropped. Callers passing this
-   * own kicking the drain, since there is no running turn whose `finally` will.
-   */
-  queueWhenIdle?: boolean;
-  /**
-   * Firing's `cron_runs.id` to attribute the drained turn's LLM spend to.
-   * Carried on the queued message because the drain runs after the enqueuing
-   * turn has ended, so there is no in-flight turn left to read it from.
-   */
-  cronRunId?: string | null;
-}
-
-// ── enqueueMessage ───────────────────────────────────────────────────
-
-export function enqueueMessage(
-  ctx: MessagingConversationContext,
-  options: EnqueueMessageOptions,
-): { queued: boolean; requestId: string; rejected?: boolean } {
-  const {
-    content,
-    attachments = [],
-    onEvent,
-    requestId = uuidv7(),
-    activeSurfaceId,
-    currentPage,
-    metadata,
-    isInteractive,
-    displayContent,
-    transport,
-    clientMessageId,
-    authContext,
-    cronRunId,
-  } = options;
-  const queuedAuthContext =
-    authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
-  const sourceActorPrincipalId =
-    options.sourceActorPrincipalId ??
-    ctx.currentTurnSourceActorPrincipalId ??
-    queuedAuthContext?.actorPrincipalId;
-  // Deliberately not falling back to `currentTurnTrustContext`: that is the
-  // in-flight turn's actor, which is precisely who this message is not from.
-  const queuedTrustContext = options.trustContext ?? ctx.trustContext;
-
-  if (!ctx.isProcessing() && options.queueWhenIdle !== true) {
-    return { queued: false, requestId };
-  }
-
-  const turnChannelContext =
-    extractTurnChannelContext(metadata) ??
-    ctx.getTurnChannelContext() ??
-    undefined;
-  const turnInterfaceContext =
-    extractTurnInterfaceContext(metadata) ??
-    ctx.getTurnInterfaceContext() ??
-    undefined;
-  const accepted = ctx.queue.push({
-    content,
-    attachments,
-    requestId,
-    onEvent: onEvent ?? (() => {}),
-    activeSurfaceId,
-    currentPage,
-    metadata,
-    turnChannelContext,
-    turnInterfaceContext,
-    isInteractive,
-    sourceActorPrincipalId,
-    authContext: queuedAuthContext,
-    trustContext: queuedTrustContext,
-    transport,
-    displayContent,
-    sentAt: Date.now(),
-    clientMessageId,
-    cronRunId,
-  });
-  if (!accepted) {
-    onEvent?.({
-      type: "error",
-      conversationId: ctx.conversationId,
-      message:
-        "The assistant is busy and cannot accept more messages right now. Please try again shortly.",
-      category: "queue_full",
-    });
-    return { queued: false, requestId, rejected: true };
-  }
-  // Ack the accepted enqueue on the sender's event sink. Emitting here,
-  // rather than at each ingress call site, is what guarantees every path
-  // that queues a person's prompt (HTTP send, surface actions, CLI signal)
-  // surfaces the queued row live. Rows with no client-visible counterpart —
-  // hidden sends and daemon-injected notifications (subagent/ACP/wake) — are
-  // suppressed from the transcript at every stage, including this ack, and
-  // `position` counts visible items only: both mirror the list-messages
-  // queued-snapshot filter so a live ack and a cold reload render the same
-  // row at the same position.
-  if (!isSuppressedQueuedMessage(metadata)) {
-    const position = ctx.queue
-      .snapshot()
-      .filter((item) => !isSuppressedQueuedMessage(item.metadata)).length;
-    onEvent?.({
-      type: "message_queued",
-      conversationId: ctx.conversationId,
-      requestId,
-      position,
-      ...(clientMessageId ? { clientMessageId } : {}),
-    });
-  }
-  return { queued: true, requestId };
-}
-
 // ── PersistMessageOptions ────────────────────────────────────────────
 
-/** Shared options for `persistUserMessage` and `persistQueuedMessageBody`. */
+/** Shared options for `persistUserMessage` and `persistUserMessageBody`. */
 export interface PersistMessageOptions {
   content: string;
   attachments?: UserMessageAttachment[];
@@ -962,9 +813,9 @@ export interface PersistMessageOptions {
   displayContent?: string;
   clientMessageId?: string;
   /**
-   * Trust to attribute the stored row to. Queue drains pass the sender's
-   * captured trust so persisted provenance names the same actor the turn
-   * executes as; the conversation slot may by then hold someone else.
+   * Trust to attribute the stored row to. A deferred send passes the
+   * sender's captured trust so persisted provenance names the same actor the
+   * turn executes as; the conversation slot may by then hold someone else.
    * Defaults to the conversation's trust, which is correct for callers
    * persisting a message the current actor just sent.
    */
@@ -1007,14 +858,14 @@ export interface PersistMessageOptions {
    * and the `assert_scripted_signals_agree` dbt test catches any straggler
    * whose text matches a known template.)
    *
-   * May also be carried in the `metadata` bag, which is how queued sends
-   * thread it: the queue round-trips `metadata`, not these options.
+   * May also be carried in the `metadata` bag, which is how ingress paths
+   * that build only a metadata bag thread it.
    */
   scripted?: boolean;
   /**
    * OS surface this row's own request or transport reported, threaded by the
-   * ingress that built it (the send route's request body, a queued message's
-   * `transport`). Stamps `metadata.clientOsFromRequest` when it matches the
+   * ingress that built it (the send route's request body, an inbound
+   * message's `transport`). Stamps `metadata.clientOsFromRequest` when it matches the
    * `client.os` this row persists.
    *
    * `ctx.clientOs` alone is not that evidence: it is a live conversation
@@ -1122,7 +973,7 @@ export async function persistUserMessage(
     if (owner === null) {
       throw new Error(CONVERSATION_BUSY_MESSAGE);
     }
-    const result = await persistQueuedMessageBody(ctx, {
+    const result = await persistUserMessageBody(ctx, {
       ...options,
       attachments,
       requestId: reqId,
@@ -1156,18 +1007,17 @@ export async function persistUserMessage(
   }
 }
 
-// ── persistQueuedMessageBody ─────────────────────────────────────────
+// ── persistUserMessageBody ───────────────────────────────────────────
 
 /**
  * Persists a user message body (DB row, attachment indexing, origin
  * channel/interface updates, meta file write) without touching the
  * `ctx.processing` flag or request-id bookkeeping.
  *
- * Used by `persistUserMessage` (which sets the processing flag first) and
- * by the batched drain path, which persists multiple sibling messages
- * under a single in-flight turn.
+ * Used by `persistUserMessage`, which sets the processing flag first, and by
+ * callers that persist a row under a turn they already hold.
  */
-export async function persistQueuedMessageBody(
+export async function persistUserMessageBody(
   ctx: MessagingConversationContext,
   options: PersistMessageOptions,
 ): Promise<{ id: string; deduplicated: boolean }> {
@@ -1298,7 +1148,7 @@ export async function persistQueuedMessageBody(
     // sibling of the bag so `TurnTelemetryEvent.client` stays exactly the
     // forwarded `$.client`. Set only when this row itself reported the OS:
     // through the caller's own client bag (the request's client-metadata
-    // headers, round-tripped through the queue) or through this row's
+    // headers) or through this row's
     // transport, which `requestClientOs` carries. An inherited `ctx.clientOs`
     // names the surface of an EARLIER turn, so it leaves the marker off and a
     // consumer reading origin (the reply-push presence gate) treats the turn
@@ -1342,8 +1192,8 @@ export async function persistQueuedMessageBody(
       // half-overwritten by the raw metadata spread above.
       //
       // Resolved from the typed option first, then the metadata bag. The bag
-      // is how queued sends carry it, since the queue round-trips `metadata`
-      // but not `PersistMessageOptions` (same carrier as the `hidden` flag).
+      // is how ingress paths that build only a metadata bag carry it (same
+      // carrier as the `hidden` flag).
       //
       // Always stamped, including the `false` default: a daemon that knows
       // about the field asserts "the user typed this" for ordinary sends, and

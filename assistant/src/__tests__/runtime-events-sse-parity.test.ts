@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
+import { AssistantEventSchema } from "../api/index.js";
 import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -272,24 +273,6 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     expect(m.runStillActive).toBe(true);
   });
 
-  // ── generation_handoff (terminal) ────────────────────────────────────────
-
-  test("preserves generation_handoff payload", async () => {
-    const msg = {
-      type: "generation_handoff" as const,
-      conversationId: "conv-handoff",
-      requestId: "req-xyz-789",
-      queuedCount: 2,
-    };
-    const event = await publishAndReadFrame("parity-generation-handoff", msg);
-
-    expect(event.message.type).toBe("generation_handoff");
-    const m = event.message as typeof msg;
-    expect(m.conversationId).toBe("conv-handoff");
-    expect(m.requestId).toBe("req-xyz-789");
-    expect(m.queuedCount).toBe(2);
-  });
-
   // ── generation_cancelled (terminal) ─────────────────────────────────────
 
   test("preserves generation_cancelled payload", async () => {
@@ -302,6 +285,34 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     expect(event.message.type).toBe("generation_cancelled");
     const m = event.message as typeof msg;
     expect(m.conversationId).toBe("conv-cancelled");
+  });
+
+  // ── Retired event names ──────────────────────────────────────────────────
+
+  test("the queue and handoff event names are gone from the schema union", () => {
+    for (const retired of [
+      "message_queued",
+      "message_dequeued",
+      "message_requeued",
+      "message_queued_deleted",
+      "message_steered",
+      "generation_handoff",
+    ]) {
+      const parsed = AssistantEventSchema.safeParse({
+        type: retired,
+        conversationId: "conv-retired",
+        requestId: "req-retired",
+      });
+      expect(parsed.success).toBe(false);
+    }
+    // The cancel event stays: the loop emits it on every abort, including an
+    // interrupt's, and clients idle their turn on it.
+    expect(
+      AssistantEventSchema.safeParse({
+        type: "generation_cancelled",
+        conversationId: "conv-retired",
+      }).success,
+    ).toBe(true);
   });
 
   // ── Envelope integrity ───────────────────────────────────────────────────

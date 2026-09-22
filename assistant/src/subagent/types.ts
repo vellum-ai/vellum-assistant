@@ -241,7 +241,7 @@ export interface SubagentState {
   /**
    * What the subagent actually ran, harvested from the child conversation when
    * the run ends and re-read while that conversation is still retained (a
-   * follow-up turn queued during the run drains after the run returns). In
+   * follow-up turn deferred during the run runs after the run returns). In
    * memory only, so a state rebuilt from the durable row never has it: the
    * manager answers that case with {@link SubagentToolStatsReading}.
    */
@@ -315,12 +315,12 @@ export const SUBAGENT_STATS_UNAVAILABLE =
 
 /**
  * Appended to a read taken while the subagent is still working through
- * guidance queued during its run. Its own run is over by then, which is what
- * makes it terminal, but the queued turn adds output and tool calls after
+ * guidance sent during its run. Its own run is over by then, which is what
+ * makes it terminal, but the deferred turn adds output and tool calls after
  * that, so such a read is a progress report rather than the final one.
  */
 export const SUBAGENT_READ_STILL_PROCESSING =
-  "[note: this subagent is still processing queued follow-up guidance. The output above and the counts below stop at its last finished turn; read again for the rest.]";
+  "[note: this subagent is still processing follow-up guidance. The output above and the counts below stop at its last finished turn; read again for the rest.]";
 
 // ── Bounded listing ─────────────────────────────────────────────────────
 

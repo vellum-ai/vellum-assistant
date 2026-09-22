@@ -129,22 +129,8 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     lastAttachmentWarnings: [],
     hasNoClient: false,
     prompter: {} as Context["prompter"],
-    queue: {} as Context["queue"],
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => 0,
-    hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
-    drainQueue: async (_reason?: string) => {},
-    // Forwards to drainQueue so tests that spy the drain observe the agent
-    // loop's post-turn kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
 
@@ -168,13 +154,11 @@ describe("runAgentLoopImpl disk pressure gate", () => {
   test("blocks background turns inside the cleanup-safe finally path", async () => {
     const events: AssistantEvent[] = [];
     const activityStates: unknown[][] = [];
-    const drainQueue = mock(async (_reason: unknown) => {});
     const onFirstModelCallPrepared = mock(() => {});
     const ctx = makeCtx({
       emitActivityState: (...args: unknown[]) => {
         activityStates.push(args);
       },
-      drainQueue,
     });
 
     await runAgentLoopImpl(
@@ -199,7 +183,6 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
     expect(ctx.currentRequestId).toBeUndefined();
-    expect(drainQueue).toHaveBeenCalledWith("loop_complete");
     expect(onFirstModelCallPrepared).not.toHaveBeenCalled();
   });
 });

@@ -41,6 +41,13 @@ describe("feature flag catalog", () => {
     expect("sessionGroups" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
+  test("does not expose the retired interrupt-on-send as a feature flag", () => {
+    expect("interruptOnSend" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("interruptOnSend" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("interruptOnSend" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("interruptOnSend" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,

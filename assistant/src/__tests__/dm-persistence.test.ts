@@ -3,7 +3,7 @@
  * channel messages. The DM case is structurally identical: `chatType: "im"`
  * still maps to `userMessageChannel === "slack"` (the channel-vs-DM
  * distinction lives on `ChannelCapabilities.chatType`, not `originChannel`),
- * so the metadata enrichment in `persistQueuedMessageBody` is channel-
+ * so the metadata enrichment in `persistUserMessageBody` is channel-
  * agnostic for any Slack inbound.
  *
  * This test guards against a regression where someone tightens the slackMeta
@@ -11,7 +11,7 @@
  * and silently drops DM rows back into the legacy JIT-hint path that PR 25
  * is set to remove.
  *
- * The test exercises `persistQueuedMessageBody` directly — the same entry
+ * The test exercises `persistUserMessageBody` directly — the same entry
  * point used by `inbound-slack-persistence.test.ts` — to keep the assertion
  * focused on the DM-vs-channel parity rather than the full HTTP plumbing.
  */
@@ -66,8 +66,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
-import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import {
   readSlackMetadata,
   type SlackMessageMetadata,
@@ -86,11 +85,6 @@ function createSlackTurnContext(): MessagingConversationContext {
     userMessageInterface: "slack",
     assistantMessageInterface: "slack",
   };
-  const queueStub = {
-    push: () => true,
-    drain: () => [],
-    size: () => 0,
-  } as unknown as MessageQueue;
   let processing = false;
   let owner = 0;
   return {
@@ -116,7 +110,6 @@ function createSlackTurnContext(): MessagingConversationContext {
       return true;
     },
     abortController: null,
-    queue: queueStub,
     getTurnChannelContext: () => channel,
     getTurnInterfaceContext: () => iface,
   };
@@ -145,7 +138,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // ingress handler builds a `slackInbound` with no `threadTs` and threads
     // it through to persistence.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello from DM",
       requestId: "req-dm",
       metadata: {
@@ -179,7 +172,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // gateway can't resolve the user). The envelope should still be written;
     // only the optional displayName field is omitted.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "anonymous DM",
       requestId: "req-dm-anon",
       metadata: {
@@ -200,7 +193,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
 
   test("DM inbound persists Slack actor timezone metadata", async () => {
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello across timezones",
       requestId: "req-dm-timezone",
       metadata: {
@@ -231,7 +224,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
   test("DM and channel-message envelopes differ only by threadTs", async () => {
     // Capture the channel-thread case first.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "channel thread reply",
       requestId: "req-channel",
       metadata: {
@@ -250,7 +243,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // Now dispatch a DM and assert that every shared field has the same
     // shape — only `threadTs` (and the inputs themselves) differ.
     addMessageCalls.length = 0;
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "DM reply",
       requestId: "req-dm-2",
       metadata: {

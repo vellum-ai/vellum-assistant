@@ -1,11 +1,11 @@
 /**
- * `interrupt-on-send`: a message sent while the assistant is busy stops the
- * turn in flight and is delivered at once instead of joining the queue.
+ * A message sent while the assistant is busy stops the turn in flight and is
+ * delivered at once.
  *
  * Covers the decision (`interruptRunningTurn`) and the history repair it runs
  * before handing an idle conversation back: whether this sender may interrupt,
- * what the abort carries, what is deliberately left alone (subagents, the
- * queue), and what the repaired history looks like.
+ * what the abort carries, what is deliberately left alone (subagents), and
+ * what the repaired history looks like.
  */
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,11 +28,6 @@ import {
 // ---------------------------------------------------------------------------
 // Mocks must precede the module imports so Bun applies them at load time.
 // ---------------------------------------------------------------------------
-
-let flagEnabled = true;
-mock.module("../config/interrupt-on-send-gate.js", () => ({
-  isInterruptOnSendEnabled: () => flagEnabled,
-}));
 
 const persisted: Array<{ role: string; content: string }> = [];
 let persistGate: Promise<void> = Promise.resolve();
@@ -276,7 +271,6 @@ function registerBusyTurn(
 }
 
 beforeEach(() => {
-  flagEnabled = true;
   persisted.length = 0;
   persistGate = Promise.resolve();
   persistShouldFail = false;
@@ -288,10 +282,6 @@ afterEach(() => {
   deleteConversation(CONV);
   pendingInteractions.clear();
   resetTurnFinalizationsForTesting();
-  // `mock.module` is process-wide, so this stub outlives the file. Leave it
-  // reading off, which is the flag's shipped state, so a later file's
-  // flag-off expectations are not answered by this file's last setting.
-  flagEnabled = false;
 });
 
 describe("interruptRunningTurn", () => {
@@ -325,18 +315,6 @@ describe("interruptRunningTurn", () => {
     // a sequence every provider rejects.
     expect(persisted).toHaveLength(1);
     expect(persisted[0].role).toBe("user");
-  });
-
-  test("forces the repair past the flags the queue drain arms", async () => {
-    const turn = registerBusyTurn({
-      messages: [assistantWithToolUse("tool-1")],
-    });
-    expect(turn.conversation.pendingSteerRepair).toBe(false);
-    expect(turn.conversation.pendingInterruptRepair).toBe(false);
-
-    await interruptRunningTurn(turn.conversation, { origin: "test" });
-
-    expect(turn.messages).toHaveLength(2);
   });
 
   test("returns only once the repair row is durable", async () => {
@@ -495,149 +473,7 @@ describe("interruptRunningTurn", () => {
     expect(source).not.toContain("cancelForParent");
   });
 
-  test("declines when the flag is off, touching nothing", async () => {
-    flagEnabled = false;
-    const turn = registerBusyTurn({
-      messages: [assistantWithToolUse("tool-1")],
-    });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-    });
-
-    expect(outcome).toBe("declined");
-    expect(turn.aborts).toEqual([]);
-    expect(turn.denyAllCount()).toBe(0);
-    expect(turn.messages).toHaveLength(1);
-    expect(persisted).toEqual([]);
-    expect(turn.conversation.isProcessing()).toBe(true);
-  });
-
-  test("declines when another actor principal owns the running turn", async () => {
-    const turn = registerBusyTurn({ turnActorPrincipalId: "actor-a" });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-      callerActorPrincipalId: "actor-b",
-    });
-
-    expect(outcome).toBe("declined");
-    expect(turn.aborts).toEqual([]);
-    expect(turn.conversation.isProcessing()).toBe(true);
-  });
-
-  test("interrupts when the same actor principal owns the running turn", async () => {
-    const turn = registerBusyTurn({ turnActorPrincipalId: "actor-a" });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-      callerActorPrincipalId: "actor-a",
-    });
-
-    expect(outcome).toBe("released");
-    expect(turn.aborts).toHaveLength(1);
-  });
-
-  test("falls back to the queue when the turn never releases the lock", async () => {
-    const turn = registerBusyTurn({
-      releaseOnAbort: false,
-      messages: [assistantWithToolUse("tool-1")],
-    });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-    });
-
-    expect(outcome).toBe("busy");
-    expect(turn.aborts).toHaveLength(1);
-    // The turn is still unwinding, so its history is not ours to rewrite.
-    expect(turn.messages).toHaveLength(1);
-  });
-
-  test("leaves a lock held by something that is not an agent turn alone", async () => {
-    // What `/compact`, `/clean` and every other `acquireProcessingFenced`
-    // holder look like: processing, with no abort controller because they are
-    // not agent-loop turns. Clearing that lock would run a turn that rewrites
-    // the history its holder is still persisting.
-    const turn = registerBusyTurn({
-      hasController: false,
-      messages: [assistantWithToolUse("tool-1")],
-    });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-    });
-
-    expect(outcome).toBe("busy");
-    expect(turn.conversation.isProcessing()).toBe(true);
-    expect(turn.denyAllCount()).toBe(0);
-    expect(turn.messages).toHaveLength(1);
-    expect(persisted).toEqual([]);
-  });
-
-  test("declines a hidden machine send, leaving pending confirmations alone", async () => {
-    const turn = registerBusyTurn({ messages: [assistantWithToolUse("t-1")] });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-      hidden: true,
-    });
-
-    expect(outcome).toBe("declined");
-    expect(turn.aborts).toEqual([]);
-    expect(turn.denyAllCount()).toBe(0);
-    expect(turn.conversation.isProcessing()).toBe(true);
-    expect(turn.messages).toHaveLength(1);
-  });
-
-  test("falls back to the queue when another waiter takes the released lock", async () => {
-    // An idle transition is not a free lock: waiters are notified FIFO off the
-    // same `setProcessing(false)`, so one registered earlier can be running its
-    // own turn by the time this continuation gets to the repair.
-    const turn = registerBusyTurn({
-      competingWaiterTakesLock: true,
-      messages: [assistantWithToolUse("tool-1")],
-    });
-
-    const outcome = await interruptRunningTurn(turn.conversation, {
-      origin: "test",
-    });
-
-    expect(outcome).toBe("busy");
-    // The competing turn owns the conversation, so nothing here touched it.
-    expect(turn.messages).toHaveLength(1);
-    expect(persisted).toEqual([]);
-    expect(turn.activityEvents).toEqual([]);
-    expect(turn.isLocked()).toBe(true);
-  });
-
-  test("holds the processing lock across the repair, then hands it back", async () => {
-    const turn = registerBusyTurn({
-      messages: [assistantWithToolUse("tool-1")],
-    });
-    let lockedDuringPersist = false;
-    let releasePersist = () => {};
-    persistGate = new Promise<void>((resolve) => {
-      releasePersist = resolve;
-    });
-
-    const pending = interruptRunningTurn(turn.conversation, { origin: "test" });
-
-    // Let the abort, the idle wait and the claim settle, then read the lock
-    // from inside the repair's own persist.
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    lockedDuringPersist = turn.isLocked();
-    releasePersist();
-
-    expect(await pending).toBe("released");
-    expect(lockedDuringPersist).toBe(true);
-    // Handed back, so the caller's own turn can claim it.
-    expect(turn.isLocked()).toBe(false);
-  });
-
-  test("falls back to the queue when the repair row cannot be persisted", async () => {
+  test("defers the send when the repair row cannot be persisted", async () => {
     const turn = registerBusyTurn({
       messages: [assistantWithToolUse("tool-1")],
     });
@@ -652,10 +488,8 @@ describe("interruptRunningTurn", () => {
     // a user row after a durable `tool_use` that has no durable result.
     expect(turn.messages).toHaveLength(1);
     expect(persisted).toEqual([]);
-    // Armed instead, so the drain that runs the queued message repairs it.
-    expect(turn.conversation.pendingInterruptRepair).toBe(true);
     expect(turn.activityEvents).toEqual([]);
-    // The message joins the queue rather than replacing the turn, so it is not
+    // The message waits for idle rather than replacing the turn, so it is not
     // the message that interrupted anything and carries no note.
     expect(turn.conversation.pendingInterruptNote).toBe(false);
   });
@@ -783,14 +617,6 @@ describe("classifyInterruptEligibility", () => {
     const turn = registerBusyTurn();
     expect(classifyInterruptEligibility(turn.conversation, opts)).toBe(
       "eligible",
-    );
-  });
-
-  test("names the flag when it is off", () => {
-    flagEnabled = false;
-    const turn = registerBusyTurn();
-    expect(classifyInterruptEligibility(turn.conversation, opts)).toBe(
-      "flag_off",
     );
   });
 
@@ -949,20 +775,13 @@ describe("mayInterruptRunningTurn", () => {
 
 describe("repairInterruptedToolUseBlocks", () => {
   function fakeConversation(messages: Message[]): Conversation {
-    return {
-      conversationId: CONV,
-      messages,
-      pendingSteerRepair: false,
-      pendingInterruptRepair: false,
-    } as unknown as Conversation;
+    return { conversationId: CONV, messages } as unknown as Conversation;
   }
 
   test("writes one fact-only result per abandoned call", async () => {
     const messages: Message[] = [assistantWithToolUse("tool-1", "tool-2")];
 
-    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
-      force: true,
-    });
+    await repairInterruptedToolUseBlocks(fakeConversation(messages));
 
     expect(messages[1]).toEqual({
       role: "user",
@@ -994,9 +813,7 @@ describe("repairInterruptedToolUseBlocks", () => {
       toolResult("tool-1", PREEMPTED_TOOL_RESULT_TEXT),
     ];
 
-    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
-      force: true,
-    });
+    await repairInterruptedToolUseBlocks(fakeConversation(messages));
 
     expect(messages).toHaveLength(2);
     expect(persisted).toEqual([]);
@@ -1008,24 +825,20 @@ describe("repairInterruptedToolUseBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "hello" }] },
     ];
 
-    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
-      force: true,
-    });
+    await repairInterruptedToolUseBlocks(fakeConversation(messages));
 
     expect(messages).toHaveLength(2);
     expect(persisted).toEqual([]);
   });
 
-  test("keeps the in-memory repair when a drain cannot persist it", async () => {
-    // The drain runs its turn off the in-memory history, so a failed persist
-    // costs durability, not the next provider call. It settles rather than
-    // throwing, which is what keeps a DB hiccup from stranding the queue.
+  test("keeps the in-memory repair when a non-durable caller cannot persist it", async () => {
+    // A caller with no row of its own to write runs its turn off the in-memory
+    // history, so a failed persist costs durability, not the next provider
+    // call. It settles rather than throwing.
     const messages: Message[] = [assistantWithToolUse("tool-1")];
     persistShouldFail = true;
 
-    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
-      force: true,
-    });
+    await repairInterruptedToolUseBlocks(fakeConversation(messages));
 
     expect(messages).toHaveLength(2);
     expect(persisted).toEqual([]);
@@ -1037,29 +850,10 @@ describe("repairInterruptedToolUseBlocks", () => {
     persistShouldFail = true;
 
     await expect(
-      repairInterruptedToolUseBlocks(conversation, {
-        force: true,
-        requireDurable: true,
-      }),
+      repairInterruptedToolUseBlocks(conversation, { requireDurable: true }),
     ).rejects.toThrow("simulated persist failure");
 
     expect(messages).toHaveLength(1);
-    expect(conversation.pendingInterruptRepair).toBe(true);
-  });
-
-  test("stays armed by its flags for the queue drain", async () => {
-    const messages: Message[] = [assistantWithToolUse("tool-1")];
-    const conversation = fakeConversation(messages);
-
-    // Unforced and unarmed: the drain calls this on every pass, and a repair
-    // on a history nobody interrupted would answer a call still running.
-    await repairInterruptedToolUseBlocks(conversation);
-    expect(messages).toHaveLength(1);
-
-    conversation.pendingSteerRepair = true;
-    await repairInterruptedToolUseBlocks(conversation);
-    expect(messages).toHaveLength(2);
-    expect(conversation.pendingSteerRepair).toBe(false);
   });
 });
 

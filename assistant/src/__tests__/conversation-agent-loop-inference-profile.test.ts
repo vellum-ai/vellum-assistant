@@ -316,7 +316,6 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
-import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
@@ -434,26 +433,12 @@ function makeCtx(
 
     hasNoClient: false,
     prompter: {} as unknown as Conversation["prompter"],
-    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => 0,
-    hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
-    drainQueue: async (_reason?: QueueDrainReason) => {},
-    // Forwards to drainQueue so tests that spy the drain observe the agent
-    // loop's post-turn kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
-      reason: QueueDrainReason = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
@@ -627,7 +612,7 @@ describe("runAgentLoopImpl — subagent call site default", () => {
     const captured: CapturedAgentLoopRun[] = [];
     const ctx = makeCtx(captured, { isSubagent: true });
 
-    // No explicit callSite (mirrors the generic queue-drain path) — a subagent
+    // No explicit callSite (mirrors the generic deferred-send path): a subagent
     // turn must still resolve as subagentSpawn, not mainAgent.
     await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
 

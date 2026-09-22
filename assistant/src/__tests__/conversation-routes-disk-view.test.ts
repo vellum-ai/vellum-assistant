@@ -1,10 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { EnqueueMessageOptions } from "../daemon/conversation-messaging.js";
 import { persistUserMessage } from "../daemon/conversation-messaging.js";
 import {
   addMessage,
@@ -30,7 +29,6 @@ import {
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { mockUnownedModeSessions } from "./helpers/mock-conversation.js";
 import { setConfig } from "./helpers/set-config.js";
@@ -227,10 +225,7 @@ function createFakeConversation(conversationId: string): Conversation {
     denyAllPendingConfirmations: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
-    enqueueMessage: () => ({ queued: true, requestId: crypto.randomUUID() }),
-    kickDrainQueue: async () => {},
     inFlightSendRequestIds: new Map<string, string>(),
-    getQueueDepth: () => 0,
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
     getMessages(this: { messages: Array<unknown> }) {
@@ -694,16 +689,11 @@ describe("conversationKey send path disk-view regression", () => {
 });
 
 // A turn clears `preactivatedSkillIds` when it ends, so the per-turn host-proxy
-// setup has to run for whichever turn this send actually drives. Under
-// `interrupt-on-send` that is a replacement turn on a conversation that was busy
-// when the request arrived, and a setup keyed on "was idle on arrival" would
-// hand a host-capable macOS client a turn with no `computer-use` or
-// `app-control` tools.
+// setup has to run for whichever turn this send actually drives. That is a
+// replacement turn on a conversation that was busy when the request arrived,
+// and a setup keyed on "was idle on arrival" would hand a host-capable macOS
+// client a turn with no `computer-use` or `app-control` tools.
 describe("host-proxy preactivation across an interrupt", () => {
-  afterEach(() => {
-    setOverridesForTesting({});
-  });
-
   /** A conversation mid-turn whose abort releases the lock, as a loop does. */
   function busyConversation(conversationId: string): Conversation {
     const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
@@ -760,7 +750,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // `macos` natively supports `host_cu` and `host_app_control`, so the real
     // attachment gate says yes to those two without a connected client to
     // stand in for.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-interrupt-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = busyConversation(conversationId) as Conversation & {
@@ -803,7 +792,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // a send may hold a request open, and a client that timed out would retry a
     // message the daemon is still placing. So the abort, the wait, the repair,
     // the persist and the dispatch all run off the response.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-async-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
@@ -858,98 +846,11 @@ describe("host-proxy preactivation across an interrupt", () => {
     conv.owner = 0;
   });
 
-  test("tells the sender when the queue fallback is rejected after acceptance", async () => {
-    // The 202 has already gone out, so `queueSend`'s own 429 answers nobody.
-    // Without an event the message is accepted and then silently gone.
-    setOverridesForTesting({ "interrupt-on-send": true });
-    const conversationKey = `macos-qfull-${crypto.randomUUID()}`;
-    const { conversationId } = getOrCreateConversationMapping(conversationKey);
-    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
-      processing: boolean;
-      owner: number;
-      abortController: AbortController | null;
-      enqueueMessage: Conversation["enqueueMessage"];
-    };
-    conv.processing = true;
-    conv.owner = 1;
-    // A turn that never releases, so the handover gives up and falls back to
-    // the queue, which is full.
-    conv.abortController = new AbortController();
-    let enqueuedRequestId: string | undefined;
-    conv.enqueueMessage = ((options: EnqueueMessageOptions) => {
-      enqueuedRequestId = options.requestId;
-      // What the real `enqueueMessage` does on a refusal: announce it on the
-      // sender's sink as a generic, uncorrelated `queue_full` error. Whether
-      // that reaches the wire is the sink's decision, which is what this test
-      // is about.
-      options.onEvent?.({
-        type: "error",
-        conversationId,
-        message: "The assistant is busy and cannot accept more messages.",
-        category: "queue_full",
-      });
-      return {
-        queued: false,
-        requestId: options.requestId ?? crypto.randomUUID(),
-        rejected: true,
-      };
-    }) as Conversation["enqueueMessage"];
-
-    const events: Array<Record<string, unknown>> = [];
-    const subscription = assistantEventHub.subscribe({
-      type: "client",
-      clientId: `queue-full-watcher-${crypto.randomUUID()}`,
-      interfaceId: "macos",
-      capabilities: [],
-      callback: (event) => {
-        events.push(event as unknown as Record<string, unknown>);
-      },
-    });
-
-    const response = await sendMacosMessage(conversationKey, "please answer");
-    expect(response.status).toBe(202);
-
-    // The hub wraps each event in an envelope; the payload is `message`.
-    const accepted = (await response.json()) as { requestId?: string };
-    const reported = await waitFor(() => {
-      for (const envelope of events) {
-        const message = envelope.message as Record<string, unknown> | undefined;
-        if (message?.type === "error" && message.code === "QUEUE_FULL") {
-          return message;
-        }
-      }
-      return undefined;
-    });
-    // Correlated by the id the 202 carried, so the client can fail the
-    // optimistic row it is already showing and offer the retry. The fallback
-    // must not mint an id of its own: the client was told this one.
-    expect(reported.requestId).toBe(accepted.requestId);
-    expect(reported.category).toBe("queue_drain_failed");
-    // And ONLY that one. `enqueueMessage` also announces a refused enqueue as a
-    // generic uncorrelated `queue_full` error, which a client reads as the
-    // running turn failing and tears that turn down over: a turn this send does
-    // not own. It must not reach the wire on a fallback.
-    const uncorrelated = events.filter((envelope) => {
-      const message = envelope.message as Record<string, unknown> | undefined;
-      return message?.type === "error" && message.category === "queue_full";
-    });
-    expect(uncorrelated).toEqual([]);
-    // The fallback enqueue must carry the id the 202 handed out, not one of its
-    // own: the row it persists and the queue events it emits are what the
-    // client correlates against what it was told.
-    expect(enqueuedRequestId).toBe(accepted.requestId);
-
-    subscription.dispose();
-    conv.processing = false;
-    conv.owner = 0;
-  });
-
   test("disarms the activity bridge when the send starts no turn", async () => {
     // A deduplicated persist answers without starting a loop, and several slash
     // commands do the same. Nothing would consume the armed
     // `message_interrupted` transition on those, so the next ordinary turn on
     // this conversation would emit one belonging to an interrupt long over.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-nobridge-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -974,7 +875,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // must not abort there: it would kill the turn its own original request
     // started, then dedup against the row landing a moment later and start
     // nothing, leaving the send answered by neither.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-prepersist-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1011,34 +911,22 @@ describe("host-proxy preactivation across an interrupt", () => {
     expect(conv.isProcessing()).toBe(true);
   });
 
-  test("reports a queue rejection from inside the detached send too", async () => {
-    // `completeSend` has its own queue fallbacks, for losing the lock race
-    // after the handover. Running detached, their return value reaches nobody
-    // either, so a refused enqueue there has to be reported the same way.
-    setOverridesForTesting({ "interrupt-on-send": true });
+  test("tells the sender when a detached send can never take the lock", async () => {
+    // The send runs off an already-answered request, so its own rejection
+    // reaches nobody. A send that loses the lock on every deferral attempt has
+    // to be reported to the sender as an event instead.
     const conversationKey = `macos-lockrace-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const conv = busyConversation(conversationId) as Conversation & {
       acquireProcessingFenced: () => Promise<number | null>;
-      enqueueMessage: () => {
-        queued: boolean;
-        requestId: string;
-        rejected?: boolean;
-      };
     };
     // The handover succeeds (the interrupt takes the lock for its repair and
-    // gives it back), then another claim owns the conversation by the time the
-    // send tries to take it, and the queue it falls back to is full.
+    // gives it back), and every claim after that belongs to somebody else.
     let claims = 0;
     conv.acquireProcessingFenced = async () => {
       claims += 1;
       return claims === 1 ? 99 : null;
     };
-    conv.enqueueMessage = () => ({
-      queued: false,
-      requestId: crypto.randomUUID(),
-      rejected: true,
-    });
 
     const events: Array<Record<string, unknown>> = [];
     const subscription = assistantEventHub.subscribe({
@@ -1060,13 +948,13 @@ describe("host-proxy preactivation across an interrupt", () => {
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
-        if (message?.type === "error" && message.code === "QUEUE_FULL") {
+        if (message?.type === "error" && message.code === "SEND_FAILED") {
           return message;
         }
       }
       return undefined;
     });
-    expect(reported.category).toBe("queue_drain_failed");
+    expect(reported.errorCategory).toBe("internal");
 
     subscription.dispose();
   });
@@ -1076,7 +964,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // slash branches run, and those branches persist the user row themselves.
     // Minting an id there would advertise a row that never exists, so the
     // client's optimistic row could never be reconciled against it.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-slash-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     busyConversation(conversationId);
@@ -1108,7 +995,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // copy of the same send finds no running turn of its own and no row yet, so
     // without a reservation both would race the unique `clientMessageId` insert
     // and one would lose.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-inflight-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1161,7 +1047,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // retry skipped every duplicate check, started a second `completeSend`, and
     // could win persistence under its own id, leaving the id the first 202
     // advertised naming no row at all.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-released-inflight-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1196,7 +1081,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // but it settles them by returning the existing row and exiting without
     // starting a turn, which is too late once the abort has fired: the user's
     // answer would be cancelled for good.
-    setOverridesForTesting({ "interrupt-on-send": true });
     const conversationKey = `macos-dup-${crypto.randomUUID()}`;
     const { conversationId } = getOrCreateConversationMapping(conversationKey);
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
@@ -1226,23 +1110,5 @@ describe("host-proxy preactivation across an interrupt", () => {
     expect(body.messageId).toBe(existing.id);
     expect(body.queued).toBeUndefined();
     expect(conv.isProcessing()).toBe(true);
-  });
-
-  test("a send that queues instead leaves the running turn's preactivation alone", async () => {
-    // Flag off, so the busy conversation queues. Preactivation belongs to the
-    // drain at dequeue time, not to this request.
-    setOverridesForTesting({ "interrupt-on-send": false });
-    const conversationKey = `macos-queued-${crypto.randomUUID()}`;
-    const { conversationId } = getOrCreateConversationMapping(conversationKey);
-    const conv = busyConversation(conversationId) as Conversation & {
-      preactivatedSkillIds?: string[];
-    };
-
-    const response = await sendMacosMessage(conversationKey, "queued instead");
-
-    expect(response.status).toBe(202);
-    const body = (await response.json()) as { queued?: boolean };
-    expect(body.queued).toBe(true);
-    expect(conv.preactivatedSkillIds).toBeUndefined();
   });
 });

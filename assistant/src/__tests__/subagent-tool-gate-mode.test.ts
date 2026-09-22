@@ -163,8 +163,6 @@ function makeSetupCtx(overrides: Partial<Conversation> = {}): Conversation {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "r" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: createSurfaceMutex(),
     ...overrides,

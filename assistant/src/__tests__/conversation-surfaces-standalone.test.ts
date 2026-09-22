@@ -36,11 +36,11 @@ function createMockContext(
   }>,
 ): Conversation & {
   sentMessages: AssistantEvent[];
-  enqueuedMessages: Array<{ content: string; requestId: string }>;
+  sentMessagesToModel: Array<{ content: string; requestId: string }>;
 } {
   const sentMessages: AssistantEvent[] = [];
   broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
-  const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
+  const sentMessagesToModel: Array<{ content: string; requestId: string }> = [];
 
   return asConversation({
     conversationId: "test-conv-1",
@@ -66,19 +66,19 @@ function createMockContext(
     hostCuProxy: undefined,
     hasNoClient: overrides?.hasNoClient ?? false,
     isProcessing: () => false,
-    enqueueMessage: (options) => {
-      const resolvedId = options.requestId ?? "mock-request-id";
-      enqueuedMessages.push({
+    processMessage: async (options: {
+      content: string;
+      requestId?: string;
+    }) => {
+      sentMessagesToModel.push({
         content: options.content,
-        requestId: resolvedId,
+        requestId: options.requestId ?? "mock-request-id",
       });
-      return { queued: false, requestId: resolvedId };
+      return "msg-id";
     },
-    getQueueDepth: () => 0,
-    processMessage: async () => "msg-id",
     withSurface: createSurfaceMutex(),
     sentMessages,
-    enqueuedMessages,
+    sentMessagesToModel,
   });
 }
 
@@ -376,7 +376,7 @@ describe("showStandaloneSurface", () => {
     await handleSurfaceAction(ctx, "surf-6c", "confirm", {});
 
     // No messages should have been enqueued to the LLM
-    expect(ctx.enqueuedMessages).toHaveLength(0);
+    expect(ctx.sentMessagesToModel).toHaveLength(0);
   });
 
   test("late action after user-resolved surface is silently dropped", async () => {
@@ -404,7 +404,7 @@ describe("showStandaloneSurface", () => {
     await handleSurfaceAction(ctx, "surf-6d", "confirm", {});
 
     // No messages should have been enqueued to the LLM
-    expect(ctx.enqueuedMessages).toHaveLength(0);
+    expect(ctx.sentMessagesToModel).toHaveLength(0);
   });
 
   test("consumed callback does NOT trigger LLM follow-up", async () => {
@@ -424,7 +424,7 @@ describe("showStandaloneSurface", () => {
     await resultPromise;
 
     // Verify no messages were enqueued to the LLM
-    expect(ctx.enqueuedMessages).toHaveLength(0);
+    expect(ctx.sentMessagesToModel).toHaveLength(0);
   });
 
   test("emits ui_surface_complete on user action", async () => {

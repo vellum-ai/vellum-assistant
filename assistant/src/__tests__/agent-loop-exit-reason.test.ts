@@ -17,11 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { PostCompactContext } from "@vellumai/plugin-api";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { ContextWindowConfig } from "../config/types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -407,37 +403,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
   });
 
-  test("does not emit agent_loop_exit when onCheckpoint yields control", async () => {
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "handoff";
-
-    const events: AgentEvent[] = [];
-    await loop.run({
-      requestId: "test-request",
-      messages: [userMessage],
-      onEvent: (e) => {
-        events.push(e);
-      },
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      onCheckpoint,
-    });
-
-    expect(countExitEvents(events)).toBe(0);
-  });
-
   test("runs to a clean exit when overflow recovery is disabled", async () => {
     // GIVEN a tiny context window but overflow recovery disabled — the
     // agent-wake configuration, which must never compact mid-loop.
@@ -467,8 +432,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
       }),
     });
 
-    // THEN it reaches a clean exit without pausing the loop.
-    expect(result.exitReason).toBeNull();
+    // THEN it reaches a clean exit.
+    expect(result.history.length).toBeGreaterThan(0);
   });
 
   test("compacts in place and continues when the budget gate trips with a compaction hook", async () => {
@@ -520,7 +485,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       true,
     );
     expect(reinjected).toBe(true);
-    expect(result.exitReason).toBeNull();
+    expect(result.history.length).toBeGreaterThan(0);
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {

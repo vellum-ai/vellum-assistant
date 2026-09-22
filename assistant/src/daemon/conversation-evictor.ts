@@ -124,11 +124,10 @@ export class ConversationEvictor {
       skipped: 0,
     };
 
-    // Phase 1: TTL eviction — remove conversations idle longer than ttlMs.
-    // A conversation with queued messages is not idle: the queue drains via an
-    // async dispatch after the current turn's `finally`, so `isProcessing()`
-    // can read false while a queued turn (e.g. a subagent completion wake) is
-    // still pending. Disposing in that gap would silently drop the queued
+    // Phase 1: TTL eviction: remove conversations idle longer than ttlMs.
+    // A conversation with deferred sends waiting is not idle: `isProcessing()`
+    // can read false while a deferred turn (e.g. a subagent completion wake)
+    // is still pending. Disposing in that gap would silently drop those
     // messages.
     for (const [id, conversation] of this.conversations) {
       const lastAccessTime = this.lastAccess.get(id) ?? 0;

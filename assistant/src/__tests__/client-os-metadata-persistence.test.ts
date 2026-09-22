@@ -1,5 +1,5 @@
 /**
- * Verifies that `persistQueuedMessageBody` stamps the client-reported OS
+ * Verifies that `persistUserMessageBody` stamps the client-reported OS
  * surface into `metadata.client.os` on persisted user messages.
  *
  * Browser, mobile, and desktop apps all run the same web renderer and report
@@ -10,7 +10,7 @@
  * and mobile usage are indistinguishable from browser usage downstream.
  *
  * Mirrors the mock harness of `dm-persistence.test.ts` and exercises
- * `persistQueuedMessageBody` directly with a captured `addMessage`.
+ * `persistUserMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -63,8 +63,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
-import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import { isDesktopOriginatedUserMessage } from "../persistence/conversation-types.js";
 
 function createWebTurnContext(
@@ -78,11 +77,6 @@ function createWebTurnContext(
     userMessageInterface: "web",
     assistantMessageInterface: "web",
   };
-  const queueStub = {
-    push: () => true,
-    drain: () => [],
-    size: () => 0,
-  } as unknown as MessageQueue;
   let processing = false;
   let owner = 0;
   return {
@@ -108,7 +102,6 @@ function createWebTurnContext(
       return true;
     },
     abortController: null,
-    queue: queueStub,
     clientOs,
     getTurnChannelContext: () => channel,
     getTurnInterfaceContext: () => iface,
@@ -131,7 +124,7 @@ describe("client OS surface metadata persistence", () => {
     "stamps client.os = %s from the conversation's clientOs",
     async (os) => {
       const ctx = createWebTurnContext(os);
-      await persistQueuedMessageBody(ctx, {
+      await persistUserMessageBody(ctx, {
         content: "hello",
         requestId: `req-${os}`,
       });
@@ -144,7 +137,7 @@ describe("client OS surface metadata persistence", () => {
 
   test("omits the client bag when no clientOs is reported", async () => {
     const ctx = createWebTurnContext(undefined);
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-none",
     });
@@ -154,7 +147,7 @@ describe("client OS surface metadata persistence", () => {
 
   test("omits the client bag for values outside the ClientOs vocabulary", async () => {
     const ctx = createWebTurnContext("plan9");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-invalid",
     });
@@ -164,7 +157,7 @@ describe("client OS surface metadata persistence", () => {
 
   test("caller-supplied client metadata wins over the stamp", async () => {
     const ctx = createWebTurnContext("macos");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-caller",
       metadata: { client: { os: "ios", interface_version: "1.2.3" } },
@@ -178,7 +171,7 @@ describe("client OS surface metadata persistence", () => {
 
   test("transport os fills in when the caller bag omits it", async () => {
     const ctx = createWebTurnContext("ios");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-merge",
       metadata: { client: { browser_family: "safari" } },
@@ -199,7 +192,7 @@ describe("client OS surface metadata persistence", () => {
     const ctx = Object.assign(createWebTurnContext("web"), {
       modeSessions: { acceptTurn, trackPersistedRow },
     });
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "continue",
       requestId: "req-structural",
       activeSurfaceId: "surface-123",
@@ -240,7 +233,7 @@ describe("client OS per-row evidence marker", () => {
 
   test("marks an OS this row's own transport reported", async () => {
     const ctx = createWebTurnContext("macos");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-transport-os",
       requestClientOs: "macos",
@@ -253,7 +246,7 @@ describe("client OS per-row evidence marker", () => {
 
   test("recognizes a Windows app turn as desktop-originated", async () => {
     const ctx = createWebTurnContext("windows");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-transport-os-windows",
       requestClientOs: "windows",
@@ -266,7 +259,7 @@ describe("client OS per-row evidence marker", () => {
 
   test("recognizes a Linux app turn as desktop-originated", async () => {
     const ctx = createWebTurnContext("linux");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-transport-os-linux",
       requestClientOs: "linux",
@@ -282,7 +275,7 @@ describe("client OS per-row evidence marker", () => {
   // host OS first and persists `macos`/`windows`/`linux` instead.
   test("marks an OS this row's own transport reported (web)", async () => {
     const ctx = createWebTurnContext("web");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-transport-os-web",
       requestClientOs: "web",
@@ -295,7 +288,7 @@ describe("client OS per-row evidence marker", () => {
 
   test("marks an OS this row's own request headers reported", async () => {
     const ctx = createWebTurnContext(undefined);
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-header-os",
       metadata: { client: { os: "macos", interface_version: "0.8.2" } },
@@ -311,7 +304,7 @@ describe("client OS per-row evidence marker", () => {
   // Mac, so the reply push must survive.
   test("leaves an inherited OS unmarked and not desktop-originated", async () => {
     const ctx = createWebTurnContext("macos");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "[User action on card surface: submit]",
       requestId: "req-inherited-os",
     });
@@ -326,7 +319,7 @@ describe("client OS per-row evidence marker", () => {
   // evidence at all.
   test("leaves the marker off when the reported OS is not the stamped one", async () => {
     const ctx = createWebTurnContext("macos");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-mismatched-os",
       requestClientOs: "ios",
@@ -342,7 +335,7 @@ describe("client OS per-row evidence marker", () => {
   // origin the row never reported.
   test("drops a caller-supplied marker from the metadata bag", async () => {
     const ctx = createWebTurnContext("macos");
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "[User action on card surface: submit]",
       requestId: "req-spoofed-marker",
       metadata: { clientOsFromRequest: true },
@@ -354,7 +347,7 @@ describe("client OS per-row evidence marker", () => {
 
   test("leaves the marker off for a reported OS outside the vocabulary", async () => {
     const ctx = createWebTurnContext(undefined);
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-unknown-os",
       requestClientOs: "windows",

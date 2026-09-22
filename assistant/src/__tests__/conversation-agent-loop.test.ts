@@ -731,7 +731,6 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
-import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import {
   resetTurnFinalizationsForTesting,
   waitForTurnFinalization,
@@ -885,26 +884,12 @@ function makeCtx(
 
     hasNoClient: false,
     prompter: {} as unknown as Conversation["prompter"],
-    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => 0,
-    hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
-    drainQueue: async (_reason?: QueueDrainReason) => {},
-    // Forwards to drainQueue so tests that spy the drain observe the agent
-    // loop's post-turn kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
-      reason: QueueDrainReason = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
@@ -1478,31 +1463,6 @@ describe("session-agent-loop", () => {
       });
       expect(sessions.releaseTurn).toHaveBeenCalledWith("test-req");
       expect(sessions.beginDraining).not.toHaveBeenCalled();
-      expect(sessions.finalizeTurn).not.toHaveBeenCalled();
-    });
-
-    test("transfers ownership to the queued turn at a checkpoint", async () => {
-      const sessions = makeModeSessionDouble();
-      const ctx = makeCtx({
-        modeSessions: sessions.coordinator,
-        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "file content", isError: false }),
-        canHandoffAtCheckpoint: () => true,
-        queue: {
-          snapshot: () => [{ requestId: "msg-2" }],
-        } as unknown as Conversation["queue"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      expect(sessions.transferTurn).toHaveBeenCalledWith("test-req", "msg-2");
       expect(sessions.finalizeTurn).not.toHaveBeenCalled();
     });
   });
@@ -2089,15 +2049,13 @@ describe("session-agent-loop", () => {
       ]);
     });
 
-    test("blocked background turns clear processing state and drain the queue", async () => {
+    test("blocked background turns clear processing state", async () => {
       mockDiskPressureDecision = {
         action: "block",
         reason: "background",
       };
-      const drainQueue = mock(async (_reason: unknown) => {});
       const activityStates: unknown[][] = [];
       const ctx = makeCtx({
-        drainQueue,
         emitActivityState: (...args: unknown[]) => {
           activityStates.push(args);
         },
@@ -2112,7 +2070,6 @@ describe("session-agent-loop", () => {
       expect(ctx.isProcessing()).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
-      expect(drainQueue).toHaveBeenCalledWith("loop_complete");
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
@@ -2813,111 +2770,6 @@ describe("session-agent-loop", () => {
     });
   });
 
-  describe("checkpoint handoff (infinite loop prevention)", () => {
-    test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
-      const events: AssistantEvent[] = [];
-
-      // A tool turn drives the loop to its first mid-loop checkpoint, where the
-      // orchestrator yields for a queued handoff.
-      const ctx = makeCtx({
-        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "file content", isError: false }),
-        canHandoffAtCheckpoint: () => true,
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      const handoff = events.find((e) => e.type === "generation_handoff");
-      expect(handoff).toBeDefined();
-      expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
-        "test-conv",
-        "checkpoint_handoff",
-      );
-    });
-
-    test("carries automatic screenshot provenance on generation handoff", async () => {
-      resolveAssistantAttachmentsMock.mockImplementation(async () => ({
-        assistantAttachments: [],
-        emittedAttachments: [
-          {
-            id: "screenshot-1",
-            filename: "computer-use-click.png",
-            mimeType: "image/png",
-            data: "c2NyZWVuc2hvdA==",
-            sourceType: "tool_block" as const,
-            computerUseScreenshot: true,
-          },
-        ],
-        directiveWarnings: [],
-        persistedFiles: [],
-        linkedAttachmentIds: ["screenshot-1"],
-        computerUseScreenshotAttachmentIds: ["screenshot-1"],
-      }));
-      const events: AssistantEvent[] = [];
-      const ctx = makeCtx({
-        providerResponses: [toolUseResponse("tu-1", "file_read", {})],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "content", isError: false }),
-        canHandoffAtCheckpoint: () => true,
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
-        events.push(event),
-      );
-
-      const handoff = events.find(
-        (event) => event.type === "generation_handoff",
-      );
-      expect(handoff?.attachments?.[0]?.computerUseScreenshot).toBe(true);
-    });
-
-    test("continues when canHandoffAtCheckpoint returns false", async () => {
-      const events: AssistantEvent[] = [];
-
-      // The tool turn reaches a checkpoint, but with handoff disabled the loop
-      // continues to the next turn and completes normally.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("tu-1", "file_read", {}),
-          textResponse("done"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "content", isError: false }),
-        canHandoffAtCheckpoint: () => false,
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      const handoff = events.find((e) => e.type === "generation_handoff");
-      expect(handoff).toBeUndefined();
-      expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
-        "test-conv",
-        "checkpoint_handoff",
-      );
-      const complete = events.find((e) => e.type === "message_complete");
-      expect(complete).toBeDefined();
-    });
-  });
-
   describe("user cancellation", () => {
     test("emits generation_cancelled when abort signal fires", async () => {
       const events: AssistantEvent[] = [];
@@ -3238,30 +3090,12 @@ describe("session-agent-loop", () => {
       );
     });
 
-    test("drains queue after completion", async () => {
-      // GIVEN a real loop that answers in a single text turn
-      let drainReason: QueueDrainReason | undefined;
-      const ctx = makeCtx({
-        providerResponses: [textResponse("ok")],
-        drainQueue: async (reason?: QueueDrainReason) => {
-          drainReason = reason;
-        },
-      });
-
-      // WHEN the orchestrator runs the turn to completion
-      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
-
-      // THEN the queue is drained with the loop-complete reason
-      expect(drainReason).toBe("loop_complete");
-    });
-
     test("abort watchdog drives a wedged turn to its finally", async () => {
       // GIVEN a provider whose call wedges: it acknowledges the user cancel
       // (aborts the signal) but its promise never settles and never observes
       // the signal — the exact condition that latched `processing` true.
       const events: AssistantEvent[] = [];
       const abortController = new AbortController();
-      let drainReason: string | undefined;
       // The provider's call wedges on this promise. It settles only on test
       // teardown so the abandoned `run()` can unwind cleanly instead of leaking
       // background work (e.g. partial-persist debounce timers) into later tests.
@@ -3283,9 +3117,6 @@ describe("session-agent-loop", () => {
         abortController,
         // Fire the watchdog quickly instead of the ~45s production default.
         abortWatchdogMs: 30,
-        drainQueue: async (reason?: QueueDrainReason) => {
-          drainReason = reason;
-        },
       });
 
       try {
@@ -3293,11 +3124,10 @@ describe("session-agent-loop", () => {
         await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
 
         // THEN the watchdog forces the turn to its finally: processing clears,
-        // the abort controller is torn down, the queue drains, and the user
-        // sees a cancellation (not an error).
+        // the abort controller is torn down, and the user sees a cancellation
+        // (not an error).
         expect(ctx.isProcessing()).toBe(false);
         expect(ctx.abortController).toBeNull();
-        expect(drainReason).toBe("loop_complete");
         expect(
           events.find((e) => e.type === "generation_cancelled"),
         ).toBeDefined();
@@ -4080,29 +3910,23 @@ describe("session-agent-loop", () => {
         return { indexedSegments: 0, enqueuedJobs: 0 };
       });
 
-      const drainReasons: string[] = [];
       const ctx = makeCtx({
         providerResponses: [textResponse("first"), textResponse("second")],
-        drainQueue: async (reason?: string) => {
-          drainReasons.push(reason ?? "loop_complete");
-        },
       });
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
       // The tail is still parked inside the indexer…
       expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
-      // …yet the conversation is already released and the queue already
-      // kicked, so a send arriving now runs instead of being queued.
+      // …yet the conversation is already released, so a send arriving now
+      // runs instead of waiting.
       expect(ctx.isProcessing()).toBe(false);
-      expect(drainReasons).toEqual(["loop_complete"]);
 
       // A follow-up turn runs to completion against the still-hung tail.
       ctx.abortController = new AbortController();
       ctx.setProcessing(true);
       await runAgentLoopImpl(ctx, "again", "msg-2", () => {});
       expect(ctx.isProcessing()).toBe(false);
-      expect(drainReasons).toEqual(["loop_complete", "loop_complete"]);
 
       // The second turn's tail is chained behind the first, so it has not run
       // its own indexing yet.
@@ -4113,18 +3937,14 @@ describe("session-agent-loop", () => {
       expect(indexMessageNowMock).toHaveBeenCalledTimes(2);
     });
 
-    test("a throwing tail effect neither latches the lock nor skips the drain", async () => {
+    test("a throwing tail effect does not latch the lock", async () => {
       mockMessageById = reservedAssistantRow;
       indexMessageNowMock.mockImplementationOnce(async () => {
         throw new Error("indexer exploded");
       });
 
-      const drainReasons: string[] = [];
       const ctx = makeCtx({
         providerResponses: [textResponse("first")],
-        drainQueue: async (reason?: string) => {
-          drainReasons.push(reason ?? "loop_complete");
-        },
       });
 
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
@@ -4133,48 +3953,8 @@ describe("session-agent-loop", () => {
       await settleTurnTail(ctx.conversationId);
 
       expect(ctx.isProcessing()).toBe(false);
-      expect(drainReasons).toEqual(["loop_complete"]);
       // The tail continued past the failure: attention projection still ran.
       expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
-    });
-
-    test("the queue drain waits for the turn-boundary commit", async () => {
-      // `commitTurnChanges` attributes the working tree's changes to the turn
-      // that just finished, so a queued turn must not start writing files
-      // while it runs. The lock release above frees direct sends immediately;
-      // the drain is what has to wait.
-      let commitReached: (() => void) | undefined;
-      const commitStarted = new Promise<void>((resolve) => {
-        commitReached = resolve;
-      });
-      let releaseCommit: (() => void) | undefined;
-      const commitHangs = new Promise<void>((resolve) => {
-        releaseCommit = resolve;
-      });
-
-      const drainReasons: string[] = [];
-      const ctx = makeCtx({
-        providerResponses: [textResponse("first")],
-        commitTurnChanges: async () => {
-          commitReached?.();
-          await commitHangs;
-        },
-        drainQueue: async (reason?: string) => {
-          drainReasons.push(reason ?? "loop_complete");
-        },
-      });
-
-      const loop = runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
-      await commitStarted;
-
-      // Released for direct sends…
-      expect(ctx.isProcessing()).toBe(false);
-      // …but the queue is untouched until the commit settles.
-      expect(drainReasons).toEqual([]);
-
-      releaseCommit?.();
-      await loop;
-      expect(drainReasons).toEqual(["loop_complete"]);
     });
   });
 

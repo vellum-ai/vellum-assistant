@@ -92,7 +92,7 @@ export interface TurnEvent {
    * by the user (onboarding research prompt, personality `<system-message>`,
    * research corrections, kickoff greetings, legacy pre-chat bootstrap,
    * `[User action on ...]` surface synthetics). Sourced from
-   * `messages.metadata.scripted`, stamped by `persistQueuedMessageBody`.
+   * `messages.metadata.scripted`, stamped by `persistUserMessageBody`.
    *
    * Null ONLY for rows persisted before the field existed: scriptedness is
    * unknown for those, which downstream must not conflate with `false`.

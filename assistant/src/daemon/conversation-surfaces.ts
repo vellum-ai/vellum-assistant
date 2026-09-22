@@ -64,8 +64,12 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import type { Conversation } from "./conversation.js";
+import { AdmissionOverflowError } from "./conversation-admission.js";
+import { isConversationBusyError } from "./conversation-busy-error.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
+import type { SubmitOutcome } from "./conversation-submit.js";
+import { submitUserTurn } from "./conversation-submit.js";
 import {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -1884,18 +1888,19 @@ function maybeEmitActivationMoment(ctx: Conversation, surfaceId: string): void {
   recordActivationMoment(ctx, moment);
 }
 
-/** The action result for an enqueue the message queue refused. */
-const QUEUE_FULL_RESULT: SurfaceActionResult = {
+/** The action result for a click the conversation cannot take another send for. */
+const BUSY_RESULT: SurfaceActionResult = {
   accepted: false,
-  error: "queue_full",
+  error: "busy",
 };
 
 /**
- * Record a surface action the message queue refused.
+ * Record a surface action refused because the conversation already holds the
+ * maximum number of waiting sends.
  *
  * The rejection reaches the client as a failed submit, so the card stays
  * answerable and nothing is marked completed. Nothing else on this path logs,
- * so without this a saturated queue leaves no trace of which actions it
+ * so without this a saturated conversation leaves no trace of which actions it
  * turned away.
  */
 function logSurfaceActionRejected(
@@ -1903,6 +1908,7 @@ function logSurfaceActionRejected(
   surfaceId: string,
   actionId: string,
   surfaceType: string | undefined,
+  pending: number,
 ): void {
   log.warn(
     {
@@ -1910,9 +1916,9 @@ function logSurfaceActionRejected(
       surfaceId,
       actionId,
       surfaceType,
-      queueDepth: ctx.getQueueDepth(),
+      pending,
     },
-    "Surface action rejected by the message queue",
+    "Surface action refused: the conversation already has the maximum number of sends waiting",
   );
 }
 
@@ -1934,8 +1940,8 @@ const ONE_SHOT_SURFACE_TYPES = [
  * `_completeSurface` request out of the raw action data.
  *
  * Called from both `handleSurfaceAction` branches, one holding a pending entry
- * and one with none, always after `enqueueMessage` accepted the turn so a
- * rejected enqueue leaves the surface answerable. Persists first and broadcasts
+ * and one with none, always after the send was accepted so a refused send
+ * leaves the surface answerable. Persists first and broadcasts
  * `ui_surface_complete` only once that write is known not to have failed: a
  * client must not render a card the next history reseed reverts.
  *
@@ -2320,33 +2326,52 @@ export async function handleSurfaceAction(
     const onEvent = (msg: AssistantEvent) =>
       broadcastMessage(msg, ctx.conversationId);
 
-    const result = ctx.enqueueMessage({
-      content,
-      attachments,
-      onEvent,
-      requestId,
-      activeSurfaceId: surfaceId,
-      displayContent,
-      sourceActorPrincipalId,
-      trustContext: actionTrustContext,
-      isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
-      // Rides the metadata bag rather than a typed option: the queue
-      // round-trips `metadata` but not `PersistMessageOptions`.
-      metadata: { scripted: isSyntheticSurfaceActionContent(content) },
-    });
-
-    if (result.rejected) {
+    // A click is a user decision, the same as typing, so a busy conversation
+    // is interrupted for it wherever the click is eligible to. Submitted
+    // before the completion bookkeeping below so a refused send leaves the
+    // card answerable.
+    let outcome: SubmitOutcome;
+    try {
+      outcome = await submitUserTurn(ctx, {
+        callerActorPrincipalId: sourceActorPrincipalId,
+        origin: "surface_action:history_restored",
+        onEvent,
+        requestId,
+        run: () =>
+          runSurfaceActionTurn(ctx, {
+            content,
+            attachments,
+            onEvent,
+            requestId,
+            surfaceId,
+            displayContent,
+            sourceActorPrincipalId,
+            actionTrustContext,
+            actionId,
+            failureLabel: "history-restored surface action",
+          }),
+      });
+    } catch (err) {
       ctx.surfaceActionRequestIds.delete(requestId);
-      logSurfaceActionRejected(ctx, surfaceId, actionId, stored?.surfaceType);
-      return QUEUE_FULL_RESULT;
+      if (err instanceof AdmissionOverflowError) {
+        logSurfaceActionRejected(
+          ctx,
+          surfaceId,
+          actionId,
+          stored?.surfaceType,
+          err.pending,
+        );
+        return BUSY_RESULT;
+      }
+      throw err;
     }
 
     acceptModeSessionSurfaceResponse(ctx, requestId, surfaceId);
 
-    // Terminal user commit accepted — record the activation milestone if this
+    // Terminal user commit accepted: record the activation milestone if this
     // surface was tagged (best-effort, no-op otherwise). Deferred until after
-    // the rejection check so a queue-full click doesn't over-report a moment
-    // (and the one-shot tag stays intact for the user's retry).
+    // the rejection check so a refused click doesn't over-report a moment (and
+    // the one-shot tag stays intact for the user's retry).
     maybeEmitActivationMoment(ctx, surfaceId);
 
     maybeCompleteSurfaceAfterAction(ctx, surfaceId, actionId, mergedData, {
@@ -2373,50 +2398,16 @@ export async function handleSurfaceAction(
       });
     }
 
-    if (result.queued) {
-      log.info(
-        { surfaceId, actionId, requestId },
-        "Surface action queued (conversation busy, history-restored)",
-      );
-      return;
-    }
-
-    // Conversation is idle — process the message immediately.
     log.info(
-      { surfaceId, actionId, requestId, attachmentCount: attachments.length },
-      "Processing surface action immediately (history-restored) with attachments",
-    );
-    ctx
-      .processMessage({
-        content,
-        attachments,
-        onEvent,
+      {
+        surfaceId,
+        actionId,
         requestId,
-        activeSurfaceId: surfaceId,
-        displayContent,
-        sourceActorPrincipalId,
-        // Reached only when `enqueueMessage` declined to queue: the click is
-        // starting this turn, so it is the actor the run belongs to.
-        trustContext: actionTrustContext,
-        isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
-        scripted: isSyntheticSurfaceActionContent(content),
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(
-          { err, surfaceId, actionId },
-          "Failed to process history-restored surface action",
-        );
-        onEvent(
-          buildConversationErrorMessage(ctx.conversationId, {
-            code: "CONVERSATION_PROCESSING_FAILED",
-            userMessage: `Something went wrong: ${message}`,
-            retryable: false,
-            debugDetails: `History-restored surface action processing failed: ${message}`,
-            errorCategory: "processing_failed",
-          }),
-        );
-      });
+        outcome,
+        attachmentCount: attachments.length,
+      },
+      "Surface action submitted (history-restored)",
+    );
     return;
   }
   const retainPending = pending.surfaceType === "dynamic_page";
@@ -2577,31 +2568,49 @@ export async function handleSurfaceAction(
     "Surface action follow-up: preparing to send message to model",
   );
 
-  const result = ctx.enqueueMessage({
-    content,
-    attachments: pendingAttachments,
-    onEvent,
-    requestId,
-    activeSurfaceId: surfaceId,
-    displayContent,
-    sourceActorPrincipalId,
-    trustContext: actionTrustContext,
-    isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
-    // Rides the metadata bag rather than a typed option: the queue
-    // round-trips `metadata` but not `PersistMessageOptions`.
-    metadata: { scripted: isSyntheticSurfaceActionContent(content) },
-  });
-  if (result.rejected) {
+  // Same rule as the history-restored branch: a click interrupts a busy
+  // conversation wherever it is eligible to, and waits for idle otherwise.
+  let outcome: SubmitOutcome;
+  try {
+    outcome = await submitUserTurn(ctx, {
+      callerActorPrincipalId: sourceActorPrincipalId,
+      origin: "surface_action:follow_up",
+      onEvent,
+      requestId,
+      run: () =>
+        runSurfaceActionTurn(ctx, {
+          content,
+          attachments: pendingAttachments,
+          onEvent,
+          requestId,
+          surfaceId,
+          displayContent,
+          sourceActorPrincipalId,
+          actionTrustContext,
+          actionId,
+          failureLabel: "surface action",
+        }),
+    });
+  } catch (err) {
     ctx.surfaceActionRequestIds.delete(requestId);
-    logSurfaceActionRejected(ctx, surfaceId, actionId, pending.surfaceType);
-    return QUEUE_FULL_RESULT;
+    if (err instanceof AdmissionOverflowError) {
+      logSurfaceActionRejected(
+        ctx,
+        surfaceId,
+        actionId,
+        pending.surfaceType,
+        err.pending,
+      );
+      return BUSY_RESULT;
+    }
+    throw err;
   }
 
   acceptModeSessionSurfaceResponse(ctx, requestId, surfaceId);
 
-  // Terminal user commit accepted — record the activation milestone if this
+  // Terminal user commit accepted: record the activation milestone if this
   // surface was tagged (best-effort, no-op otherwise). Deferred until after the
-  // rejection check so a queue-full click doesn't over-report a moment (and the
+  // rejection check so a refused click doesn't over-report a moment (and the
   // one-shot tag stays intact for the user's retry).
   maybeEmitActivationMoment(ctx, surfaceId);
 
@@ -2628,19 +2637,6 @@ export async function handleSurfaceAction(
       modeSession: ctx.modeSessions.getTurnOwner(requestId),
     });
   }
-  if (result.queued) {
-    if (!retainPending) {
-      ctx.pendingSurfaceActions.delete(surfaceId);
-    }
-    // `enqueueMessage` already acked the queued row on `onEvent` with its
-    // `message_queued` event; nothing more to broadcast here.
-    log.info(
-      { surfaceId, actionId, requestId },
-      "Surface action queued (conversation busy)",
-    );
-    return;
-  }
-
   if (!retainPending) {
     ctx.pendingSurfaceActions.delete(surfaceId);
   }
@@ -2649,37 +2645,69 @@ export async function handleSurfaceAction(
       surfaceId,
       actionId,
       requestId,
+      outcome,
       attachmentCount: pendingAttachments.length,
     },
-    "Processing surface action as follow-up with attachments",
+    "Surface action submitted as follow-up",
   );
-  ctx
-    .processMessage({
-      content,
-      attachments: pendingAttachments,
-      onEvent,
-      requestId,
-      activeSurfaceId: surfaceId,
-      displayContent,
-      sourceActorPrincipalId,
-      // Same as the history-restored branch: the enqueue declined, so this
-      // click is the turn about to run.
-      trustContext: actionTrustContext,
+}
+
+/**
+ * The turn a surface action starts once the conversation is free to take it.
+ *
+ * Shared by both action branches and by every submit outcome, so a click that
+ * ran at once and a click that waited for the conversation start the same
+ * turn, under the clicking actor's trust.
+ */
+async function runSurfaceActionTurn(
+  ctx: Conversation,
+  params: {
+    content: string;
+    attachments: UserMessageAttachment[];
+    onEvent: (msg: AssistantEvent) => void;
+    requestId: string;
+    surfaceId: string;
+    displayContent: string | undefined;
+    sourceActorPrincipalId: string | undefined;
+    actionTrustContext: TrustContext | undefined;
+    actionId: string;
+    failureLabel: string;
+  },
+): Promise<void> {
+  try {
+    await ctx.processMessage({
+      content: params.content,
+      attachments: params.attachments,
+      onEvent: params.onEvent,
+      requestId: params.requestId,
+      activeSurfaceId: params.surfaceId,
+      displayContent: params.displayContent,
+      sourceActorPrincipalId: params.sourceActorPrincipalId,
+      trustContext: params.actionTrustContext,
       isInteractive: SURFACE_ACTION_TURN_IS_INTERACTIVE,
-      scripted: isSyntheticSurfaceActionContent(content),
-    })
-    .catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(
-        { err, surfaceId, actionId },
-        "Error processing surface action",
-      );
-      onEvent({
-        type: "error",
-        conversationId: ctx.conversationId,
-        message: `Failed to process surface action: ${message}`,
-      });
+      scripted: isSyntheticSurfaceActionContent(params.content),
     });
+  } catch (err) {
+    if (isConversationBusyError(err)) {
+      // Another claimant took the lock. Rethrown so the submit defers the
+      // click rather than reporting it as a failure to the card.
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, surfaceId: params.surfaceId, actionId: params.actionId },
+      `Failed to process ${params.failureLabel}`,
+    );
+    params.onEvent(
+      buildConversationErrorMessage(ctx.conversationId, {
+        code: "CONVERSATION_PROCESSING_FAILED",
+        userMessage: `Something went wrong: ${message}`,
+        retryable: false,
+        debugDetails: `${params.failureLabel} processing failed: ${message}`,
+        errorCategory: "processing_failed",
+      }),
+    );
+  }
 }
 
 /**

@@ -2,10 +2,6 @@
  * Interrupt the turn a conversation is running so a message that just arrived
  * can be delivered at once.
  *
- * Gated on `interrupt-on-send`. Off, a message sent while the assistant is
- * busy goes on the conversation's queue and runs when the current turn ends;
- * on, it stops the turn in flight and takes its place.
- *
  * The helper covers everything between "a message arrived for a busy
  * conversation" and "the conversation is idle and the ordinary send path can
  * run". Both ingress paths (the HTTP send route and the CLI signal) call it
@@ -14,7 +10,6 @@
  * third one for interrupts.
  */
 
-import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { supersedePendingSecrets } from "../runtime/pending-interactions.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -35,14 +30,13 @@ const log = getLogger("conversation-interrupt");
  *
  * - `released`: the running turn is over and the conversation is idle. The
  *   caller starts the new message's turn on the ordinary idle path.
- * - `declined`: this send must not interrupt (the flag is off, the send is a
- *   hidden machine signal, or the sender is not the actor running the turn).
- *   The caller queues it, which is what the flag-off path does with every
- *   send.
+ * - `declined`: this send must not interrupt (the send is a hidden machine
+ *   signal, or the sender is not the actor running the turn). The caller
+ *   defers it until the conversation is idle.
  * - `busy`: the conversation cannot be handed over. The lock is held by
  *   something that is not an abortable turn, or the interrupted turn never let
  *   go of it inside the abort budget, or another waiter took it as that turn
- *   released, or the history repair could not be persisted. The caller queues
+ *   released, or the history repair could not be persisted. The caller defers
  *   the message so it still runs, rather than racing a live holder or writing
  *   a user row onto a broken history.
  */
@@ -51,13 +45,11 @@ export type InterruptOutcome = "released" | "declined" | "busy";
 /**
  * Whether this sender may interrupt the turn that is running.
  *
- * Same rule the queue's `mayActOnQueuedMessage` applies to cancelling and
- * steering another actor's queued message, read against the running turn's
- * requester instead: the actor whose turn it is may cut it short, and so may a
- * caller with no actor principal, who is the guardian by the convention the
- * routes layer follows (local/IPC and service principals carry none). Any
- * other actor's message queues, because stopping a turn somebody else is
- * watching is not theirs to do.
+ * The actor whose turn it is may cut it short, and so may a caller with no
+ * actor principal, who is the guardian by the convention the routes layer
+ * follows (local/IPC and service principals carry none). Any other actor's
+ * message waits for idle, because stopping a turn somebody else is watching is
+ * not theirs to do.
  */
 export function mayInterruptRunningTurn(
   conversation: Conversation,
@@ -86,7 +78,7 @@ export interface InterruptOptions {
  * Stop the running turn and leave the conversation ready for the new message.
  *
  * Only an abortable agent turn is interruptible. Every other hold on the
- * processing flag answers `busy`, and the message queues behind it.
+ * processing flag answers `busy`, and the message waits behind it.
  *
  * Sequence, and why it is this order:
  *
@@ -95,11 +87,10 @@ export interface InterruptOptions {
  *     is settled by the abort below), so the turn unwinds immediately instead
  *     of sitting on a prompt nobody is going to answer.
  *  2. Abort the turn with `preempted_by_new_message`, straight at the
- *     controller rather than through `abortConversation`: that path treats a
- *     non-interrupt abort as a teardown and discards the queue, and the queue
- *     may still hold another actor's messages that this send has no business
- *     dropping. Background subagents keep running for the same reason a steer
- *     leaves them alone: the new turn's model decides what to do about them.
+ *     controller rather than through `abortConversation`, which carries
+ *     teardown semantics this send has no business applying. Background
+ *     subagents keep running: the new turn's model decides what to do about
+ *     them.
  *  3. Wait for the turn's own `finally` to release the processing lock, under
  *     the abort watchdog's budget, and then for the finalization barrier that
  *     covers the turn-boundary commit, which runs after that release and would
@@ -121,13 +112,11 @@ export interface InterruptOptions {
 /**
  * Why a send may or may not stop the turn a conversation is running.
  *
- * `eligible` is the only value that interrupts; every other value takes the
- * queue, exactly as the flag-off path does.
+ * `eligible` is the only value that interrupts; every other value defers the
+ * send until the conversation is idle.
  */
 export type InterruptEligibility =
   | "eligible"
-  /** The `interrupt-on-send` flag is off for this install. */
-  | "flag_off"
   /**
    * A hidden send is a machine signal (proactive-greeting priming, the
    * channel-setup wizard close), not a user deciding to move on, which is the
@@ -163,9 +152,6 @@ export function classifyInterruptEligibility(
   conversation: Conversation,
   options: InterruptOptions,
 ): InterruptEligibility {
-  if (!isInterruptOnSendEnabled()) {
-    return "flag_off";
-  }
   if (options.hidden === true) {
     return "hidden";
   }
@@ -193,14 +179,14 @@ export async function interruptRunningTurn(
         origin: options.origin,
         callerActorPrincipalId: options.callerActorPrincipalId,
       },
-      "Refusing to interrupt a turn started by a different actor principal; queueing instead",
+      "Refusing to interrupt a turn started by a different actor principal; deferring instead",
     );
     return "declined";
   }
   if (eligibility === "no_abortable_turn") {
     log.info(
       { conversationId: conversation.conversationId, origin: options.origin },
-      "Processing is held with no abortable turn behind it; queueing the message instead of interrupting",
+      "Processing is held with no abortable turn behind it; deferring the message instead of interrupting",
     );
     // Not `declined`: the caller must not treat this as "the feature is off",
     // because the lock really is held and the message really must wait.
@@ -211,12 +197,12 @@ export async function interruptRunningTurn(
   }
   // Captured rather than read again at the abort below: the turn can tear its
   // controller down between the classification and here, and a send that finds
-  // nothing to abort must queue rather than proceed as if it had stopped one.
+  // nothing to abort must defer rather than proceed as if it had stopped one.
   const abortController = conversation.abortController;
   if (!abortController) {
     log.info(
       { conversationId: conversation.conversationId, origin: options.origin },
-      "The running turn released its abort controller before the interrupt could use it; queueing the message instead",
+      "The running turn released its abort controller before the interrupt could use it; deferring the message instead",
     );
     return "busy";
   }
@@ -259,7 +245,7 @@ export async function interruptRunningTurn(
   if (!released) {
     log.warn(
       { conversationId: conversation.conversationId, origin: options.origin },
-      "Interrupted turn did not release the processing lock within the abort budget; queueing the message instead",
+      "Interrupted turn did not release the processing lock within the abort budget; deferring the message instead",
     );
     return "busy";
   }
@@ -268,8 +254,8 @@ export async function interruptRunningTurn(
   // turn-boundary commit runs. That commit attributes the working tree to the
   // turn that just ended, so a replacement turn that started writing files
   // while it was preparing would have those writes swept into the wrong
-  // commit. The barrier closes once the commit is done. The queue drain gets
-  // the same ordering from sitting inside the loop's own `finally`.
+  // commit. The barrier closes once the commit is done. A deferred send gets
+  // the same ordering from `runWhenConversationIdle`.
   const finalizationBudgetMs = resolveTurnCommitWaitMs(
     getConfigReadOnly().workspaceGit?.turnCommitMaxWaitMs,
   );
@@ -284,7 +270,7 @@ export async function interruptRunningTurn(
         origin: options.origin,
         finalizationBudgetMs,
       },
-      "Interrupted turn is still finalizing after the commit budget; queueing the message instead",
+      "Interrupted turn is still finalizing after the commit budget; deferring the message instead",
     );
     return "busy";
   }
@@ -303,14 +289,14 @@ export async function interruptRunningTurn(
   } catch (err) {
     log.warn(
       { err, conversationId: conversation.conversationId },
-      "Could not claim the processing lock after the interrupt; queueing the message instead",
+      "Could not claim the processing lock after the interrupt; deferring the message instead",
     );
     return "busy";
   }
   if (owner === null) {
     log.info(
       { conversationId: conversation.conversationId, origin: options.origin },
-      "Another waiter took the processing lock as the interrupted turn released it; queueing the message instead",
+      "Another waiter took the processing lock as the interrupted turn released it; deferring the message instead",
     );
     return "busy";
   }
@@ -318,22 +304,21 @@ export async function interruptRunningTurn(
   let repaired = false;
   try {
     await repairInterruptedToolUseBlocks(conversation, {
-      force: true,
       requireDurable: true,
     });
     repaired = true;
   } catch (err) {
     // The repair row is not durable, so the caller must not write the
-    // interrupting user row after it. Queue the message instead: it runs on
-    // the next drain, against an unchanged history.
+    // interrupting user row after it. Defer the message instead: it runs when
+    // the conversation is idle, against an unchanged history.
     log.warn(
       { err, conversationId: conversation.conversationId },
-      "Could not persist the interrupt's tool_result repair; queueing the message instead",
+      "Could not persist the interrupt's tool_result repair; deferring the message instead",
     );
   } finally {
     // The caller takes its own claim for the turn it starts, and loses the
     // same race to a competing waiter the same way any idle send does: its
-    // persist raises the busy error, which the send path answers by queueing.
+    // persist raises the busy error, which the send path answers by deferring.
     conversation.releaseProcessing(owner);
   }
   if (!repaired) {
@@ -342,8 +327,7 @@ export async function interruptRunningTurn(
 
   // Arm the `thinking` / `message_interrupted` transition that tells clients the
   // conversation is working again, so the composer's indicator picks straight
-  // back up: the same job `message_dequeued` does at the head of a drained turn.
-  // The agent loop emits it at the head of the replacement turn rather than
+  // back up. The agent loop emits it at the head of the replacement turn rather than
   // this path emitting it now, because the caller can still fail between here
   // and that turn, and an activity state is cached and replayed to reconnecting
   // clients. Emitted here, such a failure would leave every client showing a

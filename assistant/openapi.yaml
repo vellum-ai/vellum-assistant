@@ -22578,13 +22578,6 @@ paths:
                           additionalProperties: false
                         deletedAt:
                           type: number
-                        queueStatus:
-                          type: string
-                          enum:
-                            - queued
-                            - processing
-                        queuePosition:
-                          type: number
                       required:
                         - id
                         - role
@@ -22943,10 +22936,9 @@ paths:
                   description:
                     "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
                     and still drives the turn). Used for machine signals the user never typed (proactive-greeting
-                    priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that
-                    lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
-                    snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
-                    path only — slash-command content bypasses it."
+                    priming, channel-setup wizard close). A hidden send never interrupts a turn in flight: it waits
+                    until the conversation is idle, emits no echo, and does not supersede pending interactions. Honored
+                    on the standard send path only, slash-command content bypasses it."
                   type: boolean
                 scripted:
                   description:
@@ -23037,8 +23029,6 @@ paths:
                     type: string
                   messageId:
                     type: string
-                  queued:
-                    type: boolean
                   requestId:
                     type: string
                 required:
@@ -23701,60 +23691,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/messages/queued/{id}:
-    delete:
-      operationId: messages_queued_by_id_delete
-      summary: Delete a queued message
-      description:
-        Remove a pending message from the conversation queue before it is processed. Broadcasts
-        `message_queued_deleted` so every client can close out the pending row.
-      tags:
-        - messages
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Conversation ID (required)
-      responses:
-        "200":
-          description: Successful response
-        "403":
-          description: The queued message was enqueued by a different actor principal.
-        "404":
-          description: Conversation or queued message not found.
-  /v1/messages/queued/{id}/steer:
-    post:
-      operationId: messages_queued_by_id_steer_post
-      summary: Steer to a queued message
-      description: Promote a queued message to the head of the queue and abort the current generation so it is processed next.
-      tags:
-        - messages
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Conversation ID (required)
-      responses:
-        "200":
-          description: Successful response
-        "403":
-          description: The queued message was enqueued by a different actor principal.
-        "404":
-          description: Conversation or queued message not found.
   /v1/migrations/export:
     post:
       operationId: migrations_export_post

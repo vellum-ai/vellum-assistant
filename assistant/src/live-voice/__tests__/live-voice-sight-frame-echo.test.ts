@@ -215,12 +215,12 @@ describe("standalone image echoes", () => {
     "$kind preserves its echo marker when a committed write throws (deferred: $deferred)",
     async ({ kind, deferred }) => {
       const harness = createHarness();
-      const realPersist = conversationMessaging.persistQueuedMessageBody;
+      const realPersist = conversationMessaging.persistUserMessageBody;
       const realGetMessage = conversationCrud.getMessageById;
       let committed = false;
       const persist = spyOn(
         conversationMessaging,
-        "persistQueuedMessageBody",
+        "persistUserMessageBody",
       ).mockImplementation(async (...args) => {
         await realPersist(...args);
         committed = true;

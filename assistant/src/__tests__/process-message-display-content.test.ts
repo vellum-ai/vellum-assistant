@@ -144,8 +144,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
-import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
@@ -155,11 +154,6 @@ function makeTestConversation() {
   const messages: Message[] = [];
   let turnChannelContext: TurnChannelContext | null = null;
   let turnInterfaceContext: TurnInterfaceContext | null = null;
-  const queueStub = {
-    push: () => true,
-    drain: () => [],
-    size: () => 0,
-  } as unknown as MessageQueue;
   let processing = false;
   let owner = 0;
   const messagingCtx: MessagingConversationContext = {
@@ -185,7 +179,6 @@ function makeTestConversation() {
       return true;
     },
     abortController: null,
-    queue: queueStub,
     getTurnChannelContext: () => turnChannelContext,
     getTurnInterfaceContext: () => turnInterfaceContext,
   };
@@ -247,7 +240,7 @@ function makeTestConversation() {
       clientMessageId?: string;
       skipIndexing?: boolean;
     }) =>
-      persistQueuedMessageBody(messagingCtx, {
+      persistUserMessageBody(messagingCtx, {
         ...options,
         requestId: options.requestId ?? "req-display-content",
       }),

@@ -12,8 +12,8 @@
  * is persisted (e.g. surface-action prompts). `clientMessageId` is the
  * client-generated correlation nonce from the HTTP POST body, echoed
  * back so the originating client can dedupe even if the echo beats the
- * 202 response. `requestId` correlates with `message_queued` /
- * `message_dequeued` for the same turn.
+ * 202 response. `requestId` correlates the echo with the send that
+ * produced it.
  *
  * `cameraFrame` is present only on standalone ambient camera-frame echoes,
  * before `sync_changed` refetches hydrate their images. Photos and spoken

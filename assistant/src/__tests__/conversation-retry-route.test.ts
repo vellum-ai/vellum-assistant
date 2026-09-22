@@ -334,7 +334,7 @@ describe("POST /v1/conversations/:id/retry", () => {
     expect(ctx.loadFromDb).toHaveBeenCalledTimes(1);
     expect(ctx.emitActivityState).toHaveBeenCalledWith(
       "thinking",
-      "message_dequeued",
+      "message_retried",
       expect.objectContaining({ requestId: expect.any(String) }),
     );
     expect(ctx.runAgentLoop).toHaveBeenCalledTimes(1);

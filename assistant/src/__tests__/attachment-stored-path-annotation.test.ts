@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { reinjectAttachmentPathAnnotations } from "../daemon/conversation-lifecycle.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -55,7 +55,7 @@ function lastAnnotationBlock(ctx: MessagingConversationContext): {
   };
 }
 
-describe("persistQueuedMessageBody stored path annotations", () => {
+describe("persistUserMessageBody stored path annotations", () => {
   beforeEach(resetTables);
 
   test("same-named re-upload annotates the resolved -2 path", async () => {
@@ -63,13 +63,13 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     const ctx = makeCtx(conv.id);
 
     // "aGVsbG8=" = "hello", "d29ybGQ=" = "world"
-    const first = await persistQueuedMessageBody(ctx, {
+    const first = await persistUserMessageBody(ctx, {
       content: "here is my file",
       attachments: [
         { filename: "report.csv", mimeType: "text/csv", data: "aGVsbG8=" },
       ],
     });
-    const second = await persistQueuedMessageBody(ctx, {
+    const second = await persistUserMessageBody(ctx, {
       content: "I edited it, take another look",
       attachments: [
         { filename: "report.csv", mimeType: "text/csv", data: "d29ybGQ=" },
@@ -125,7 +125,7 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     const ctx = makeCtx(conv.id);
     const original = "x".repeat(8_000_001);
 
-    await persistQueuedMessageBody(ctx, { content: original });
+    await persistUserMessageBody(ctx, { content: original });
 
     const row = rawGet<{ metadata: string; content: string }>(
       "test:offloadMessage",
@@ -160,8 +160,8 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     const conv = createConversation();
     const ctx = makeCtx(conv.id);
 
-    await persistQueuedMessageBody(ctx, { content: "a".repeat(8_000_001) });
-    await persistQueuedMessageBody(ctx, { content: "b".repeat(8_000_001) });
+    await persistUserMessageBody(ctx, { content: "a".repeat(8_000_001) });
+    await persistUserMessageBody(ctx, { content: "b".repeat(8_000_001) });
 
     const first = (ctx.messages[0].content as ContentBlock[]).at(-1) as {
       text: string;
@@ -179,7 +179,7 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     const ctx = makeCtx(conv.id);
     const display = "y".repeat(8_000_001);
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "fenced model copy",
       displayContent: display,
     });
@@ -203,7 +203,7 @@ describe("persistQueuedMessageBody stored path annotations", () => {
     const conv = createConversation();
     const ctx = makeCtx(conv.id);
 
-    await persistQueuedMessageBody(ctx, { content: "just text" });
+    await persistUserMessageBody(ctx, { content: "just text" });
 
     expect(ctx.messages).toHaveLength(1);
     const content = ctx.messages[0].content as ContentBlock[];

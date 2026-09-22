@@ -147,13 +147,11 @@ function resetProcessHarness(): void {
 
 interface HarnessContext extends Conversation {
   sent: AssistantEvent[];
-  enqueueCalls: Array<{ content: string }>;
   processCalls: Array<{ content: string }>;
 }
 
 function makeContext(overrides?: Partial<Conversation>): HarnessContext {
   const sent: AssistantEvent[] = [];
-  const enqueueCalls: Array<{ content: string }> = [];
   const processCalls: Array<{ content: string }> = [];
 
   const base = asConversation({
@@ -170,12 +168,7 @@ function makeContext(overrides?: Partial<Conversation>): HarnessContext {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (options) => {
-      enqueueCalls.push({ content: options.content });
-      return { queued: false, requestId: "enq-req" };
-    },
-    getQueueDepth: () => 0,
-    processMessage: async (options) => {
+    processMessage: async (options: { content: string }) => {
       processCalls.push({ content: options.content });
       return "ok";
     },
@@ -185,7 +178,6 @@ function makeContext(overrides?: Partial<Conversation>): HarnessContext {
 
   return Object.assign(base, {
     sent,
-    enqueueCalls,
     processCalls,
   }) as HarnessContext;
 }
@@ -289,7 +281,6 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
 
     // 5. No chat message side effect on the origin conversation — neither
     //    the LLM pipeline nor the `[User action on app: ...]` text echo.
-    expect(ctx.enqueueCalls).toHaveLength(0);
     expect(ctx.processCalls).toHaveLength(0);
     const anyUserActionEcho = ctx.sent.some(
       (msg) =>
@@ -333,10 +324,10 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
       error: "missing_title_or_seedPrompt",
     });
 
-    // No launch-side effects in any of the failed validations — no events,
-    // no queued origin-conversation messages.
+    // No launch-side effects in any of the failed validations: no events, no
+    // origin-conversation messages.
     expect(publishCalls).toHaveLength(0);
-    expect(ctx.enqueueCalls).toHaveLength(0);
+    expect(ctx.processCalls).toHaveLength(0);
   });
 
   test("omits originTrustContext when origin conversation has none", async () => {
@@ -469,11 +460,11 @@ describe("handleSurfaceAction — launch_conversation dispatch", () => {
     expect(openEvents[0].message.conversationId).toBe("conv-pending-set");
     expect(openEvents[0].message.focus).toBe(false);
 
-    // Critical: NO message was enqueued onto the origin conversation. If the
+    // Critical: NO message was sent onto the origin conversation. If the
     // launch dispatch had fallen through to the pending path, the
-    // `[User action on card surface: ...]` text would have been enqueued and
-    // an LLM turn would have started.
-    expect(ctx.enqueueCalls).toHaveLength(0);
+    // `[User action on card surface: ...]` text would have started an LLM
+    // turn.
+    expect(ctx.processCalls).toHaveLength(0);
 
     // Pending entry was deleted so subsequent sibling clicks on the same
     // persistent card aren't blocked behind a stale "owes-an-answer" flag.

@@ -304,7 +304,7 @@ describe("activity version ordering", () => {
     const emitted: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
     conversation.emitActivityState("streaming", "first_text_delta");
     conversation.emitActivityState("tool_running", "tool_use_start");
     conversation.emitActivityState("idle", "message_complete", {
@@ -333,7 +333,7 @@ describe("activity version ordering", () => {
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     // Emit a baseline activity state
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
 
     const baselineMsg = emitted.find(
       (m) => m.type === "assistant_activity_state",
@@ -362,7 +362,7 @@ describe("sendToClient receives state signals", () => {
     const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
 
     expect(
       clientMsgs.filter((m) => m.type === "assistant_activity_state"),
@@ -447,7 +447,7 @@ describe("the sink is fixed for the conversation's life", () => {
     const clientMsgs: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
     expect(conversation.hasNoClient).toBe(true);
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
     expect(clientMsgs).toHaveLength(1);
     expect(conversation.hasNoClient).toBe(true);
   });
@@ -463,7 +463,7 @@ describe("event observers", () => {
       order.push(`observer:${msg.type}`);
     });
 
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
     expect(order).toEqual([
       "sink:assistant_activity_state",
       "observer:assistant_activity_state",
@@ -490,7 +490,7 @@ describe("event observers", () => {
       seen.push(`second:${msg.type}`);
     });
 
-    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("thinking", "message_retried");
     expect(seen).toEqual([
       "sink:assistant_activity_state",
       "second:assistant_activity_state",

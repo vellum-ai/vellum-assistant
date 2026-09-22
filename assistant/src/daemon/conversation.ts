@@ -3,12 +3,12 @@
  *
  * Each concern lives in its own file:
  * - conversation-lifecycle.ts    — loadFromDb, abort, dispose
- * - conversation-messaging.ts    — enqueueMessage, persistUserMessage, redirectToSecurePrompt
+ * - conversation-messaging.ts    — persistUserMessage, redirectToSecurePrompt
  * - conversation-agent-loop.ts   — runAgentLoop, generateTitle
  * - conversation-notifiers.ts    — call notifier registration
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
- * - conversation-process.ts      — drainQueue, processMessage
+ * - conversation-process.ts      — processMessage
  * - conversation-history.ts      — undo, consolidateAssistantMessages
  * - conversation-surfaces.ts     — handleSurfaceAction, handleSurfaceUndo
  * - conversation-workspace.ts    — refreshWorkspaceTopLevelContext
@@ -30,7 +30,6 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -136,12 +135,10 @@ import {
   reinjectInterruptTurnNote,
 } from "./conversation-lifecycle.js";
 import type {
-  EnqueueMessageOptions,
   PersistMessageOptions,
   RedirectToSecurePromptOptions,
 } from "./conversation-messaging.js";
 import {
-  enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
 } from "./conversation-messaging.js";
@@ -149,16 +146,7 @@ import { ConversationModeSessionCoordinator } from "./conversation-mode-session.
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
-import {
-  drainQueue as drainQueueImpl,
-  kickQueueDrain as kickQueueDrainImpl,
-  processMessage as processMessageImpl,
-} from "./conversation-process.js";
-import type {
-  QueuedMessage,
-  QueueDrainReason,
-} from "./conversation-queue-manager.js";
-import { MessageQueue } from "./conversation-queue-manager.js";
+import { processMessage as processMessageImpl } from "./conversation-process.js";
 import {
   applySightFrameRetention,
   type ChannelCapabilities,
@@ -288,10 +276,6 @@ export interface CompactionSizing {
 }
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";
-export type {
-  QueueDrainReason,
-  QueuePolicy,
-} from "./conversation-queue-manager.js";
 import {
   INTERNAL_GUARDIAN_TRUST_CONTEXT,
   isPersonalMemoryAllowed,
@@ -611,7 +595,6 @@ export class Conversation {
    * @internal
    */
   hostAppControlProxy?: HostAppControlProxy;
-  /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
@@ -760,25 +743,6 @@ export class Conversation {
   /** @internal */ surfaceActionRequestIds = new Set<string>();
   /** @internal */ approvedViaPromptThisTurn = false;
   /**
-   * Set by `steerToMessage` to signal the drain path that it should inject
-   * synthetic tool_result messages for any pending tool_use blocks abandoned
-   * by the aborted generation. Cleared after repair.
-   * @internal
-   */
-  pendingSteerRepair = false;
-  /**
-   * Set by `abortConversation` when a user interrupt (Stop / Esc / the CLI
-   * cancel signal) ends a turn that still has messages queued behind it. Those
-   * messages survive the abort and drain into the next turn, so the drain path
-   * owes them the same synthetic tool_result repair a steer gets: the killed
-   * turn may have left `tool_use` blocks with no results. Unlike
-   * `pendingSteerRepair` this does not promote a single head message. An
-   * interrupt has nothing to promote, so the drain batches the queue the way it
-   * would after any other turn. Cleared after repair.
-   * @internal
-   */
-  pendingInterruptRepair = false;
-  /**
    * Set by `interruptRunningTurn` once it has handed the conversation over, and
    * consumed by the agent loop at the head of the very next turn, which emits
    * the `thinking` / `message_interrupted` transition.
@@ -810,8 +774,8 @@ export class Conversation {
    * first row is the one sitting directly under the work the handover stopped,
    * so it is the row whose note the model reads in the right place. Normally it
    * is the interrupting message itself. When that send loses the lock race and
-   * queues, the message that persists first was also sent while the assistant
-   * was working, and the note is true of it; the queued one drains after a
+   * defers, the message that persists first was also sent while the assistant
+   * was working, and the note is true of it; the deferred one runs after a
    * completed turn, where the same note would be stale.
    * @internal
    */
@@ -894,8 +858,8 @@ export class Conversation {
    * Per-turn frozen copy of {@link clientOs}, captured by the agent loop at
    * turn start (like {@link currentTurnTemporalSnapshot}). The assembly reads
    * THIS rather than the live `clientOs` so a newer message from a different
-   * OS surface — which re-applies transport metadata via
-   * `getOrCreateConversation` before it is enqueued — cannot leak its
+   * OS surface, which re-applies transport metadata via
+   * `getOrCreateConversation` before it is dispatched, cannot leak its
    * `client_os` into the in-flight turn's prompt.
    * @internal
    */
@@ -911,9 +875,9 @@ export class Conversation {
   visibleAppId?: string;
   /**
    * Per-turn frozen copy of {@link visibleAppId}, captured by the agent loop at
-   * turn start for the same reason as {@link currentTurnClientOs}: a queued
+   * turn start for the same reason as {@link currentTurnClientOs}: a deferred
    * message sent from a different view re-applies transport metadata before it
-   * is enqueued, and must not swap the app under the in-flight turn.
+   * is dispatched, and must not swap the app under the in-flight turn.
    * @internal
    */
   currentTurnVisibleAppId?: string;
@@ -927,7 +891,7 @@ export class Conversation {
    * Frozen here rather than read live in assembly so the client timezone is not
    * clobbered when a newer message for the same conversation overwrites the
    * live {@link clientTimezone} mid-turn (every inbound message re-applies
-   * transport metadata before it is enqueued). Its presence also gates the
+   * transport metadata before it is dispatched). Its presence also gates the
    * `<turn_context>` block: assembly emits the block only for turns the loop has
    * frozen a snapshot for. The `current_time` value is computed fresh at each
    * injection so post-compaction re-injections reflect the current wall clock.
@@ -2212,8 +2176,8 @@ export class Conversation {
    * flag and the persisted column serve different readers. Acquiring is
    * strict: a failed persist reverts the in-memory flag and re-throws, so the
    * caller's existing failure handling runs and the two never disagree about a
-   * turn that is starting. Clearing is not: the in-memory flag is the queue
-   * gate this process enforces, while the column is advisory state for
+   * turn that is starting. Clearing is not: the in-memory flag is the
+   * processing gate this process enforces, while the column is advisory state for
    * out-of-process readers that the boot-time stale-processing sweep already
    * recovers. Reverting a clear because a mirror write lost a race with
    * SQLITE_BUSY would latch the conversation into "busy" for the rest of the
@@ -2562,25 +2526,6 @@ export class Conversation {
     );
   }
 
-  enqueueMessage(options: EnqueueMessageOptions): {
-    queued: boolean;
-    requestId: string;
-    rejected?: boolean;
-  } {
-    return enqueueMessageImpl(this, {
-      ...options,
-      onEvent: options.onEvent ?? this.emit,
-    });
-  }
-
-  getQueueDepth(): number {
-    return this.queue.length;
-  }
-
-  hasQueuedMessages(): boolean {
-    return !this.queue.isEmpty;
-  }
-
   /**
    * True while a send registered with `runWhenConversationIdle` is waiting for
    * this conversation, or running against it.
@@ -2611,51 +2556,17 @@ export class Conversation {
 
   /**
    * True when dropping this instance would lose work that is still in flight:
-   * a live turn, queued or deferred successor, child subagent, or mode-session
+   * a live turn, deferred successor, child subagent, or mode-session
    * lifecycle.
    */
   hasInFlightWork(): boolean {
     return (
       this.isProcessing() ||
-      this.hasQueuedMessages() ||
       this.hasPendingDeferredSends() ||
       this.liveVoiceResidencyLeases > 0 ||
       this.modeSessions.hasResidentWork() ||
       getSubagentManager().hasActiveChildren(this.conversationId)
     );
-  }
-
-  /** FIFO snapshot of the messages currently waiting in the in-memory queue.
-   * Read-only — used to surface queued user messages in history responses. */
-  snapshotQueuedMessages(): QueuedMessage[] {
-    return this.queue.snapshot();
-  }
-
-  /**
-   * Drop a queued message by request id. Returns the removed entry so callers
-   * can pair a cancellation event with the same visibility metadata the
-   * enqueue ack used, or `undefined` when nothing matched.
-   */
-  removeQueuedMessage(requestId: string): QueuedMessage | undefined {
-    return this.queue.removeByRequestId(requestId);
-  }
-
-  /**
-   * Whether the agent loop may yield at a turn-boundary checkpoint to let a
-   * queued message take over.
-   *
-   * Under `interrupt-on-send` a message sent while this conversation is busy
-   * never queues, so the handoff has nothing to hand off to. Answering `false`
-   * outright keeps the loop from taking the branch on a queue that only holds
-   * entries the interrupt path deliberately left there (another actor's send
-   * falling back to the queue, a daemon-internal enqueue): those run on the
-   * ordinary end-of-turn drain rather than by cutting a turn short.
-   */
-  canHandoffAtCheckpoint(): boolean {
-    if (isInterruptOnSendEnabled()) {
-      return false;
-    }
-    return this._processing && this.hasQueuedMessages();
   }
 
   hasPendingConfirmation(requestId: string): boolean {
@@ -2873,7 +2784,7 @@ export class Conversation {
    * `usage_update` carries the post-compaction count.
    *
    * Defaults to the conversation's own sender, the channel `emitActivityState`
-   * and `context_compacted` already use, so a queued `/compact` reaches the
+   * and `context_compacted` already use, so a deferred `/compact` reaches the
    * same client its result card does. Routes that resolve a conversation
    * outside the send path never wire that sender and pass their own `onEvent`.
    */
@@ -2933,11 +2844,11 @@ export class Conversation {
 
   /**
    * `/compact`. `onEvent` is the sink for the context-window usage push, and
-   * callers pass whatever sink they render the result card through: the queue
-   * drain carries the queued item's own `onEvent`, and `sendToClient` is reset
-   * to a no-op once an interactive turn finishes (`process-message.ts`), so a
-   * `/compact` draining behind that turn would otherwise push into nothing
-   * while its card still reaches the client.
+   * callers pass whatever sink they render the result card through: a deferred
+   * send carries its own `onEvent`, and `sendToClient` is reset to a no-op once
+   * an interactive turn finishes (`process-message.ts`), so a `/compact`
+   * running behind that turn would otherwise push into nothing while its card
+   * still reaches the client.
    */
   async forceCompact(
     onEvent?: (msg: AssistantEvent) => void,
@@ -3552,9 +3463,9 @@ export class Conversation {
        */
       cronRunId?: string | null;
       /**
-       * See {@link runAgentLoopImpl}: trust this turn runs under. Queue
-       * drains pass the sender's trust captured at enqueue so the run is not
-       * reset to the conversation's most recent actor.
+       * See {@link runAgentLoopImpl}: trust this turn runs under. A deferred
+       * send passes the sender's trust captured at submit time so the run is
+       * not reset to the conversation's most recent actor.
        */
       turnTrustContext?: TrustContext;
     },
@@ -3567,22 +3478,6 @@ export class Conversation {
       onEvent ?? this.emit,
       rest,
     );
-  }
-
-  drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
-    return drainQueueImpl(this, reason);
-  }
-
-  /**
-   * Never-rejecting drain trigger for fire-and-forget call sites. See
-   * `kickQueueDrain` in conversation-process.ts for the retry/notify
-   * semantics.
-   */
-  kickDrainQueue(
-    reason: QueueDrainReason = "loop_complete",
-    origin?: string,
-  ): Promise<void> {
-    return kickQueueDrainImpl(this, reason, origin);
   }
 
   async processMessage(options: ProcessMessageOptions): Promise<string> {

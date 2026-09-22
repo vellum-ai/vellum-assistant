@@ -5,7 +5,7 @@
  * Slack `ts` (`sourceMetadata.messageId`).
  *
  * The test exercises the persistence layer directly via
- * `persistQueuedMessageBody` rather than spinning up the full HTTP stack:
+ * `persistUserMessageBody` rather than spinning up the full HTTP stack:
  *   - `Server.processMessage` materializes `slackInbound` into the
  *     `metadata` parameter passed to `Conversation.persistUserMessage`,
  *     which delegates to this function.
@@ -75,8 +75,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
-import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import {
   readSlackMetadata,
   type SlackMessageMetadata,
@@ -89,12 +88,6 @@ import {
 function createTestContext(
   turnChannel: TurnChannelContext | null,
 ): MessagingConversationContext {
-  const queueStub = {
-    push: () => true,
-    drain: () => [],
-    size: () => 0,
-  } as unknown as MessageQueue;
-
   const turnIfCtx: TurnInterfaceContext | null = turnChannel
     ? {
         userMessageInterface: "slack",
@@ -127,7 +120,6 @@ function createTestContext(
       return true;
     },
     abortController: null,
-    queue: queueStub,
     getTurnChannelContext: () => turnChannel,
     getTurnInterfaceContext: () => turnIfCtx,
   };
@@ -165,7 +157,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Reply inside a thread",
       requestId: "req-thread",
       metadata: {
@@ -198,7 +190,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Top-level channel post",
       requestId: "req-top",
       metadata: {
@@ -224,7 +216,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "@leo can you check this?",
       requestId: "req-normalized-content",
       metadata: {
@@ -252,7 +244,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Anonymous channel post",
       requestId: "req-anon",
       metadata: {
@@ -274,7 +266,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "telegram",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Telegram message",
       requestId: "req-tg",
     });
@@ -293,7 +285,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "telegram",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Telegram message with stray slackInbound",
       requestId: "req-tg-stray",
       metadata: {
@@ -318,7 +310,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Slack wake without inbound metadata",
       requestId: "req-no-slack-inbound",
     });
@@ -333,7 +325,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Malformed inbound payload",
       requestId: "req-malformed",
       metadata: {
@@ -354,7 +346,7 @@ describe("PR 11 — inbound Slack message metadata persistence", () => {
       assistantMessageChannel: "slack",
     });
 
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "Verify carrier is stripped",
       requestId: "req-strip",
       metadata: {

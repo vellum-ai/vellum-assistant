@@ -7,7 +7,7 @@
  * any cleanup step that can throw (the turn-boundary commit, profiling). The
  * clear is the release that unwedges the conversation: if a later step threw
  * ahead of it, the row would stay "mid-turn" forever — the next send times out
- * with "did not respond in time" and queued messages never drain.
+ * with "did not respond in time" and later sends never run.
  *
  * These tests drive `runAgentLoopImpl` to a fatal failure (agent loop throws)
  * and assert the processing flag is cleared even when the turn-boundary commit
@@ -130,22 +130,8 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     lastAttachmentWarnings: [],
     hasNoClient: false,
     prompter: {} as Context["prompter"],
-    queue: {} as Context["queue"],
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => 0,
-    hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
-    drainQueue: async (_reason?: string) => {},
-    // Forwards to drainQueue so tests that spy the drain observe the agent
-    // loop's post-turn kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: string) => unknown },
-      reason: string = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
     buildCurrentSystemPrompt: () => "system prompt",
@@ -200,10 +186,8 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
 
   test("clears the processing flag on a clean fatal failure (commit succeeds)", async () => {
     const events: AssistantEvent[] = [];
-    const drainQueue = mock(async (_reason: unknown) => {});
     const commitTurnChanges = mock(async () => {});
     const ctx = makeCtx({
-      drainQueue,
       commitTurnChanges:
         commitTurnChanges as unknown as Context["commitTurnChanges"],
     });
@@ -214,7 +198,6 @@ describe("runAgentLoopImpl fatal-failure cleanup (ATL-1009)", () => {
 
     expect(ctx.isProcessing()).toBe(false);
     expect(ctx.abortController).toBeNull();
-    expect(drainQueue).toHaveBeenCalledWith("loop_complete");
   });
 });
 

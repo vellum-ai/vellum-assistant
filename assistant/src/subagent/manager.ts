@@ -80,19 +80,19 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
 
 /**
- * How long {@link SubagentManager.settleQueuedTurns} waits for a queued
+ * How long {@link SubagentManager.settleDeferredTurns} waits for a deferred
  * follow-up turn before reporting the subagent as still moving.
  *
- * Sized for the drain handoff, not for the turn itself: the queue is taken
- * some milliseconds before the processing lock, and a wait shorter than that
- * gap would mistake a turn that is starting for one that already finished. A
- * guidance turn that is genuinely mid-flight outlives any budget worth
- * blocking the parent's tool call for, so it is reported as unfinished instead
- * of waited out.
+ * Sized for the admission handoff, not for the turn itself: a deferred send is
+ * admitted some milliseconds before it takes the processing lock, and a wait
+ * shorter than that gap would mistake a turn that is starting for one that
+ * already finished. A guidance turn that is genuinely mid-flight outlives any
+ * budget worth blocking the parent's tool call for, so it is reported as
+ * unfinished instead of waited out.
  */
-const QUEUED_TURN_SETTLE_TIMEOUT_MS = 2_000;
-/** Gap between queue observations while a queued turn is waiting to start. */
-const QUEUED_TURN_POLL_MS = 25;
+const DEFERRED_TURN_SETTLE_TIMEOUT_MS = 2_000;
+/** Gap between observations while a deferred turn is waiting to start. */
+const DEFERRED_TURN_POLL_MS = 25;
 
 // ── Durable record → state mapping ─────────────────────────────────────
 
@@ -1649,12 +1649,12 @@ export class SubagentManager {
    * are none (see {@link SubagentToolStatsReading}).
    *
    * `runSubagent` harvests when its awaited agent loop returns, but that is not
-   * the end of the child's work: guidance queued during the run drains
+   * the end of the child's work: guidance sent during the run runs
    * afterwards, on the same conversation, and those calls land in the same
    * counters. So any read taken later re-reads them while the conversation is
    * still retained (see {@link refreshToolStats}), and the release freezes the
-   * settled numbers. Readers that need the queued turn's calls included wait
-   * for it first, via {@link settleQueuedTurns}.
+   * settled numbers. Readers that need the deferred turn's calls included wait
+   * for it first, via {@link settleDeferredTurns}.
    *
    * An id the manager does not hold is `unrecoverable` rather than unknown:
    * counters exist nowhere else, so no caller can ever obtain them, and the
@@ -1676,34 +1676,33 @@ export class SubagentManager {
   }
 
   /**
-   * Wait for a follow-up turn queued during the subagent's run to finish.
+   * Wait for a follow-up turn deferred during the subagent's run to finish.
    *
    * `runSubagent` marks the subagent terminal as soon as its own agent loop
-   * returns, and the parent is told to read from there. Guidance queued during
-   * that run drains afterwards though, on the same retained conversation, so a
+   * returns, and the parent is told to read from there. Guidance sent during
+   * that run runs afterwards though, on the same retained conversation, so a
    * read taken in that window sees the transcript and the counters from before
    * the guidance landed and never comes back for the rest. Waiting here closes
    * the window.
    *
-   * Resolves `true` once the retained conversation is idle with an empty
-   * queue, and `false` when `timeoutMs` elapses first, so the reader always
-   * gets an answer within a bound and can say the subagent is still moving
-   * rather than pass a partial result off as final.
+   * Resolves `true` once the retained conversation is idle with nothing
+   * waiting on it, and `false` when `timeoutMs` elapses first, so the reader
+   * always gets an answer within a bound and can say the subagent is still
+   * moving rather than pass a partial result off as final.
    *
    * `true` comes back immediately when nothing can still be running: no
    * manager entry, no retained conversation (a released one has its transcript
-   * and counters frozen), or a run that never had anything queued.
+   * and counters frozen), or a run that never deferred anything.
    *
-   * Idle is confirmed across two observations a poll apart. The drain takes
-   * the queue before it takes the processing lock (`drainQueue` shifts the
-   * message, then `drainSingleMessage` awaits slash resolution and the
-   * user-message persist before `runAgentLoop` sets processing), so a single
-   * look into that gap finds an empty queue and an unlocked conversation while
-   * the turn is in fact starting.
+   * Idle is confirmed across two observations a poll apart. A deferred send
+   * stops being counted only once its run settles, and it takes the processing
+   * lock partway through that run, so a single look into the gap between
+   * admission and the lock would find an idle conversation while the turn is
+   * in fact starting.
    */
-  async settleQueuedTurns(
+  async settleDeferredTurns(
     subagentId: string,
-    timeoutMs: number = QUEUED_TURN_SETTLE_TIMEOUT_MS,
+    timeoutMs: number = DEFERRED_TURN_SETTLE_TIMEOUT_MS,
   ): Promise<boolean> {
     const managed = this.subagents.get(subagentId);
     const conversation = managed?.conversation;
@@ -1727,19 +1726,16 @@ export class SubagentManager {
         await conversation.waitForIdle({ timeoutMs: remainingMs });
         continue;
       }
-      if (
-        conversation.hasQueuedMessages() ||
-        conversation.hasPendingDeferredSends()
-      ) {
+      if (conversation.hasPendingDeferredSends()) {
         idleObservations = 0;
-        await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+        await sleep(Math.min(DEFERRED_TURN_POLL_MS, remainingMs));
         continue;
       }
       idleObservations += 1;
       if (idleObservations >= 2) {
         return true;
       }
-      await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+      await sleep(Math.min(DEFERRED_TURN_POLL_MS, remainingMs));
     }
   }
 
@@ -2176,8 +2172,8 @@ export class SubagentManager {
       ? config.sendResultToUser !== true
       : config.sendResultToUser === false;
 
-    // A queued follow-up turn means the snapshot we hold is stale; defer to a
-    // read pointer so the parent picks up the queued turn's output instead.
+    // A deferred follow-up turn means the snapshot we hold is stale; point at
+    // a read so the parent picks up that turn's output instead.
     const deferred = managed.hadDeferredMessages === true;
 
     const message = buildSubagentTerminalMessage({

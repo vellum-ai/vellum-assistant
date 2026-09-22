@@ -59,7 +59,7 @@
  * is, because the transcript has the image and the client's view has to match
  * what a reload will show. The persist unwinds its own push before rethrowing,
  * so the resident history is left not matching the rows; rather than reach
- * into an array `persistQueuedMessageBody` owns, the recovery marks the
+ * into an array `persistUserMessageBody` owns, the recovery marks the
  * conversation's history stale, and the next turn's
  * `ensureActorScopedHistory` reloads from the DB and sees the frame.
  *
@@ -74,7 +74,7 @@ import { v7 as uuidv7 } from "uuid";
 import type { ModeSession } from "../api/mode-session.js";
 import {
   type PersistMessageOptions,
-  persistQueuedMessageBody,
+  persistUserMessageBody,
 } from "../daemon/conversation-messaging.js";
 import type {
   ConversationModeSessionCoordinator,
@@ -926,7 +926,7 @@ async function writeStandaloneImage(
         return dropReplacedImage(conversationId, attachmentId, kind, content);
       }
 
-      const persisted = await persistQueuedMessageBody(conversation, {
+      const persisted = await persistUserMessageBody(conversation, {
         ...persistOptions,
         attachments,
         requestId,
@@ -981,12 +981,7 @@ async function writeStandaloneImage(
       // Only this job's own hold is released. A turn that claimed the flag
       // away mid-write owns it now, and clearing there would free a turn that
       // is still running.
-      if (conversation.releaseProcessing(owner)) {
-        // Anything queued behind the lock we just held still has to run.
-        // Without this a message queued during the image's write sits until
-        // the next turn ends.
-        void conversation.kickDrainQueue("loop_complete", `standalone_${kind}`);
-      }
+      conversation.releaseProcessing(owner);
     }
   } catch (err) {
     if (err instanceof MessageInsertPreconditionError) {

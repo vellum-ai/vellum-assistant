@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { reinjectInterruptTurnNote } from "../daemon/conversation-lifecycle.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -58,7 +58,7 @@ describe("interrupted-turn note on the interrupting message", () => {
     const ctx = makeCtx(conv.id);
     ctx.pendingInterruptNote = true;
 
-    const persisted = await persistQueuedMessageBody(ctx, {
+    const persisted = await persistUserMessageBody(ctx, {
       content: "wait, quick one first: what is 31 times 12?",
     });
 
@@ -85,7 +85,7 @@ describe("interrupted-turn note on the interrupting message", () => {
     const ctx = makeCtx(conv.id);
     ctx.pendingInterruptNote = true;
 
-    const persisted = await persistQueuedMessageBody(ctx, {
+    const persisted = await persistUserMessageBody(ctx, {
       content: "hold on",
     });
     const live = (ctx.messages[0].content as ContentBlock[]).at(-1) as {
@@ -108,7 +108,7 @@ describe("interrupted-turn note on the interrupting message", () => {
     const conv = createConversation();
     const ctx = makeCtx(conv.id);
 
-    const persisted = await persistQueuedMessageBody(ctx, {
+    const persisted = await persistUserMessageBody(ctx, {
       content: "just a message",
     });
 
@@ -133,8 +133,8 @@ describe("interrupted-turn note on the interrupting message", () => {
     const ctx = makeCtx(conv.id);
     ctx.pendingInterruptNote = true;
 
-    await persistQueuedMessageBody(ctx, { content: "first" });
-    await persistQueuedMessageBody(ctx, { content: "second" });
+    await persistUserMessageBody(ctx, { content: "first" });
+    await persistUserMessageBody(ctx, { content: "second" });
 
     expect(ctx.pendingInterruptNote).toBe(false);
     expect(ctx.messages[0].content as ContentBlock[]).toHaveLength(2);
@@ -147,7 +147,7 @@ describe("interrupted-turn note on the interrupting message", () => {
     ctx.pendingInterruptNote = true;
 
     // "aGVsbG8=" = "hello"
-    const persisted = await persistQueuedMessageBody(ctx, {
+    const persisted = await persistUserMessageBody(ctx, {
       content: "look at this instead",
       attachments: [
         { filename: "report.csv", mimeType: "text/csv", data: "aGVsbG8=" },

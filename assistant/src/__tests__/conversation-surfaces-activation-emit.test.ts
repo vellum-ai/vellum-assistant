@@ -22,6 +22,14 @@ mock.module("../daemon/conversation-launch.js", () => ({
   launchConversation: async () => ({ conversationId: "spawned-conv" }),
 }));
 
+// One conversation is out of deferral slots, so a click it cannot run now is
+// refused instead of registered.
+const realAdmission = await import("../daemon/conversation-admission.js");
+mock.module("../daemon/conversation-admission.js", () => ({
+  ...realAdmission,
+  canDeferSend: (conversationId: string) => conversationId !== "conv-rejected",
+}));
+
 const {
   createSurfaceMutex,
   handleSurfaceAction,
@@ -81,8 +89,6 @@ function makeContext(
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async (options: ProcessMessageOptions) => {
       processMessageCalls.push({
         content: options.content,
@@ -152,28 +158,26 @@ describe("activation moment emission from ui_show surface commits", () => {
     expect(rows[0]!.session_id).toBe("conv-marked");
   });
 
-  test("a queue-rejected commit does NOT emit; the tag survives for the retry", async () => {
+  test("a refused commit does NOT emit; the tag survives for the retry", async () => {
     markActivationSession("conv-rejected");
     const sent: AssistantEvent[] = [];
     const ctx = makeContext("conv-rejected", sent);
     const surfaceId = await showTaggedChoice(ctx, sent, "moment_2");
 
-    // First click while the queue is full: enqueue rejects, action not
-    // accepted. Must NOT record a milestone, and must leave the one-shot tag
-    // intact so the user's retry still emits.
-    ctx.enqueueMessage = () => ({
-      queued: false,
-      requestId: "req-rejected",
-      rejected: true,
-    });
+    // First click while the conversation is mid-turn and out of deferral
+    // slots: the send is refused and the action is not accepted. Must NOT
+    // record a milestone, and must leave the one-shot tag intact so the
+    // user's retry still emits.
+    let processing = true;
+    ctx.isProcessing = () => processing;
     await handleSurfaceAction(ctx, surfaceId, "inbox", {
       choiceId: "inbox",
       selectedIds: ["inbox"],
     });
     expect(pendingOnboardingPayloads()).toHaveLength(0);
 
-    // Retry is accepted → records exactly one row.
-    ctx.enqueueMessage = () => ({ queued: false, requestId: "req-ok" });
+    // Retry against an idle conversation is accepted and records one row.
+    processing = false;
     await handleSurfaceAction(ctx, surfaceId, "inbox", {
       choiceId: "inbox",
       selectedIds: ["inbox"],

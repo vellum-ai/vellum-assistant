@@ -154,7 +154,7 @@ describe("applySightFrameRetention", () => {
       });
     }
 
-    // What `persistQueuedMessageBody` pushes into `ctx.messages`: inline bytes
+    // What `persistUserMessageBody` pushes into `ctx.messages`: inline bytes
     // carrying the id of the row persisted as a reference.
     const liveImage = (
       attachmentId: string,

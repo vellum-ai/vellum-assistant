@@ -11,17 +11,10 @@ import { asConversation } from "./helpers/mock-conversation.js";
 
 /**
  * Build a minimal Conversation for testing table surface actions.
- * Tracks calls to enqueueMessage and processMessage so tests can assert
- * whether an LLM turn was triggered with the correct content.
+ * Tracks calls to processMessage so tests can assert whether an LLM turn was
+ * triggered with the correct content.
  */
 function makeContext(): Conversation & {
-  enqueueCalls: Array<{
-    content: string;
-    requestId: string;
-    attachments: unknown[];
-    surfaceId?: string;
-    displayContent?: string;
-  }>;
   processCalls: Array<{
     content: string;
     requestId?: string;
@@ -31,13 +24,6 @@ function makeContext(): Conversation & {
   }>;
   sentMessages: AssistantEvent[];
 } {
-  const enqueueCalls: Array<{
-    content: string;
-    requestId: string;
-    attachments: unknown[];
-    surfaceId?: string;
-    displayContent?: string;
-  }> = [];
   const processCalls: Array<{
     content: string;
     requestId?: string;
@@ -61,17 +47,6 @@ function makeContext(): Conversation & {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (options) => {
-      enqueueCalls.push({
-        content: options.content,
-        requestId: options.requestId ?? "enq-req",
-        attachments: options.attachments ?? [],
-        surfaceId: options.activeSurfaceId,
-        displayContent: options.displayContent,
-      });
-      return { queued: false, requestId: options.requestId ?? "enq-req" };
-    },
-    getQueueDepth: () => 0,
     processMessage: async (options) => {
       processCalls.push({
         content: options.content,
@@ -83,7 +58,6 @@ function makeContext(): Conversation & {
       return "ok";
     },
     withSurface: createSurfaceMutex(),
-    enqueueCalls,
     processCalls,
     sentMessages,
   });
@@ -289,7 +263,6 @@ describe("table surface action with selectedIds", () => {
       selectedIds: ["r1", "r2"],
     });
 
-    expect(ctx.enqueueCalls).toHaveLength(0);
     expect(ctx.processCalls).toHaveLength(0);
 
     // Pending surface should still be present (not consumed)

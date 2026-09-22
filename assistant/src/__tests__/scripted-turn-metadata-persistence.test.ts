@@ -1,5 +1,5 @@
 /**
- * Verifies how `persistQueuedMessageBody` resolves the `scripted` marker onto
+ * Verifies how `persistUserMessageBody` resolves the `scripted` marker onto
  * `messages.metadata.scripted`, which `turn-events-store` forwards to
  * `TurnTelemetryEvent.scripted`.
  *
@@ -18,7 +18,7 @@
  * it re-inflates activation past the point where the fallback can catch it.
  *
  * Mirrors the mock harness of `client-os-metadata-persistence.test.ts`:
- * exercises `persistQueuedMessageBody` directly with a captured `addMessage`.
+ * exercises `persistUserMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -71,8 +71,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import type { MessagingConversationContext } from "../daemon/conversation-messaging.js";
-import { persistQueuedMessageBody } from "../daemon/conversation-messaging.js";
-import type { MessageQueue } from "../daemon/conversation-queue-manager.js";
+import { persistUserMessageBody } from "../daemon/conversation-messaging.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 
 function createContext(): MessagingConversationContext {
@@ -84,11 +83,6 @@ function createContext(): MessagingConversationContext {
     userMessageInterface: "web",
     assistantMessageInterface: "web",
   };
-  const queueStub = {
-    push: () => true,
-    drain: () => [],
-    size: () => 0,
-  } as unknown as MessageQueue;
   let processing = false;
   let owner = 0;
   return {
@@ -114,7 +108,6 @@ function createContext(): MessagingConversationContext {
       return true;
     },
     abortController: null,
-    queue: queueStub,
     clientOs: undefined,
     getTurnChannelContext: () => channel,
     getTurnInterfaceContext: () => iface,
@@ -135,7 +128,7 @@ describe("scripted-turn metadata persistence", () => {
 
   test("stamps the typed option", async () => {
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "[User action on choice surface: Work]",
       requestId: "req-option-true",
       scripted: true,
@@ -150,7 +143,7 @@ describe("scripted-turn metadata persistence", () => {
     // deliver its marker this way. If this regresses, queued surface actions
     // silently become "unknown" while direct ones stay marked.
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "[User action on app: Answer Selected]",
       requestId: "req-metadata-true",
       metadata: { scripted: true },
@@ -162,7 +155,7 @@ describe("scripted-turn metadata persistence", () => {
   test("treats `automated` as implying scripted", async () => {
     // Machine-authored by definition, so it is not a turn the user typed.
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "automated skill message",
       requestId: "req-automated",
       metadata: { automated: true },
@@ -173,7 +166,7 @@ describe("scripted-turn metadata persistence", () => {
 
   test("lets an explicit option override the automated default", async () => {
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "automated but counts as a real turn",
       requestId: "req-automated-override",
       metadata: { automated: true },
@@ -189,7 +182,7 @@ describe("scripted-turn metadata persistence", () => {
     // Safe only because every auto-send path is marked at its source (web
     // onboarding flows, surface synthetics, `automated`).
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "a message the user actually typed",
       requestId: "req-ordinary",
     });
@@ -204,7 +197,7 @@ describe("scripted-turn metadata persistence", () => {
     // narrowing turns anything that isn't 1 into `false`, so a leaked "true"
     // would invert into "the user typed this".
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-bogus",
       metadata: { scripted: "true" },
@@ -215,7 +208,7 @@ describe("scripted-turn metadata persistence", () => {
 
   test("stamps false when the caller explicitly asserts a typed turn", async () => {
     const ctx = createContext();
-    await persistQueuedMessageBody(ctx, {
+    await persistUserMessageBody(ctx, {
       content: "hello",
       requestId: "req-explicit-false",
       scripted: false,
@@ -237,7 +230,7 @@ describe("author contact id on a persisted user message", () => {
   });
 
   test("a message relayed from the sender names them as its author", async () => {
-    await persistQueuedMessageBody(createContext(), {
+    await persistUserMessageBody(createContext(), {
       content: "the export endpoint needs a scoped token",
       requestId: "req-author-typed",
       trustContext: sender,
@@ -251,7 +244,7 @@ describe("author contact id on a persisted user message", () => {
     // Machine-authored rows (ACP and subagent notifications, pointer turns)
     // share this writer and the conversation's trust; only an explicit
     // author names one.
-    await persistQueuedMessageBody(createContext(), {
+    await persistUserMessageBody(createContext(), {
       content: "the delegated task finished",
       requestId: "req-author-machine",
       trustContext: sender,
@@ -284,7 +277,7 @@ describe("author contact id on a persisted user message", () => {
   ] as const)(
     "a %s row speaks in their voice without naming them",
     async (kind, extra) => {
-      await persistQueuedMessageBody(createContext(), {
+      await persistUserMessageBody(createContext(), {
         content: "sent on the sender's behalf",
         requestId: `req-author-${kind}`,
         trustContext: sender,

@@ -40,8 +40,6 @@ function makeContext(
     currentTurnSurfaces: [],
     hasNoClient: opts?.hasNoClient ?? false,
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async () => "ok",
     withSurface: createSurfaceMutex(),
   });

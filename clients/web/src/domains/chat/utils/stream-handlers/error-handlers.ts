@@ -17,14 +17,14 @@ export function handleStreamError(
 ): void {
   const convId = ctx.streamContext?.conversationId;
 
-  // A full queue refusing a send the daemon had already accepted. It is a
-  // delivery failure for one message, not a turn ending: the conversation may
-  // still be running the turn this send tried to interrupt, so this must not
-  // clear `isProcessing` or end the turn the way a generation error does.
-  // Recovery matches the request-path failure in `use-send-message`: drop the
+  // A send the daemon accepted and then could not deliver. It is a delivery
+  // failure for one message, not a turn ending: the conversation may still be
+  // running the turn this send tried to interrupt, so this must not clear
+  // `isProcessing` or end the turn the way a generation error does. Recovery
+  // matches the request-path failure in `use-send-message`: drop the
   // optimistic row and put its text back in the composer, so the user has what
   // they typed and can send it again.
-  if (event.code === "QUEUE_FULL" && event.requestId) {
+  if (event.code === "SEND_FAILED" && event.requestId) {
     const messageId = ctx.popRequestIdMapping(event.requestId);
     if (messageId) {
       ctx.setOptimisticSends((prev) => {

@@ -48,11 +48,11 @@ function createMockContext(
   }>,
 ): Conversation & {
   sentMessages: AssistantEvent[];
-  enqueuedMessages: Array<{ content: string; requestId: string }>;
+  sentMessagesToModel: Array<{ content: string; requestId: string }>;
 } {
   const sentMessages: AssistantEvent[] = [];
   broadcastImpl = (msg: AssistantEvent) => sentMessages.push(msg);
-  const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
+  const sentMessagesToModel: Array<{ content: string; requestId: string }> = [];
 
   return asConversation({
     conversationId: "payload-test-conv",
@@ -77,19 +77,19 @@ function createMockContext(
     hostCuProxy: undefined,
     hasNoClient: overrides?.hasNoClient ?? false,
     isProcessing: () => false,
-    enqueueMessage: (options) => {
-      const resolvedId = options.requestId ?? "mock-request-id";
-      enqueuedMessages.push({
+    processMessage: async (options: {
+      content: string;
+      requestId?: string;
+    }) => {
+      sentMessagesToModel.push({
         content: options.content,
-        requestId: resolvedId,
+        requestId: options.requestId ?? "mock-request-id",
       });
-      return { queued: false, requestId: resolvedId };
+      return "msg-id";
     },
-    getQueueDepth: () => 0,
-    processMessage: async () => "msg-id",
     withSurface: createSurfaceMutex(),
     sentMessages,
-    enqueuedMessages,
+    sentMessagesToModel,
   });
 }
 
@@ -482,7 +482,7 @@ describe("standalone surface contract invariants", () => {
     await p2;
 
     // No messages should have been enqueued to the LLM for standalone surfaces
-    expect(ctx.enqueuedMessages).toHaveLength(0);
+    expect(ctx.sentMessagesToModel).toHaveLength(0);
   });
 
   test("every ui_surface_show has required fields for Swift deserialization", async () => {

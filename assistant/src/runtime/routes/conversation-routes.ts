@@ -47,15 +47,11 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { isModeSessionRecoveryHealthy } from "../../config/session-groups-gate.js";
 import { consolidateMessageRows } from "../../conversations/message-consolidation.js";
-import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
-import { isConversationBusyError } from "../../daemon/conversation-busy-error.js";
-import {
-  classifyInterruptEligibility,
-  interruptRunningTurn,
-} from "../../daemon/conversation-interrupt.js";
-import { persistQueuedMessageBody } from "../../daemon/conversation-messaging.js";
+import { AdmissionOverflowError } from "../../daemon/conversation-admission.js";
+import { CONVERSATION_BUSY_MESSAGE } from "../../daemon/conversation-busy-error.js";
+import { persistUserMessageBody } from "../../daemon/conversation-messaging.js";
 import {
   buildModelInfoEvent,
   formatCleanResult,
@@ -68,6 +64,8 @@ import {
   resolveSlash,
 } from "../../daemon/conversation-slash.js";
 import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
+import type { SubmitOutcome } from "../../daemon/conversation-submit.js";
+import { submitUserTurn } from "../../daemon/conversation-submit.js";
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   buildScanFirstMessage,
@@ -75,7 +73,6 @@ import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
-import { supersedePendingInteractionsOnEnqueue } from "../../daemon/handlers/conversations.js";
 import {
   collectAttachmentRefs,
   type HistoryAttachmentRef,
@@ -93,7 +90,6 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
-import { startAfterTurnFinalization } from "../../daemon/turn-finalization.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -126,7 +122,6 @@ import {
   isConversationProcessing,
   isHiddenMessageMetadata,
   isProviderErrorMetadata,
-  isSuppressedQueuedMessage,
   isSystemCardMetadata,
   type MessageRow,
   parseMessageMetadata,
@@ -718,8 +713,7 @@ async function tryConsumeGuardianReply(params: {
  * Read the notification discriminators a client uses to keep daemon-injected
  * rows out of the rendered transcript off a message's parsed metadata.
  *
- * One extraction shared by the persisted-history rows and the queued rows
- * synthesized from the in-memory queue, so a row carries the same flags
+ * One extraction shared by every history row, so a row carries the same flags
  * whichever side of the drain it is fetched from.
  */
 function extractNotificationDiscriminators(
@@ -774,85 +768,6 @@ function extractNotificationDiscriminators(
   }
 
   return discriminators;
-}
-
-/**
- * Render the live conversation's in-memory message queue into history rows.
- *
- * Messages enqueued while the agent is mid-turn live only in memory until the
- * queue drains and persists them, so they never reach the DB-sourced history
- * list. The live path surfaces them via `message_queued` SSE events; a cold
- * reload (no event replay) would otherwise drop them. Each queued row carries
- * `queueStatus: "queued"` with its 1-based `queuePosition` (mirroring the
- * client `DisplayMessage` queue fields) and is ordered FIFO so it appends to
- * the newest page in send order, mirroring how the agent will drain them.
- *
- * Returns an empty array when the conversation is not live in memory (cold, or
- * aged out of the registry) — there is no queue to read in that case.
- */
-function buildQueuedMessagePayloads(
-  conversationId: string,
-): RuntimeMessagePayload[] {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    return [];
-  }
-
-  // Rows that never render as a user bubble are suppressed at every stage —
-  // echo, persisted row, and here the in-memory queue window: a latest-page
-  // fetch while the item still awaits drain must not surface it as a queued
-  // bubble. That covers hidden sends and the daemon's own injected
-  // notifications (a subagent's completion summary enqueued into a busy
-  // parent, an ACP run outcome, a wake trigger) — the user follows those
-  // through their inline cards, never as a queued message they could steer or
-  // cancel.
-  return conversation
-    .snapshotQueuedMessages()
-    .filter((item) => !isSuppressedQueuedMessage(item.metadata))
-    .map((item, index) => {
-      const text = item.displayContent ?? item.content;
-      const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
-        (a, idx) => ({
-          id: a.id ?? `${item.requestId}:attachment:${idx}`,
-          filename: a.filename,
-          mimeType: a.mimeType,
-          sizeBytes:
-            a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
-          kind: classifyKind(a.mimeType),
-          ...(a.mimeType.startsWith("image/") && a.data
-            ? { data: a.data }
-            : {}),
-          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
-        }),
-      );
-
-      const contentBlocks: ConversationContentBlock[] = [];
-      if (text.length > 0) {
-        contentBlocks.push({ type: "text", text });
-      }
-      for (const attachment of attachments) {
-        contentBlocks.push({ type: "attachment", attachment });
-      }
-
-      return {
-        // The queued message has no DB row yet; its requestId is the stable
-        // identifier the queued-message delete/steer endpoints key on.
-        id: item.requestId,
-        role: "user" as const,
-        timestamp: new Date(item.sentAt).toISOString(),
-        attachments,
-        ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
-        ...(item.clientMessageId
-          ? { clientMessageId: item.clientMessageId }
-          : {}),
-        // The filter above already drops every daemon-injected notification,
-        // so these flags are redundant today. Carrying them keeps a queued row
-        // self-describing on the wire, matching its persisted counterpart.
-        ...extractNotificationDiscriminators(item.metadata ?? {}),
-        queueStatus: "queued" as const,
-        queuePosition: index + 1,
-      };
-    });
 }
 
 /**
@@ -1478,15 +1393,6 @@ export async function handleListMessages({
   // UI spinning forever with no way to learn the server is actually idle.
   const processing = isConversationProcessing(resolvedConversationId);
 
-  // Append the in-memory queue's pending user messages to the newest page so a
-  // cold reload restores them alongside persisted history. They are the newest
-  // rows in the conversation (enqueued during the in-flight turn) and are not
-  // yet persisted, so they belong only on a request for the latest content —
-  // never on an older-history page (`beforeTimestamp` set).
-  if (beforeTimestamp == null) {
-    messages.push(...buildQueuedMessagePayloads(resolvedConversationId));
-  }
-
   if (isPaginated) {
     // Prefer the page's oldest visible row (the documented cursor semantic).
     // When a scan-cap-truncated page comes back empty there's no visible row
@@ -2043,7 +1949,7 @@ export async function handleSendMessage(
   //
   // Resolved into a local; the conversation's slot is stamped only where this
   // request commits to running a turn, since that write is what supplies the
-  // acting actor for a run and must not fire for a send that merely queues.
+  // acting actor for a run and must not fire for a send that defers.
   let resolvedTrustCtx: TrustContext;
   if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
@@ -2185,7 +2091,7 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       };
-      const persisted = await persistQueuedMessageBody(conversation, {
+      const persisted = await persistUserMessageBody(conversation, {
         content: rawContent,
         attachments,
         requestId: uuidv7(),
@@ -2273,8 +2179,8 @@ export async function handleSendMessage(
       cleanupDeferred = true;
       return response;
     } finally {
-      if (!cleanupDeferred && conversation.releaseProcessing(greetingOwner)) {
-        void conversation.kickDrainQueue("loop_complete", "send_error_path");
+      if (!cleanupDeferred) {
+        conversation.releaseProcessing(greetingOwner);
       }
     }
   };
@@ -2299,7 +2205,7 @@ export async function handleSendMessage(
     // awaits old, so a hold taken since belongs to a real turn, and greeting
     // over it would run two operations into one history. Declining and
     // falling through is what the sibling branches above already do, and the
-    // gate below turns that into the queued answer a busy conversation owes.
+    // submit below turns that into the answer a busy conversation owes.
     const greetingOwner = await conversation.acquireProcessingFenced();
     if (greetingOwner !== null) {
       return serveCannedFirstGreeting(cannedGreeting, greetingOwner);
@@ -2327,8 +2233,8 @@ export async function handleSendMessage(
   }
 
   // When the scan path rewrote the first message, prefer the rewritten
-  // content for all downstream consumers (guardian reply, enqueue, agent
-  // loop) so they see the scan instruction rather than the wake-up greeting.
+  // content for all downstream consumers (guardian reply, submit, agent loop)
+  // so they see the scan instruction rather than the wake-up greeting.
   const contentAfterScan = effectiveContent ?? content ?? "";
 
   const attachments = hasAttachments
@@ -2342,8 +2248,8 @@ export async function handleSendMessage(
     resolvedTrustCtx.guardianPrincipalId ?? undefined;
 
   // Try to consume the message as a guardian approval/rejection reply.
-  // On failure, degrade to the existing queue/auto-deny path rather than
-  // surfacing a 500 — mirrors the handler's catch-and-fallback.
+  // On failure, degrade to the ordinary send path rather than surfacing a
+  // 500, mirroring the handler's catch-and-fallback.
   try {
     const inlineReplyResult = await tryConsumeGuardianReply({
       conversationId: mapping.conversationId,
@@ -2380,180 +2286,10 @@ export async function handleSendMessage(
     );
   }
 
-  /**
-   * Put the message on the conversation's queue and answer with the
-   * accepted-and-queued shape.
-   *
-   * Reached from the check just below, and again from every point past it that
-   * finds the conversation busy after all. That check and the acquire which
-   * actually starts a turn are separated by guardian cleanup, history scoping
-   * and slash resolution, so anything taking the flag inside those awaits
-   * leaves a send that has to queue rather than fail. Answering the same way
-   * from both means a client cannot tell which side of the awaits the
-   * conversation went busy on.
-   */
-  // Minted before the handover rather than at the persist below, because the
-  // interrupt path answers the request before the persist runs and the 202 has
-  // to carry the id the row will be written with.
+  // Minted before the send is submitted rather than at the persist below,
+  // because a busy conversation answers the request before the persist runs
+  // and the 202 has to carry the id the row will be written with.
   const sendRequestId = uuidv7();
-
-  /**
-   * `broadcastMessage`, minus the queue's own uncorrelated rejection notice.
-   *
-   * `enqueueMessage` announces a refused enqueue on the sender's sink as a
-   * generic `error` with `category: "queue_full"` and no `requestId`. That is
-   * the right notice when the enqueue IS the request's answer. On a fallback it
-   * is not: the request was answered `202` long ago, and a client that receives
-   * an uncorrelated error reads it as the running turn failing and tears that
-   * turn down locally, a turn this send does not own. The correlated
-   * `QUEUE_FULL` from {@link reportQueueRejectionAfterAcceptance} carries the
-   * `requestId` and is the one a client can act on, so it is the only one sent.
-   *
-   * Filtered here rather than in the client so clients that are not updated get
-   * the fix too.
-   */
-  const broadcastExceptUncorrelatedQueueFull = (msg: AssistantEvent): void => {
-    if (
-      msg.type === "error" &&
-      msg.category === "queue_full" &&
-      !msg.requestId
-    ) {
-      return;
-    }
-    broadcastMessage(msg);
-  };
-
-  const queueSend = async (
-    content: string,
-    options?: { afterAcceptance?: boolean },
-  ) => {
-    // Queue the message so it's processed when the current turn completes.
-    // The send's own id, not a fresh one: an interrupting send is answered
-    // `202` before this can run, and a fallback that minted its own would
-    // persist the row and emit its queue events under an id the client was
-    // never told, so nothing it holds would correlate.
-    const requestId = sendRequestId;
-    const enqueueResult = conversation.enqueueMessage({
-      content,
-      attachments,
-      onEvent: options?.afterAcceptance
-        ? broadcastExceptUncorrelatedQueueFull
-        : broadcastMessage,
-      requestId,
-      metadata: withClientMetadata(
-        {
-          userMessageChannel: sourceChannel,
-          assistantMessageChannel: sourceChannel,
-          userMessageInterface: sourceInterface,
-          assistantMessageInterface: sourceInterface,
-          ...(body.automated === true ? { automated: true } : {}),
-          // Carry the transcript-suppression flag through the queue so a
-          // hidden send that lands mid-turn stays hidden when drained —
-          // the drain path persists this metadata and skips the echo.
-          ...(body.hidden === true ? { hidden: true } : {}),
-          // Same reason: the queue round-trips metadata, not persist options,
-          // so a scripted send that lands mid-turn can only keep its marker
-          // this way. Both booleans forwarded, since false is a real assertion
-          // ("the user typed this"), not an absence.
-          ...(typeof body.scripted === "boolean"
-            ? { scripted: body.scripted }
-            : {}),
-        },
-        clientMetadata,
-      ),
-      isInteractive,
-      sourceActorPrincipalId,
-      transport,
-      clientMessageId,
-      // The sender's own trust, so the drain runs this message as the actor
-      // who sent it rather than as whoever the slot happens to hold when the
-      // queue is worked.
-      trustContext: resolvedTrustCtx,
-      // This helper's whole contract is that the message is queued, and it
-      // answers `queued: true`, so it must never take the enqueue's idle fast
-      // path, which stores nothing. Every route into here has already decided
-      // this send cannot run now, and the conversation can be idle by the time
-      // the push lands: the interrupt fallback reaches here after the turn it
-      // stopped has ended, and the other callers reach it after awaits a turn
-      // can end inside. The drain kick below is what runs it.
-      queueWhenIdle: true,
-    });
-    if (enqueueResult.rejected) {
-      return new RouteResponse(
-        JSON.stringify({ accepted: false, error: "queue_full" }),
-        { "content-type": "application/json" },
-        429,
-      );
-    }
-
-    // Auto-deny pending confirmations only after enqueue succeeds, so we
-    // don't cancel approval-gated workflows when the replacement message
-    // is itself rejected by the queue budget.
-    // Wrapped in try-catch: the message is already enqueued, so a failure
-    // here must not turn the 202 response into a 500 — that would leave
-    // the client showing "Failed to send" for a message the daemon will
-    // process from the queue.
-    //
-    // Supersede encodes user intent — a typed message while a prompt is open
-    // means the user chose to move on. A hidden send is a machine signal
-    // (e.g. the channel-setup wizard-close marker), not a user decision: it
-    // must not auto-deny live approval prompts or steer a parked
-    // ask_question to a message the user never typed. Daemon-injected
-    // synthetic messages (subagent/ACP notifications) skip this path the
-    // same way by enqueuing directly.
-    if (body.hidden !== true) {
-      try {
-        // Supersede interactions left pending by the in-flight turn: auto-deny
-        // confirmations (with gateway/client sync) and steer to the enqueued
-        // message if an ask_question is parked. Centralized so the CLI signal
-        // path (signals/user-message.ts) gets identical handling.
-        supersedePendingInteractionsOnEnqueue(
-          mapping.conversationId,
-          requestId,
-        );
-
-        // Expire any orphaned guardian requests that survived without a
-        // matching in-memory pending interaction (e.g. prompter timeouts).
-        await expireOrphanedGuardianRequests(mapping.conversationId);
-      } catch (err) {
-        log.warn(
-          { err, conversationId: mapping.conversationId },
-          "Post-enqueue auto-deny failed — queued message unaffected",
-        );
-      }
-    }
-
-    // A queued message normally rides the running turn's `finally` into
-    // `drainQueue`. When the conversation is already idle by the time it lands
-    // there is no such turn ahead of it, so kick the drain here. Reachable
-    // whenever the turn releases inside the awaits above, and always on the
-    // interrupt path's `busy` fallback, where the interrupted turn has already
-    // ended. `kickDrainQueue` is a no-op on an empty queue or a busy
-    // conversation, so an unnecessary kick costs nothing.
-    //
-    // Behind the finalization barrier, because an idle conversation is not
-    // necessarily a finished one: the `busy` fallback is reached when the
-    // turn-boundary commit outran its budget, and that commit is still staging
-    // the working tree. A drain that started now would have the drained turn's
-    // first file writes swept into the previous turn's commit. Nothing waits on
-    // the response for this, which has already been sent.
-    if (!conversation.isProcessing()) {
-      startAfterTurnFinalization(
-        mapping.conversationId,
-        resolveTurnCommitWaitMs(getConfig().workspaceGit?.turnCommitMaxWaitMs),
-        () => {
-          void conversation.kickDrainQueue("loop_complete", "queue_send_idle");
-        },
-      );
-    }
-
-    return {
-      accepted: true,
-      queued: true,
-      conversationId: mapping.conversationId,
-      requestId,
-    };
-  };
 
   /**
    * Everything the send does once the conversation is known to be free: the
@@ -2565,52 +2301,7 @@ export async function handleSendMessage(
    * handover it waits on is bounded by the abort budget plus the turn-boundary
    * commit wait, which is far too long to hold a request open.
    */
-  /**
-   * Tell the sender that a queue fallback was refused, for a send this request
-   * has already answered `202` for.
-   *
-   * `queueSend` answers a full queue with a `429`, and once the acceptance has
-   * gone out that response reaches nobody: the message would be accepted and
-   * then silently gone. `requestId` is the id the acceptance carried, so the
-   * client can fail the optimistic row it is already showing and offer the
-   * retry; the body it typed is in that row, so this does not repeat it.
-   */
-  const reportQueueRejectionAfterAcceptance = (reason: string): void => {
-    log.error(
-      {
-        conversationId: mapping.conversationId,
-        requestId: sendRequestId,
-        reason,
-      },
-      "Queue fallback for an accepted send was rejected; telling the sender",
-    );
-    broadcastMessage({
-      type: "error",
-      conversationId: mapping.conversationId,
-      requestId: sendRequestId,
-      code: "QUEUE_FULL",
-      category: "queue_drain_failed",
-      message:
-        "The assistant couldn't take your message: too many are already waiting. Try sending it again in a moment.",
-    });
-  };
-
-  /**
-   * @param afterAcceptance - true when this call runs off an already-answered
-   * request (the interrupt handover). Its return value reaches nobody, so a
-   * queue fallback that is refused has to be reported as an event instead.
-   */
-  const completeSend = async (afterAcceptance = false): Promise<unknown> => {
-    const queueFallback = async (
-      content: string,
-      reason: string,
-    ): Promise<unknown> => {
-      const result = await queueSend(content, { afterAcceptance });
-      if (afterAcceptance && result instanceof RouteResponse) {
-        reportQueueRejectionAfterAcceptance(reason);
-      }
-      return result;
-    };
+  const completeSend = async (): Promise<unknown> => {
     // The interrupt arms a `thinking` / `message_interrupted` transition for the
     // agent loop to emit at the head of the replacement turn. Several exits
     // below answer without starting a loop at all: a `/compact`, a `/clean`, an
@@ -2621,15 +2312,15 @@ export async function handleSendMessage(
     let startedAgentLoop = false;
     try {
       // Per-turn host-proxy setup, after the interrupt decision so the replacement
-      // turn an interrupt starts gets what an idle send gets. A send that queues
-      // has returned above, and the turn it queued behind clears
+      // turn an interrupt starts gets what an idle send gets. A send that defers
+      // runs this when its own turn starts, and the turn it waited behind clears
       // `preactivatedSkillIds` when it ends, so running this before the decision
       // would leave a released send without the `computer-use` and `app-control`
       // tools its client can service.
       //
       // `isProcessing()` reads false on every path that reaches here, bar the race
-      // where another claim takes the lock in between. The guards below keep that
-      // case on the queue path's behaviour.
+      // where another claim takes the lock in between. The guards below leave the
+      // in-flight turn's state alone in that case.
       // Bash/File/Transfer singletons are globally available via isAvailable(), so
       // they need no per-conversation gating. CU is per-conversation (owns step
       // count, AX tree history, loop detection).
@@ -2668,9 +2359,9 @@ export async function handleSendMessage(
         conversation.setHostAppControlProxy(undefined);
       }
       // Preactivate only while the conversation is idle. A lock that changed hands
-      // since the interrupt decision sends this message to the queue instead, and
-      // the drain preactivates at dequeue time rather than mutating another turn's
-      // in-flight state.
+      // since the interrupt decision sends this message back to the deferral
+      // chain, which preactivates when the send's own turn starts rather than
+      // mutating another turn's in-flight state.
       if (!conversation.isProcessing()) {
         preactivateHostProxySkills(
           conversation,
@@ -2684,10 +2375,10 @@ export async function handleSendMessage(
       // before dispatching, so an idle conversation with lingering confirmations
       // (e.g. the user never responded to a tool-approval prompt) must deny
       // them before starting the new turn.
-      // Hidden sends are machine signals, not user decisions — like the queue
-      // branch's supersede bypass above, they must not deny confirmations that
-      // outlived a turn (e.g. a guardian approval still awaiting a channel
-      // reply). The next visible send performs the cleanup instead.
+      // Hidden sends are machine signals, not user decisions: they must not deny
+      // confirmations that outlived a turn (e.g. a guardian approval still
+      // awaiting a channel reply). The next visible send performs the cleanup
+      // instead.
       if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
         for (const interaction of pendingInteractions.getByConversation(
           mapping.conversationId,
@@ -2727,8 +2418,7 @@ export async function handleSendMessage(
       // in step: the slot hydrates and scopes the turn started just below
       // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
       // so it must name whoever this request is about to run as. A request that
-      // queues instead returns above without stamping — it is not starting a run,
-      // and its actor rides the queue item to the drain.
+      // defers reaches here only when its own turn starts.
       conversation.setTrustContext(resolvedTrustCtx);
       conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
@@ -2759,7 +2449,7 @@ export async function handleSendMessage(
       if (slashResult.kind === "unknown") {
         const slashOwner = await conversation.acquireProcessingFenced();
         if (slashOwner === null) {
-          return queueFallback(rawContent, "lock_race");
+          throw new Error(CONVERSATION_BUSY_MESSAGE);
         }
         let cleanupDeferred = false;
         try {
@@ -2773,7 +2463,7 @@ export async function handleSendMessage(
               ? { scripted: body.scripted }
               : {}),
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
+          const persisted = await persistUserMessageBody(conversation, {
             content: rawContent,
             attachments,
             // The send's own id, not a fresh one: an interrupting send is
@@ -2827,9 +2517,8 @@ export async function handleSendMessage(
           // populated before SSE events arrive, preventing dropped events in new
           // desktop conversations.
           //
-          // conversation.processing and drainQueue are also deferred so the current
-          // slash command's events are emitted before the next queued message
-          // starts processing.
+          // The processing release is deferred too, so the current slash
+          // command's events are emitted before the next send starts its turn.
           const conversationId = mapping.conversationId;
           const message = slashResult.message;
           scheduleCannedReplyRelease({
@@ -2871,11 +2560,8 @@ export async function handleSendMessage(
         } finally {
           // No-op for the slash-command early-return path (handled inside
           // setTimeout above), but still needed for error paths.
-          if (!cleanupDeferred && conversation.releaseProcessing(slashOwner)) {
-            void conversation.kickDrainQueue(
-              "loop_complete",
-              "send_error_path",
-            );
+          if (!cleanupDeferred) {
+            conversation.releaseProcessing(slashOwner);
           }
         }
       }
@@ -2883,7 +2569,7 @@ export async function handleSendMessage(
       if (slashResult.kind === "compact") {
         const compactOwner = await conversation.acquireProcessingFenced();
         if (compactOwner === null) {
-          return queueFallback(rawContent, "lock_race");
+          throw new Error(CONVERSATION_BUSY_MESSAGE);
         }
         const slashMeta = {
           userMessageChannel: sourceChannel,
@@ -2891,9 +2577,9 @@ export async function handleSendMessage(
           userMessageInterface: sourceInterface,
           assistantMessageInterface: sourceInterface,
         };
-        let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
+        let persisted: Awaited<ReturnType<typeof persistUserMessageBody>>;
         try {
-          persisted = await persistQueuedMessageBody(conversation, {
+          persisted = await persistUserMessageBody(conversation, {
             content: rawContent,
             attachments,
             // See the note on the other canned branches: the id was already
@@ -2904,16 +2590,14 @@ export async function handleSendMessage(
             ...(clientOs ? { requestClientOs: clientOs } : {}),
           });
         } catch (err) {
-          // The fire-and-forget compaction below owns clearing `processing`, but a
-          // throw from this initial persist never reaches it — reset here so the
-          // conversation isn't stranded in queued mode.
+          // The fire-and-forget compaction below owns clearing `processing`, but
+          // a throw from this initial persist never reaches it: release here so
+          // the conversation is not stranded mid-turn.
           conversation.releaseProcessing(compactOwner);
-          void conversation.kickDrainQueue("loop_complete", "compact_command");
           throw err;
         }
         if (persisted.deduplicated) {
           conversation.releaseProcessing(compactOwner);
-          void conversation.kickDrainQueue("loop_complete", "compact_dedup");
           return {
             accepted: true,
             messageId: persisted.id,
@@ -2969,10 +2653,6 @@ export async function handleSendMessage(
             });
           } finally {
             conversation.releaseProcessing(compactOwner);
-            void conversation.kickDrainQueue(
-              "loop_complete",
-              "compact_command",
-            );
           }
         })();
 
@@ -2986,13 +2666,13 @@ export async function handleSendMessage(
       if (slashResult.kind === "clean") {
         const cleanOwner = await conversation.acquireProcessingFenced();
         if (cleanOwner === null) {
-          return queueFallback(rawContent, "lock_race");
+          throw new Error(CONVERSATION_BUSY_MESSAGE);
         }
         const conversationId = mapping.conversationId;
-        // Outer try/finally guarantees the processing flag is cleared (and the
-        // queue drained) on every failure path — including a throw from the
-        // initial user-message persist below, which would otherwise leave the
-        // conversation stuck in queued mode indefinitely.
+        // Outer try/finally guarantees the processing flag is cleared on every
+        // failure path, including a throw from the initial user-message persist
+        // below, which would otherwise leave the conversation stuck mid-turn
+        // indefinitely.
         try {
           const slashMeta = {
             userMessageChannel: sourceChannel,
@@ -3000,7 +2680,7 @@ export async function handleSendMessage(
             userMessageInterface: sourceInterface,
             assistantMessageInterface: sourceInterface,
           };
-          const persisted = await persistQueuedMessageBody(conversation, {
+          const persisted = await persistUserMessageBody(conversation, {
             content: rawContent,
             attachments,
             // The send's own id, not a fresh one: an interrupting send is
@@ -3063,42 +2743,29 @@ export async function handleSendMessage(
           };
         } finally {
           conversation.releaseProcessing(cleanOwner);
-          void conversation.kickDrainQueue("loop_complete", "clean_command");
         }
       }
 
       const resolvedContent = slashResult.content;
 
       const requestId = sendRequestId;
-      let persistResult: Awaited<
-        ReturnType<typeof conversation.persistUserMessage>
-      >;
-      try {
-        persistResult = await conversation.persistUserMessage({
-          content: resolvedContent,
-          attachments,
-          requestId,
-          metadata: withClientMetadata(
-            body.automated === true || body.hidden === true
-              ? {
-                  ...(body.automated === true ? { automated: true } : {}),
-                  ...(body.hidden === true ? { hidden: true } : {}),
-                }
-              : undefined,
-            clientMetadata,
-          ),
-          scripted: body.scripted,
-          clientMessageId,
-          ...(clientOs ? { requestClientOs: clientOs } : {}),
-        });
-      } catch (err) {
-        if (isConversationBusyError(err)) {
-          // The flag went to someone else inside the awaits above. This is the
-          // same message the check at the top would have queued, so queue it.
-          return queueFallback(resolvedContent, "lock_race");
-        }
-        throw err;
-      }
+      const persistResult = await conversation.persistUserMessage({
+        content: resolvedContent,
+        attachments,
+        requestId,
+        metadata: withClientMetadata(
+          body.automated === true || body.hidden === true
+            ? {
+                ...(body.automated === true ? { automated: true } : {}),
+                ...(body.hidden === true ? { hidden: true } : {}),
+              }
+            : undefined,
+          clientMetadata,
+        ),
+        scripted: body.scripted,
+        clientMessageId,
+        ...(clientOs ? { requestClientOs: clientOs } : {}),
+      });
 
       const messageId = persistResult.id;
 
@@ -3262,121 +2929,71 @@ export async function handleSendMessage(
         conversationId: mapping.conversationId,
       };
     }
+  }
 
-    const interruptOptions = {
+  // Reserved before the submit, not inside it: the whole point is that a
+  // retransmission arriving while a detached handover runs finds the
+  // reservation already there. Released once every piece of the send has
+  // settled, by which time either a row exists for the durable check to find
+  // or the sender has been told the send failed.
+  if (clientMessageId) {
+    conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
+  }
+
+  let startedResponse: unknown;
+  let outcome: SubmitOutcome;
+  try {
+    outcome = await submitUserTurn(conversation, {
       callerActorPrincipalId: sourceActorPrincipalId,
       hidden: body.hidden === true,
       origin: "POST /messages",
-    };
-    // Decided synchronously so this request can be acknowledged before any of
-    // the handover happens. Anything not eligible queues, exactly as it does
-    // with the flag off.
-    if (
-      classifyInterruptEligibility(conversation, interruptOptions) !==
-      "eligible"
-    ) {
-      return queueSend(contentAfterScan);
-    }
-
-    // The handover is bounded by the abort budget plus the turn-boundary commit
-    // wait, which is far longer than a send may hold a request open: this
-    // endpoint is fire-and-forget, clients render optimistically and reconcile
-    // on `user_message_echo`, and a client that times out would retry a message
-    // the daemon is still placing. So the request is answered now and the abort,
-    // the wait, the repair, the persist and the dispatch all run off it, the way
-    // `queueSend` already returns before the drain it kicks.
-    /**
-     * Queue a message this request has already answered `202` for.
-     *
-     * The 202 went out long ago, so `queueSend`'s own response is no longer
-     * reachable by anyone: a full queue answers `429` into a void. The sender
-     * only learns from an event, and without one the message is accepted and
-     * then silently gone. `requestId` is the id the 202 carried, so the client
-     * can mark the optimistic row it is already showing as failed and offer the
-     * retry; the body it typed is in that row, so the event does not repeat it.
-     */
-    const queueAfterAcceptance = async (reason: string): Promise<void> => {
-      const queueResult = await queueSend(contentAfterScan, {
-        afterAcceptance: true,
-      });
-      if (queueResult instanceof RouteResponse) {
-        reportQueueRejectionAfterAcceptance(reason);
-      }
-    };
-
-    // Reserved before the detach, not inside it: the whole point is that a
-    // retransmission arriving while this runs finds the reservation already
-    // there. Released once the handover is over, by which time either a row
-    // exists for the durable check to find or the send is on the queue.
-    if (clientMessageId) {
-      conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
-    }
-    const releaseInFlightSend = (): void => {
-      if (clientMessageId) {
-        conversation.inFlightSendRequestIds.delete(clientMessageId);
-      }
-    };
-
-    void (async () => {
-      const outcome = await interruptRunningTurn(
-        conversation,
-        interruptOptions,
-      );
-      if (outcome !== "released") {
-        await queueAfterAcceptance(`interrupt_${outcome}`);
-        return;
-      }
-      await completeSend(true);
-    })()
-      .catch(async (err) => {
-        // The message is this request's responsibility and it has already been
-        // accepted, so a failure in here must still land it somewhere. The queue
-        // is the one place that survives: it runs on the next drain, and
-        // `queueSend` never takes the enqueue's idle fast path.
-        log.error(
-          {
-            err,
-            conversationId: mapping.conversationId,
-            requestId: sendRequestId,
-          },
-          "Interrupting send failed after acceptance; falling back to the queue",
-        );
-        try {
-          await queueAfterAcceptance("handover_failed");
-        } catch (queueErr) {
-          log.error(
-            { err: queueErr, conversationId: mapping.conversationId },
-            "Queue fallback for a failed interrupting send also failed",
-          );
-          broadcastMessage({
-            type: "error",
-            conversationId: mapping.conversationId,
-            requestId: sendRequestId,
-            code: "SEND_FAILED",
-            message:
-              "Your message could not be delivered. Please send it again.",
-            errorCategory: "internal",
-          });
-        }
-      })
-      .finally(releaseInFlightSend);
-
-    // `messageId` as well as `requestId`, because the response contract is not
-    // suspended for an interrupt: `postChatMessage` rejects an accepted,
-    // non-queued response without one, and the client would report the send
-    // failed and drop the optimistic row. They are the same value by
-    // construction, since a user turn persists its row under its `requestId`
-    // (`persistUserMessage` passes `id: requestId`), which is why this can be
-    // answered before the row is written.
-    return {
-      accepted: true,
-      messageId: sendRequestId,
+      onEvent: broadcastMessage,
       requestId: sendRequestId,
-      conversationId: mapping.conversationId,
-    };
+      run: async () => {
+        startedResponse = await completeSend();
+      },
+      onSettled: () => {
+        if (clientMessageId) {
+          conversation.inFlightSendRequestIds.delete(clientMessageId);
+        }
+      },
+    });
+  } catch (err) {
+    if (err instanceof AdmissionOverflowError) {
+      log.warn(
+        {
+          conversationId: mapping.conversationId,
+          requestId: sendRequestId,
+          pending: err.pending,
+        },
+        "Refusing a send: the conversation already has the maximum number waiting",
+      );
+      return new RouteResponse(
+        JSON.stringify({ accepted: false, error: "busy" }),
+        { "content-type": "application/json" },
+        429,
+      );
+    }
+    throw err;
   }
 
-  return completeSend();
+  if (outcome === "started") {
+    return startedResponse;
+  }
+
+  // `messageId` as well as `requestId`, because the response contract is not
+  // suspended for a send that has not run yet: `postChatMessage` rejects an
+  // accepted response without one, and the client would report the send failed
+  // and drop the optimistic row. They are the same value by construction,
+  // since a user turn persists its row under its `requestId`
+  // (`persistUserMessage` passes `id: requestId`), which is why this can be
+  // answered before the row is written.
+  return {
+    accepted: true,
+    messageId: sendRequestId,
+    requestId: sendRequestId,
+    conversationId: mapping.conversationId,
+  };
 }
 
 function escapeXmlContent(text: string): string {
@@ -3874,7 +3491,7 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .optional()
         .describe(
-          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). A hidden send never interrupts a turn in flight: it waits until the conversation is idle, emits no echo, and does not supersede pending interactions. Honored on the standard send path only, slash-command content bypasses it.",
         ),
       scripted: z
         .boolean()
@@ -3919,7 +3536,6 @@ export const ROUTES: RouteDefinition[] = [
       accepted: z.boolean(),
       conversationId: z.string().optional(),
       messageId: z.string().optional(),
-      queued: z.boolean().optional(),
       requestId: z.string().optional(),
     }),
     handler: async (args) =>

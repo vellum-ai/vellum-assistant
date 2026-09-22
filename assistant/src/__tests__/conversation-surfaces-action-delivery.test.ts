@@ -75,8 +75,6 @@ function makeContext(sent: AssistantEvent[] = []): Conversation & {
       getTurnOwner: () => undefined,
     } as unknown as Conversation["modeSessions"],
     isProcessing: () => false,
-    enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
-    getQueueDepth: () => 0,
     processMessage: async (options) => {
       processMessageCalls.push({
         content: options.content,
@@ -156,65 +154,6 @@ describe("surface action delivery to assistant", () => {
         }),
       ).toBeUndefined();
       coordinator.releaseTurn(acceptedTurnId, {
-        status: "completed",
-        endReason: "turn_settled",
-      });
-      expect(coordinator.hasResidentWork()).toBe(false);
-    },
-  );
-
-  test.each([false, true])(
-    "queued surface answers retain handoff ownership without pinning the old turn (wait=%s)",
-    async (hasRecordedWait) => {
-      const { initializeDb } = await import("../persistence/db-init.js");
-      const { createConversation } =
-        await import("../persistence/conversation-crud.js");
-      const { ConversationModeSessionCoordinator } =
-        await import("../daemon/conversation-mode-session.js");
-      await initializeDb();
-      const conversation = createConversation();
-      const coordinator = new ConversationModeSessionCoordinator(
-        conversation.id,
-      );
-      const handle = coordinator.activateSource({
-        sourceId: "browser-source",
-        generation: 1,
-        mode: "browser",
-        sourceStartedAt: 100,
-      })!;
-      coordinator.claimTurn("turn-origin", handle, 110);
-      if (hasRecordedWait) {
-        coordinator.recordStructuralWait("turn-origin", {
-          kind: "surface",
-          responseId: "surface-123",
-        });
-      }
-      const ctx = Object.assign(makeContext(), {
-        conversationId: conversation.id,
-        modeSessions: coordinator,
-      });
-      let queuedRequestId: string | undefined;
-      ctx.enqueueMessage = (message) => {
-        queuedRequestId = message.requestId;
-        return { queued: true, requestId: message.requestId! };
-      };
-      ctx.surfaceState.set("surface-123", {
-        surfaceType: "form",
-        data: { fields: [] },
-      });
-      ctx.pendingSurfaceActions.set("surface-123", { surfaceType: "form" });
-
-      await handleSurfaceAction(ctx, "surface-123", "submit", {});
-
-      expect(ctx.processMessageCalls).toHaveLength(0);
-      expect(queuedRequestId).toBeDefined();
-      expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(
-        hasRecordedWait ? handle.id : undefined,
-      );
-      coordinator.transferTurn("turn-origin", queuedRequestId!);
-      expect(coordinator.getTurnOwner("turn-origin")).toBeUndefined();
-      expect(coordinator.getTurnOwner(queuedRequestId!)?.id).toBe(handle.id);
-      coordinator.releaseTurn(queuedRequestId!, {
         status: "completed",
         endReason: "turn_settled",
       });

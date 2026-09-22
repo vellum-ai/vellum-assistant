@@ -13,15 +13,13 @@ import { asConversation } from "./helpers/mock-conversation.js";
 
 /**
  * Build a minimal Conversation for testing.
- * Tracks calls to enqueueMessage and processMessage so tests can assert
- * whether an LLM turn was triggered.
+ * Tracks calls to processMessage so tests can assert whether an LLM turn was
+ * triggered.
  */
 function makeContext(opts?: { sent?: AssistantEvent[] }): Conversation & {
-  enqueueCalls: Array<{ content: string; requestId: string }>;
   processCalls: Array<{ content: string; requestId?: string }>;
 } {
   const sent = opts?.sent ?? [];
-  const enqueueCalls: Array<{ content: string; requestId: string }> = [];
   const processCalls: Array<{ content: string; requestId?: string }> = [];
 
   return asConversation({
@@ -38,12 +36,6 @@ function makeContext(opts?: { sent?: AssistantEvent[] }): Conversation & {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (options) => {
-      const resolvedId = options.requestId ?? "mock-request-id";
-      enqueueCalls.push({ content: options.content, requestId: resolvedId });
-      return { queued: false, requestId: resolvedId };
-    },
-    getQueueDepth: () => 0,
     processMessage: async (options) => {
       processCalls.push({
         content: options.content,
@@ -52,7 +44,6 @@ function makeContext(opts?: { sent?: AssistantEvent[] }): Conversation & {
       return "ok";
     },
     withSurface: createSurfaceMutex(),
-    enqueueCalls,
     processCalls,
   });
 }
@@ -112,7 +103,7 @@ describe("state_update silent accumulation", () => {
 });
 
 describe("state_update does not trigger LLM", () => {
-  test("does not call enqueueMessage or processMessage", () => {
+  test("does not call processMessage", () => {
     const ctx = makeContext();
     registerDynamicPage(ctx, "surface-1");
 
@@ -120,7 +111,6 @@ describe("state_update does not trigger LLM", () => {
       currentSlide: 3,
     });
 
-    expect(ctx.enqueueCalls).toHaveLength(0);
     expect(ctx.processCalls).toHaveLength(0);
   });
 
@@ -148,9 +138,9 @@ describe("accumulated state injection into reactive actions", () => {
     // Fire a reactive action (e.g. "save")
     handleSurfaceAction(ctx, "surface-1", "save");
 
-    // The enqueueMessage call should include the accumulated state
-    expect(ctx.enqueueCalls).toHaveLength(1);
-    const content = ctx.enqueueCalls[0].content;
+    // The processMessage call should include the accumulated state
+    expect(ctx.processCalls).toHaveLength(1);
+    const content = ctx.processCalls[0].content;
     expect(content).toContain("Accumulated surface state:");
     expect(content).toContain('"page":3');
     expect(content).toContain('"selectedItem":"item-42"');
@@ -163,8 +153,8 @@ describe("accumulated state injection into reactive actions", () => {
     // Fire a reactive action without any prior state_update
     handleSurfaceAction(ctx, "surface-1", "refresh");
 
-    expect(ctx.enqueueCalls).toHaveLength(1);
-    const content = ctx.enqueueCalls[0].content;
+    expect(ctx.processCalls).toHaveLength(1);
+    const content = ctx.processCalls[0].content;
     expect(content).not.toContain("Accumulated surface state:");
   });
 });
@@ -183,8 +173,8 @@ describe("per-surface state isolation", () => {
     // Fire a reactive action on surface B
     handleSurfaceAction(ctx, "surface-b", "submit");
 
-    expect(ctx.enqueueCalls).toHaveLength(1);
-    const content = ctx.enqueueCalls[0].content;
+    expect(ctx.processCalls).toHaveLength(1);
+    const content = ctx.processCalls[0].content;
     expect(content).not.toContain("filterA");
     expect(content).not.toContain("Accumulated surface state:");
   });

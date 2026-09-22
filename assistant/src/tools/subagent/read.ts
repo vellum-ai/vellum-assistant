@@ -108,14 +108,14 @@ export async function executeSubagentRead(
   }
 
   // A terminal subagent can still have a follow-up turn in flight: guidance
-  // queued during its run drains after the run itself returns, which is what
-  // the completion notification's "queued follow-up guidance is still being
-  // processed, read for the latest output" points at. Reading straight through
-  // would answer that pointer with the transcript from before the guidance
-  // landed, so wait for the queued turn. The wait is bounded and its result
-  // reported either way: a subagent still working at the deadline is read as
-  // it stands, labelled as unfinished rather than presented as the result.
-  const settled = await getSubagentManager().settleQueuedTurns(subagentId);
+  // sent during its run waits for the run itself to return, which is what the
+  // completion notification's "follow-up guidance is still being processed,
+  // read for the latest output" points at. Reading straight through would
+  // answer that pointer with the transcript from before the guidance landed,
+  // so wait for the deferred turn. The wait is bounded and its result reported
+  // either way: a subagent still working at the deadline is read as it stands,
+  // labelled as unfinished rather than presented as the result.
+  const settled = await getSubagentManager().settleDeferredTurns(subagentId);
 
   // Read the subagent's conversation messages from DB.
   const dbMessages = getMessages(state.conversationId);

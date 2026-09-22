@@ -372,7 +372,6 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
         conversation.abortController = null;
       }
       conversation.setProcessing(false);
-      void conversation.kickDrainQueue("loop_complete", "summarize_command");
     }
   })();
 
@@ -773,11 +772,11 @@ async function handleRetryLastAssistantTurn({
   const contentText = extractUserPromptText(anchor.content);
 
   // Fire-and-forget: return 202 immediately, stream the re-run over SSE. The
-  // loop's own teardown clears processing, publishes the metadata sync
-  // invalidation, and drains anything queued during the turn.
+  // loop's own teardown clears processing and publishes the metadata sync
+  // invalidation.
   (async () => {
     try {
-      conversation.emitActivityState("thinking", "message_dequeued", {
+      conversation.emitActivityState("thinking", "message_retried", {
         requestId,
       });
       // Unconditional resync of the in-memory history to the truncated DB

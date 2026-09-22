@@ -4,29 +4,23 @@ import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-requ
 import {
   clearAll,
   getConversation,
-  isSuppressedQueuedMessage,
 } from "../../persistence/conversation-crud.js";
 import { resolveConversationId } from "../../persistence/conversation-key-store.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
-import { resolvePendingQuestion } from "../../runtime/question-resolution.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
-import type { Conversation } from "../conversation.js";
 import { touchConversation } from "../conversation-evictor.js";
-import { forceClearStaleProcessing } from "../conversation-lifecycle.js";
 import {
   buildSlashContext,
   formatCleanResult,
 } from "../conversation-process.js";
-import type { QueuedMessage } from "../conversation-queue-manager.js";
 import {
   conversationEntries,
   findConversation,
 } from "../conversation-registry.js";
-import { classifySlash, resolveSlash } from "../conversation-slash.js";
+import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
@@ -118,7 +112,7 @@ export function cancelGeneration(conversationId: string): boolean {
   });
   // Cancel any in-flight ACP agent sessions this conversation spawned, for the
   // same reason: a backgrounded ACP prompt would otherwise keep running (and
-  // holding a child process) past the stop and, on completion, enqueue a
+  // holding a child process) past the stop and, on completion, send a
   // follow-up message back into the conversation the user just cancelled. Peek
   // the singleton so a conversation that never used ACP doesn't spin one up.
   peekAcpSessionManager()?.cancelForParent(conversationId);
@@ -246,389 +240,12 @@ export async function resolveMetaSlashCommand(
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the caller may cancel or steer to this queued message.
+ * Deny the confirmations the in-flight turn left pending, notify clients, and
+ * sync the gateway request status before clearing the prompter's records.
  *
- * A queued message records the verified requester that enqueued it
- * (`sourceActorPrincipalId`); the delete and steer routes receive the caller's
- * verified identity in the `x-vellum-actor-principal-id` header, which both
- * adapters derive from the auth context rather than from anything the caller
- * sent. When both are present they must match: `message_queued` is broadcast
- * to every subscriber of the assistant, so every requestId in a conversation
- * is visible to every connected client, and without this check one actor
- * principal could cancel another's pending message, or abort the live
- * generation and jump another's message to the head of the queue, just by
- * echoing the id back.
- *
- * Two cases stay open, both deliberately:
- *
- * - **The caller has no actor principal.** Local/IPC and service principals
- *   carry no `actorPrincipalId`; by the convention this routes layer already
- *   follows (see `vellum-actor-trust.ts`) a caller with no principal is the
- *   guardian by construction, so the CLI keeps working.
- * - **The message has no recorded requester.** Daemon-internal enqueues (agent
- *   wake, subagent notifications, surface actions) have no enqueuing actor to
- *   compare against, and cancelling one from the queue UI is intended.
- */
-function mayActOnQueuedMessage(
-  queued: QueuedMessage,
-  callerActorPrincipalId: string | undefined,
-): boolean {
-  if (!queued.sourceActorPrincipalId || !callerActorPrincipalId) {
-    return true;
-  }
-  return queued.sourceActorPrincipalId === callerActorPrincipalId;
-}
-
-/**
- * Delete a queued message from a conversation.
- * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
- *
- * On success the sender's event sink receives the terminal
- * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
- * and the only signal that closes out a queued row that never runs: without it
- * a client that didn't originate the delete leaves the pending indicator up
- * forever, since no `message_dequeued` is ever coming. Rows with no
- * client-visible queued counterpart ({@link isSuppressedQueuedMessage} —
- * hidden sends and daemon-injected subagent/ACP/wake notifications) are
- * suppressed for the same reason they get no ack: they have no client row to
- * close.
- */
-export function deleteQueuedMessage(
-  conversationId: string,
-  requestId: string,
-  options: { actorPrincipalId?: string } = {},
-):
-  | { removed: true }
-  | {
-      removed: false;
-      reason: "conversation_not_found" | "message_not_found" | "forbidden";
-    } {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    log.warn(
-      { conversationId, requestId },
-      "No conversation found for delete_queued_message",
-    );
-    return { removed: false, reason: "conversation_not_found" };
-  }
-  const queued = conversation.queue.findByRequestId(requestId);
-  if (!queued) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for deletion",
-    );
-    return { removed: false, reason: "message_not_found" };
-  }
-  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
-    log.warn(
-      {
-        conversationId,
-        requestId,
-        callerActorPrincipalId: options.actorPrincipalId,
-      },
-      "Refusing to delete a queued message enqueued by a different actor principal",
-    );
-    return { removed: false, reason: "forbidden" };
-  }
-  consumeQueuedMessage(conversation, conversationId, queued);
-  return { removed: true };
-}
-
-/**
- * Drop a queued message from the queue and close out the client row it
- * created, so a message that will never run leaves no pending indicator
- * behind.
- *
- * Queue events come in pairs, so an entry that never produced a
- * `message_queued` ack (a suppressed daemon-injected send, or a hidden machine
- * send) must not produce a delete either: clients have no row to retire and an
- * unpaired event would decrement a counter that was never incremented.
- */
-function consumeQueuedMessage(
-  conversation: Conversation,
-  conversationId: string,
-  queued: QueuedMessage,
-): void {
-  conversation.removeQueuedMessage(queued.requestId);
-  if (!isSuppressedQueuedMessage(queued.metadata)) {
-    queued.onEvent({
-      type: "message_queued_deleted",
-      conversationId,
-      requestId: queued.requestId,
-      ...(queued.clientMessageId
-        ? { clientMessageId: queued.clientMessageId }
-        : {}),
-    });
-  }
-}
-
-/**
- * Steer a conversation to a specific queued message.
- * Promotes the message to the head of the queue, marks the conversation
- * as needing tool-result repair, and aborts the current generation so the
- * drain path picks up the promoted message.
- *
- * Returns `{ steered: true }` on success, or `{ steered: false, reason }` on failure.
- */
-export function steerToMessage(
-  conversationId: string,
-  requestId: string,
-  options: { actorPrincipalId?: string } = {},
-):
-  | { steered: true }
-  | {
-      steered: false;
-      reason:
-        | "conversation_not_found"
-        | "message_not_found"
-        | "not_processing"
-        | "forbidden";
-    } {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    log.warn(
-      { conversationId, requestId },
-      "No conversation found for steer_to_message",
-    );
-    return { steered: false, reason: "conversation_not_found" };
-  }
-
-  if (!conversation.isProcessing()) {
-    log.warn(
-      { conversationId, requestId },
-      "Cannot steer: conversation is not processing",
-    );
-    return { steered: false, reason: "not_processing" };
-  }
-
-  const queued = conversation.queue.findByRequestId(requestId);
-  if (!queued) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for steering",
-    );
-    return { steered: false, reason: "message_not_found" };
-  }
-  if (!mayActOnQueuedMessage(queued, options.actorPrincipalId)) {
-    log.warn(
-      {
-        conversationId,
-        requestId,
-        callerActorPrincipalId: options.actorPrincipalId,
-      },
-      "Refusing to steer to a queued message enqueued by a different actor principal",
-    );
-    return { steered: false, reason: "forbidden" };
-  }
-
-  const promoted = conversation.queue.promoteToHead(requestId);
-  if (!promoted) {
-    log.warn(
-      { conversationId, requestId },
-      "Queued message not found for steering",
-    );
-    return { steered: false, reason: "message_not_found" };
-  }
-
-  // Mark the conversation for tool-result repair so the drain path can
-  // inject synthetic tool results for any pending tool_use blocks that
-  // were abandoned by the aborted generation.
-  conversation.pendingSteerRepair = true;
-
-  // Broadcast the steer event so clients can update their UI.
-  broadcastMessage({
-    type: "message_steered",
-    conversationId,
-    requestId,
-  });
-
-  log.info(
-    { conversationId, requestId },
-    "Steering to queued message — aborting current generation",
-  );
-
-  // Abort the in-flight generation. The agent loop's release calls
-  // drainQueue, which will pick up the promoted message at the head.
-  // Unlike abortConversation, we do NOT clear the queue or dispose
-  // prompters: we want the queue to drain with the promoted message first.
-  const reason = createAbortReason(
-    "preempted_by_new_message",
-    "steerToMessage",
-    conversationId,
-  );
-  if (conversation.abortController) {
-    conversation.abortController.abort(reason);
-  } else {
-    // Processing is latched with no live turn to abort, so nothing is going to
-    // reach a drain on its own and the message promoted above would sit at the
-    // head of a queue that never runs. Release the flag and drain here instead.
-    // `pendingSteerRepair` stays set: the drain consumes it, repairing any
-    // tool_use blocks the dead turn stranded before the promoted head runs.
-    forceClearStaleProcessing(conversation, "steerToMessage");
-    void conversation.kickDrainQueue("loop_complete", "steer_force_clear");
-  }
-  // Deny pending confirmations so the abort unblocks immediately.
-  conversation.denyAllPendingConfirmations();
-
-  return { steered: true };
-}
-
-/**
- * Answer an open `ask_question` prompt with a message the user typed into the
- * chat while the card was up.
- *
- * Typing an answer instead of using the card is the same act as typing it into
- * the card's free-text field, so it resolves the prompt rather than cancelling
- * it: the parked turn keeps running and the model reads the answer in the tool
- * result. Channel replies already work this way (the bare-text branch of
- * `runtime/guardian-reply-router.ts`); this is the app path saying the same
- * thing through the same `resolvePendingQuestion` core.
- *
- * The message is consumed, not run as a turn of its own: it reaches the model
- * once, through the tool result, and the answered card carries the user's own
- * words in the transcript. Consuming it retires the client's queued row the
- * same way a queue delete does.
- *
- * Deliberately narrow. Anything the free-text field of a card could not have
- * carried, or that a single answer cannot honestly stand in for, falls through
- * to {@link steerOnEnqueuedMessageIfQuestionParked} and supersedes as before:
- *  - more than one parked question, so which prompt the text answers is a guess
- *  - a message no longer on the queue, which cannot be consumed
- *  - attachments, which the tool result has no way to carry
- *  - a send that is not a person typing: automated, non-interactive, or
- *    echo-suppressed machine signals
- *  - empty text, which answers nothing
- *  - a slash command, which is an instruction to the assistant rather than prose
- *
- * Returns `true` when a parked question was answered and the message consumed.
- */
-export function answerParkedQuestionWithEnqueuedMessage(
-  conversationId: string,
-  enqueuedRequestId: string,
-): boolean {
-  const conversation = findConversation(conversationId);
-  if (!conversation) {
-    return false;
-  }
-
-  const parked = pendingInteractions
-    .getByConversation(conversationId)
-    .filter((interaction) => interaction.kind === "question");
-  if (parked.length !== 1) {
-    return false;
-  }
-
-  const queued = conversation.queue.findByRequestId(enqueuedRequestId);
-  if (!queued || queued.attachments.length > 0) {
-    return false;
-  }
-  if (
-    queued.isInteractive === false ||
-    queued.metadata?.automated === true ||
-    isSuppressedQueuedMessage(queued.metadata)
-  ) {
-    return false;
-  }
-
-  const text = queued.content.trim();
-  if (text.length === 0 || classifySlash(text) !== "passthrough") {
-    return false;
-  }
-
-  const outcome = resolvePendingQuestion(parked[0].requestId, {
-    kind: "chat_reply",
-    text,
-  });
-  if (outcome.status !== "resolved") {
-    log.warn(
-      {
-        conversationId,
-        requestId: parked[0].requestId,
-        outcome: outcome.status,
-      },
-      "Parked question did not resolve from the enqueued message",
-    );
-    return false;
-  }
-
-  consumeQueuedMessage(conversation, conversationId, queued);
-  log.info(
-    { conversationId, requestId: parked[0].requestId, enqueuedRequestId },
-    "Enqueued message answered a parked question",
-  );
-  return true;
-}
-
-/**
- * Supersede an open `ask_question` prompt when a new chat message is enqueued
- * for the same conversation.
- *
- * A queued message while a clarification question is open means the user chose
- * to move on rather than answer it. Steering to that message aborts the parked
- * turn — which settles the open question via its turn-abort signal — repairs
- * the dangling `tool_use`, and drains the message, instead of stranding it
- * behind a prompt no one is going to answer. Only `ask_question` prompts
- * (`kind: "question"`) trigger this; pending confirmations are handled
- * separately by the enqueue path's auto-deny.
- *
- * Returns `true` when a parked question was found and a steer was issued.
- */
-export function steerOnEnqueuedMessageIfQuestionParked(
-  conversationId: string,
-  enqueuedRequestId: string,
-): boolean {
-  const hasParkedQuestion = pendingInteractions
-    .getByConversation(conversationId)
-    .some((interaction) => interaction.kind === "question");
-  if (!hasParkedQuestion) {
-    return false;
-  }
-  steerToMessage(conversationId, enqueuedRequestId);
-  return true;
-}
-
-/**
- * Supersede interactions left pending by an in-flight turn when a new message
- * is enqueued for a busy conversation. Centralized so every ingress path (the
- * HTTP send handler and the CLI signal path) gets identical handling:
- *
- *  1. Auto-deny pending confirmations — notify the client and issue the
- *     gateway request-status sync *before* clearing the prompter-owned
- *     confirmations, so a later guardian reply can't match a stale "pending"
- *     record and fail with `pending_interaction_not_found`.
- *  2. Answer a parked ask_question with the enqueued message when the message
- *     reads as an answer ({@link answerParkedQuestionWithEnqueuedMessage}), and
- *     otherwise supersede it by steering to the enqueued message.
- *
- * Order matters: the steer aborts the turn, which denies the prompter's
- * confirmations as a side effect, so the status/notification sync must be
- * issued first. `removeByConversation` preserves `question` entries, so the
- * parked question is still registered for the steer even after the
- * confirmation sweep.
- */
-export function supersedePendingInteractionsOnEnqueue(
-  conversationId: string,
-  enqueuedRequestId: string,
-): void {
-  denyPendingConfirmationsOnSupersession(conversationId);
-  if (
-    answerParkedQuestionWithEnqueuedMessage(conversationId, enqueuedRequestId)
-  ) {
-    return;
-  }
-  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
-}
-
-/**
- * Step 1 of {@link supersedePendingInteractionsOnEnqueue} on its own: deny the
- * confirmations the in-flight turn left pending, notify clients, and sync the
- * gateway request status before clearing the prompter's records.
- *
- * Split out for the interrupt path, which aborts the running turn itself and
- * so needs the denials without the steer. A steer works by promoting a queued
- * message, and an interrupting message never joins the queue, so there would
- * be nothing for it to promote; the interrupt's own abort settles a parked
- * `ask_question` the same way a steer's does.
+ * The interrupt path calls this before it aborts the running turn, so the turn
+ * unwinds immediately instead of sitting on a prompt nobody is going to
+ * answer. A parked `ask_question` is settled by the abort's own signal.
  */
 export function denyPendingConfirmationsOnSupersession(
   conversationId: string,
@@ -659,7 +276,7 @@ export function denyPendingConfirmationsOnSupersession(
         void syncTerminalGuardianRequestStatus({
           requestId: interaction.requestId,
           status: "denied",
-          syncContext: "supersede-on-enqueue",
+          syncContext: "supersede-on-interrupt",
           terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }

@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { AssistantTextDeltaEventSchema } from "../api/events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "../api/events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "../api/events/assistant-turn-start.js";
-import { GenerationHandoffEventSchema } from "../api/events/generation-handoff.js";
 import { MessageCompleteEventSchema } from "../api/events/message-complete.js";
 import { ToolResultEventSchema } from "../api/events/tool-result.js";
 import { ToolUseStartEventSchema } from "../api/events/tool-use-start.js";
@@ -57,11 +56,6 @@ describe("mode session wire contract", () => {
       }),
       MessageCompleteEventSchema.parse({
         type: "message_complete",
-        modeSession: owner,
-      }),
-      GenerationHandoffEventSchema.parse({
-        type: "generation_handoff",
-        queuedCount: 1,
         modeSession: owner,
       }),
     ];

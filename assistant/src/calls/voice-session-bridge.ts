@@ -1032,13 +1032,12 @@ export async function startVoiceTurn(
   //   after every barge-in.
   // - The prior turn's teardown. Its `finally { cleanup() }` runs after
   //   `setProcessing(false)` (see `pendingTurnTeardowns`).
-  // - A successor send. The `finally` that releases the lock (waking this turn)
-  //   then calls `drainQueue`, which retakes the lock for any queued messages,
-  //   and a send deferred through `runWhenConversationIdle` is admitted on the
-  //   same transition. When either is visible after a successful idle wait,
-  //   loop back and wait that turn out instead of racing its persist; a
-  //   successor that takes the lock without being visible yet is covered by the
-  //   persist retry below.
+  // - A successor send. A send deferred through `runWhenConversationIdle` is
+  //   admitted on the same transition that releases the lock and wakes this
+  //   turn. When one is visible after a successful idle wait, loop back and
+  //   wait that turn out instead of racing its persist; a successor that takes
+  //   the lock without being visible yet is covered by the persist retry
+  //   below.
   //
   // Hence the re-check loop, bounded by one shared budget. In practice
   // each leg settles within a few microtasks; the bound only guards a
@@ -1084,10 +1083,7 @@ export async function startVoiceTurn(
   for (;;) {
     if (conversation.isProcessing()) {
       await waitOutProcessingLock();
-      if (
-        conversation.hasQueuedMessages?.() ||
-        conversation.hasPendingDeferredSends?.()
-      ) {
+      if (conversation.hasPendingDeferredSends?.()) {
         continue;
       }
     }
@@ -1483,11 +1479,11 @@ export async function startVoiceTurn(
   try {
     messageId = await persistTurnUserMessage();
   } catch (err) {
-    // A queued-message drain can take the lock between the wait loop
-    // above and this persist — the drain reaches its own persist a few
-    // microtasks after the idle transition that released this turn.
-    // Within the remaining budget, wait the drained turn out and retry
-    // the persist once instead of failing the barge-in.
+    // A deferred send can take the lock between the wait loop above and
+    // this persist: it reaches its own persist a few microtasks after the
+    // idle transition that released this turn. Within the remaining budget,
+    // wait that turn out and retry the persist once instead of failing the
+    // barge-in.
     if (!(err instanceof Error) || err.message !== CONVERSATION_BUSY_MESSAGE) {
       // Non-busy persist failure: no concurrent turn took the lock, so
       // this turn still owns the state it installed. Release it to

@@ -1,10 +1,10 @@
 /**
  * Repair a conversation history an abort cut off mid-tool.
  *
- * Its own module rather than a helper inside the drain or the interrupt,
- * because both reach it: the queue drain arms it with the pending-repair flags
- * and the interrupt path forces it, and neither of those two modules should
- * have to import the other to share it.
+ * Its own module rather than a helper inside the send path or the interrupt,
+ * because both reach it: the interrupt runs it before it hands the
+ * conversation over, and a send that could not interrupt runs it again at the
+ * head of the turn it eventually starts.
  */
 
 import { addMessage } from "../persistence/conversation-crud.js";
@@ -31,31 +31,18 @@ const log = getLogger("conversation-interrupt-repair");
  * repair that lived only in memory would leave the next reload of this
  * conversation with the same broken tail this call just fixed.
  *
- * `force` is how the interrupt path asks for the repair unconditionally. The
- * queue drain arms `pendingSteerRepair` / `pendingInterruptRepair` instead and
- * repairs on the drain that follows.
- *
  * `requireDurable` decides what a failed persist means. A caller that writes a
  * user row after this call asks for the throw and gets the history back
  * untouched, because a user row after a durable `tool_use` with no durable
  * result is a sequence the provider rejects on every later load. That is the
- * interrupt, and it is equally the drain of the message an interrupt queued
- * when its own repair failed, which is why the flag it re-arms below carries
- * the requirement forward. A steered drain has no row of its own to persist
- * behind the repair, so it keeps the in-memory repair and settles.
+ * interrupt, and it is equally the deferred send that runs when an interrupt
+ * could not hand over. A caller with no row of its own to persist behind the
+ * repair keeps the in-memory repair and settles.
  */
 export async function repairInterruptedToolUseBlocks(
   conversation: Conversation,
-  options: { force?: boolean; requireDurable?: boolean } = {},
+  options: { requireDurable?: boolean } = {},
 ): Promise<void> {
-  const wasSteerArmed = conversation.pendingSteerRepair;
-  const wasArmed = conversation.pendingInterruptRepair;
-  if (!wasSteerArmed && !wasArmed && options.force !== true) {
-    return;
-  }
-  conversation.pendingSteerRepair = false;
-  conversation.pendingInterruptRepair = false;
-
   const messages = conversation.messages;
   if (messages.length === 0) {
     return;
@@ -99,7 +86,6 @@ export async function repairInterruptedToolUseBlocks(
     {
       conversationId: conversation.conversationId,
       pendingToolUseCount: pendingToolUseIds.length,
-      forced: options.force === true,
     },
     "Injecting synthetic tool_result for pending tool_use blocks",
   );
@@ -130,12 +116,6 @@ export async function repairInterruptedToolUseBlocks(
       if (idx !== -1) {
         conversation.messages.splice(idx, 1);
       }
-      // Arm the drain that runs the queued message this caller falls back to,
-      // so the repair happens there instead, under this same requirement: the
-      // queued message is a user row, and the drain reads this flag to ask for
-      // it.
-      conversation.pendingInterruptRepair = true;
-      conversation.pendingSteerRepair = wasSteerArmed;
       throw err;
     }
     log.warn(

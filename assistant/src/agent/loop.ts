@@ -269,6 +269,7 @@ function buildNativeWebSearchProbeOptions(
   };
 }
 
+/** Snapshot handed to {@link AgentLoopRunOptions.onCheckpoint}. */
 export interface CheckpointInfo {
   turnIndex: number;
   toolCount: number;
@@ -276,25 +277,10 @@ export interface CheckpointInfo {
   history: Message[]; // current history snapshot for token estimation
 }
 
-/**
- * Why a checkpoint paused the loop. Surfaced back to the caller via
- * {@link AgentLoopRunResult.exitReason} so the wrapper reacts to the loop's
- * own signal (hand off to a queued message) instead of the checkpoint callback
- * mutating wrapper state.
- */
-export type ExitReason = "handoff";
-
-export type CheckpointDecision = "continue" | ExitReason;
-
 /** Result of {@link AgentLoop.run}. */
 export interface AgentLoopRunResult {
   /** Full conversation history after the run, including everything appended this run. */
   history: Message[];
-  /**
-   * Reason the loop paused at a checkpoint, or `null` on a terminal stop
-   * (completion, error, abort, or a tool-requested yield-to-user).
-   */
-  exitReason: ExitReason | null;
   /**
    * Slice of `history` appended this run, measured from the loop's input or
    * from the compacted base when it compacts in place. The loop owns this
@@ -603,10 +589,7 @@ export type AgentEvent =
   | CompactionCircuitEvent
   | {
       /**
-       * Emitted when an agent turn reaches a terminal state. Checkpoint
-       * yields used for orchestration (handoff or budget compaction) are not
-       * emitted by {@link AgentLoop.run}; the outer orchestrator emits a
-       * terminal reason only if that control transfer truly ends the turn.
+       * Emitted when an agent turn reaches a terminal state.
        * Consumers persist `reason` onto the final `llm_request_logs` row;
        * intermediate rows keep `agent_loop_exit_reason = NULL`, which is the
        * canonical "loop kept going" signal.
@@ -702,9 +685,12 @@ interface AgentLoopRunOptionsBase {
    * call-site / profile resolution path.
    */
   model?: string;
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>;
+  /**
+   * Observer fired after each tool-execution turn finalizes, once that turn's
+   * assistant message and its matching `tool_result` user message are both in
+   * history. Purely observational: the loop continues either way.
+   */
+  onCheckpoint?: (checkpoint: CheckpointInfo) => void | Promise<void>;
   /** Semantic call site exposed to hooks, events, and loop behavior. */
   callSite?: LLMCallSite;
   /** Provider-resolution call site when it differs from turn semantics. */
@@ -1496,7 +1482,6 @@ export class AgentLoop {
     // surfaces instead of looping.
     let interruptedCallResumed = false;
     let lastLlmCallTime = 0;
-    let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
     // top of the NEXT iteration — before that iteration's provider call —
     // instead of after the current one. Stop-hook re-query continues re-enter
@@ -1538,9 +1523,8 @@ export class AgentLoop {
     // Lifetime is exactly one turn: this is a `run()`-local (like
     // `budgetGateArmed` / `pendingOverflowSignal` / `overflowLadderExhausted`),
     // not an instance field. The AgentLoop instance is constructed once per
-    // Conversation and `run()` is invoked once per turn (a checkpoint handoff
-    // breaks out of the loop and the queued message resumes in a fresh `run()`),
-    // so a `run()`-local resets implicitly at every turn start — no manual reset
+    // Conversation and `run()` is invoked once per turn, so a `run()`-local
+    // resets implicitly at every turn start: no manual reset
     // point is needed, and suppression can never leak across turns the way an
     // instance field would. (The regrowth watermark, by contrast, lives on the
     // cross-turn `compactionCircuit` precisely because it must persist.)
@@ -1663,10 +1647,7 @@ export class AgentLoop {
     // terminal break site is added.
     //
     // `emitExit` controls whether the matching `agent_loop_exit` observability
-    // event fires. Real terminal exits emit it; a `checkpoint_handoff` runs the
-    // teardown chain (so per-turn state like recovery bounds is cleared before
-    // the queued message drains) but does not emit, because the orchestrator
-    // owns the handoff signal and the conversation resumes in a fresh run.
+    // event fires.
     //
     // A throwing `stop` hook must not suppress the terminal exit: the chain is
     // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
@@ -3039,34 +3020,19 @@ export class AgentLoop {
           ),
         });
 
-        // Invoke checkpoint callback after tool results are in history.
-        // Handoff takes precedence over the budget gate: a handoff decision
-        // breaks here and leaves `budgetGateArmed` false, so a queued message
-        // is processed before the next iteration's pre-call budget gate.
+        // Tell the observer the tool turn is complete, with its results in
+        // history.
         if (onCheckpoint) {
-          const decision = await onCheckpoint({
+          await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
             toolCount: toolUseBlocks.length,
             hasToolUse: true,
             history,
           });
-          if (decision !== "continue") {
-            // A handoff pauses this run so the orchestrator can drain a queued
-            // message, then re-enters with a fresh run. It still ends *this*
-            // turn, so fire the terminal `stop` chain to run teardown (clearing
-            // per-turn state such as recovery bounds before the queued message
-            // is processed) — but without emitting `agent_loop_exit`, since the
-            // orchestrator owns the handoff signal and the conversation resumes.
-            await runTerminalStop("checkpoint_handoff", { emitExit: false });
-            exitReason = decision;
-            break;
-          }
         }
 
-        // Arm the pre-call budget gate for the next iteration. Placed after
-        // the checkpoint so a handoff yield (which breaks above) leaves it
-        // disarmed; the gate then runs at the top of the next iteration,
-        // before that iteration's provider call.
+        // Arm the pre-call budget gate for the next iteration, so it runs at
+        // the top of the next iteration, before that iteration's provider call.
         budgetGateArmed = true;
       } catch (error) {
         // Abort errors are expected when user cancels — synthesize
@@ -3336,7 +3302,6 @@ export class AgentLoop {
 
     return {
       history,
-      exitReason,
       newMessages: history.slice(newMessagesStart),
     };
   }

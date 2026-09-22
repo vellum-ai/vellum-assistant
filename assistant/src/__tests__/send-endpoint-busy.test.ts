@@ -1,9 +1,10 @@
 /**
- * Tests for POST /v1/messages queue-if-busy behavior and hub publishing.
+ * Tests for POST /v1/messages busy-conversation behavior and hub publishing.
  *
  * Validates that:
  * - Messages are accepted (202) when the conversation is idle, with hub events published.
- * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
+ * - A busy conversation answers 202 with `messageId`, never 409: an eligible
+ *   send interrupts the running turn, and one that may not interrupt waits.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -145,8 +146,6 @@ function makeCompletingConversation(): Conversation {
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    getQueueDepth: () => 0,
-    enqueueMessage: () => ({ queued: false, requestId: "noop" }),
     runAgentLoop: async (
       _content: string,
       _messageId: string,
@@ -167,14 +166,12 @@ function makeCompletingConversation(): Conversation {
 function makeHangingConversation(): Conversation {
   let processing = false;
   const messages: unknown[] = [];
-  const enqueuedMessages: Array<{
-    content: string;
-    onEvent?: (msg: AssistantEvent) => void;
-    requestId?: string;
-  }> = [];
   return {
     modeSessions: mockUnownedModeSessions(),
     isProcessing: () => processing,
+    // No abort controller, so a send arriving while this turn runs is not
+    // eligible to interrupt it and waits for idle instead.
+    abortController: null,
     persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
       return { id: options.requestId ?? "msg-1", deduplicated: false };
@@ -196,22 +193,6 @@ function makeHangingConversation(): Conversation {
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
-    getQueueDepth: () => enqueuedMessages.length,
-    enqueueMessage: (options: {
-      content: string;
-      onEvent?: (msg: AssistantEvent) => void;
-      requestId?: string;
-    }) => {
-      enqueuedMessages.push({
-        content: options.content,
-        onEvent: options.onEvent,
-        requestId: options.requestId,
-      });
-      return {
-        queued: true,
-        requestId: options.requestId ?? "hanging-req",
-      };
-    },
     runAgentLoop: async () => {
       // Hang forever
       await new Promise<void>(() => {});
@@ -219,31 +200,21 @@ function makeHangingConversation(): Conversation {
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
     getMessages: () => messages as never[],
-    _enqueuedMessages: enqueuedMessages,
   } as unknown as Conversation;
 }
 
 function makePendingApprovalConversation(
   requestId: string,
   processing: boolean,
-  options?: { queueDepth?: number },
 ): {
   conversation: Conversation;
   runAgentLoopMock: ReturnType<typeof mock>;
-  enqueueMessageMock: ReturnType<typeof mock>;
   denyAllPendingConfirmationsMock: ReturnType<typeof mock>;
   handleConfirmationResponseMock: ReturnType<typeof mock>;
 } {
-  const queueDepth = options?.queueDepth ?? 0;
   const pending = new Set([requestId]);
   const messages: unknown[] = [];
   const runAgentLoopMock = mock(async () => {});
-  const enqueueMessageMock = mock(
-    (options: { content: string; requestId?: string }) => ({
-      queued: true,
-      requestId: options.requestId ?? "queued-req",
-    }),
-  );
   const denyAllPendingConfirmationsMock = mock(() => {
     pending.clear();
   });
@@ -281,8 +252,6 @@ function makePendingApprovalConversation(
     denyAllPendingConfirmations: denyAllPendingConfirmationsMock,
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => queueDepth,
-    enqueueMessage: enqueueMessageMock,
     runAgentLoop: runAgentLoopMock,
     handleConfirmationResponse: handleConfirmationResponseMock,
     handleSecretResponse: () => {},
@@ -292,7 +261,6 @@ function makePendingApprovalConversation(
   return {
     conversation,
     runAgentLoopMock,
-    enqueueMessageMock,
     denyAllPendingConfirmationsMock,
     handleConfirmationResponseMock,
   };
@@ -583,7 +551,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     const {
       conversation,
       runAgentLoopMock,
-      enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
     } = makePendingApprovalConversation(requestId, false);
@@ -629,7 +596,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     expect(body.queued).toBeUndefined();
     expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
     expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
-    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
 
     await stopServer();
@@ -642,7 +608,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     const {
       conversation,
       runAgentLoopMock,
-      enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
     } = makePendingApprovalConversation(requestId, false);
@@ -696,7 +661,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     expect(body.queued).toBeUndefined();
     expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
     expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
-    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
 
     await stopServer();
@@ -709,7 +673,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     const {
       conversation,
       runAgentLoopMock,
-      enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
     } = makePendingApprovalConversation(requestId, true);
@@ -755,66 +718,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     expect(body.queued).toBeUndefined();
     expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
     expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
-    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
-    expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
-
-    await stopServer();
-  });
-
-  test("consumes explicit approval text while busy even when queue depth is non-zero", async () => {
-    const conversationKey = "conv-inline-busy-queued";
-    const { conversationId } = getOrCreateConversation(conversationKey);
-    const requestId = "req-inline-busy-queued";
-    const {
-      conversation,
-      runAgentLoopMock,
-      enqueueMessageMock,
-      denyAllPendingConfirmationsMock,
-      handleConfirmationResponseMock,
-    } = makePendingApprovalConversation(requestId, true, { queueDepth: 2 });
-
-    pendingInteractions.register(requestId, {
-      conversationId,
-      kind: "confirmation",
-    });
-    bridgeState.seedRequest({
-      id: requestId,
-      kind: "tool_approval",
-      sourceType: "desktop",
-      sourceChannel: "vellum",
-      sourceConversationId: conversationId,
-      toolName: "call_start",
-      status: "pending",
-      guardianPrincipalId: "test-principal-id",
-      requestCode: "Q2D456",
-      expiresAt: Date.now() + 5 * 60 * 1000,
-    });
-
-    await startServer(() => conversation);
-
-    const res = await fetch(messagesUrl(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-      body: JSON.stringify({
-        conversationKey,
-        content: "approve",
-        sourceChannel: "vellum",
-        interface: "macos",
-      }),
-    });
-    const body = (await res.json()) as {
-      accepted: boolean;
-      messageId?: string;
-      queued?: boolean;
-    };
-
-    expect(res.status).toBe(202);
-    expect(body.accepted).toBe(true);
-    expect(body.messageId).toBeDefined();
-    expect(body.queued).toBeUndefined();
-    expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
-    expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
-    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
 
     await stopServer();
@@ -827,7 +730,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     const {
       conversation,
       runAgentLoopMock,
-      enqueueMessageMock,
       denyAllPendingConfirmationsMock,
       handleConfirmationResponseMock,
     } = makePendingApprovalConversation(requestId, false);
@@ -874,7 +776,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     // Rejection still flows through handleConfirmationResponse (with reject action)
     expect(handleConfirmationResponseMock).toHaveBeenCalledTimes(1);
     expect(denyAllPendingConfirmationsMock).toHaveBeenCalledTimes(0);
-    expect(enqueueMessageMock).toHaveBeenCalledTimes(0);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(0);
 
     await stopServer();
@@ -934,9 +835,12 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  // ── Busy conversation: queue-if-busy ────────────────────────────────
+  // ── Busy conversation ───────────────────────────────────────────────
 
-  test("returns 202 with queued: true when conversation is busy (not 409)", async () => {
+  test("busy send that cannot interrupt defers and answers 202 with messageId", async () => {
+    // The hanging conversation holds the lock with no abort controller, so a
+    // send arriving mid-turn is `no_abortable_turn`: it waits for idle rather
+    // than stopping a turn it is not allowed to stop.
     const conversation = makeHangingConversation();
     await startServer(() => conversation);
 
@@ -962,7 +866,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     // Wait for the agent loop to start
     await new Promise((r) => setTimeout(r, 30));
 
-    // Second message should be queued, not rejected
+    // Second message is accepted and deferred, not rejected
     const res2 = await fetch(messagesUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
@@ -975,15 +879,81 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     });
     const body2 = (await res2.json()) as {
       accepted: boolean;
-      queued: boolean;
+      queued?: boolean;
+      messageId?: string;
+      requestId?: string;
       conversationId: string;
     };
 
     expect(res2.status).toBe(202);
     expect(body2.accepted).toBe(true);
-    expect(body2.queued).toBe(true);
+    // The response contract is not suspended for a send that has not run yet:
+    // `postChatMessage` rejects an accepted response without a `messageId`,
+    // and the client drops the optimistic row.
+    expect(typeof body2.messageId).toBe("string");
+    expect(body2.requestId).toBe(body2.messageId);
+    expect(body2.queued).toBeUndefined();
     expect(typeof body2.conversationId).toBe("string");
     expect(body2.conversationId.length).toBeGreaterThan(0);
+
+    await stopServer();
+  });
+
+  test("busy send that may interrupt answers 202 with messageId and stops the turn", async () => {
+    const aborts: unknown[] = [];
+    const controller = new AbortController();
+    controller.signal.addEventListener("abort", () => {
+      aborts.push(controller.signal.reason);
+    });
+    const conversation = makeHangingConversation() as Conversation & {
+      abortController: AbortController | null;
+    };
+    conversation.abortController = controller;
+    await startServer(() => conversation);
+
+    const res1 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey: "conv-busy-interrupt",
+        content: "First",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    expect(res1.status).toBe(202);
+
+    await new Promise((r) => setTimeout(r, 30));
+
+    const res2 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey: "conv-busy-interrupt",
+        content: "Second",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    const body2 = (await res2.json()) as {
+      accepted: boolean;
+      queued?: boolean;
+      messageId?: string;
+      requestId?: string;
+    };
+
+    expect(res2.status).toBe(202);
+    expect(body2.accepted).toBe(true);
+    expect(typeof body2.messageId).toBe("string");
+    expect(body2.requestId).toBe(body2.messageId);
+    expect(body2.queued).toBeUndefined();
+
+    // The handover runs off the response, so the abort lands after it.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(aborts).toHaveLength(1);
+    expect((aborts[0] as { kind?: string }).kind).toBe(
+      "preempted_by_new_message",
+    );
 
     await stopServer();
   });

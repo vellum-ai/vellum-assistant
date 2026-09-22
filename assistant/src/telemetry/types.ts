@@ -172,7 +172,7 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
 /**
  * Optional client metadata bag carried on `TurnTelemetryEvent.client`.
  * Sourced from `messages.metadata.client`. Today only `os` is populated —
- * stamped by `persistQueuedMessageBody` from the request body's `clientOs`
+ * stamped by `persistUserMessageBody` from the request body's `clientOs`
  * field; the remaining fields are declared for clients that send them.
  * Extensible without a schema change — lives entirely in the JSON metadata
  * column.

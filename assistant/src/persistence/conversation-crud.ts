@@ -356,7 +356,7 @@ export const messageMetadataSchema = z
      * Optional client-side metadata bag attached to user messages at persist
      * time. `os` carries the client-reported OS surface ("web" | "ios" |
      * "macos" | "windows" | "linux" | "android") from the request body's `clientOs`
-     * field, stamped by `persistQueuedMessageBody`. The transport
+     * field, stamped by `persistUserMessageBody`. The transport
      * `userMessageInterface` is
      * "web" for the web, mobile, and desktop apps alike, so this is the only
      * per-platform attribution. `browser_family` / `browser_version` /
@@ -554,7 +554,6 @@ export {
   isBackgroundEventMetadata,
   isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
-  isSuppressedQueuedMessage,
   isVoiceSessionUserMessage,
 } from "./conversation-types.js";
 

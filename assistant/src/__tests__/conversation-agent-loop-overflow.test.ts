@@ -462,7 +462,6 @@ mock.module("../memory/archive-store.js", () => ({
 import { AgentLoop } from "../agent/loop.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { runAgentLoopImpl } from "../daemon/conversation-agent-loop.js";
-import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -572,26 +571,12 @@ function makeCtx(
 
     hasNoClient: false,
     prompter: {} as unknown as Conversation["prompter"],
-    queue: {} as unknown as Conversation["queue"],
 
     getWorkspaceGitService: () => ({ ensureInitialized: async () => {} }),
     commitTurnChanges: async () => {},
 
     markWorkspaceTopLevelDirty: () => {},
     emitActivityState: () => {},
-    getQueueDepth: () => 0,
-    hasQueuedMessages: () => false,
-    canHandoffAtCheckpoint: () => false,
-    drainQueue: async (_reason?: QueueDrainReason) => {},
-    // Forwards to drainQueue so tests that spy the drain observe the agent
-    // loop's post-turn kick through the guarded entry point.
-    kickDrainQueue(
-      this: { drainQueue: (reason?: QueueDrainReason) => Promise<void> },
-      reason: QueueDrainReason = "loop_complete",
-      _origin?: string,
-    ) {
-      return this.drainQueue(reason);
-    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,

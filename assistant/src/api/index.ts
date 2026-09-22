@@ -50,7 +50,6 @@ import { DocumentEditorShowEventSchema } from "./events/document-editor-show.js"
 import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update.js";
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
-import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HeartbeatConversationCreatedEventSchema } from "./events/heartbeat-conversation-created.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
 import { HookEventSchema } from "./events/hook-event.js";
@@ -87,12 +86,7 @@ import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js
 import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
 import { MemoryStatusEventSchema } from "./events/memory-status.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
-import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
-import { MessageQueuedEventSchema } from "./events/message-queued.js";
-import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
-import { MessageRequeuedEventSchema } from "./events/message-requeued.js";
-import { MessageSteeredEventSchema } from "./events/message-steered.js";
 import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationConversationCreatedEventSchema } from "./events/notification-conversation-created.js";
@@ -392,10 +386,6 @@ export {
   GenerationCancelledEventSchema,
 } from "./events/generation-cancelled.js";
 export {
-  type GenerationHandoffEvent,
-  GenerationHandoffEventSchema,
-} from "./events/generation-handoff.js";
-export {
   type HeartbeatConversationCreatedEvent,
   HeartbeatConversationCreatedEventSchema,
 } from "./events/heartbeat-conversation-created.js";
@@ -484,29 +474,9 @@ export {
   MessageCompleteEventSchema,
 } from "./events/message-complete.js";
 export {
-  type MessageDequeuedEvent,
-  MessageDequeuedEventSchema,
-} from "./events/message-dequeued.js";
-export {
-  type MessageQueuedEvent,
-  MessageQueuedEventSchema,
-} from "./events/message-queued.js";
-export {
-  type MessageQueuedDeletedEvent,
-  MessageQueuedDeletedEventSchema,
-} from "./events/message-queued-deleted.js";
-export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
-export {
-  type MessageRequeuedEvent,
-  MessageRequeuedEventSchema,
-} from "./events/message-requeued.js";
-export {
-  type MessageSteeredEvent,
-  MessageSteeredEventSchema,
-} from "./events/message-steered.js";
 export {
   type ModelInfoEvent,
   ModelInfoEventSchema,
@@ -1046,7 +1016,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   DocumentEditorUpdateEventSchema,
   ErrorEventSchema,
   GenerationCancelledEventSchema,
-  GenerationHandoffEventSchema,
   HeartbeatConversationCreatedEventSchema,
   HomeFeedUpdatedEventSchema,
   HookEventSchema,
@@ -1069,12 +1038,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MemoryRecalledEventSchema,
   MemoryStatusEventSchema,
   MessageCompleteEventSchema,
-  MessageDequeuedEventSchema,
-  MessageQueuedEventSchema,
-  MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
-  MessageRequeuedEventSchema,
-  MessageSteeredEventSchema,
   ModelInfoEventSchema,
   NavigateSettingsEventSchema,
   NotificationConversationCreatedEventSchema,

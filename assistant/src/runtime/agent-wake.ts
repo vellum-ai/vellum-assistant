@@ -57,7 +57,7 @@
  *     `conversationId`).
  *   - While the wake's agent loop is running, the conversation is marked
  *     as processing (via the conversation's processing marker) so a user send
- *     that arrives mid-wake is queued by `enqueueMessage` instead of
+ *     that arrives mid-wake waits for the wake to finish instead of
  *     launching a concurrent `agentLoop.run()` on the same conversation.
  *
  * Logging:
@@ -73,7 +73,6 @@
 import type {
   AgentEvent,
   AgentLoopExitReason,
-  CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
@@ -87,7 +86,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSidebarDoneEnabled } from "../config/sidebar-done-gate.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
@@ -207,7 +205,6 @@ const OVER_WINDOW_REJECTION_LOG_MESSAGE =
 const CLEAN_NO_OUTPUT_EXIT_REASONS: ReadonlySet<AgentLoopExitReason> = new Set([
   "no_tool_calls",
   "yield_to_user",
-  "checkpoint_handoff",
 ]);
 
 export interface WakeOptions {
@@ -579,47 +576,6 @@ async function defaultResolveTarget(
   }
 }
 
-// ── Queue drain kick ──────────────────────────────────────────────────
-
-/**
- * The queue-drain surface the wake kicks on its way out.
- *
- * The hook is optional because the wake runs against whatever
- * {@link WakeDeps.resolveTarget} hands it, which in tests is a partial
- * conversation double. Production `Conversation` always provides it.
- */
-interface WakeDrainTarget {
-  kickDrainQueue?: (
-    reason?: QueueDrainReason,
-    origin?: string,
-  ) => Promise<void>;
-}
-
-/**
- * Drain the target's message queue once the wake has released the
- * conversation.
- *
- * `Conversation.kickDrainQueue` retries a failed drain once and notifies the
- * queued senders when the retry also fails, so a stalled wake-tail drain is
- * visible instead of silently stranding the queue, and it never rejects. An
- * injected target can still omit the hook or reject from it, and neither may
- * fail the wake, whose own work is already complete by this point.
- */
-async function kickWakeDrainQueue(
-  conversation: WakeDrainTarget,
-  origin: string,
-  logContext: { conversationId: string; source: string },
-): Promise<void> {
-  try {
-    await conversation.kickDrainQueue?.("loop_complete", origin);
-  } catch (err) {
-    log.warn(
-      { ...logContext, err },
-      "agent-wake: kickDrainQueue threw; continuing",
-    );
-  }
-}
-
 // ── Per-conversation single-flight lock ───────────────────────────────
 //
 // When a wake arrives and another run is in flight for the same
@@ -903,8 +859,8 @@ export async function wakeAgentForOpportunity(
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via
     // `conversation.buildCurrentSystemPrompt()`), which reads this field;
-    // cleared (below, before the queue drain) so a queued user turn never builds
-    // its prompt under the wake's override. Assigned only AFTER the
+    // cleared below, before the processing flag is released, so a deferred
+    // user turn never builds its prompt under the wake's override. Assigned only AFTER the
     // profile/config reads above — those can throw, and they run before the
     // try/finally that clears the override, so an earlier assignment would
     // strand the override on the cached Conversation and corrupt every later
@@ -921,8 +877,8 @@ export async function wakeAgentForOpportunity(
     // Mark processing for the duration of the wake — including the pre-run
     // compaction gate below, whose summary LLM call must not race a user
     // send into a concurrent agent loop on the same conversation. A user
-    // message arriving while the flag is set is queued by `enqueueMessage()`
-    // and drained after the wake's tail is pushed + persisted. This happens
+    // message arriving while the flag is set waits for idle and runs after
+    // the wake's tail is pushed and persisted. This happens
     // before applying a wake-scoped tool allowlist so a concurrent user turn
     // cannot start under the wake's restricted tool set. The idle gate above
     // observed the lock free, and nothing between its final `isProcessing()`
@@ -1353,7 +1309,7 @@ export async function wakeAgentForOpportunity(
 
     // Push + persist any tail messages produced since the last call.
     // Pushes precede persists across the whole batch (matching the
-    // canonical post-run ordering) so a queued user message draining
+    // canonical post-run ordering) so a deferred user message running
     // mid-flush still sees a consistent in-memory history before any DB
     // row lands. The persist guard mirrors the original post-run loop —
     // a single message persistence failure logs and continues so we
@@ -1476,19 +1432,16 @@ export async function wakeAgentForOpportunity(
     // mode and persist what's been produced so far so a client opening
     // the conversation mid-run can fetchHistory and see real content
     // instead of the empty-state welcome view.
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
+    const onCheckpoint = async (checkpoint: CheckpointInfo): Promise<void> => {
       goLive(checkpoint.history);
       await flushPendingTail(checkpoint.history);
-      return "continue";
     };
 
     let runError: Error | null = null;
     let producedToolCalls = false;
     let toolUseNames: string[] = [];
     let tailMessageCount = 0;
-    let drainedInTry = false;
+    let releasedInTry = false;
     // Set when the wake fails with `reason: "context_overflow"`. The finally
     // block skips its generic outcome log for this path — the failure
     // already logged its own dedicated warn line.
@@ -1573,8 +1526,8 @@ export async function wakeAgentForOpportunity(
       // usage attribution) see an unstamped context and resolve children under
       // workspace defaults instead of the profile this wake actually runs
       // under — so a wake on a conversation pinned to another profile spawns
-      // children under the wrong one. Restored in the `finally` so a queued
-      // user turn or a later background read never inherits the wake's stamps.
+      // children under the wrong one. Restored in the `finally` so a later
+      // user turn or background read never inherits the wake's stamps.
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
       const priorTurnCronRunId = conversation.currentTurnCronRunId;
@@ -1667,7 +1620,7 @@ export async function wakeAgentForOpportunity(
         // Capture the error for post-finally logging, then short-circuit
         // the rest of the try body — no tail to push/persist when the
         // run threw mid-flight. The outer finally still runs to release
-        // `processing` and drain the queue.
+        // `processing`.
         runError = err instanceof Error ? err : new Error(String(err));
         // Nothing went live and nothing was persisted: no checkpoint fired
         // (mode never left "buffering") and no tail message was flushed.
@@ -1694,7 +1647,7 @@ export async function wakeAgentForOpportunity(
           ...exitReasonField(),
         };
       } finally {
-        // Restore the pre-wake values so a queued user turn or background read
+        // Restore the pre-wake values so a later user turn or background read
         // never observes the wake's stamps. (`runAgentLoopImpl` re-stamps both
         // at the start of the next normal turn regardless.)
         conversation.currentCallSite = priorCallSite;
@@ -1719,15 +1672,13 @@ export async function wakeAgentForOpportunity(
         return failSuppressedContextOverflow(OVER_WINDOW_REJECTION_LOG_MESSAGE);
       }
 
-      // Run completed cleanly. The canonical user-turn pattern
-      // (conversation-agent-loop.ts:1860, 2106-2126) updates
-      // `ctx.messages` first, then clears the flag via `ctx.setProcessing(false)`, then
-      // calls `ctx.kickDrainQueue(...)`. We mirror that order so a message
-      // queued during the wake dequeues against an already-updated
-      // history — otherwise `drainSingleMessage` reads `ctx.messages`
-      // mid-tail and writes a DB row that lands out of chronological
-      // order (queued user msg before the wake's just-produced assistant
-      // outputs).
+      // Run completed cleanly. The canonical user-turn pattern updates
+      // `ctx.messages` first, then clears the flag via
+      // `ctx.setProcessing(false)`. We mirror that order so a send deferred
+      // during the wake runs against an already-updated history, rather than
+      // reading `ctx.messages` mid-tail and writing a DB row that lands out of
+      // chronological order (the deferred user row before the wake's
+      // just-produced assistant outputs).
       const {
         tailMessages,
         hasVisibleText,
@@ -1793,8 +1744,8 @@ export async function wakeAgentForOpportunity(
         // Silent no-op: drop buffered events, push nothing, persist
         // nothing, emit nothing. (No checkpoint fired during the run
         // since checkpoints only fire after tool turns and there were
-        // none.) The finally still kicks the queue drain so a racy queued
-        // message isn't stranded.
+        // none.) The finally still releases the conversation so a send that
+        // arrived mid-wake is not stranded.
         return {
           invoked: true,
           producedToolCalls: false,
@@ -1812,12 +1763,10 @@ export async function wakeAgentForOpportunity(
       goLive(updatedHistory);
       await flushPendingTail(updatedHistory);
 
-      // Drain queued messages AFTER tail is pushed + persisted so the
-      // next dequeued user message sees the complete, up-to-date
-      // history. setProcessing(false) must come first (the queue only
-      // accepts entries while processing === true, and drain expects
-      // processing to already be false). The finally block handles the
-      // error/early-return paths where no tail was produced.
+      // Released AFTER the tail is pushed and persisted, so a send waiting
+      // on this conversation sees the complete, up-to-date history. The
+      // finally block handles the error and early-return paths where no tail
+      // was produced.
       restoreWakeTurnScope();
       try {
         conversation.setProcessing(false);
@@ -1827,22 +1776,17 @@ export async function wakeAgentForOpportunity(
           "agent-wake: setProcessing(false) threw; continuing",
         );
       }
-      await kickWakeDrainQueue(conversation, "agent_wake_tail", {
-        conversationId,
-        source,
-      });
-      drainedInTry = true;
+      releasedInTry = true;
 
       return { invoked: true, producedToolCalls, ...exitReasonField() };
     } finally {
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();
-      // The success path (above) already called setProcessing(false) and
-      // kicked the queue drain after tail persist. This catch-all handles the
-      // error and early-return paths where no tail was produced: those exit
-      // the try body before reaching the drain block, so `drainedInTry` is
-      // still false.
-      if (!drainedInTry) {
+      // The success path above already called setProcessing(false) after the
+      // tail persist. This catch-all handles the error and early-return paths
+      // where no tail was produced: those exit the try body before reaching
+      // the release, so `releasedInTry` is still false.
+      if (!releasedInTry) {
         restoreWakeTurnScope();
         try {
           conversation.setProcessing(false);
@@ -1852,10 +1796,6 @@ export async function wakeAgentForOpportunity(
             "agent-wake: setProcessing(false) threw; continuing",
           );
         }
-        await kickWakeDrainQueue(conversation, "agent_wake_cleanup", {
-          conversationId,
-          source,
-        });
       }
 
       const durationMs = nowFn() - startedAt;

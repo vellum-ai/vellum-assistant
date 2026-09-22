@@ -21,6 +21,16 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// A conversation out of deferral slots, so a click it cannot run now is
+// refused instead of registered.
+const REFUSING_CONVERSATION = "conv-out-of-slots";
+const realAdmission = await import("../daemon/conversation-admission.js");
+mock.module("../daemon/conversation-admission.js", () => ({
+  ...realAdmission,
+  canDeferSend: (conversationId: string) =>
+    conversationId !== REFUSING_CONVERSATION,
+}));
+
 let loggedWarnings: Array<{ fields: Record<string, unknown>; msg: string }> =
   [];
 mock.module("../util/logger.js", () =>
@@ -120,19 +130,17 @@ const GUARDIAN_TRUST: TrustContext = {
   sourceChannel: "vellum",
 };
 
-type EnqueueResult = { queued: boolean; requestId: string; rejected?: boolean };
-
 function makeContext(
-  enqueueResult: EnqueueResult = { queued: false, requestId: "req-1" },
   overrides: {
     trustContext?: TrustContext;
-    queueDepth?: number;
+    conversationId?: string;
+    processing?: boolean;
     emit?: (msg: AssistantEvent) => void;
   } = {},
-): Conversation & { enqueuedContents: string[] } {
-  const enqueuedContents: string[] = [];
+): Conversation & { sentContents: string[] } {
+  const sentContents: string[] = [];
   return asConversation({
-    conversationId: CONVERSATION_ID,
+    conversationId: overrides.conversationId ?? CONVERSATION_ID,
     trustContext: overrides.trustContext ?? GUARDIAN_TRUST,
     emit: overrides.emit ?? (() => {}),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -147,15 +155,13 @@ function makeContext(
     currentTurnSurfaces: [],
     pendingStandaloneSurfaces: new Map(),
     recentlyCompletedStandaloneSurfaces: new Map(),
-    isProcessing: () => false,
-    enqueueMessage: (options) => {
-      enqueuedContents.push(options.content);
-      return enqueueResult;
+    isProcessing: () => overrides.processing === true,
+    processMessage: async (options: { content: string }) => {
+      sentContents.push(options.content);
+      return "msg-1";
     },
-    getQueueDepth: () => overrides.queueDepth ?? 0,
-    processMessage: async () => "msg-1",
     withSurface: createSurfaceMutex(),
-    enqueuedContents,
+    sentContents,
   });
 }
 
@@ -261,7 +267,7 @@ describe("history-restored surface completion", () => {
     expect(result).toBeUndefined();
 
     // The turn is still enqueued.
-    expect(ctx.enqueuedContents).toHaveLength(1);
+    expect(ctx.sentContents).toHaveLength(1);
 
     // A re-read of persisted history reports the surface as answered, which is
     // exactly what the client's turn-end reseed fetches.
@@ -341,19 +347,18 @@ describe("history-restored surface completion", () => {
       choiceId: "inbox",
     });
 
-    expect(ctx.enqueuedContents).toHaveLength(1);
+    expect(ctx.sentContents).toHaveLength(1);
     expect(readPersistedSurface(surfaceId)?.completed).toBeUndefined();
     expect(contentWrites).toHaveLength(0);
     expect(completionBroadcasts(surfaceId)).toHaveLength(0);
   });
 
-  test("a rejected enqueue leaves the surface answerable", async () => {
+  test("a refused send leaves the surface answerable", async () => {
     const surfaceId = "surface-choice-history-3";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext({
-      queued: false,
-      requestId: "req-rejected",
-      rejected: true,
+      conversationId: REFUSING_CONVERSATION,
+      processing: true,
     });
 
     await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
@@ -399,7 +404,7 @@ describe("history-restored surface completion", () => {
 
     await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
 
-    expect(ctx.enqueuedContents).toHaveLength(1);
+    expect(ctx.sentContents).toHaveLength(1);
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
     expect(readPersistedSurface(surfaceId)?.completed).toBe(true);
 
@@ -458,7 +463,7 @@ describe("history-restored surface completion: requester provenance", () => {
       "choice",
       JSON.stringify({ provenanceTrustClass: "guardian" }),
     );
-    const ctx = makeContext(undefined, {
+    const ctx = makeContext({
       trustContext: { trustClass: "unknown", sourceChannel: "vellum" },
     });
 
@@ -480,7 +485,7 @@ describe("history-restored surface completion: requester provenance", () => {
       "choice",
       JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
     );
-    const ctx = makeContext(undefined, {
+    const ctx = makeContext({
       trustContext: { trustClass: "unknown", sourceChannel: "vellum" },
     });
 
@@ -556,13 +561,12 @@ describe("history-restored surface completion: scan cost", () => {
     expect(contentWrites).toHaveLength(0);
   });
 
-  test("a rejected action scans nothing", async () => {
+  test("a refused action scans nothing", async () => {
     const surfaceId = "surface-scan-5";
     seedSurfaceRow(surfaceId, "choice");
     const ctx = makeContext({
-      queued: false,
-      requestId: "req-rejected",
-      rejected: true,
+      conversationId: REFUSING_CONVERSATION,
+      processing: true,
     });
 
     await handleSurfaceAction(ctx, surfaceId, "inbox", CHOICE_PAYLOAD);
@@ -591,16 +595,16 @@ describe("history-restored surface completion: scan cost", () => {
   });
 });
 
-describe("surface action queue rejection", () => {
+describe("surface action refusal", () => {
   beforeEach(resetSurfaceState);
 
-  test("a rejected history-restored action is refused and logged with queue depth", async () => {
+  test("a refused history-restored action is answered as busy and logged", async () => {
     const surfaceId = "surface-rejected-1";
     seedSurfaceRow(surfaceId, "choice");
-    const ctx = makeContext(
-      { queued: false, requestId: "req-rejected", rejected: true },
-      { queueDepth: 7 },
-    );
+    const ctx = makeContext({
+      conversationId: REFUSING_CONVERSATION,
+      processing: true,
+    });
 
     const result = await handleSurfaceAction(
       ctx,
@@ -610,29 +614,29 @@ describe("surface action queue rejection", () => {
     );
 
     // The route turns a refusal into an error response, which is what keeps
-    // the client from optimistically completing a card whose action was never
-    // queued. A bare return here would read as accepted.
-    expect(result).toEqual({ accepted: false, error: "queue_full" });
+    // the client from optimistically completing a card whose action never
+    // ran. A bare return here would read as accepted.
+    expect(result).toEqual({ accepted: false, error: "busy" });
+    expect(ctx.sentContents).toHaveLength(0);
 
     const rejection = loggedWarnings.find((w) =>
-      w.msg.startsWith("Surface action rejected by the message queue"),
+      w.msg.startsWith("Surface action refused"),
     );
     expect(rejection).toBeDefined();
     expect(rejection?.fields).toMatchObject({
-      conversationId: CONVERSATION_ID,
+      conversationId: REFUSING_CONVERSATION,
       surfaceId,
       actionId: "inbox",
-      queueDepth: 7,
     });
   });
 
-  test("a rejected pending action is refused and logged with queue depth", async () => {
+  test("a refused pending action is answered as busy and logged", async () => {
     const surfaceId = "surface-rejected-2";
     seedSurfaceRow(surfaceId, "choice");
-    const ctx = makeContext(
-      { queued: false, requestId: "req-rejected", rejected: true },
-      { queueDepth: 3 },
-    );
+    const ctx = makeContext({
+      conversationId: REFUSING_CONVERSATION,
+      processing: true,
+    });
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "choice" });
 
     const result = await handleSurfaceAction(
@@ -642,16 +646,15 @@ describe("surface action queue rejection", () => {
       CHOICE_PAYLOAD,
     );
 
-    expect(result).toEqual({ accepted: false, error: "queue_full" });
+    expect(result).toEqual({ accepted: false, error: "busy" });
 
     const rejection = loggedWarnings.find((w) =>
-      w.msg.startsWith("Surface action rejected by the message queue"),
+      w.msg.startsWith("Surface action refused"),
     );
     expect(rejection?.fields).toMatchObject({
       surfaceId,
       actionId: "inbox",
       surfaceType: "choice",
-      queueDepth: 3,
     });
     expect(completionBroadcasts(surfaceId)).toHaveLength(0);
   });
@@ -860,7 +863,7 @@ describe("surface completion when the persisted write does not land", () => {
 
     // A persistence hiccup must not fail the action or drop the user's turn.
     expect(result).toBeUndefined();
-    expect(ctx.enqueuedContents).toHaveLength(1);
+    expect(ctx.sentContents).toHaveLength(1);
 
     // The persisted block is still pending, so a client told the card was
     // completed would watch the next reseed revert it.
@@ -907,7 +910,7 @@ describe("surface completion when the persisted write does not land", () => {
     const surfaceId = "surface-dismiss-persist-throws-1";
     seedSurfaceRow(surfaceId, "choice");
     const sentToClient: AssistantEvent[] = [];
-    const ctx = makeContext(undefined, {
+    const ctx = makeContext({
       emit: (msg) => {
         sentToClient.push(msg);
       },
@@ -942,7 +945,7 @@ describe("surface completion when the persisted write does not land", () => {
     const surfaceId = "surface-dismiss-persist-lands-1";
     seedSurfaceRow(surfaceId, "choice");
     const sentToClient: AssistantEvent[] = [];
-    const ctx = makeContext(undefined, {
+    const ctx = makeContext({
       emit: (msg) => {
         sentToClient.push(msg);
       },
@@ -966,7 +969,7 @@ describe("surface completion when the persisted write does not land", () => {
     const surfaceId = "surface-dismiss-no-action-1";
     seedSurfaceRow(surfaceId, "card");
     const sentToClient: AssistantEvent[] = [];
-    const ctx = makeContext(undefined, {
+    const ctx = makeContext({
       emit: (msg) => {
         sentToClient.push(msg);
       },
