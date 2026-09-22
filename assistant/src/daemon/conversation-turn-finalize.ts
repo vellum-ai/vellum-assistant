@@ -34,6 +34,7 @@ import {
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
 import { emitAssistantReplyNotification } from "../notifications/assistant-reply-producer.js";
+import { emitBackgroundResultNotification } from "../notifications/background-result-producer.js";
 import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
@@ -299,6 +300,8 @@ export async function runDeferredTurnTail(params: {
    * notification producer's delivery-surface gates.
    */
   replyDeliveredInAppOnly?: boolean;
+  /** Scheduled continuations keep their existing result-delivery owner. */
+  cronRunId?: string | null;
 }): Promise<void> {
   const {
     conversationId,
@@ -362,6 +365,14 @@ export async function runDeferredTurnTail(params: {
       ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
       rlog,
       conversation,
+    });
+    void emitBackgroundResultNotification({
+      conversationId,
+      assistantMessageId: state.lastAssistantMessageId,
+      userMessageId,
+      cronRunId: params.cronRunId,
+      conversation,
+      rlog,
     });
   }
 

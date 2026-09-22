@@ -2357,6 +2357,7 @@ export async function runAgentLoopImpl(
         criticalSectionMs,
         turnCompleted,
         userMessageId: options?.notifyUserMessageId ?? userMessageId,
+        cronRunId: turnCronRunId,
         ...(options?.replyDeliveredInAppOnly
           ? { replyDeliveredInAppOnly: true }
           : {}),

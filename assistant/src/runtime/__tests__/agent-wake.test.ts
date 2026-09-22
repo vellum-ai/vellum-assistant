@@ -131,6 +131,21 @@ interface WakeConversationProbe {
 }
 
 const wakeConvRegistry = new Map<string, WakeConversationProbe>();
+const backgroundNotificationCalls: Array<{
+  conversationId: string;
+  assistantMessageId: string;
+  userMessageId?: string;
+}> = [];
+mock.module("../../notifications/background-result-producer.js", () => ({
+  emitBackgroundResultNotification: async (params: {
+    conversationId: string;
+    assistantMessageId: string;
+    userMessageId?: string;
+  }) => {
+    backgroundNotificationCalls.push(params);
+    wakeConvRegistry.get(params.conversationId)?.callSequence.push("notify");
+  },
+}));
 
 // Stub the DB-backed override-profile read so unit tests don't need a
 // real SQLite database. The wake helper calls this on every invocation
@@ -625,6 +640,7 @@ function makeWakeConversation(options: {
 let wakeSightFrameCaptureTimes = new Map<string, number>();
 
 beforeEach(() => {
+  backgroundNotificationCalls.length = 0;
   __resetWakeChainForTests();
   wakeSightFrameCaptureTimes = new Map();
   wakeConvRegistry.clear();
@@ -3794,4 +3810,64 @@ describe("wakeAgentForOpportunity", () => {
       expect(result).toEqual({ invoked: true, producedToolCalls: false });
     });
   });
+});
+
+describe("background command completion notification wiring", () => {
+  test.each([
+    "no_tool_calls",
+    "error",
+    "aborted_pre_call",
+    "checkpoint_handoff",
+  ] as const)(
+    "%s wake only announces a persisted successful result",
+    async (reason) => {
+      const conversation = makeWakeConversation({
+        conversationId: "conv-command-result",
+        runImpl: async (input, onEvent) => {
+          await onEvent({ type: "agent_loop_exit", reason });
+          return runResult([
+            ...input,
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "The requested export is ready." },
+              ],
+            },
+          ]);
+        },
+      });
+      await wakeAgentForOpportunity(
+        {
+          conversationId: conversation.conversationId,
+          hint: "Background command completed",
+          source: "background-tool",
+          persistTriggerAsEvent: true,
+          backgroundToolCompletion: {
+            id: "tool-123",
+            toolName: "bash",
+            conversationId: conversation.conversationId,
+            command: "example-command",
+            startedAt: 1,
+            completedAt: 2,
+            status: "completed",
+            exitCode: 0,
+            output: "file exported",
+          },
+        },
+        { resolveTarget: async () => conversation },
+      );
+      expect(backgroundNotificationCalls).toHaveLength(
+        reason === "no_tool_calls" ? 1 : 0,
+      );
+      if (reason === "no_tool_calls") {
+        expect(backgroundNotificationCalls[0]).toMatchObject({
+          userMessageId: "msg-1",
+          assistantMessageId: "msg-2",
+        });
+        expect(conversation.callSequence.lastIndexOf("persist")).toBeLessThan(
+          conversation.callSequence.indexOf("notify"),
+        );
+      }
+    },
+  );
 });

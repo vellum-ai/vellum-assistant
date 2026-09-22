@@ -422,6 +422,11 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
 }));
 
+const emitBackgroundResultNotificationMock = mock(async () => {});
+mock.module("../notifications/background-result-producer.js", () => ({
+  emitBackgroundResultNotification: emitBackgroundResultNotificationMock,
+}));
+
 const emitAssistantReplyNotificationMock = mock(async () => {});
 mock.module("../notifications/assistant-reply-producer.js", () => ({
   emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
@@ -1063,6 +1068,7 @@ beforeEach(() => {
   mockTurnReplyMessageId = undefined;
   resolveTurnReplyMessageIdMock.mockClear();
   emitAssistantReplyNotificationMock.mockClear();
+  emitBackgroundResultNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -3979,10 +3985,42 @@ describe("session-agent-loop", () => {
 
       expect(addMessageMock).toHaveBeenCalled();
       expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+      expect(emitBackgroundResultNotificationMock).not.toHaveBeenCalled();
     });
   });
 
   describe("assistant-reply notification wiring", () => {
+    test("finalized continuations pass their persisted rows and scheduled owner to the background producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+      const ctx = makeCtx({
+        providerResponses: [textResponse("The delegated result is ready.")],
+      });
+      await runAgentLoopImpl(
+        ctx,
+        "internal task completion",
+        "msg-completion",
+        () => {},
+        { cronRunId: "run-schedule" },
+      );
+      expect(projectAssistantMessageMock).toHaveBeenCalled();
+      expect(emitBackgroundResultNotificationMock).toHaveBeenCalledTimes(1);
+      expect(emitBackgroundResultNotificationMock.mock.calls[0]).toMatchObject([
+        {
+          conversationId: "test-conv",
+          assistantMessageId: "msg-reserve",
+          userMessageId: "msg-completion",
+          cronRunId: "run-schedule",
+        },
+      ]);
+    });
+
     test("a completed turn notifies with the row that opened it", async () => {
       mockMessageById = {
         id: "msg-reserve",

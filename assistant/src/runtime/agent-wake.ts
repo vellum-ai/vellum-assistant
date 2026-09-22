@@ -109,6 +109,7 @@ import {
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
 import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
+import { emitBackgroundResultNotification } from "../notifications/background-result-producer.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
@@ -971,6 +972,7 @@ export async function wakeAgentForOpportunity(
     // failure is non-fatal — the in-memory push keeps this run's prompt
     // consistent. The trigger is part of `baseline`, so `flushPendingTail`
     // never re-persists it.
+    let wakeTriggerMessageId: string | undefined;
     if (opts.persistTriggerAsEvent) {
       const triggerMessage: Message = {
         role: "user",
@@ -983,7 +985,7 @@ export async function wakeAgentForOpportunity(
       };
       conversation.messages.push(triggerMessage);
       try {
-        await persistWakeTriggerMessage(
+        wakeTriggerMessageId = await persistWakeTriggerMessage(
           conversation,
           triggerMessage,
           source,
@@ -1288,6 +1290,8 @@ export async function wakeAgentForOpportunity(
     const wakeSurfaceId = `wake-${conversationId}-${nowFn()}`;
     let surfaceInjected = false;
     let persistedTailIndex = 0;
+    let lastPersistedAssistantMessageId: string | undefined;
+    let tailPersistenceFailed = false;
 
     // Transition from buffered to live emission. Idempotent — only the
     // first call has an effect. Mutates the first assistant message in
@@ -1371,12 +1375,16 @@ export async function wakeAgentForOpportunity(
       }
       for (const msg of newMessages) {
         try {
-          await persistWakeTailMessage(conversation, msg);
+          const persistedId = await persistWakeTailMessage(conversation, msg);
+          if (msg.role === "assistant") {
+            lastPersistedAssistantMessageId = persistedId;
+          }
         } catch (err) {
           log.warn(
             { conversationId, source, err, role: msg.role },
             "agent-wake: failed to persist wake-tail message",
           );
+          tailPersistenceFailed = true;
         }
       }
       persistedTailIndex += newMessages.length;
@@ -1826,6 +1834,21 @@ export async function wakeAgentForOpportunity(
           { conversationId, source, err },
           "agent-wake: setProcessing(false) threw; continuing",
         );
+      }
+      if (
+        !tailPersistenceFailed &&
+        lastPersistedAssistantMessageId &&
+        opts.backgroundToolCompletion?.status === "completed" &&
+        (terminalExitReason === "no_tool_calls" ||
+          terminalExitReason === "yield_to_user")
+      ) {
+        void emitBackgroundResultNotification({
+          conversationId,
+          assistantMessageId: lastPersistedAssistantMessageId,
+          userMessageId: wakeTriggerMessageId,
+          cronRunId: opts.cronRunId,
+          rlog: log,
+        });
       }
       await kickWakeDrainQueue(conversation, "agent_wake_tail", {
         conversationId,

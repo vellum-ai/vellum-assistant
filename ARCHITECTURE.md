@@ -29,6 +29,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
 | Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Completion notifications                    | [Completion Notifications](#completion-notifications) (this file)                                 |
 | Notification sender avatars                 | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
@@ -1000,6 +1001,28 @@ graph LR
     PRESS -->|"input.pressed · index"| PAINT
     PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
 ```
+
+## Completion Notifications
+
+Unseen replies, non-quiet scheduled results, and explicitly identified background results enter the existing `emitNotificationSignal()` pipeline. Completion presentation is resolved independently of urgency: ordinary completions can produce a local banner without becoming high-priority alerts. Local previews require the canonical recipient principal and use targeted `notification_intent` delivery. The existing platform route retains mobile push ownership and acknowledgement handling.
+
+Completion suppression uses the intended recipient's fresh presence in the result conversation. Browser presence requires a visible, focused window; Electron supplies its authoritative window attention. Activity elsewhere on the computer does not count as attending the result. Parent continuations own delegated task and background-tool completion alerts after the user-facing result is persisted. Scheduled runs retain their existing owner, while private output, silent work, and pending child work do not announce completion.
+
+Open desktop-browser tabs keep their existing event stream connected while hidden. Notification permission is requested through an explicit settings action. Same-origin browser tabs coordinate posting through Web Locks and a bounded receipt ledger scoped to account, assistant, and delivery identity. Where those APIs are unavailable, page-local deduplication and a stable OS tag provide best-effort delivery. Closing, freezing, or discarding the tab stops the live-delivery guarantee; reconnect restores normal conversation and feed state.
+
+```mermaid
+flowchart LR
+    Reply[Final unseen reply] --> Signal[Notification signal]
+    Schedule[Scheduled result] --> Signal
+    Parent[Persisted parent continuation] --> Signal
+    Signal --> Policy[Presence and completion policy]
+    Policy --> Local[Recipient-targeted local intent]
+    Policy --> Platform[Existing mobile push route]
+    Local --> Desktop[Electron notification owner]
+    Local --> Browser[Browser tab delivery owner]
+```
+
+See [notification delivery](assistant/src/notifications/README.md) and [web lifecycle events](clients/web/docs/EVENT_BUS.md).
 
 ## Notification Sender Avatars
 
