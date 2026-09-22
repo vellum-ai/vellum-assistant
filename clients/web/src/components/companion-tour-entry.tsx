@@ -63,7 +63,6 @@ export function CompanionTourEntryModal({
         size="lg"
         hideCloseButton
         dismissOnOverlayClick={false}
-        onOpenAutoFocus={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           setConfirmingDismissal(true);
