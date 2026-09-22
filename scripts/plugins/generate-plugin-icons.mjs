@@ -197,8 +197,12 @@ const OVERSIZED_ICON = Symbol("oversized-icon");
  */
 function readLocalIconBytes(iconPath) {
   const stat = statSync(iconPath, { throwIfNoEntry: false });
-  if (!stat?.isFile()) return null;
-  if (stat.size > MAX_ICON_BYTES) return OVERSIZED_ICON;
+  if (!stat?.isFile()) {
+    return null;
+  }
+  if (stat.size > MAX_ICON_BYTES) {
+    return OVERSIZED_ICON;
+  }
   return readFileSync(iconPath);
 }
 
@@ -463,19 +467,29 @@ export function checkPluginIcons({
       errors.push(`cannot read ${marketplacePath}: ${err.message}`);
     }
     for (const entry of entries) {
-      if (entry?.source?.source !== "local") continue;
+      if (entry?.source?.source !== "local") {
+        continue;
+      }
       if (typeof entry.name !== "string" || !PLUGIN_NAME_RE.test(entry.name)) {
         continue;
       }
       const iconPath = localIconPath(repoRoot, entry);
-      if (!iconPath) continue;
-      // Missing, oversized, or invalid package icons are never vendored (write
-      // mode skips them), and sync-local-plugin-icons.mjs --check reports them.
-      const bytes = readLocalIconBytes(iconPath);
-      if (!Buffer.isBuffer(bytes) || !validatePluginIconBytes(bytes).hasIcon) {
+      if (!iconPath) {
         continue;
       }
       const assetPath = join(assetsDir, entry.name, ICON_FILENAME);
+      const bytes = readLocalIconBytes(iconPath);
+      if (!Buffer.isBuffer(bytes) || !validatePluginIconBytes(bytes).hasIcon) {
+        // Write mode never vendors a missing, oversized, or invalid package
+        // icon. A vendored copy left behind is stale and would keep serving
+        // an icon the package no longer owns.
+        if (isFile(assetPath)) {
+          errors.push(
+            `vendored asset "${entry.name}" is stale: ${entry.source.path}/${ICON_FILENAME} is missing or invalid`,
+          );
+        }
+        continue;
+      }
       if (!isFile(assetPath)) {
         errors.push(`local plugin "${entry.name}" icon is not vendored`);
       } else if (!readFileSync(assetPath).equals(bytes)) {

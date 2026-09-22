@@ -520,6 +520,28 @@ describe("checkPluginIcons (check mode)", () => {
     expect(result.errors.join(" ")).toContain("differs from");
   });
 
+  test("fails when a local package icon was deleted but its asset remains", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+    rmSync(join(dir, "plugins", "mcp-catalog", "local-plugin", "icon.png"));
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("is stale");
+  });
+
+  test("fails when a local package icon became invalid but its asset remains", async () => {
+    writeLocalIcon("local-plugin", makePng(48, 48));
+    writeMarketplace([localEntry("local-plugin")]);
+    await run(stubFetch({}));
+    writeLocalIcon("local-plugin", makePng(256, 256));
+
+    const result = checkWithLocal();
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("is stale");
+  });
+
   test("fails when a local package icon was never vendored", async () => {
     mkdirSync(assetsDir, { recursive: true });
     writeFileSync(
