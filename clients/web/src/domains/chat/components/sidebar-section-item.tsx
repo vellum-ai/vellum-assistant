@@ -43,9 +43,9 @@ import {
 } from "@/domains/chat/components/group-actions-menu";
 import { useSidebarDoneEnabled } from "@/utils/done-labels";
 import {
-  oldChatsSearchFor,
-  type OldChatsFilter,
-} from "@/domains/chat/utils/old-chats-filters";
+  allChatsSearchFor,
+  type AllChatsFilter,
+} from "@/domains/chat/utils/all-chats-filters";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
@@ -63,13 +63,13 @@ import { cn } from "@vellumai/design-library";
 const ASSISTANT_SECTION_MAX_HEIGHT = 5 * 30 + 4 * 4;
 
 /**
- * Where a section's "View all chats" goes: the Old chats page, narrowed to
+ * Where a section's "View all chats" goes: the All chats page, narrowed to
  * that section. `pinned` and `assistant` get none. Pinned is the user's own
  * curation rather than a slice of the history, and the assistant's section is
  * a byline, not a bucket, so neither names a view of the page.
  */
 export function viewAllHrefFor(section: SidebarSection): string | null {
-  const filter = ((): OldChatsFilter | null => {
+  const filter = ((): AllChatsFilter | null => {
     switch (section.type) {
       case "recents":
         return { kind: "all" };
@@ -83,7 +83,7 @@ export function viewAllHrefFor(section: SidebarSection): string | null {
   })();
   return filter === null
     ? null
-    : `${routes.oldChats}${oldChatsSearchFor(filter)}`;
+    : `${routes.allChats}${allChatsSearchFor(filter)}`;
 }
 
 export interface SidebarSectionItemProps {

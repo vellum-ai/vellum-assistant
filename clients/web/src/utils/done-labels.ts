@@ -6,7 +6,7 @@
  * chat carries "[Done]" instead of "[Archived]". Every surface that shows one
  * of those words reads its copy from here, so the wording cannot drift
  * between the row menu, the header dropdown, the swipe action, the bulk
- * confirmation and the Old chats page.
+ * confirmation and the All chats page.
  *
  * Both key sets ship side by side: the flag-off catalogue entries are the
  * archive wording the app has always used, and the flag-on ones are the new
@@ -69,7 +69,7 @@ export function conversationDoneLabels(
          control read as the same command. */
       archiveIcon: Check,
       unarchive: t("conversationActions.reopen"),
-      /* The glyph the Old chats page already reopens a row with. */
+      /* The glyph the All chats page already reopens a row with. */
       unarchiveIcon: RotateCcw,
       swipeArchive: t("conversationActions.done"),
       archiveAll: t("groupActions.markAllAsDone"),

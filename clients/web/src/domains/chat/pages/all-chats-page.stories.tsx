@@ -1,5 +1,5 @@
 /**
- * Old chats: the whole history on one page, banded by date.
+ * All chats: the whole history on one page, banded by date.
  *
  * The page is presentational, so these stories render exactly what ships.
  * They mount the real {@link ConversationListProvider} rather than stand-in
@@ -18,10 +18,10 @@ import { useArgs } from "storybook/preview-api";
 
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import {
-  OldChatsPage,
-  type OldChatsPageProps,
-} from "@/domains/chat/pages/old-chats-page";
-import type { OldChatsFilter } from "@/domains/chat/utils/old-chats-filters";
+  AllChatsPage,
+  type AllChatsPageProps,
+} from "@/domains/chat/pages/all-chats-page";
+import type { AllChatsFilter } from "@/domains/chat/utils/all-chats-filters";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type {
   Conversation,
@@ -124,7 +124,7 @@ const CONVERSATIONS = [...HISTORY, ...BACKGROUND].sort(
  * sidebar's `useConversationActions` handlers through this same value, so a
  * story that faked the menu would document a menu the app never shows.
  */
-const LIST_CONTEXT: OldChatsPageProps["listContext"] = {
+const LIST_CONTEXT: AllChatsPageProps["listContext"] = {
   onSelect: () => {},
   onPin: () => {},
   onRename: () => {},
@@ -146,15 +146,15 @@ function withSidebarDoneFlag() {
 }
 
 const meta = {
-  title: "Chat/Old Chats Page",
-  component: OldChatsPage,
+  title: "Chat/All Chats Page",
+  component: AllChatsPage,
   parameters: { layout: "fullscreen" },
   tags: ["!autodocs"],
   beforeEach: withSidebarDoneFlag,
   args: {
     conversations: CONVERSATIONS,
     groups: GROUPS,
-    filter: { kind: "all" } satisfies OldChatsFilter,
+    filter: { kind: "all" } satisfies AllChatsFilter,
     /* Replaced by `render` with the args-writing handler below; declared here
        because the prop is required and the meta owns every default. */
     onFilterChange: () => {},
@@ -176,10 +176,10 @@ const meta = {
      back into its own args and the canvas stays live (design-library story
      rule 3). */
   render: function Render(args) {
-    const [{ filter }, updateArgs] = useArgs<OldChatsPageProps>();
+    const [{ filter }, updateArgs] = useArgs<AllChatsPageProps>();
     return (
       <div className="flex h-screen flex-col p-4">
-        <OldChatsPage
+        <AllChatsPage
           {...args}
           filter={filter}
           onFilterChange={(next) => updateArgs({ filter: next })}
@@ -194,7 +194,7 @@ const meta = {
       </ConversationListProvider>
     ),
   ],
-} satisfies Meta<typeof OldChatsPage>;
+} satisfies Meta<typeof AllChatsPage>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

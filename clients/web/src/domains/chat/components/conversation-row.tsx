@@ -154,7 +154,7 @@ export function buildMenuProps(
  * `<button>` / `<a>` elements that own their own taps. The row itself is only
  * a `role="button"` div, so this arms on the row but not on those.
  *
- * Exported for the other conversation-row surfaces (the Old chats page), so
+ * Exported for the other conversation-row surfaces (the All chats page), so
  * every long-press sheet over a conversation row arms on the same targets.
  * Module scope keeps the handlers `useLongPressSheet` returns stable.
  */

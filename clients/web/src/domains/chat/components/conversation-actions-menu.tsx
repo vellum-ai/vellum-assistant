@@ -192,7 +192,7 @@ export interface ConversationMenuItemsProps {
   /**
    * Overrides the archive/done wording {@link useConversationDoneLabels}
    * resolves from the flag. Only a surface that exists on one side of the
-   * flag passes it (the Old chats page, which is flag-on only). The pure
+   * flag passes it (the All chats page, which is flag-on only). The pure
    * renderers below take it as a required argument instead, since they cannot
    * hold the hook themselves.
    */

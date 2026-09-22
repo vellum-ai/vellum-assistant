@@ -63,7 +63,7 @@
   },
   "markAllDoneConfirmDialog": {
     "confirm": "Mark all as done",
-    "message": "{count, plural, one {Mark the conversation in “{groupName}” as done? It leaves the sidebar and waits for you under Old chats, where you can reopen it.} other {Mark all # conversations in “{groupName}” as done? They leave the sidebar and wait for you under Old chats, where you can reopen them.}}",
+    "message": "{count, plural, one {Mark the conversation in “{groupName}” as done? It leaves the sidebar and waits for you under All chats, where you can reopen it.} other {Mark all # conversations in “{groupName}” as done? They leave the sidebar and wait for you under All chats, where you can reopen them.}}",
     "title": "Mark all as done"
   },
   "mobileDetailSheet": {
@@ -122,7 +122,7 @@
     "navigate": "Navigating",
     "terminal": "Running a command"
   },
-  "oldChatsPage": {
+  "allChatsPage": {
     "band": {
       "previous30Days": "Previous 30 days",
       "previous7Days": "Previous 7 days",
@@ -142,7 +142,7 @@
     "noMatches": "No chats match “{query}”.",
     "retry": "Try again",
     "searchPlaceholder": "Search chats",
-    "title": "Old chats"
+    "title": "All chats"
   },
   "sessionGroupRow": {
     "mode": {
