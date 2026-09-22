@@ -339,9 +339,19 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
+  // One observer reports only its newest mutation, so the ids are held here:
+  // deleting a second contact while the first is still in flight must not let
+  // the first back into the list.
+  const [deletingContactIds, setDeletingContactIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+
   const deleteMutation = useMutation({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
+    onMutate: (contactId) => {
+      setDeletingContactIds((prev) => new Set(prev).add(contactId));
+    },
     onSuccess: (_data, contactId) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -351,10 +361,20 @@ export function ContactsPage({
             }
           : undefined,
       );
-      backToList();
+      // Another contact may be open by now, holding edits of its own.
+      if (selectedContactId === contactId) {
+        backToList();
+      }
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, contactId) => {
+      setDeletingContactIds((prev) => {
+        const next = new Set(prev);
+        next.delete(contactId);
+        return next;
+      });
+      return invalidateContacts();
+    },
   });
 
   const updateMutation = useMutation({
@@ -645,10 +665,6 @@ export function ContactsPage({
   // Derived optimistic state
   // ---------------------------------------------------------------------------
 
-  const deletingContactId = deleteMutation.isPending
-    ? deleteMutation.variables
-    : null;
-
   const optimisticContact = useMemo<ContactPayload | null>(() => {
     if (!selectedContact) {
       return null;
@@ -706,7 +722,7 @@ export function ContactsPage({
         }
       : null,
     regularContacts: regularContacts
-      .filter((c) => c.id !== deletingContactId)
+      .filter((c) => !deletingContactIds.has(c.id))
       .map((c) => ({
         id: c.id,
         displayName: c.displayName,
@@ -799,7 +815,7 @@ export function ContactsPage({
               savePending={updateMutation.isPending}
               // The list stays reachable during a delete, so the freeze
               // belongs to the contact being deleted, not whichever is open.
-              deletePending={deletingContactId === optimisticContact.id}
+              deletePending={deletingContactIds.has(optimisticContact.id)}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending
