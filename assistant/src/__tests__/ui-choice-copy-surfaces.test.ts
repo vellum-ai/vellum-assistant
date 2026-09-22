@@ -54,7 +54,7 @@ describe("choice and copy_block surface definitions", () => {
     expect(getSurfaceTypeEnum()).toContain("choice");
     expect(getSurfaceTypeEnum()).toContain("copy_block");
     expect(getSurfaceTypeEnum()).toContain("oauth_connect");
-    expect(uiShowTool.description).toContain("recommended");
+    expect(uiShowTool.description).toContain("clickable options");
     expect(uiShowTool.description).toContain("visible copy button");
     expect(uiShowTool.description).toContain("managed OAuth");
   });
