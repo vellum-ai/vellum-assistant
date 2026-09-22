@@ -199,6 +199,7 @@ const BASELINE: Record<string, readonly string[]> = {
     // announces a receipt through the pipeline's single entry point, and
     // finds the event an interrupted announcement left behind. No plugin-api
     // equivalent for any of the three.
+    "../../../home/feed-types.js",
     "../../../home/feed-writer.js",
     "../../../home/job-handlers/conversation-starters.js",
     "../../../media/job-handlers/media-processing.js",

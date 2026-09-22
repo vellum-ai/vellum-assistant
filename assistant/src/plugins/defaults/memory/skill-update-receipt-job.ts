@@ -42,6 +42,7 @@ import {
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
+import { feedItemIdForSignal } from "../../../home/feed-types.js";
 import { readHomeFeed } from "../../../home/feed-writer.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { findEventIdByDedupeKey } from "../../../notifications/events-store.js";
@@ -59,6 +60,7 @@ import {
   listSealedSkillUpdateReceipts,
   listSkillUpdateReceiptEntries,
   readOpenSkillUpdateReceipt,
+  readSkillUpdateReceipt,
   sealSkillUpdateReceipt,
   settleSkillUpdateReceipt,
   type SkillUpdateReceipt,
@@ -250,7 +252,7 @@ export function decideSkillUpdateReceiptSeal(args: {
 
 /** Whether the pipeline wrote the home-feed row for `eventId`. */
 function hasFeedRow(eventId: string): boolean {
-  const id = `notif:${eventId}`;
+  const id = feedItemIdForSignal(eventId);
   return readHomeFeed().items.some((item) => item.id === id);
 }
 
@@ -456,9 +458,7 @@ export async function skillUpdateReceiptTickJob(
     );
     return;
   }
-  const [justSealed] = listSealedSkillUpdateReceipts().filter(
-    (receipt) => receipt.id === open.id,
-  );
+  const justSealed = readSkillUpdateReceipt(open.id);
   if (justSealed && (await deliverSealedReceipt(justSealed)) === null) {
     retryDelivery = true;
   }

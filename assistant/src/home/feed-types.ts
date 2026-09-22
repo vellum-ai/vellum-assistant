@@ -48,6 +48,18 @@ export {
   type SuggestedPromptSource,
 } from "../api/responses/home.js";
 
+/** Prefix of the feed item id minted for a notification signal. */
+export const FEED_ITEM_ID_PREFIX = "notif:";
+
+/**
+ * The feed item id a notification signal's card carries: the one place the
+ * id is minted, so a reader looking the card up by its signal derives the
+ * same string the writer did.
+ */
+export function feedItemIdForSignal(signalId: string): string {
+  return `${FEED_ITEM_ID_PREFIX}${signalId}`;
+}
+
 /**
  * On-disk file format for `$VELLUM_WORKSPACE_DIR/data/home-feed.json`.
  *

@@ -322,6 +322,18 @@ export function readOpenSkillUpdateReceipt(): SkillUpdateReceipt | null {
   return row ? parseReceipt(row) : null;
 }
 
+/** One receipt by id, whatever its state, or null. */
+export function readSkillUpdateReceipt(id: string): SkillUpdateReceipt | null {
+  const raw = receiptSqlite("readSkillUpdateReceipt");
+  if (!raw) {
+    return null;
+  }
+  const row = raw
+    .query(/*sql*/ `SELECT * FROM ${RECEIPTS_TABLE} WHERE id = ?`)
+    .get(id) as ReceiptRow | null;
+  return row ? parseReceipt(row) : null;
+}
+
 /** Sealed receipts awaiting delivery, oldest first. */
 export function listSealedSkillUpdateReceipts(): SkillUpdateReceipt[] {
   const raw = receiptSqlite("listSealedSkillUpdateReceipts");
