@@ -19,6 +19,7 @@ import {
 import type { FetchLike } from "../fetch-like.js";
 import {
   getPluginCatalog,
+  getPluginCatalogForInstalledMetadata,
   invalidatePluginCatalogCache,
   mergePlatformCatalogWithBundledLocals,
   PLUGIN_CATALOG_CACHE_TTL_MS,
@@ -189,6 +190,18 @@ describe("getPluginCatalog", () => {
 
     expect(result.matches.map((match) => match.name)).not.toContain("gamma");
     expect(result.matches.map((match) => match.name)).toContain("fathom");
+  });
+
+  test("preserves hidden entries for installed-plugin metadata", async () => {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    delete process.env.IS_PLATFORM;
+
+    const { fetch } = platformFetch(["ignored"]);
+    const result = await getPluginCatalogForInstalledMetadata("main", {
+      fetch,
+    });
+
+    expect(result.matches.map((match) => match.name)).toContain("gamma");
   });
 });
 

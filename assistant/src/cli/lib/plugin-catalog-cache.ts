@@ -25,6 +25,8 @@ interface CacheEntry {
   timestamp: number;
 }
 
+type PluginCatalogLoadDeps = Pick<SearchPluginsDeps, "fetch">;
+
 const cache = new Map<string, CacheEntry>();
 
 /** Add bundled local packages without overriding platform-authoritative rows. */
@@ -51,29 +53,42 @@ export function mergePlatformCatalogWithBundledLocals(
  * fetch failure propagates so the caller can surface it (e.g. map a rate-limit
  * to 503) — no stale catalog is ever served.
  */
-export async function getPluginCatalog(
+async function loadPluginCatalog(
   ref: string,
-  deps: SearchPluginsDeps,
+  deps: PluginCatalogLoadDeps,
 ): Promise<PluginCatalog> {
   if (!arePlatformFeaturesEnabled()) {
-    return filterPluginCatalogByFeatureFlags(
-      { ...readBundledPluginCatalog(), ref },
-      deps.featureFlagEnabled,
-    );
+    return { ...readBundledPluginCatalog(), ref };
   }
 
   const cached = cache.get(ref);
   if (cached && Date.now() - cached.timestamp < PLUGIN_CATALOG_CACHE_TTL_MS) {
-    return filterPluginCatalogByFeatureFlags(
-      cached.catalog,
-      deps.featureFlagEnabled,
-    );
+    return cached.catalog;
   }
 
   const catalog = await fetchPluginCatalogFromPlatform(deps, { ref });
   const merged = mergePlatformCatalogWithBundledLocals(catalog);
   cache.set(ref, { catalog: merged, timestamp: Date.now() });
-  return filterPluginCatalogByFeatureFlags(merged, deps.featureFlagEnabled);
+  return merged;
+}
+
+/** Installable catalog with feature-flag visibility applied. */
+export async function getPluginCatalog(
+  ref: string,
+  deps: SearchPluginsDeps,
+): Promise<PluginCatalog> {
+  return filterPluginCatalogByFeatureFlags(
+    await loadPluginCatalog(ref, deps),
+    deps.featureFlagEnabled,
+  );
+}
+
+/** Category metadata for plugins already installed, including hidden entries. */
+export async function getPluginCatalogForInstalledMetadata(
+  ref: string,
+  deps: PluginCatalogLoadDeps,
+): Promise<PluginCatalog> {
+  return loadPluginCatalog(ref, deps);
 }
 
 /** Invalidate the cache (for testing or forced refresh). */
