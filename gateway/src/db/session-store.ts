@@ -23,11 +23,8 @@ import type {
   VerificationSessionWire,
 } from "@vellumai/gateway-client";
 
-import { getLogger } from "../logger.js";
 import { getGatewayDb } from "./connection.js";
 import { channelVerificationSessions } from "./schema.js";
-
-const log = getLogger("session-store");
 
 // ---------------------------------------------------------------------------
 // Types (single-sourced from the shared contract)
@@ -105,10 +102,6 @@ function rowToSession(
 ): VerificationSession | null {
   const purpose = VerificationPurposeSchema.safeParse(row.verificationPurpose);
   if (!purpose.success) {
-    log.warn(
-      { sessionId: row.id, channel: row.channel },
-      "Verification session has no known purpose; treating as no session",
-    );
     return null;
   }
   return {
@@ -145,8 +138,7 @@ function rowToSession(
  * unreadable one is a defect here, not a lookup miss.
  */
 function sessionForInsert(
-  row: typeof channelVerificationSessions.$inferInsert &
-    typeof channelVerificationSessions.$inferSelect,
+  row: typeof channelVerificationSessions.$inferSelect,
 ): VerificationSession {
   const session = rowToSession(row);
   if (!session) {
