@@ -366,7 +366,11 @@ export class PermissionsService {
       }
       // Native alerts own their Settings button and can outlive the helper.
       // Only a separate user action opens Settings directly.
-      if (!this.helperRequests.has(kind)) {
+      const canShowNativeAlert =
+        kind === "screen" ||
+        item.status === "unknown" ||
+        item.status === "not-determined";
+      if (canShowNativeAlert && !this.helperRequests.has(kind)) {
         return this.request(kind, sender);
       }
     }
