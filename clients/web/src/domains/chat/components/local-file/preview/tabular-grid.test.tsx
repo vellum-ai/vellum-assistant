@@ -70,12 +70,30 @@ describe("TabularGrid", () => {
         headers={["name", "count"]}
         rows={[["alpha", "1"]]}
         truncated={false}
-        summary={<span>Sheet 1 of 3</span>}
+        summary="Sheet 1 of 3"
       />,
     );
 
     await waitFor(() => expect(screen.getByText("Sheet 1 of 3")).toBeTruthy());
     expect(screen.queryByText("1 rows x 2 columns")).toBeNull();
+  });
+
+  test("a full cell is readable through its title attribute", async () => {
+    render(
+      <TabularGrid
+        headers={["name", "count"]}
+        rows={[["a very long cell value indeed", "1"]]}
+        truncated={false}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("a very long cell value indeed")).toBeTruthy(),
+    );
+    const cell = screen
+      .getByText("a very long cell value indeed")
+      .closest("td");
+    expect(cell?.getAttribute("title")).toBe("a very long cell value indeed");
   });
 
   test("an empty grid shows the caller's empty label instead of a table", async () => {

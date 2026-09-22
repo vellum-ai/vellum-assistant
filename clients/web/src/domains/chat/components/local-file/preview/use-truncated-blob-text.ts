@@ -9,7 +9,9 @@
  * ends in mojibake.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+
+import { useAsyncRead } from "@/domains/chat/components/local-file/preview/use-async-read";
 
 export interface TruncatedBlobText {
   /** Decoded head of the file, or `null` while decoding. */
@@ -20,6 +22,11 @@ export interface TruncatedBlobText {
   decodeFailed: boolean;
 }
 
+interface ShownBlob {
+  blob: Blob;
+  truncated: boolean;
+}
+
 /**
  * The slice of `blob` the preview decodes, and whether anything was left off.
  * Pure and exported so the boundary can be tested without a DOM.
@@ -27,47 +34,33 @@ export interface TruncatedBlobText {
 export function truncateBlobForDisplay(
   blob: Blob,
   capBytes: number,
-): { blob: Blob; truncated: boolean } {
+): ShownBlob {
   if (blob.size <= capBytes) {
     return { blob, truncated: false };
   }
   return { blob: blob.slice(0, capBytes), truncated: true };
 }
 
+// `Blob.text()` decodes as UTF-8, which is what the daemon writes and what
+// every other text surface in the app assumes.
+function readShownText(shown: ShownBlob): Promise<string> {
+  return shown.blob
+    .text()
+    .then((decoded) => (shown.truncated ? decoded.replace(/�$/, "") : decoded));
+}
+
 export function useTruncatedBlobText(
   blob: Blob,
   capBytes: number,
 ): TruncatedBlobText {
-  const [text, setText] = useState<string | null>(null);
-  const [decodeFailed, setDecodeFailed] = useState(false);
-
   const shown = useMemo(
     () => truncateBlobForDisplay(blob, capBytes),
     [blob, capBytes],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    setText(null);
-    setDecodeFailed(false);
-    // `Blob.text()` decodes as UTF-8, which is what the daemon writes and what
-    // every other text surface in the app assumes.
-    shown.blob.text().then(
-      (decoded) => {
-        if (!cancelled) {
-          setText(shown.truncated ? decoded.replace(/�$/, "") : decoded);
-        }
-      },
-      () => {
-        if (!cancelled) {
-          setDecodeFailed(true);
-        }
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [shown]);
+  const { value: text, failed: decodeFailed } = useAsyncRead(
+    shown,
+    readShownText,
+  );
 
   return { text, truncated: shown.truncated, decodeFailed };
 }

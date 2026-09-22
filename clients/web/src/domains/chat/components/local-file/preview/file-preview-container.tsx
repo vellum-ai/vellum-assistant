@@ -71,6 +71,13 @@ interface FilePreviewContainerProps {
   onClose: () => void;
 }
 
+// The CSV and workbook grids virtualize their own rows, so each owns the
+// vertical scroll and the panel must not wrap it in a second scroller.
+const READERS_OWNING_SCROLL: ReadonlySet<WorkspaceFilePreviewKind> = new Set([
+  "csv",
+  "xlsx",
+]);
+
 function previewFor(
   previewKind: WorkspaceFilePreviewKind,
   blob: Blob,
@@ -163,8 +170,6 @@ export function FilePreviewContainer({
     });
   }, [assistantId, documentName, workspacePath]);
 
-  // The CSV and workbook grids virtualize their own rows, so each owns the
-  // vertical scroll and the panel must not wrap it in a second scroller.
   let readerOwnsScroll = false;
 
   // One placeholder for every stage before a reader takes over (fetching the
@@ -233,7 +238,7 @@ export function FilePreviewContainer({
   } else if (probe.status === "loading" || isPending || blob === undefined) {
     body = loadingPlaceholder;
   } else {
-    readerOwnsScroll = previewKind === "csv" || previewKind === "xlsx";
+    readerOwnsScroll = READERS_OWNING_SCROLL.has(previewKind);
     body = (
       <LazyBoundary fallback={loadingPlaceholder}>
         {previewFor(previewKind, blob, documentName)}

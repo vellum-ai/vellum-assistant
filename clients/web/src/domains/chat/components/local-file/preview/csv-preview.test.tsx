@@ -1,14 +1,18 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-
-import { CsvPreview } from "@/domains/chat/components/local-file/preview/csv-preview";
-
 /**
+ * `CsvPreview` owns the decode and the parse; the table it hands the result to
+ * is covered by `tabular-grid.test.tsx`, so these cases stay on the wiring
+ * between the two and on the failure the decode can hit.
+ *
  * `TableVirtuoso` decides what to render from the viewport it measures, and a
  * headless DOM reports none, so the grid falls back to the seeded initial
  * count. That is the same path a server render takes, and it is enough to
  * assert the table's contents.
  */
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+
+import { CsvPreview } from "@/domains/chat/components/local-file/preview/csv-preview";
+
 function csvBlob(text: string): Blob {
   return new Blob([text], { type: "text/csv" });
 }
@@ -18,7 +22,7 @@ afterEach(() => {
 });
 
 describe("CsvPreview", () => {
-  test("renders the header row and the cells under it", async () => {
+  test("decodes the blob and renders its header row and cells", async () => {
     render(
       <CsvPreview
         blob={csvBlob("name,count\nalpha,1\nbeta,2\n")}
@@ -31,65 +35,42 @@ describe("CsvPreview", () => {
     const headers = screen.getAllByRole("columnheader");
     expect(headers.map((cell) => cell.textContent)).toEqual(["name", "count"]);
     expect(screen.getByText("beta")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
-  });
-
-  test("a full cell is readable through its title attribute", async () => {
-    render(
-      <CsvPreview
-        blob={csvBlob("name,count\na very long cell value indeed,1\n")}
-        filename="rows.csv"
-      />,
-    );
-
-    await waitFor(() =>
-      expect(screen.getByText("a very long cell value indeed")).toBeTruthy(),
-    );
-    const cell = screen
-      .getByText("a very long cell value indeed")
-      .closest("td");
-    expect(cell?.getAttribute("title")).toBe("a very long cell value indeed");
-  });
-
-  test("the footer counts the rows and columns", async () => {
-    render(
-      <CsvPreview
-        blob={csvBlob("name,count\nalpha,1\nbeta,2\n")}
-        filename="rows.csv"
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByText("2 rows x 2 columns")).toBeTruthy());
+    expect(screen.getByText("2 rows x 2 columns")).toBeTruthy();
   });
 
   test("a headerless file counts every record as a row", async () => {
     render(<CsvPreview blob={csvBlob("1,2\n3,4\n")} filename="rows.csv" />);
 
-    await waitFor(() => expect(screen.getByText("2 rows x 2 columns")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("2 rows x 2 columns")).toBeTruthy(),
+    );
     expect(screen.queryAllByRole("columnheader").length).toBe(0);
   });
 
-  test("a capped file says it was truncated", async () => {
-    const lines: string[] = ["name,count"];
-    for (let i = 0; i < 5010; i += 1) {
-      lines.push(`row-${i},${i}`);
-    }
-
+  test("a delimiter other than a comma is sniffed before the grid sees it", async () => {
     render(
-      <CsvPreview blob={csvBlob(lines.join("\n"))} filename="rows.csv" />,
+      <CsvPreview
+        blob={csvBlob("name;count\nalpha;1\n")}
+        filename="rows.csv"
+      />,
     );
 
-    await waitFor(() =>
-      expect(
-        screen.getByText("4999 rows x 2 columns (truncated)"),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
+    expect(
+      screen.getAllByRole("columnheader").map((cell) => cell.textContent),
+    ).toEqual(["name", "count"]);
   });
 
-  test("an empty file says so instead of rendering a grid", async () => {
-    render(<CsvPreview blob={csvBlob("")} filename="rows.csv" />);
+  test("a blob that cannot be decoded shows the failure state", async () => {
+    const unreadable = {
+      text: () => Promise.reject(new Error("read failed")),
+    } as unknown as Blob;
 
-    await waitFor(() => expect(screen.getByText("This file is empty")).toBeTruthy());
-    expect(screen.queryByRole("table")).toBeNull();
+    render(<CsvPreview blob={unreadable} filename="rows.csv" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Can't preview this file")).toBeTruthy(),
+    );
+    expect(screen.getByText("rows.csv")).toBeTruthy();
   });
 });

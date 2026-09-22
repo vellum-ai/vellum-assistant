@@ -8,22 +8,16 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { ParsedCsv } from "@/domains/chat/components/local-file/preview/csv";
 import {
   WorkbookGrid,
   XlsxPreview,
 } from "@/domains/chat/components/local-file/preview/xlsx-preview";
+import {
+  grid,
+  sheet,
+} from "@/domains/chat/components/local-file/preview/xlsx-preview.test-helper";
 import type { WorkbookSheet } from "@/domains/chat/components/local-file/preview/xlsx";
 import { workbookBlob } from "@/domains/chat/components/local-file/preview/xlsx.test-helper";
-
-function grid(rows: string[][], headers: string[] | null = null): ParsedCsv {
-  return { headers, rows, truncated: false };
-}
-
-/** A sheet whose grid is already in hand, the way a read one arrives. */
-function sheet(name: string, parsed: ParsedCsv): WorkbookSheet {
-  return { name, read: () => Promise.resolve(parsed) };
-}
 
 const EXPENSES = sheet(
   "Expenses",
@@ -97,6 +91,41 @@ describe("WorkbookGrid", () => {
     await user.click(screen.getAllByRole("tab")[1]);
 
     await waitFor(() => expect(screen.getByText("Salary")).toBeTruthy());
+  });
+
+  test("a tab's id and the panel it controls carry no whitespace", async () => {
+    render(
+      <WorkbookGrid sheets={[sheet("Q1 Budget", grid([["kept"]])), INCOME]} />,
+    );
+
+    await waitFor(() => expect(screen.getByText("kept")).toBeTruthy());
+
+    const [tab] = screen.getAllByRole("tab");
+    expect(tab.textContent).toBe("Q1 Budget");
+    expect(tab.getAttribute("id")).not.toMatch(/\s/);
+    expect(tab.getAttribute("aria-controls")).not.toMatch(/\s/);
+  });
+
+  test("sheets sharing a name get a tab each and switch independently", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkbookGrid
+        sheets={[
+          sheet("Sheet", grid([["first"]])),
+          sheet("Sheet", grid([["second"]])),
+        ]}
+      />,
+    );
+
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.length).toBe(2);
+    await waitFor(() => expect(screen.getByText("first")).toBeTruthy());
+
+    await user.click(tabs[1]);
+
+    await waitFor(() => expect(screen.getByText("second")).toBeTruthy());
+    expect(screen.queryByText("first")).toBeNull();
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
   });
 
   test("a sheet that cannot be read fails inside its own panel", async () => {
