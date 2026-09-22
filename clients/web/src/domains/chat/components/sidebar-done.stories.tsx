@@ -87,7 +87,7 @@ const CONVERSATIONS: Conversation[] = [
   }),
 ];
 
-/** Past the windowing threshold, where a checked row goes without animating. */
+/** Past the windowing threshold, where the Chats section is virtualized. */
 const MANY_CONVERSATIONS: Conversation[] = [
   ...CONVERSATIONS,
   ...Array.from({ length: 60 }, (_, index) =>
@@ -260,9 +260,8 @@ export const Default: Story = {
 };
 
 /**
- * Past the windowing threshold. The Chats section is virtualized here, so a
- * checked row is simply gone rather than collapsing out: virtuoso owns a
- * windowed row's height and a row animating its own would fight it.
+ * Past the windowing threshold. The Chats section is virtualized here, and a
+ * checked row slides out and closes the same way it does in a short list.
  */
 export const ManyRows: Story = {
   name: "Flag on · windowed list",
