@@ -5,10 +5,18 @@
 
 import JSZip from "jszip";
 
-/** A string cell: plain text, or the runs a rich-text cell is split into. */
-export type TextSpec = string | { runs: string[] };
+/** Namespaces an OOXML workbook declares, which raw parts spell out too. */
+export const MAIN_NS =
+  "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+export const RELATIONSHIP_NS =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+export const PACKAGE_RELATIONSHIP_NS =
+  "http://schemas.openxmlformats.org/package/2006/relationships";
 
-export interface CellSpec {
+/** A string cell: plain text, or the runs a rich-text cell is split into. */
+type TextSpec = string | { runs: string[] };
+
+interface CellSpec {
   /** Cell type attribute, such as `s`, `b`, `e`, or `str`. */
   t?: string;
   /** Cached value, written as `<v>`. */
@@ -18,7 +26,7 @@ export interface CellSpec {
   /** Style index into the workbook's `styles`. */
   s?: number;
   /** Inline string contents, which also sets `t="inlineStr"`. */
-  inline?: TextSpec;
+  inline?: string;
   /** Write the cell without its `r` reference. */
   noRef?: boolean;
 }
@@ -30,12 +38,14 @@ export interface SheetSpec {
   name: string;
   rows?: CellInput[][];
   hidden?: "hidden" | "veryHidden";
-  /** Raw XML written after the rows, for stating what a bounded read skips. */
+  /** Raw XML written after the rows and inside `<sheetData>`. */
   trailing?: string;
+  /** Raw XML written after `</sheetData>`, where a worksheet's sections sit. */
+  afterSheetData?: string;
 }
 
 /** One `cellXfs` entry: a built-in format id, or a custom format code. */
-export interface StyleSpec {
+interface StyleSpec {
   numFmtId?: number;
   formatCode?: string;
 }
@@ -45,13 +55,13 @@ export interface WorkbookSpec {
   sharedStrings?: TextSpec[];
   styles?: StyleSpec[];
   date1904?: boolean;
+  /**
+   * Raw parts written over the generated ones, for a container the spec cannot
+   * state: an odd relationship target, or a styles table with its own blocks.
+   */
+  parts?: Record<string, string>;
 }
 
-const MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-const RELATIONSHIP_NS =
-  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const PACKAGE_RELATIONSHIP_NS =
-  "http://schemas.openxmlformats.org/package/2006/relationships";
 const DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 
 function escapeXml(text: string): string {
@@ -130,7 +140,7 @@ function sheetXml(spec: SheetSpec): string {
       return `<row r="${rowNumber}">${body}</row>`;
     })
     .join("");
-  return `${DECLARATION}<worksheet xmlns="${MAIN_NS}"><sheetData>${rows}${spec.trailing ?? ""}</sheetData></worksheet>`;
+  return `${DECLARATION}<worksheet xmlns="${MAIN_NS}"><sheetData>${rows}${spec.trailing ?? ""}</sheetData>${spec.afterSheetData ?? ""}</worksheet>`;
 }
 
 function workbookXml(spec: WorkbookSpec): string {
@@ -178,19 +188,11 @@ function stylesXml(styles: StyleSpec[]): string {
   return `${DECLARATION}<styleSheet xmlns="${MAIN_NS}"><numFmts count="${customFormats.length}">${customFormats.join("")}</numFmts><cellStyleXfs count="1"><xf numFmtId="0"/></cellStyleXfs><cellXfs count="${styles.length}">${cellXfs}</cellXfs></styleSheet>`;
 }
 
-/** An `.xlsx` container holding `spec`, ready to hand to `parseWorkbook`. */
-export async function workbookBlob(spec: WorkbookSpec): Promise<Blob> {
+/** A container holding exactly these parts, deflated like a real workbook. */
+export async function partsBlob(parts: Record<string, string>): Promise<Blob> {
   const zip = new JSZip();
-  zip.file("xl/workbook.xml", workbookXml(spec));
-  zip.file("xl/_rels/workbook.xml.rels", relationshipsXml(spec.sheets.length));
-  spec.sheets.forEach((sheet, index) => {
-    zip.file(`xl/worksheets/sheet${index + 1}.xml`, sheetXml(sheet));
-  });
-  if (spec.sharedStrings !== undefined) {
-    zip.file("xl/sharedStrings.xml", sharedStringsXml(spec.sharedStrings));
-  }
-  if (spec.styles !== undefined) {
-    zip.file("xl/styles.xml", stylesXml(spec.styles));
+  for (const [path, xml] of Object.entries(parts)) {
+    zip.file(path, xml);
   }
   // Deflated like a real workbook, so a bounded read has something to skip.
   const buffer = await zip.generateAsync({
@@ -198,4 +200,22 @@ export async function workbookBlob(spec: WorkbookSpec): Promise<Blob> {
     compression: "DEFLATE",
   });
   return new Blob([buffer]);
+}
+
+/** An `.xlsx` container holding `spec`, ready to hand to `parseWorkbook`. */
+export async function workbookBlob(spec: WorkbookSpec): Promise<Blob> {
+  const parts: Record<string, string> = {
+    "xl/workbook.xml": workbookXml(spec),
+    "xl/_rels/workbook.xml.rels": relationshipsXml(spec.sheets.length),
+  };
+  spec.sheets.forEach((sheet, index) => {
+    parts[`xl/worksheets/sheet${index + 1}.xml`] = sheetXml(sheet);
+  });
+  if (spec.sharedStrings !== undefined) {
+    parts["xl/sharedStrings.xml"] = sharedStringsXml(spec.sharedStrings);
+  }
+  if (spec.styles !== undefined) {
+    parts["xl/styles.xml"] = stylesXml(spec.styles);
+  }
+  return partsBlob({ ...parts, ...spec.parts });
 }

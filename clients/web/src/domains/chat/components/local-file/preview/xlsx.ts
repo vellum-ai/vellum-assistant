@@ -18,9 +18,9 @@
 import JSZip from "jszip";
 
 import {
-  looksLikeHeader,
   MAX_CSV_COLUMNS,
   MAX_CSV_ROWS,
+  shapeRecords,
   type ParsedCsv,
 } from "@/domains/chat/components/local-file/preview/csv";
 
@@ -46,14 +46,97 @@ const MS_PER_DAY = 86_400_000;
 const RELATIONSHIP_NS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-/** Whether a built-in `numFmtId` renders a date or a time. */
-function isBuiltInDateFormat(id: number): boolean {
-  return (
-    (id >= 14 && id <= 22) ||
+/** Highest serial the 1900 date system spells, which is 9999-12-31. */
+const MAX_SERIAL_1900 = 2_958_465;
+
+/**
+ * The same last day in the 1904 system, whose epoch sits 1462 days later.
+ */
+const MAX_SERIAL_1904 = MAX_SERIAL_1900 - 1462;
+
+/** What a cell's number format renders its value as. */
+type NumberFormatKind = "none" | "date" | "time" | "datetime";
+
+/**
+ * What a built-in `numFmtId` renders. The date ids spell a calendar day, the
+ * time ids a clock reading (including the elapsed formats 45 to 47), and 22 is
+ * the one built-in that spells both.
+ */
+function builtInFormatKind(id: number): NumberFormatKind {
+  if (
+    (id >= 14 && id <= 17) ||
     (id >= 27 && id <= 36) ||
-    (id >= 45 && id <= 47) ||
     (id >= 50 && id <= 58)
-  );
+  ) {
+    return "date";
+  }
+  if ((id >= 18 && id <= 21) || (id >= 45 && id <= 47)) {
+    return "time";
+  }
+  return id === 22 ? "datetime" : "none";
+}
+
+/** Characters that separate format tokens without spelling one. */
+const FORMAT_SEPARATOR = /[\s:.,\-/]/;
+
+/**
+ * Whether the token reached by walking from `from` in `direction` is an hour
+ * or a second, which is what makes Excel read an adjacent `m` as minutes
+ * rather than as a month. Separators between the two do not break the pair.
+ */
+function nextToClockToken(
+  code: string,
+  from: number,
+  direction: 1 | -1,
+): boolean {
+  for (
+    let index = from;
+    index >= 0 && index < code.length;
+    index += direction
+  ) {
+    const character = code.charAt(index);
+    if (character === "h" || character === "s") {
+      return true;
+    }
+    if (!FORMAT_SEPARATOR.test(character)) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * What a custom format code renders. Quoted literals, bracketed sections, and
+ * backslash escapes can hold any letter without spelling a token, so they come
+ * out before the placeholders are read. Bracket removal takes the elapsed
+ * tokens (`[h]`, `[mm]`, `[ss]`) with it: elapsed formats reach the time
+ * renderer through their built-in ids, and a custom code spelling nothing but
+ * elapsed time renders as a plain number.
+ */
+function formatCodeKind(code: string): NumberFormatKind {
+  const tokens = code
+    .replace(/"[^"]*"/g, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\\./g, "")
+    .toLowerCase();
+  let hasDate = /[yd]/.test(tokens);
+  let hasTime = /[hs]/.test(tokens);
+  for (const run of tokens.matchAll(/m+/g)) {
+    const start = run.index;
+    const end = start + run[0].length;
+    if (
+      nextToClockToken(tokens, start - 1, -1) ||
+      nextToClockToken(tokens, end, 1)
+    ) {
+      hasTime = true;
+    } else {
+      hasDate = true;
+    }
+  }
+  if (hasDate) {
+    return hasTime ? "datetime" : "date";
+  }
+  return hasTime ? "time" : "none";
 }
 
 /** Local part of a qualified name, so `rel:id` and `id` both read as `id`. */
@@ -63,39 +146,81 @@ function localPart(name: string): string {
 }
 
 /**
- * Descendants of `parent` with this local name. A producer picks its own
- * OOXML prefixes, so nothing can be matched by qualified name. The scan
- * filters `getElementsByTagName("*")` rather than calling
- * `getElementsByTagNameNS("*", name)` because happy-dom, which the tests run
- * on, returns nothing for the wildcard namespace; filtering on `localName`
- * behaves the same there and in browsers, and measures no slower.
+ * Direct children of `parent` with this local name. A producer picks its own
+ * OOXML prefixes, so nothing can be matched by qualified name. Every element
+ * this reader wants is a direct child of the one above it, and staying on that
+ * one level keeps a 5000 by 200 sheet off the cost of a descendant scan per
+ * row and per cell.
  */
-function childrenNamed(
-  parent: Document | Element,
-  localName: string,
-): Element[] {
-  return Array.from(parent.getElementsByTagName("*")).filter(
-    (element) => element.localName === localName,
-  );
+function directChildrenNamed(parent: Element, localName: string): Element[] {
+  const children = parent.children;
+  const matched: Element[] = [];
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children.item(index);
+    if (child !== null && localPart(child.localName) === localName) {
+      matched.push(child);
+    }
+  }
+  return matched;
 }
 
 /**
- * An attribute's value by local name, whatever prefix carries it. When
- * `namespaceUri` is given the attribute declared in that namespace wins, and a
- * bare local-name match is the fallback: happy-dom reports no namespace on an
- * attribute and leaves the prefix on its `localName`.
+ * The first direct child of `parent` with this local name. A cell asks for its
+ * `<v>` and `<f>` a million times over a full grid, so this one walks without
+ * building a list.
+ */
+function firstChildNamed(
+  parent: Element,
+  localName: string,
+): Element | undefined {
+  const children = parent.children;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children.item(index);
+    if (child !== null && localPart(child.localName) === localName) {
+      return child;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The first element at or under `root` with this local name, which is how a
+ * part's one container (`sst`, `sheetData`, `cellXfs`) is found wherever its
+ * producer nests it. Stopping at the first match keeps the cost off the size
+ * of the part, which collecting every descendant would not.
+ */
+function findNamed(root: Element, localName: string): Element | undefined {
+  if (localPart(root.localName) === localName) {
+    return root;
+  }
+  const children = root.children;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children.item(index);
+    const found = child === null ? undefined : findNamed(child, localName);
+    if (found !== undefined) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * An attribute's value by local name, whatever prefix carries it. The
+ * attribute declared in `namespaceUri` wins, and a bare local-name match is
+ * the fallback: happy-dom reports no namespace on an attribute and leaves the
+ * prefix on its `localName`.
  */
 function attributeNamed(
   element: Element,
   localName: string,
-  namespaceUri?: string,
+  namespaceUri: string,
 ): string | null {
   let fallback: string | null = null;
   for (const attribute of Array.from(element.attributes)) {
     if (localPart(attribute.localName) !== localName) {
       continue;
     }
-    if (namespaceUri === undefined || attribute.namespaceURI === namespaceUri) {
+    if (attribute.namespaceURI === namespaceUri) {
       return attribute.value;
     }
     fallback ??= attribute.value;
@@ -115,12 +240,12 @@ type StreamingEntry = JSZip.JSZipObject & {
  * Parse an OOXML part. Browsers report a bad document as a `parsererror`
  * element rather than by throwing, so the check has to be explicit.
  */
-function parseXml(xml: string, part: string): Document {
+function parseXml(xml: string, part: string): Element {
   const doc = new DOMParser().parseFromString(xml, "text/xml");
   if (doc.getElementsByTagName("parsererror").length > 0) {
     throw new Error(`Malformed XML in ${part}`);
   }
-  return doc;
+  return doc.documentElement;
 }
 
 /**
@@ -132,23 +257,23 @@ function parseXml(xml: string, part: string): Document {
  * useful whole and so are rejected at the cap rather than cut. A full 5000 by
  * 200 grid of ordinary cells sits well under it.
  */
-export const MAX_PART_CHARS = 64 * 1024 * 1024;
+const MAX_PART_CHARS = 64 * 1024 * 1024;
 
 interface BoundedPart {
   xml: string;
   /** True when the read stopped before the end of the part. */
   truncated: boolean;
+  /**
+   * Prefix the element at the cut carried, so the tags appended to close the
+   * part are spelled the way the part spells them.
+   */
+  prefix: string;
 }
 
-interface BoundedRead {
-  /**
-   * Element start tag the read cuts at, kept `limit` times. The tag is the
-   * unprefixed spelling every writer emits, so a part that prefixes it is
-   * bounded by `maxChars` alone. A read with no marker has nowhere safe to
-   * cut, so it rejects at the cap instead.
-   */
-  marker?: { text: string; limit: number };
-  maxChars: number;
+/** The repeating element a bounded read counts, by local name. */
+interface PartMarker {
+  localName: string;
+  limit: number;
 }
 
 /**
@@ -161,36 +286,95 @@ function endsTagName(character: string): boolean {
   return character === ">" || character === "/" || /\s/.test(character);
 }
 
+/** A character XML allows inside an element name after its first. */
+function isNameCharacter(character: string): boolean {
+  return /[\w.-]/.test(character);
+}
+
+/** How a `<` reads against the marker a bounded read is counting. */
+type StartTagMatch =
+  | { kind: "match"; prefix: string }
+  | { kind: "other" }
+  | { kind: "pending" };
+
+const OTHER_TAG: StartTagMatch = { kind: "other" };
+const PENDING_TAG: StartTagMatch = { kind: "pending" };
+
 /**
- * Inflate `entry` only until the marker has been seen `limit` times or the
- * text passes `maxChars`, then cut it and abandon the rest of the stream.
- * Either cut lands at the start of a marker, so the text ends on a complete
- * element. This is what keeps a sheet with a million rows from being
- * decompressed whole for a preview that shows five thousand. A markerless read
- * wants the whole part, so passing the cap rejects instead.
+ * Whether the `<` at `at` opens a start tag for `localName`. A producer picks
+ * its own prefixes, so any prefix is skipped and only the local name is
+ * compared, and the character after the name must end it so `<rowBreaks>` does
+ * not read as `<row>`. `pending` means the buffer runs out mid-decision, so
+ * the next chunk settles it rather than this one guessing.
  */
-function readBoundedPart(
+function matchStartTag(
+  buffer: string,
+  at: number,
+  localName: string,
+): StartTagMatch {
+  const nameAt = at + 1;
+  let scan = nameAt;
+  while (scan < buffer.length && isNameCharacter(buffer.charAt(scan))) {
+    scan += 1;
+  }
+  if (scan === buffer.length) {
+    return PENDING_TAG;
+  }
+  const prefix =
+    scan > nameAt && buffer.charAt(scan) === ":"
+      ? buffer.slice(nameAt, scan + 1)
+      : "";
+  const start = nameAt + prefix.length;
+  const end = start + localName.length;
+  if (buffer.length <= end) {
+    return PENDING_TAG;
+  }
+  if (
+    buffer.slice(start, end) !== localName ||
+    !endsTagName(buffer.charAt(end))
+  ) {
+    return OTHER_TAG;
+  }
+  return { kind: "match", prefix };
+}
+
+/** How a chunk handler ends a streamed read before the part runs out. */
+interface Settle<T> {
+  resolve(value: T): void;
+  reject(error: Error): void;
+}
+
+interface StreamedRead<T> {
+  /** Called with everything read so far, once per inflated chunk. */
+  onChunk(buffer: string, settle: Settle<T>): void;
+  /** Called when the part runs out without the read having settled. */
+  onEnd(buffer: string): T;
+}
+
+/**
+ * Inflate `entry` as a stream, handing each chunk to `read`. Settling from a
+ * chunk abandons the rest of the stream, which is what lets a caller stop at
+ * a cap instead of decompressing a part whole.
+ */
+function streamPart<T>(
   entry: JSZip.JSZipObject,
-  read: BoundedRead,
-): Promise<BoundedPart> {
+  read: StreamedRead<T>,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    const marker = read.marker;
     const stream = (entry as StreamingEntry).internalStream("string");
     let buffer = "";
-    let searchFrom = 0;
-    let seen = 0;
-    let lastMarkerAt = -1;
     let settled = false;
-
-    const stop = (): void => {
-      settled = true;
-      stream.pause();
-    };
-
-    /** Cut at the start of a marker, or empty when none was reached. */
-    const cutAt = (at: number): void => {
-      stop();
-      resolve({ xml: at < 0 ? "" : buffer.slice(0, at), truncated: true });
+    const settle: Settle<T> = {
+      resolve: (value) => {
+        settled = true;
+        stream.pause();
+        resolve(value);
+      },
+      reject: (error) => {
+        settled = true;
+        stream.pause();
+        reject(error);
+      },
     };
 
     stream.on("data", (chunk) => {
@@ -198,46 +382,7 @@ function readBoundedPart(
         return;
       }
       buffer += chunk;
-      if (marker !== undefined) {
-        for (;;) {
-          const at = buffer.indexOf(marker.text, searchFrom);
-          if (at === -1) {
-            // Only a partial marker can still be pending at the tail, so the
-            // next chunk does not need the whole buffer rescanned.
-            searchFrom = Math.max(
-              searchFrom,
-              buffer.length - marker.text.length + 1,
-            );
-            break;
-          }
-          const after = buffer[at + marker.text.length];
-          if (after === undefined) {
-            // The character that would settle this match has not arrived, so
-            // the next chunk decides it rather than this one guessing.
-            searchFrom = at;
-            break;
-          }
-          searchFrom = at + marker.text.length;
-          if (!endsTagName(after)) {
-            continue;
-          }
-          seen += 1;
-          lastMarkerAt = at;
-          if (seen > marker.limit) {
-            cutAt(at);
-            return;
-          }
-        }
-      }
-      if (buffer.length <= read.maxChars) {
-        return;
-      }
-      if (marker === undefined) {
-        stop();
-        reject(new Error(`${entry.name} is too large to read`));
-        return;
-      }
-      cutAt(lastMarkerAt);
+      read.onChunk(buffer, settle);
     });
     stream.on("error", (error) => {
       if (!settled) {
@@ -248,7 +393,7 @@ function readBoundedPart(
     stream.on("end", () => {
       if (!settled) {
         settled = true;
-        resolve({ xml: buffer, truncated: false });
+        resolve(read.onEnd(buffer));
       }
     });
     stream.resume();
@@ -256,36 +401,115 @@ function readBoundedPart(
 }
 
 /**
- * Read a metadata part whole, or `null` when the workbook leaves it out. These
- * parts steer every later read, so one that inflates past `maxChars` rejects:
- * a cut workbook or style table is worse than no preview at all.
+ * Inflate `entry` whole, rejecting once it passes `maxChars`. A part read this
+ * way steers every later read, so there is nowhere safe to cut it: a cut
+ * workbook or style table is worse than no preview at all.
  */
+function readWholePart(
+  entry: JSZip.JSZipObject,
+  maxChars: number,
+): Promise<string> {
+  return streamPart(entry, {
+    onChunk: (buffer, settle) => {
+      if (buffer.length > maxChars) {
+        settle.reject(new Error(`${entry.name} is too large to read`));
+      }
+    },
+    onEnd: (buffer) => buffer,
+  });
+}
+
+/**
+ * Inflate `entry` only until `marker` has been seen past its limit or the text
+ * passes `maxChars`, then cut it there and abandon the rest of the stream.
+ * Either cut lands on the `<` of a marker, so the text ends on a complete
+ * element and only the elements still open around it need closing. This is
+ * what keeps a sheet with a million rows from being decompressed whole for a
+ * preview that shows five thousand. A cap reached before a second marker would
+ * leave nothing complete behind, so the read rejects rather than resolving a
+ * part that reads as empty.
+ */
+function readMarkedPart(
+  entry: JSZip.JSZipObject,
+  marker: PartMarker,
+  maxChars: number,
+): Promise<BoundedPart> {
+  let searchFrom = 0;
+  let seen = 0;
+  let lastMarkerAt = -1;
+  let lastMarkerPrefix = "";
+
+  return streamPart(entry, {
+    onChunk: (buffer, settle) => {
+      for (;;) {
+        const at = buffer.indexOf("<", searchFrom);
+        if (at === -1) {
+          searchFrom = buffer.length;
+          break;
+        }
+        const match = matchStartTag(buffer, at, marker.localName);
+        if (match.kind === "pending") {
+          // The characters that would settle this match have not arrived, so
+          // the next chunk decides it rather than this one guessing.
+          searchFrom = at;
+          break;
+        }
+        searchFrom = at + 1;
+        if (match.kind === "other") {
+          continue;
+        }
+        seen += 1;
+        lastMarkerAt = at;
+        lastMarkerPrefix = match.prefix;
+        if (seen > marker.limit) {
+          settle.resolve({
+            xml: buffer.slice(0, at),
+            truncated: true,
+            prefix: match.prefix,
+          });
+          return;
+        }
+      }
+      if (buffer.length <= maxChars) {
+        return;
+      }
+      if (seen < 2) {
+        // Cutting at the only marker seen keeps none of them, which reads as
+        // an empty sheet rather than as the unreadable part it is.
+        settle.reject(new Error(`${entry.name} is too large to read`));
+        return;
+      }
+      settle.resolve({
+        xml: buffer.slice(0, lastMarkerAt),
+        truncated: true,
+        prefix: lastMarkerPrefix,
+      });
+    },
+    onEnd: (buffer) => ({ xml: buffer, truncated: false, prefix: "" }),
+  });
+}
+
+/** A metadata part read whole, or `null` when the workbook leaves it out. */
 async function readPart(
   zip: JSZip,
   path: string,
   maxChars: number,
 ): Promise<string | null> {
   const entry = zip.file(path);
-  if (entry === null) {
-    return null;
-  }
-  const { xml } = await readBoundedPart(entry, { maxChars });
-  return xml;
+  return entry === null ? null : readWholePart(entry, maxChars);
 }
 
 /**
- * XML for a part a bounded read may have cut. A cut part is missing the tags
- * that close it, and one cut before its first marker has no body at all.
+ * XML for a part a bounded read may have cut. A cut lands at the start of an
+ * element, so the elements still open around it are closed again, innermost
+ * first and spelled with the prefix the part carries.
  */
-function closeBoundedPart(
-  part: BoundedPart,
-  empty: string,
-  closing: string,
-): string {
+function closeBoundedPart(part: BoundedPart, stillOpen: string[]): string {
   if (!part.truncated) {
     return part.xml;
   }
-  return part.xml === "" ? empty : `${part.xml}${closing}`;
+  const closing = stillOpen.map((name) => `</${part.prefix}${name}>`).join("");
+  return `${part.xml}${closing}`;
 }
 
 interface SheetRef {
@@ -300,11 +524,12 @@ interface WorkbookStructure {
 }
 
 function readWorkbookStructure(xml: string): WorkbookStructure {
-  const doc = parseXml(xml, "xl/workbook.xml");
-  const dateMode = childrenNamed(doc, "workbookPr")[0]?.getAttribute(
-    "date1904",
-  );
-  const sheets = childrenNamed(doc, "sheet").map((sheet) => {
+  const root = parseXml(xml, "xl/workbook.xml");
+  const dateMode = findNamed(root, "workbookPr")?.getAttribute("date1904");
+  const sheetList = findNamed(root, "sheets");
+  const listed =
+    sheetList === undefined ? [] : directChildrenNamed(sheetList, "sheet");
+  const sheets = listed.map((sheet) => {
     const state = sheet.getAttribute("state");
     return {
       name: sheet.getAttribute("name") ?? "",
@@ -315,63 +540,85 @@ function readWorkbookStructure(xml: string): WorkbookStructure {
   return { sheets, date1904: dateMode === "1" || dateMode === "true" };
 }
 
+/**
+ * Resolve `target` against `base` the way jszip normalizes the names it
+ * stores: empty and `.` segments drop out, and `..` pops the one before it.
+ * jszip normalizes what it stores but not what `file()` looks up, so a target
+ * spelled `./worksheets/sheet1.xml` would otherwise miss the part it names.
+ */
+function resolveZipPath(base: string, target: string): string {
+  const segments: string[] = [];
+  for (const segment of `${base}${target}`.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments.join("/");
+}
+
 /** Relationship id to the part path it points at, rooted at the zip. */
 function readRelationshipTargets(xml: string | null): Map<string, string> {
   const targets = new Map<string, string>();
   if (xml === null) {
     return targets;
   }
-  const doc = parseXml(xml, "xl/_rels/workbook.xml.rels");
-  for (const relationship of childrenNamed(doc, "Relationship")) {
+  const root = parseXml(xml, "xl/_rels/workbook.xml.rels");
+  for (const relationship of directChildrenNamed(root, "Relationship")) {
     const id = relationship.getAttribute("Id");
     const target = relationship.getAttribute("Target");
     if (id === null || target === null) {
       continue;
     }
+    // A part whose name holds a space is spelled `sheet%201.xml` here.
+    let decoded = target;
+    try {
+      decoded = decodeURIComponent(target);
+    } catch {
+      // Not valid percent-encoding, so the target is a literal name.
+    }
     // A relative target is relative to the part that declares it.
-    targets.set(id, target.startsWith("/") ? target.slice(1) : `xl/${target}`);
+    targets.set(
+      id,
+      decoded.startsWith("/")
+        ? resolveZipPath("", decoded.slice(1))
+        : resolveZipPath("xl/", decoded),
+    );
   }
   return targets;
 }
 
-/**
- * Whether a custom format code renders a date. Quoted literals, bracketed
- * sections, and backslash escapes can hold any letter without meaning a date,
- * so they come out before the date placeholders are looked for.
- */
-function formatCodeIsDate(code: string): boolean {
-  const placeholders = code
-    .replace(/"[^"]*"/g, "")
-    .replace(/\[[^\]]*\]/g, "")
-    .replace(/\\./g, "");
-  return /[ymdhs]/i.test(placeholders);
-}
-
-/** Per `cellXfs` index, whether cells carrying that style render as a date. */
-function readDateStyles(xml: string | null): boolean[] {
+/** Per `cellXfs` index, what cells carrying that style render as. */
+function readNumberFormatKinds(xml: string | null): NumberFormatKind[] {
   if (xml === null) {
     return [];
   }
-  const doc = parseXml(xml, "xl/styles.xml");
-  const customFormats = new Map<number, string>();
-  for (const format of childrenNamed(doc, "numFmt")) {
-    const id = Number(format.getAttribute("numFmtId"));
-    const code = format.getAttribute("formatCode");
-    if (Number.isInteger(id) && code !== null) {
-      customFormats.set(id, code);
+  const root = parseXml(xml, "xl/styles.xml");
+  const customCodes = new Map<number, string>();
+  // Scoped to the `numFmts` block because a `dxf` carries `numFmt` entries of
+  // its own in the same id range, which would otherwise win on document order.
+  const numFmts = findNamed(root, "numFmts");
+  if (numFmts !== undefined) {
+    for (const format of directChildrenNamed(numFmts, "numFmt")) {
+      const id = Number(format.getAttribute("numFmtId"));
+      const code = format.getAttribute("formatCode");
+      if (Number.isInteger(id) && code !== null) {
+        customCodes.set(id, code);
+      }
     }
   }
-  const cellXfs = childrenNamed(doc, "cellXfs")[0];
+  const cellXfs = findNamed(root, "cellXfs");
   if (cellXfs === undefined) {
     return [];
   }
-  return childrenNamed(cellXfs, "xf").map((xf) => {
+  return directChildrenNamed(cellXfs, "xf").map((xf) => {
     const id = Number(xf.getAttribute("numFmtId") ?? "0");
-    if (isBuiltInDateFormat(id)) {
-      return true;
-    }
-    const code = customFormats.get(id);
-    return code === undefined ? false : formatCodeIsDate(code);
+    const code = customCodes.get(id);
+    return code === undefined ? builtInFormatKind(id) : formatCodeKind(code);
   });
 }
 
@@ -380,70 +627,109 @@ function pad(value: number): string {
 }
 
 /**
- * Render a date serial as `yyyy-mm-dd`, plus ` hh:mm` when the serial carries
- * a time. The 1900 workbook counts a 29 February 1900 that never existed, so
- * serials below 60 sit one day behind the real calendar, and serial 60 is that
- * phantom day itself. Excel shows it as 1900-02-29, so it is written out: no
- * `Date` can hold it, and computing it would collapse it onto serial 59.
+ * Whether a serial sits inside the calendar Excel's date systems can spell.
+ * A column of unix milliseconds that inherited a date style, or a negative
+ * serial, is past every `Date` this could build and renders as its number.
  */
-function formatDateSerial(serial: number, date1904: boolean): string {
+function isDateSerial(serial: number, date1904: boolean): boolean {
+  return (
+    serial >= 0 && serial <= (date1904 ? MAX_SERIAL_1904 : MAX_SERIAL_1900)
+  );
+}
+
+/**
+ * Render a serial the way its number format reads it: a calendar day, a clock
+ * reading, or both. The 1900 workbook counts a 29 February 1900 that never
+ * existed, so serials below 60 sit one day behind the real calendar, and
+ * serial 60 is that phantom day itself. Excel shows it as 1900-02-29, so it is
+ * written out: no `Date` can hold it, and computing it would collapse it onto
+ * serial 59.
+ */
+function formatSerial(
+  serial: number,
+  kind: "date" | "time" | "datetime",
+  date1904: boolean,
+): string {
   const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
   const days = !date1904 && serial < 60 ? serial + 1 : serial;
   const at = epoch + Math.round(days * MS_PER_DAY);
   const moment = new Date(at);
-  const time =
-    at % MS_PER_DAY === 0
-      ? ""
-      : ` ${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
-  if (!date1904 && serial >= 60 && serial < 61) {
-    return `1900-02-29${time}`;
+  const clock = `${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
+  const seconds = moment.getUTCSeconds();
+  if (kind === "time") {
+    return seconds === 0 ? clock : `${clock}:${pad(seconds)}`;
   }
-  const day = `${moment.getUTCFullYear()}-${pad(moment.getUTCMonth() + 1)}-${pad(moment.getUTCDate())}`;
-  return `${day}${time}`;
-}
-
-interface SharedStringRef {
-  sharedIndex: number;
+  const day =
+    !date1904 && serial >= 60 && serial < 61
+      ? "1900-02-29"
+      : `${moment.getUTCFullYear()}-${pad(moment.getUTCMonth() + 1)}-${pad(moment.getUTCDate())}`;
+  if (kind === "datetime") {
+    return seconds === 0
+      ? `${day} ${clock}`
+      : `${day} ${clock}:${pad(seconds)}`;
+  }
+  return at % MS_PER_DAY === 0 ? day : `${day} ${clock}`;
 }
 
 /**
- * A cell is either finished text or a pointer into the shared string table,
+ * A cell is either finished text or an index into the shared string table,
  * which is read only as far as the sheet pointing into it reaches.
  */
-type RawCell = string | SharedStringRef;
-
-function isSharedStringRef(cell: RawCell): cell is SharedStringRef {
-  return typeof cell !== "string";
-}
+type RawCell = string | number;
 
 /** Text of the `<v>` child, or `null` when the cell holds no cached value. */
 function cachedValue(cell: Element): string | null {
-  const value = childrenNamed(cell, "v")[0];
+  const value = firstChildNamed(cell, "v");
   return value === undefined ? null : (value.textContent ?? "");
 }
 
-/** Every `<t>` descendant joined, which is how a rich-text run reads. */
+/**
+ * Text of a shared or inline string: the item's own `<t>` children plus the
+ * `<t>` inside each `<r>` run, in order. Anything else a string item carries
+ * is skipped, which is what keeps the phonetic guide in an East Asian
+ * workbook's `<rPh>` out of the text the cell shows.
+ */
 function joinTextRuns(element: Element | undefined): string {
   if (element === undefined) {
     return "";
   }
-  return childrenNamed(element, "t")
-    .map((run) => run.textContent ?? "")
-    .join("");
+  let text = "";
+  const children = element.children;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children.item(index);
+    if (child === null) {
+      continue;
+    }
+    const name = localPart(child.localName);
+    if (name === "t") {
+      text += child.textContent ?? "";
+    } else if (name === "r") {
+      for (const run of directChildrenNamed(child, "t")) {
+        text += run.textContent ?? "";
+      }
+    }
+  }
+  return text;
 }
 
 function readCell(
   cell: Element,
-  isDateStyle: boolean[],
+  formatKinds: NumberFormatKind[],
   date1904: boolean,
 ): RawCell {
   const type = cell.getAttribute("t");
   if (type === "s") {
-    const index = Number(cachedValue(cell));
-    return Number.isInteger(index) && index >= 0 ? { sharedIndex: index } : "";
+    const raw = cachedValue(cell);
+    if (raw === null || raw === "") {
+      // A shared-string cell with no index points at nothing, which is blank
+      // rather than the first string in the table.
+      return "";
+    }
+    const index = Number(raw);
+    return Number.isInteger(index) && index >= 0 ? index : "";
   }
   if (type === "inlineStr") {
-    return joinTextRuns(childrenNamed(cell, "is")[0]);
+    return joinTextRuns(firstChildNamed(cell, "is"));
   }
 
   const value = cachedValue(cell);
@@ -453,10 +739,12 @@ function readCell(
     // empty one, so an empty `<v>` means no result rather than zero or false.
     // This runs before the typed branches because the cell's declared type
     // says nothing about whether it was evaluated, and showing the formula
-    // beats showing a blank where the user knows there is data.
-    const formula = childrenNamed(cell, "f")[0];
-    if (formula !== undefined) {
-      return `=${formula.textContent ?? ""}`;
+    // beats showing a blank where the user knows there is data. A shared
+    // formula's followers carry no text of their own, so they fall through to
+    // the typed reading rather than showing a bare `=`.
+    const formula = firstChildNamed(cell, "f")?.textContent ?? "";
+    if (formula !== "") {
+      return `=${formula}`;
     }
   }
   if (type === "b") {
@@ -472,9 +760,9 @@ function readCell(
   if (Number.isNaN(asNumber)) {
     return value;
   }
-  const styleIndex = Number(cell.getAttribute("s") ?? "0");
-  if (isDateStyle[styleIndex] === true) {
-    return formatDateSerial(asNumber, date1904);
+  const kind = formatKinds[Number(cell.getAttribute("s") ?? "0")] ?? "none";
+  if (kind !== "none" && isDateSerial(asNumber, date1904)) {
+    return formatSerial(asNumber, kind, date1904);
   }
   return String(asNumber);
 }
@@ -506,15 +794,19 @@ interface SheetRows {
 }
 
 function readSheetRows(
-  doc: Document,
-  isDateStyle: boolean[],
+  root: Element,
+  formatKinds: NumberFormatKind[],
   date1904: boolean,
 ): SheetRows {
   const rows: RawCell[][] = [];
   let truncated = false;
   let highestSharedIndex = -1;
 
-  for (const row of childrenNamed(doc, "row")) {
+  const sheetData = findNamed(root, "sheetData");
+  if (sheetData === undefined) {
+    return { rows, truncated, highestSharedIndex };
+  }
+  for (const row of directChildrenNamed(sheetData, "row")) {
     if (rows.length >= MAX_CSV_ROWS) {
       truncated = true;
       break;
@@ -534,7 +826,7 @@ function readSheetRows(
     }
     const cells: RawCell[] = [];
     let column = -1;
-    for (const cell of childrenNamed(row, "c")) {
+    for (const cell of directChildrenNamed(row, "c")) {
       column = columnIndexFromRef(cell.getAttribute("r")) ?? column + 1;
       if (column >= MAX_CSV_COLUMNS) {
         truncated = true;
@@ -544,9 +836,9 @@ function readSheetRows(
       while (cells.length < column) {
         cells.push("");
       }
-      const parsed = readCell(cell, isDateStyle, date1904);
-      if (isSharedStringRef(parsed)) {
-        highestSharedIndex = Math.max(highestSharedIndex, parsed.sharedIndex);
+      const parsed = readCell(cell, formatKinds, date1904);
+      if (typeof parsed === "number") {
+        highestSharedIndex = Math.max(highestSharedIndex, parsed);
       }
       cells[column] = parsed;
     }
@@ -573,16 +865,21 @@ async function readSharedStringTable(
   if (entry === null) {
     return { strings: [], readUpTo: highestIndex, exhausted: true };
   }
-  const part = await readBoundedPart(entry, {
-    marker: { text: "<si", limit: highestIndex + 1 },
-    maxChars: maxPartChars,
-  });
-  const doc = parseXml(
-    closeBoundedPart(part, "<sst/>", "</sst>"),
+  const part = await readMarkedPart(
+    entry,
+    { localName: "si", limit: highestIndex + 1 },
+    maxPartChars,
+  );
+  const root = parseXml(
+    closeBoundedPart(part, ["sst"]),
     "xl/sharedStrings.xml",
   );
+  const table = findNamed(root, "sst");
   return {
-    strings: childrenNamed(doc, "si").map((item) => joinTextRuns(item)),
+    strings:
+      table === undefined
+        ? []
+        : directChildrenNamed(table, "si").map((item) => joinTextRuns(item)),
     readUpTo: highestIndex,
     exhausted: !part.truncated,
   };
@@ -622,31 +919,10 @@ function createSharedStringReader(
   };
 }
 
-/** Pad ragged rows to a common width and pick a header, as `parseCsv` does. */
-function shapeGrid(records: string[][], truncated: boolean): ParsedCsv {
-  if (records.length === 0) {
-    return { headers: null, rows: [], truncated };
-  }
-  const width = records.reduce((max, row) => Math.max(max, row.length), 0);
-  const shaped = records.map((row) => {
-    const cells = row.slice();
-    while (cells.length < width) {
-      cells.push("");
-    }
-    return cells;
-  });
-  const hasHeader = looksLikeHeader(shaped);
-  return {
-    headers: hasHeader ? shaped[0]! : null,
-    rows: hasHeader ? shaped.slice(1) : shaped,
-    truncated,
-  };
-}
-
 /** What every sheet of one workbook shares while it reads its own part. */
 interface WorkbookContext {
   zip: JSZip;
-  isDateStyle: boolean[];
+  formatKinds: NumberFormatKind[];
   date1904: boolean;
   maxPartChars: number;
   sharedStrings: SharedStringReader;
@@ -661,16 +937,14 @@ async function readSheetGrid(
   if (entry === null) {
     throw new Error(`Sheet "${name}" points at no worksheet part`);
   }
-  const part = await readBoundedPart(entry, {
-    marker: { text: "<row", limit: MAX_CSV_ROWS },
-    maxChars: context.maxPartChars,
-  });
+  const part = await readMarkedPart(
+    entry,
+    { localName: "row", limit: MAX_CSV_ROWS },
+    context.maxPartChars,
+  );
   const read = readSheetRows(
-    parseXml(
-      closeBoundedPart(part, "<worksheet/>", "</sheetData></worksheet>"),
-      entry.name,
-    ),
-    context.isDateStyle,
+    parseXml(closeBoundedPart(part, ["sheetData", "worksheet"]), entry.name),
+    context.formatKinds,
     context.date1904,
   );
   const strings =
@@ -682,10 +956,10 @@ async function readSheetGrid(
   let lostSharedString = false;
   const records = read.rows.map((row) =>
     row.map((cell) => {
-      if (!isSharedStringRef(cell)) {
+      if (typeof cell !== "number") {
         return cell;
       }
-      const text = strings[cell.sharedIndex];
+      const text = strings[cell];
       if (text === undefined) {
         lostSharedString = true;
         return "";
@@ -693,8 +967,9 @@ async function readSheetGrid(
       return text;
     }),
   );
-  return shapeGrid(
+  return shapeRecords(
     records,
+    records.reduce((max, row) => Math.max(max, row.length), 0),
     part.truncated || read.truncated || lostSharedString,
   );
 }
@@ -742,7 +1017,7 @@ export async function parseWorkbook(
   );
   const context: WorkbookContext = {
     zip,
-    isDateStyle: readDateStyles(
+    formatKinds: readNumberFormatKinds(
       await readPart(zip, "xl/styles.xml", maxPartChars),
     ),
     date1904,
