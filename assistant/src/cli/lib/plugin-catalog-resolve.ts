@@ -17,12 +17,19 @@ import {
 } from "./plugin-marketplace.js";
 import type { PluginSearchMatch, SearchPluginsDeps } from "./search-plugins.js";
 
-/** Find the catalog entry claiming {@link name}, or `null` when none does. */
+/**
+ * Find the catalog entry claiming {@link name}, or `null` when none does.
+ *
+ * Reads fresh: the entry becomes an install source, which must be the pin the
+ * platform currently publishes rather than a stale cached copy.
+ */
 export async function findCatalogEntry(
   name: string,
   deps: SearchPluginsDeps,
 ): Promise<PluginSearchMatch | null> {
-  const catalog = await getPluginCatalog(DEFAULT_PLUGIN_REF, deps);
+  const catalog = await getPluginCatalog(DEFAULT_PLUGIN_REF, deps, {
+    fresh: true,
+  });
   return catalog.matches.find((m) => m.name === name) ?? null;
 }
 

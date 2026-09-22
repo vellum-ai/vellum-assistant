@@ -83,6 +83,7 @@ import {
   sanitizePluginName,
 } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
+import type { GetPluginCatalogOptions } from "../../../cli/lib/plugin-catalog-cache.js";
 import { DEFAULT_PIN_HISTORY_LIMIT } from "../../../cli/lib/plugin-constants.js";
 import {
   type PluginDetails,
@@ -160,7 +161,11 @@ mock.module("../../../plugins/disabled-state.js", () => ({
 // real `filterPluginCatalog`. The real `search-plugins.js` module is left
 // unmocked so filtering + error classes behave exactly as in production.
 const getCatalogSpy = mock(
-  async (_ref: string, _deps: SearchPluginsDeps): Promise<PluginCatalog> => {
+  async (
+    _ref: string,
+    _deps: SearchPluginsDeps,
+    _options?: GetPluginCatalogOptions,
+  ): Promise<PluginCatalog> => {
     throw new Error("getCatalogSpy default impl not configured");
   },
 );
@@ -395,7 +400,7 @@ import {
 // static import evaluates before any `mock.module` runs and would capture the
 // real logger at module init (same reason as `request-logger.test.ts`).
 const {
-  loadCategoryMapBounded,
+  loadCategoryMap,
   normalizeMarketplaceCategory,
   ROUTES: PLUGINS_ROUTES,
 }: typeof import("../plugins-routes.js") = await import("../plugins-routes.js");
@@ -801,42 +806,7 @@ describe("GET /v1/plugins", () => {
     expect(result.totalCount).toBe(2);
   });
 
-  // The category lookup is bounded so a slow/hanging marketplace fetch (a cold
-  // cache stuck on GitHub) can't hold up the installed list — it degrades to an
-  // empty map exactly like the rejection path above. `loadCategoryMapBounded`
-  // takes an injectable timeout so we can prove the bound without waiting the
-  // full 1500ms production budget.
-  test("bounds the catalog lookup: a stall past the budget degrades to an empty map", async () => {
-    // GIVEN a catalog fetch that resolves only AFTER the (shortened) budget.
-    getCatalogSpy.mockImplementation(
-      (ref) =>
-        new Promise<PluginCatalog>((resolve) => {
-          setTimeout(
-            () =>
-              resolve(
-                catalog(ref, [
-                  {
-                    name: "alpha",
-                    path: "github:acme/alpha@v1",
-                    category: "productivity",
-                    source: { kind: "github", repo: "acme/alpha", ref: "v1" },
-                  },
-                ]),
-              ),
-            80,
-          );
-        }),
-    );
-
-    // WHEN the bound (10ms) elapses first, the timer wins the race.
-    const map = await loadCategoryMapBounded(10);
-
-    // THEN we fall back to an empty map, so every category resolves to null and
-    // the installed list returns immediately instead of blocking on GitHub.
-    expect(map.size).toBe(0);
-  });
-
-  test("returns the catalog category map when the lookup resolves within the budget", async () => {
+  test("returns the catalog category map the lookup resolved", async () => {
     getCatalogSpy.mockImplementation(async (ref) =>
       catalog(ref, [
         {
@@ -848,7 +818,7 @@ describe("GET /v1/plugins", () => {
       ]),
     );
 
-    const map = await loadCategoryMapBounded();
+    const map = await loadCategoryMap();
     expect(map.get("alpha")).toBe("productivity");
   });
 
@@ -995,8 +965,23 @@ function catalog(
 describe("GET /v1/plugins/search", () => {
   beforeEach(() => {
     getCatalogSpy.mockClear();
+    broadcastMessageSpy.mockReset();
     // Default to a happy-path empty catalog; individual tests override.
     getCatalogSpy.mockImplementation(async (ref) => catalog(ref, []));
+  });
+
+  test("hands the catalog read an onChanged that publishes sync_changed(plugins:list)", async () => {
+    await invokeSearch();
+
+    // The handler never waits on the platform: it reads for display and asks
+    // to be called back when a background refresh changes the catalog.
+    const [, , options] = getCatalogSpy.mock.calls[0]!;
+    expect(typeof options?.onChanged).toBe("function");
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
+
+    options?.onChanged?.();
+
+    expectPluginsListBroadcast();
   });
 
   test("resolves the catalog at the requested ref and filters by ?q=", async () => {
@@ -1213,30 +1198,6 @@ describe("GET /v1/plugins/search", () => {
       invokeSearch({ queryParams: { q: "(" } }),
     ).rejects.toBeInstanceOf(BadRequestError);
     expect(getCatalogSpy).not.toHaveBeenCalled();
-  });
-
-  test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
-    logErrorSpy.mockClear();
-    getCatalogSpy.mockImplementation(async () => {
-      throw new PluginCatalogUnavailableError(
-        "GitHub contents listing failed for plugins @ main: HTTP 403",
-        403,
-      );
-    });
-
-    // A rate-limited upstream (with no cache to fall back on) is transient
-    // and retryable — the route surfaces it as 503, not a misleading 500.
-    await expect(
-      invokeSearch({ queryParams: { q: "memory" } }),
-    ).rejects.toBeInstanceOf(ServiceUnavailableError);
-
-    // The outage must be logged before it is mapped to a 503 — otherwise the
-    // transport adapters return the RouteError with no capture and the incident
-    // is invisible. The log carries the true upstream status the 503 collapses.
-    expect(logErrorSpy).toHaveBeenCalledTimes(1);
-    const [fields, msg] = logErrorSpy.mock.calls[0]!;
-    expect(msg).toBe("Platform plugin catalog unavailable");
-    expect(fields).toMatchObject({ operation: "search", upstreamStatus: 403 });
   });
 
   test("unknown errors → InternalError with original message preserved", async () => {
