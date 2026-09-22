@@ -64,20 +64,14 @@ function parseXml(xml: string, part: string): Document {
   return doc;
 }
 
-async function readPart(zip: JSZip, path: string): Promise<string | null> {
-  const entry = zip.file(path);
-  if (entry === null) {
-    return null;
-  }
-  return entry.async("string");
-}
-
 /**
  * Hard cap on the characters inflated from a single part. The row cap bounds
  * how much of a grid is kept; this bounds a part that inflates far past its
  * compressed size, which is what a DEFLATE bomb does and what one enormous
- * cell or shared string does by accident. A full 5000 by 200 grid of ordinary
- * cells sits well under it.
+ * cell or shared string does by accident. It covers the metadata parts too
+ * (`xl/workbook.xml`, its relationships, and `xl/styles.xml`), which are only
+ * useful whole and so are rejected at the cap rather than cut. A full 5000 by
+ * 200 grid of ordinary cells sits well under it.
  */
 export const MAX_PART_CHARS = 64 * 1024 * 1024;
 
@@ -87,20 +81,29 @@ interface BoundedPart {
   truncated: boolean;
 }
 
+interface BoundedRead {
+  /**
+   * Element start tag the read cuts at, kept `limit` times. A read with no
+   * marker has nowhere safe to cut, so it rejects at the cap instead.
+   */
+  marker?: { text: string; limit: number };
+  maxChars: number;
+}
+
 /**
- * Inflate `entry` only until `marker` has been seen `limit` times or the text
- * passes `maxChars`, then cut it and abandon the rest of the stream. Either cut
- * lands at the start of a marker, so the text ends on a complete element. This
- * is what keeps a sheet with a million rows from being decompressed whole for
- * a preview that shows five thousand.
+ * Inflate `entry` only until the marker has been seen `limit` times or the
+ * text passes `maxChars`, then cut it and abandon the rest of the stream.
+ * Either cut lands at the start of a marker, so the text ends on a complete
+ * element. This is what keeps a sheet with a million rows from being
+ * decompressed whole for a preview that shows five thousand. A markerless read
+ * wants the whole part, so passing the cap rejects instead.
  */
 function readBoundedPart(
   entry: JSZip.JSZipObject,
-  marker: string,
-  limit: number,
-  maxChars: number,
+  read: BoundedRead,
 ): Promise<BoundedPart> {
   return new Promise((resolve, reject) => {
+    const marker = read.marker;
     const stream = (entry as StreamingEntry).internalStream("string");
     let buffer = "";
     let searchFrom = 0;
@@ -108,10 +111,14 @@ function readBoundedPart(
     let lastMarkerAt = -1;
     let settled = false;
 
-    /** Cut at the start of a marker, or empty when none was reached. */
-    const cutAt = (at: number): void => {
+    const stop = (): void => {
       settled = true;
       stream.pause();
+    };
+
+    /** Cut at the start of a marker, or empty when none was reached. */
+    const cutAt = (at: number): void => {
+      stop();
       resolve({ xml: at < 0 ? "" : buffer.slice(0, at), truncated: true });
     };
 
@@ -120,25 +127,36 @@ function readBoundedPart(
         return;
       }
       buffer += chunk;
-      for (;;) {
-        const at = buffer.indexOf(marker, searchFrom);
-        if (at === -1) {
-          // Only a partial marker can still be pending at the tail, so the
-          // next chunk does not need the whole buffer rescanned.
-          searchFrom = Math.max(searchFrom, buffer.length - marker.length + 1);
-          break;
-        }
-        seen += 1;
-        lastMarkerAt = at;
-        searchFrom = at + marker.length;
-        if (seen > limit) {
-          cutAt(at);
-          return;
+      if (marker !== undefined) {
+        for (;;) {
+          const at = buffer.indexOf(marker.text, searchFrom);
+          if (at === -1) {
+            // Only a partial marker can still be pending at the tail, so the
+            // next chunk does not need the whole buffer rescanned.
+            searchFrom = Math.max(
+              searchFrom,
+              buffer.length - marker.text.length + 1,
+            );
+            break;
+          }
+          seen += 1;
+          lastMarkerAt = at;
+          searchFrom = at + marker.text.length;
+          if (seen > marker.limit) {
+            cutAt(at);
+            return;
+          }
         }
       }
-      if (buffer.length > maxChars) {
-        cutAt(lastMarkerAt);
+      if (buffer.length <= read.maxChars) {
+        return;
       }
+      if (marker === undefined) {
+        stop();
+        reject(new Error(`${entry.name} is too large to read`));
+        return;
+      }
+      cutAt(lastMarkerAt);
     });
     stream.on("error", (error) => {
       if (!settled) {
@@ -154,6 +172,24 @@ function readBoundedPart(
     });
     stream.resume();
   });
+}
+
+/**
+ * Read a metadata part whole, or `null` when the workbook leaves it out. These
+ * parts steer every later read, so one that inflates past `maxChars` rejects:
+ * a cut workbook or style table is worse than no preview at all.
+ */
+async function readPart(
+  zip: JSZip,
+  path: string,
+  maxChars: number,
+): Promise<string | null> {
+  const entry = zip.file(path);
+  if (entry === null) {
+    return null;
+  }
+  const { xml } = await readBoundedPart(entry, { maxChars });
+  return xml;
 }
 
 /**
@@ -267,18 +303,24 @@ function pad(value: number): string {
 /**
  * Render a date serial as `yyyy-mm-dd`, plus ` hh:mm` when the serial carries
  * a time. The 1900 workbook counts a 29 February 1900 that never existed, so
- * serials below 60 sit one day behind the real calendar.
+ * serials below 60 sit one day behind the real calendar, and serial 60 is that
+ * phantom day itself. Excel shows it as 1900-02-29, so it is written out: no
+ * `Date` can hold it, and computing it would collapse it onto serial 59.
  */
 function formatDateSerial(serial: number, date1904: boolean): string {
   const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
   const days = !date1904 && serial < 60 ? serial + 1 : serial;
   const at = epoch + Math.round(days * MS_PER_DAY);
   const moment = new Date(at);
-  const day = `${moment.getUTCFullYear()}-${pad(moment.getUTCMonth() + 1)}-${pad(moment.getUTCDate())}`;
-  if (at % MS_PER_DAY === 0) {
-    return day;
+  const time =
+    at % MS_PER_DAY === 0
+      ? ""
+      : ` ${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
+  if (!date1904 && serial >= 60 && serial < 61) {
+    return `1900-02-29${time}`;
   }
-  return `${day} ${pad(moment.getUTCHours())}:${pad(moment.getUTCMinutes())}`;
+  const day = `${moment.getUTCFullYear()}-${pad(moment.getUTCMonth() + 1)}-${pad(moment.getUTCDate())}`;
+  return `${day}${time}`;
 }
 
 interface SharedStringRef {
@@ -324,20 +366,28 @@ function readCell(
   if (type === "inlineStr") {
     return joinTextRuns(cell.getElementsByTagName("is")[0]);
   }
-  if (type === "b") {
-    return cachedValue(cell) === "1" ? "TRUE" : "FALSE";
-  }
-  if (type === "e" || type === "str" || type === "d") {
-    return cachedValue(cell) ?? "";
-  }
 
   const value = cachedValue(cell);
-  if (value === null || value === "") {
+  const hasResult = value !== null && value !== "";
+  if (!hasResult) {
     // openpyxl writes an unevaluated formula with no cached result, or with an
-    // empty one, so an empty `<v>` means no result rather than zero. Showing
-    // the formula beats showing a blank where the user knows there is data.
+    // empty one, so an empty `<v>` means no result rather than zero or false.
+    // This runs before the typed branches because the cell's declared type
+    // says nothing about whether it was evaluated, and showing the formula
+    // beats showing a blank where the user knows there is data.
     const formula = cell.getElementsByTagName("f")[0];
-    return formula === undefined ? "" : `=${formula.textContent ?? ""}`;
+    if (formula !== undefined) {
+      return `=${formula.textContent ?? ""}`;
+    }
+  }
+  if (type === "b") {
+    return value === "1" ? "TRUE" : "FALSE";
+  }
+  if (type === "e" || type === "str" || type === "d") {
+    return value ?? "";
+  }
+  if (!hasResult) {
+    return "";
   }
   const asNumber = Number(value);
   if (Number.isNaN(asNumber)) {
@@ -436,12 +486,10 @@ async function readSharedStrings(
   if (entry === null) {
     return [];
   }
-  const part = await readBoundedPart(
-    entry,
-    "<si",
-    highestIndex + 1,
-    maxPartChars,
-  );
+  const part = await readBoundedPart(entry, {
+    marker: { text: "<si", limit: highestIndex + 1 },
+    maxChars: maxPartChars,
+  });
   const doc = parseXml(
     closeBoundedPart(part, "<sst/>", "</sst>"),
     "xl/sharedStrings.xml",
@@ -496,16 +544,18 @@ export async function parseWorkbook(
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
-  const workbookXml = await readPart(zip, "xl/workbook.xml");
+  const workbookXml = await readPart(zip, "xl/workbook.xml", maxPartChars);
   if (workbookXml === null) {
     throw new Error("Not a workbook: xl/workbook.xml is missing");
   }
 
   const { sheets, date1904 } = readWorkbookStructure(workbookXml);
   const targets = readRelationshipTargets(
-    await readPart(zip, "xl/_rels/workbook.xml.rels"),
+    await readPart(zip, "xl/_rels/workbook.xml.rels", maxPartChars),
   );
-  const isDateStyle = readDateStyles(await readPart(zip, "xl/styles.xml"));
+  const isDateStyle = readDateStyles(
+    await readPart(zip, "xl/styles.xml", maxPartChars),
+  );
 
   // A workbook whose sheets are every one hidden still has something to show.
   const visible = sheets.filter((sheet) => !sheet.hidden);
@@ -524,12 +574,10 @@ export async function parseWorkbook(
       continue;
     }
     // Sheets are read one at a time so only one part is ever inflated.
-    const part = await readBoundedPart(
-      entry,
-      "<row",
-      MAX_CSV_ROWS,
-      maxPartChars,
-    );
+    const part = await readBoundedPart(entry, {
+      marker: { text: "<row", limit: MAX_CSV_ROWS },
+      maxChars: maxPartChars,
+    });
     const read = readSheetRows(
       parseXml(
         closeBoundedPart(part, "<worksheet/>", "</sheetData></worksheet>"),

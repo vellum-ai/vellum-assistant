@@ -37,6 +37,9 @@ async function readSheetSpec(sheet: SheetSpec): Promise<ParsedCsv> {
   return parsed.sheets[0]!.grid;
 }
 
+/** A date format code long enough to push `xl/styles.xml` past a small cap. */
+const LONG_DATE_FORMAT = `yyyy-mm-dd${"0".repeat(50_000)}`;
+
 /** A row at `position` holding one inline string, as raw worksheet XML. */
 function rowXml(position: number, text: string): string {
   return `<row r="${position}"><c r="A${position}" t="inlineStr"><is><t>${text}</t></is></c></row>`;
@@ -128,6 +131,27 @@ describe("parseWorkbook", () => {
     expect(grid.rows).toEqual([["=SUM(A1:A2)", "3", ""]]);
   });
 
+  test("shows a typed formula whose cached value is empty", async () => {
+    const grid = await readOneSheet([
+      [
+        { t: "str", f: "A1&B1", v: "" },
+        { t: "b", f: "A1>B1", v: "" },
+        { t: "str", f: "A1&B1", v: "hello" },
+        { t: "b", f: "A1>B1", v: "1" },
+      ],
+    ]);
+
+    expect(grid.rows).toEqual([["=A1&B1", "=A1>B1", "hello", "TRUE"]]);
+  });
+
+  test("keeps the typed reading of an empty cell that has no formula", async () => {
+    const grid = await readOneSheet([
+      [{ t: "str", v: "" }, { t: "b", v: "" }, { t: "e", v: "" }, { v: "" }],
+    ]);
+
+    expect(grid.rows).toEqual([["", "FALSE", "", ""]]);
+  });
+
   test("renders date-styled numbers from a built-in format id", async () => {
     const grid = await readOneSheet(
       [
@@ -178,20 +202,31 @@ describe("parseWorkbook", () => {
   });
 
   test("honours a 1904 workbook epoch", async () => {
-    const grid = await readOneSheet([[{ v: 43465, s: 0 }]], {
+    const grid = await readOneSheet([[{ v: 43465, s: 0 }], [{ v: 60, s: 0 }]], {
       styles: [{ numFmtId: 14 }],
       date1904: true,
     });
 
-    expect(grid.rows).toEqual([["2023-01-01"]]);
+    expect(grid.rows).toEqual([["2023-01-01"], ["1904-03-01"]]);
   });
 
-  test("steps around the 1900 workbook's phantom leap day", async () => {
-    const grid = await readOneSheet([[{ v: 59, s: 0 }], [{ v: 61, s: 0 }]], {
-      styles: [{ numFmtId: 14 }],
-    });
+  test("keeps the 1900 workbook's phantom leap day apart from 28 February", async () => {
+    const grid = await readOneSheet(
+      [
+        [{ v: 59, s: 0 }],
+        [{ v: 60, s: 0 }],
+        [{ v: 60.5, s: 0 }],
+        [{ v: 61, s: 0 }],
+      ],
+      { styles: [{ numFmtId: 14 }] },
+    );
 
-    expect(grid.rows).toEqual([["1900-02-28"], ["1900-03-01"]]);
+    expect(grid.rows).toEqual([
+      ["1900-02-28"],
+      ["1900-02-29"],
+      ["1900-02-29 12:00"],
+      ["1900-03-01"],
+    ]);
   });
 
   test("places cells without a reference in the next column", async () => {
@@ -353,6 +388,38 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([["alpha", "", ""]]);
     expect(grid.truncated).toBe(true);
+  });
+
+  test("rejects a style table that runs past the character cap", async () => {
+    const blob = await workbookBlob({
+      sheets: [{ name: "Sheet1", rows: [[{ v: 44927, s: 0 }]] }],
+      styles: [{ formatCode: LONG_DATE_FORMAT }],
+    });
+
+    await expect(parseWorkbook(blob, { maxPartChars: 2_000 })).rejects.toThrow(
+      "xl/styles.xml",
+    );
+  });
+
+  test("rejects a workbook part that runs past the character cap", async () => {
+    const blob = await workbookBlob({
+      sheets: [{ name: "x".repeat(50_000), rows: [["alpha"]] }],
+    });
+
+    await expect(parseWorkbook(blob, { maxPartChars: 2_000 })).rejects.toThrow(
+      "xl/workbook.xml",
+    );
+  });
+
+  test("reads that same style table whole under the default character cap", async () => {
+    const blob = await workbookBlob({
+      sheets: [{ name: "Sheet1", rows: [[{ v: 44927, s: 0 }]] }],
+      styles: [{ formatCode: LONG_DATE_FORMAT }],
+    });
+
+    const parsed = await parseWorkbook(blob);
+
+    expect(parsed.sheets[0]!.grid.rows).toEqual([["2023-01-01"]]);
   });
 
   test("reads the same sheet whole under the default character cap", async () => {
