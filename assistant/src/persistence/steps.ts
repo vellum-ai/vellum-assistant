@@ -1650,5 +1650,15 @@ export const migrationSteps: MigrationStep[] = [
     ],
   },
   migrateCreateClientConnectionEvents,
-  migrateNormalizeOpencodeHostConnections,
+  {
+    name: "migrateNormalizeOpencodeHostConnections",
+    run: migrateNormalizeOpencodeHostConnections,
+    // Reads and rewrites provider_connections.base_url; the table and the
+    // column come from these steps, so a database where either failed must
+    // not checkpoint this one against nothing.
+    dependsOn: [
+      "migrateCreateProviderConnections",
+      "migrateProviderConnectionBaseUrlAndModels",
+    ],
+  },
 ];

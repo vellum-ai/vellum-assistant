@@ -45,7 +45,7 @@ function readProvider(sqlite: Database, name: string): string | undefined {
 }
 
 describe("migration 383: normalize opencode-host connections", () => {
-  test("restamps openai-compatible rows pointed at opencode.ai", () => {
+  test("restamps openai-compatible rows whose host is opencode.ai", () => {
     const { sqlite, db } = createTestDb();
     insertRow(
       sqlite,
@@ -55,13 +55,22 @@ describe("migration 383: normalize opencode-host connections", () => {
     );
     insertRow(sqlite, "zen", "openai-compatible", "https://opencode.ai/zen/v1");
     insertRow(sqlite, "sub", "openai-compatible", "https://api.opencode.ai/v1");
+    insertRow(sqlite, "port", "openai-compatible", "https://opencode.ai:443");
     insertRow(sqlite, "vllm", "openai-compatible", "http://localhost:8080/v1");
+    insertRow(sqlite, "no-url", "openai-compatible", null);
     insertRow(
       sqlite,
       "lookalike",
       "openai-compatible",
       "https://opencode.ai.evil.example/v1",
     );
+    insertRow(
+      sqlite,
+      "path-only",
+      "openai-compatible",
+      "https://proxy.example/cache/api.opencode.ai/v1",
+    );
+    insertRow(sqlite, "garbage", "openai-compatible", "not a url");
     insertRow(sqlite, "ollama", "ollama", "https://opencode.ai/v1");
 
     migrateNormalizeOpencodeHostConnections(db);
@@ -69,12 +78,16 @@ describe("migration 383: normalize opencode-host connections", () => {
     expect(readProvider(sqlite, "go")).toBe("opencode");
     expect(readProvider(sqlite, "zen")).toBe("opencode");
     expect(readProvider(sqlite, "sub")).toBe("opencode");
+    expect(readProvider(sqlite, "port")).toBe("opencode");
     expect(readProvider(sqlite, "vllm")).toBe("openai-compatible");
+    expect(readProvider(sqlite, "no-url")).toBe("openai-compatible");
     expect(readProvider(sqlite, "lookalike")).toBe("openai-compatible");
+    expect(readProvider(sqlite, "path-only")).toBe("openai-compatible");
+    expect(readProvider(sqlite, "garbage")).toBe("openai-compatible");
     expect(readProvider(sqlite, "ollama")).toBe("ollama");
   });
 
-  test("is idempotent and tolerates a missing table", () => {
+  test("is idempotent", () => {
     const { sqlite, db } = createTestDb();
     insertRow(
       sqlite,
@@ -85,8 +98,5 @@ describe("migration 383: normalize opencode-host connections", () => {
     migrateNormalizeOpencodeHostConnections(db);
     migrateNormalizeOpencodeHostConnections(db);
     expect(readProvider(sqlite, "go")).toBe("opencode");
-
-    const bare = drizzle(new Database(":memory:"), { schema });
-    expect(() => migrateNormalizeOpencodeHostConnections(bare)).not.toThrow();
   });
 });
