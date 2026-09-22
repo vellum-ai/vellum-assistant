@@ -350,11 +350,14 @@ describe("useMcpConnect", () => {
 
   test("reports a start failure and retries the same connection successfully", async () => {
     const prepare = mock(async () => {});
+    const startError = new Error(
+      "OAuth client registration failed: invalid_redirect_uri",
+    );
     let startCalls = 0;
     startImplementation = async () => {
       startCalls += 1;
       if (startCalls === 1) {
-        throw new Error("start failed");
+        throw startError;
       }
       return {
         auth_url: "https://auth.example.com/retry",
@@ -368,7 +371,9 @@ describe("useMcpConnect", () => {
     expect(result.current.attempt?.error).toBe(
       "Could not start the connection. Try again.",
     );
-    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(captureErrorMock).toHaveBeenCalledWith(startError, {
+      context: "mcp.connect.start",
+    });
 
     act(() => result.current.retry());
 
