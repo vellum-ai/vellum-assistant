@@ -101,16 +101,28 @@ describe("syncLocalPluginIcons", () => {
     const icon = writeLocalPlugin({ logo: "example-mcp-1.0.1.png" });
     mkdirSync(webAssetsDir, { recursive: true });
     writeFileSync(join(webAssetsDir, "example-mcp.png"), makePng(16, 16));
+    writeFileSync(join(webAssetsDir, "example-mcp-1.0.0.png"), makePng(16, 16));
 
     const synced = run();
 
     expect(synced.ok).toBe(true);
-    expect(synced.synced).toEqual(["example-mcp-1.0.1.png"]);
-    expect(synced.removed).toEqual(["example-mcp.png"]);
+    expect(synced.synced).toEqual(["example-mcp-1.0.1.png", "example-mcp.png"]);
+    expect(synced.removed).toEqual(["example-mcp-1.0.0.png"]);
     expect(
       readFileSync(join(webAssetsDir, "example-mcp-1.0.1.png")).equals(icon),
     ).toBe(true);
-    expect(() => readFileSync(join(webAssetsDir, "example-mcp.png"))).toThrow();
+    expect(
+      readFileSync(join(webAssetsDir, "example-mcp.png")).equals(icon),
+    ).toBe(true);
+    expect(() =>
+      readFileSync(join(webAssetsDir, "example-mcp-1.0.0.png")),
+    ).toThrow();
+    expect(run(true)).toEqual({
+      ok: true,
+      errors: [],
+      synced: [],
+      removed: [],
+    });
   });
 
   test("requires a versioned logo filename to match the package version", () => {

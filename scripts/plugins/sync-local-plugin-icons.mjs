@@ -129,7 +129,8 @@ function inspectLocalMcpIcons({ repoRoot, marketplacePath }) {
       continue;
     }
 
-    icons.push({ name, bytes, logo });
+    const logos = logo === versionedLogo ? [logo, unversionedLogo] : [logo];
+    icons.push({ name, bytes, logos });
   }
 
   return { errors, icons };
@@ -156,22 +157,24 @@ export function syncLocalPluginIcons({
   log = console,
 } = {}) {
   const { errors, icons } = inspectLocalMcpIcons({ repoRoot, marketplacePath });
-  const expectedLogos = new Set(icons.map(({ logo }) => logo));
+  const expectedLogos = new Set(icons.flatMap(({ logos }) => logos));
   const stale = listDerivedLogos(webAssetsDir).filter(
     (name) => !expectedLogos.has(name),
   );
 
   if (check && errors.length === 0) {
-    for (const { name, bytes, logo } of icons) {
-      const webPath = join(webAssetsDir, logo);
-      if (!isFile(webPath)) {
-        errors.push(
-          `local MCP plugin "${name}" has no derived web logo ${logo}`,
-        );
-        continue;
-      }
-      if (!readFileSync(webPath).equals(bytes)) {
-        errors.push(`derived web logo ${logo} differs from ${name}/icon.png`);
+    for (const { name, bytes, logos } of icons) {
+      for (const logo of logos) {
+        const webPath = join(webAssetsDir, logo);
+        if (!isFile(webPath)) {
+          errors.push(
+            `local MCP plugin "${name}" has no derived web logo ${logo}`,
+          );
+          continue;
+        }
+        if (!readFileSync(webPath).equals(bytes)) {
+          errors.push(`derived web logo ${logo} differs from ${name}/icon.png`);
+        }
       }
     }
     for (const logo of stale) {
@@ -188,14 +191,16 @@ export function syncLocalPluginIcons({
   }
 
   mkdirSync(webAssetsDir, { recursive: true });
-  for (const { bytes, logo } of icons) {
-    writeFileSync(join(webAssetsDir, logo), bytes);
+  for (const { bytes, logos } of icons) {
+    for (const logo of logos) {
+      writeFileSync(join(webAssetsDir, logo), bytes);
+    }
   }
   for (const logo of stale) {
     rmSync(join(webAssetsDir, logo));
   }
 
-  const synced = icons.map(({ logo }) => logo).sort();
+  const synced = icons.flatMap(({ logos }) => logos).sort();
   log.log?.(`Synced ${synced.length} local MCP plugin icon(s).`);
   return { ok: true, errors: [], synced, removed: stale };
 }
