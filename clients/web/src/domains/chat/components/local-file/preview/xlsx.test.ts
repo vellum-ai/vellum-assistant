@@ -7,10 +7,14 @@ import {
   parseCsv,
   type ParsedCsv,
 } from "@/domains/chat/components/local-file/preview/csv";
-import { parseWorkbook } from "@/domains/chat/components/local-file/preview/xlsx";
+import {
+  parseWorkbook,
+  type ParseWorkbookOptions,
+} from "@/domains/chat/components/local-file/preview/xlsx";
 import {
   workbookBlob,
   type CellInput,
+  type SheetSpec,
   type WorkbookSpec,
 } from "@/domains/chat/components/local-file/preview/xlsx.test-helper";
 
@@ -18,11 +22,24 @@ import {
 async function readOneSheet(
   rows: CellInput[][],
   extras: Omit<WorkbookSpec, "sheets"> = {},
+  options?: ParseWorkbookOptions,
 ): Promise<ParsedCsv> {
   const parsed = await parseWorkbook(
     await workbookBlob({ sheets: [{ name: "Sheet1", rows }], ...extras }),
+    options,
   );
   return parsed.sheets[0]!.grid;
+}
+
+/** The one sheet of a workbook, for a sheet that states its own raw XML. */
+async function readSheetSpec(sheet: SheetSpec): Promise<ParsedCsv> {
+  const parsed = await parseWorkbook(await workbookBlob({ sheets: [sheet] }));
+  return parsed.sheets[0]!.grid;
+}
+
+/** A row at `position` holding one inline string, as raw worksheet XML. */
+function rowXml(position: number, text: string): string {
+  return `<row r="${position}"><c r="A${position}" t="inlineStr"><is><t>${text}</t></is></c></row>`;
 }
 
 describe("parseWorkbook", () => {
@@ -101,6 +118,14 @@ describe("parseWorkbook", () => {
       ["42", "TRUE", "FALSE", "#N/A"],
       ["7", "=SUM(A1:A2)", "not a number", ""],
     ]);
+  });
+
+  test("reads an unevaluated formula whose cached value is empty", async () => {
+    const grid = await readOneSheet([
+      [{ f: "SUM(A1:A2)", v: "" }, { f: "SUM(A1:A2)", v: 3 }, { v: "" }],
+    ]);
+
+    expect(grid.rows).toEqual([["=SUM(A1:A2)", "3", ""]]);
   });
 
   test("renders date-styled numbers from a built-in format id", async () => {
@@ -187,6 +212,40 @@ describe("parseWorkbook", () => {
     expect(grid.rows).toEqual([["1", "", "3"]]);
   });
 
+  test("keeps the position of a row the sheet omits for being blank", async () => {
+    const grid = await readSheetSpec({
+      name: "Sheet1",
+      rows: [["alpha"]],
+      trailing: rowXml(3, "gamma"),
+    });
+
+    expect(grid.rows).toEqual([["alpha"], [""], ["gamma"]]);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("appends a row that carries no position after the previous one", async () => {
+    const grid = await readSheetSpec({
+      name: "Sheet1",
+      rows: [["alpha"]],
+      trailing: '<row><c t="inlineStr"><is><t>beta</t></is></c></row>',
+    });
+
+    expect(grid.rows).toEqual([["alpha"], ["beta"]]);
+  });
+
+  test("fills only up to the row cap for a row far past it", async () => {
+    const grid = await readSheetSpec({
+      name: "Sheet1",
+      trailing: rowXml(MAX_CSV_ROWS + 10, "far"),
+    });
+
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.rows.some((row) => row.some((cell) => cell !== ""))).toBe(
+      false,
+    );
+    expect(grid.truncated).toBe(true);
+  });
+
   test("stops at the row cap and says the sheet was cut", async () => {
     const rows: CellInput[][] = Array.from(
       { length: MAX_CSV_ROWS + 5 },
@@ -266,6 +325,43 @@ describe("parseWorkbook", () => {
     expect(parsed.sheets[0]!.grid.rows.length).toBe(MAX_CSV_ROWS);
     expect(parsed.sheets[0]!.grid.truncated).toBe(true);
     expect(elapsed).toBeLessThan(1000);
+  });
+
+  test("drops a row that runs past the character cap and says so", async () => {
+    const grid = await readOneSheet(
+      [["alpha"], ["x".repeat(50_000)]],
+      {},
+      { maxPartChars: 2_000 },
+    );
+
+    expect(grid.rows).toEqual([["alpha"]]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("blanks shared strings past the character cap and says so", async () => {
+    const grid = await readOneSheet(
+      [
+        [
+          { t: "s", v: 0 },
+          { t: "s", v: 1 },
+          { t: "s", v: 2 },
+        ],
+      ],
+      { sharedStrings: ["alpha", "x".repeat(50_000), "gamma"] },
+      { maxPartChars: 2_000 },
+    );
+
+    expect(grid.rows).toEqual([["alpha", "", ""]]);
+    expect(grid.truncated).toBe(true);
+  });
+
+  test("reads the same sheet whole under the default character cap", async () => {
+    const long = "x".repeat(50_000);
+
+    const grid = await readOneSheet([["alpha"], [long]]);
+
+    expect(grid.rows).toEqual([["alpha"], [long]]);
+    expect(grid.truncated).toBe(false);
   });
 
   test("rejects a blob that is not a zip", async () => {

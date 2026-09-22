@@ -5,9 +5,10 @@
  * Hand-rolled for the same reason `csv.ts` is: the preview needs exactly one
  * shape (a rectangular grid per sheet, capped so a huge export cannot wedge
  * the tab) and none of the writing, formatting, or formula machinery a
- * spreadsheet library carries. Sheet XML is inflated as a stream and abandoned
- * once the row cap is met, so a 200 MB workbook costs about what a 5000-row
- * one does.
+ * spreadsheet library carries. Parts are inflated as a stream and abandoned
+ * once a cap is met, so a 200 MB workbook costs about what a 5000-row one
+ * does. A worksheet omits rows that are entirely blank and records where the
+ * next one sits, so those gaps are refilled to keep the sheet's layout.
  *
  * @see http://www.ecma-international.org/publications/standards/Ecma-376.htm
  */
@@ -71,15 +72,25 @@ async function readPart(zip: JSZip, path: string): Promise<string | null> {
   return entry.async("string");
 }
 
+/**
+ * Hard cap on the characters inflated from a single part. The row cap bounds
+ * how much of a grid is kept; this bounds a part that inflates far past its
+ * compressed size, which is what a DEFLATE bomb does and what one enormous
+ * cell or shared string does by accident. A full 5000 by 200 grid of ordinary
+ * cells sits well under it.
+ */
+export const MAX_PART_CHARS = 64 * 1024 * 1024;
+
 interface BoundedPart {
   xml: string;
-  /** True when the part held more than `limit` occurrences of `marker`. */
+  /** True when the read stopped before the end of the part. */
   truncated: boolean;
 }
 
 /**
- * Inflate `entry` only until `marker` has been seen `limit` times, then cut the
- * text at the occurrence past the cap and abandon the rest of the stream. This
+ * Inflate `entry` only until `marker` has been seen `limit` times or the text
+ * passes `maxChars`, then cut it and abandon the rest of the stream. Either cut
+ * lands at the start of a marker, so the text ends on a complete element. This
  * is what keeps a sheet with a million rows from being decompressed whole for
  * a preview that shows five thousand.
  */
@@ -87,13 +98,22 @@ function readBoundedPart(
   entry: JSZip.JSZipObject,
   marker: string,
   limit: number,
+  maxChars: number,
 ): Promise<BoundedPart> {
   return new Promise((resolve, reject) => {
     const stream = (entry as StreamingEntry).internalStream("string");
     let buffer = "";
     let searchFrom = 0;
     let seen = 0;
+    let lastMarkerAt = -1;
     let settled = false;
+
+    /** Cut at the start of a marker, or empty when none was reached. */
+    const cutAt = (at: number): void => {
+      settled = true;
+      stream.pause();
+      resolve({ xml: at < 0 ? "" : buffer.slice(0, at), truncated: true });
+    };
 
     stream.on("data", (chunk) => {
       if (settled) {
@@ -106,16 +126,18 @@ function readBoundedPart(
           // Only a partial marker can still be pending at the tail, so the
           // next chunk does not need the whole buffer rescanned.
           searchFrom = Math.max(searchFrom, buffer.length - marker.length + 1);
-          return;
+          break;
         }
         seen += 1;
+        lastMarkerAt = at;
         searchFrom = at + marker.length;
         if (seen > limit) {
-          settled = true;
-          stream.pause();
-          resolve({ xml: buffer.slice(0, at), truncated: true });
+          cutAt(at);
           return;
         }
+      }
+      if (buffer.length > maxChars) {
+        cutAt(lastMarkerAt);
       }
     });
     stream.on("error", (error) => {
@@ -132,6 +154,21 @@ function readBoundedPart(
     });
     stream.resume();
   });
+}
+
+/**
+ * XML for a part a bounded read may have cut. A cut part is missing the tags
+ * that close it, and one cut before its first marker has no body at all.
+ */
+function closeBoundedPart(
+  part: BoundedPart,
+  empty: string,
+  closing: string,
+): string {
+  if (!part.truncated) {
+    return part.xml;
+  }
+  return part.xml === "" ? empty : `${part.xml}${closing}`;
 }
 
 interface SheetRef {
@@ -295,9 +332,10 @@ function readCell(
   }
 
   const value = cachedValue(cell);
-  if (value === null) {
-    // openpyxl writes formulas with no cached result. Showing the formula
-    // beats showing a blank where the user knows there is data.
+  if (value === null || value === "") {
+    // openpyxl writes an unevaluated formula with no cached result, or with an
+    // empty one, so an empty `<v>` means no result rather than zero. Showing
+    // the formula beats showing a blank where the user knows there is data.
     const formula = cell.getElementsByTagName("f")[0];
     return formula === undefined ? "" : `=${formula.textContent ?? ""}`;
   }
@@ -332,7 +370,7 @@ function columnIndexFromRef(ref: string | null): number | null {
 
 interface SheetRows {
   rows: RawCell[][];
-  /** True when a row held more than `MAX_CSV_COLUMNS` cells. */
+  /** True when the column cap or the row cap cut something out. */
   truncated: boolean;
   /** Highest shared string index referenced, or -1 when none were. */
   highestSharedIndex: number;
@@ -348,6 +386,23 @@ function readSheetRows(
   let highestSharedIndex = -1;
 
   for (const row of Array.from(doc.getElementsByTagName("row"))) {
+    if (rows.length >= MAX_CSV_ROWS) {
+      truncated = true;
+      break;
+    }
+    // A worksheet omits rows that are entirely blank and records where the
+    // next one sits, so the gap has to be refilled or every later row moves up.
+    const position = Number(row.getAttribute("r"));
+    if (Number.isInteger(position) && position > rows.length + 1) {
+      const fillTo = Math.min(position - 1, MAX_CSV_ROWS);
+      while (rows.length < fillTo) {
+        rows.push([]);
+      }
+      if (rows.length >= MAX_CSV_ROWS) {
+        truncated = true;
+        break;
+      }
+    }
     const cells: RawCell[] = [];
     let column = -1;
     for (const cell of Array.from(row.getElementsByTagName("c"))) {
@@ -375,14 +430,20 @@ function readSheetRows(
 async function readSharedStrings(
   zip: JSZip,
   highestIndex: number,
+  maxPartChars: number,
 ): Promise<string[]> {
   const entry = zip.file("xl/sharedStrings.xml");
   if (entry === null) {
     return [];
   }
-  const part = await readBoundedPart(entry, "<si", highestIndex + 1);
+  const part = await readBoundedPart(
+    entry,
+    "<si",
+    highestIndex + 1,
+    maxPartChars,
+  );
   const doc = parseXml(
-    part.truncated ? `${part.xml}</sst>` : part.xml,
+    closeBoundedPart(part, "<sst/>", "</sst>"),
     "xl/sharedStrings.xml",
   );
   return Array.from(doc.getElementsByTagName("si")).map((item) =>
@@ -417,12 +478,21 @@ interface CollectedSheet {
   truncated: boolean;
 }
 
+export interface ParseWorkbookOptions {
+  /** Character cap per inflated part, which tests lower to a readable size. */
+  maxPartChars?: number;
+}
+
 /**
  * Read a workbook container into one grid per visible sheet. Rejects when the
  * blob is not a zip or carries no `xl/workbook.xml`, which the preview shows
  * as an unreadable file.
  */
-export async function parseWorkbook(blob: Blob): Promise<ParsedWorkbook> {
+export async function parseWorkbook(
+  blob: Blob,
+  options: ParseWorkbookOptions = {},
+): Promise<ParsedWorkbook> {
+  const maxPartChars = options.maxPartChars ?? MAX_PART_CHARS;
   // An ArrayBuffer rather than the Blob, so one call covers the browser and
   // the test runner.
   const zip = await JSZip.loadAsync(await blob.arrayBuffer());
@@ -454,10 +524,15 @@ export async function parseWorkbook(blob: Blob): Promise<ParsedWorkbook> {
       continue;
     }
     // Sheets are read one at a time so only one part is ever inflated.
-    const part = await readBoundedPart(entry, "<row", MAX_CSV_ROWS);
+    const part = await readBoundedPart(
+      entry,
+      "<row",
+      MAX_CSV_ROWS,
+      maxPartChars,
+    );
     const read = readSheetRows(
       parseXml(
-        part.truncated ? `${part.xml}</sheetData></worksheet>` : part.xml,
+        closeBoundedPart(part, "<worksheet/>", "</sheetData></worksheet>"),
         entry.name,
       ),
       isDateStyle,
@@ -474,21 +549,30 @@ export async function parseWorkbook(blob: Blob): Promise<ParsedWorkbook> {
   const sharedStrings =
     highestSharedIndex < 0
       ? []
-      : await readSharedStrings(zip, highestSharedIndex);
+      : await readSharedStrings(zip, highestSharedIndex, maxPartChars);
 
   return {
-    sheets: collected.map((sheet) => ({
-      name: sheet.name,
-      grid: shapeGrid(
-        sheet.rows.map((row) =>
-          row.map((cell) =>
-            isSharedStringRef(cell)
-              ? (sharedStrings[cell.sharedIndex] ?? "")
-              : cell,
-          ),
-        ),
-        sheet.truncated,
-      ),
-    })),
+    sheets: collected.map((sheet) => {
+      // A shared string past a cut table reads as blank, which the sheet that
+      // pointed at it has to own up to.
+      let lostSharedString = false;
+      const records = sheet.rows.map((row) =>
+        row.map((cell) => {
+          if (!isSharedStringRef(cell)) {
+            return cell;
+          }
+          const text = sharedStrings[cell.sharedIndex];
+          if (text === undefined) {
+            lostSharedString = true;
+            return "";
+          }
+          return text;
+        }),
+      );
+      return {
+        name: sheet.name,
+        grid: shapeGrid(records, sheet.truncated || lostSharedString),
+      };
+    }),
   };
 }
