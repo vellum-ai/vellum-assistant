@@ -927,6 +927,36 @@ describe("pairDeliveryWithConversation", () => {
     expect(messagesInvalidated).toEqual([]);
   });
 
+  test("explicit background result keeps its persisted result without another preview row", async () => {
+    mockExistingConversations["conv-user-chat"] = {
+      id: "conv-user-chat",
+      source: "user",
+      title: "An ordinary chat",
+    };
+    const result = await pairDeliveryWithConversation(
+      makeSignal({
+        requiresConversation: undefined,
+        sourceContextId: "conv-user-chat",
+        sourceEventName: "activity.complete",
+        contextPayload: {
+          completion: {
+            workId: "task-1",
+            conversationId: "conv-user-chat",
+            recipientPrincipalId: "principal-1",
+            owner: "parent_continuation",
+          },
+        },
+      }),
+      "vellum",
+      makeCopy({ body: "The report is ready." }),
+    );
+
+    expect(result.conversationId).toBe("conv-user-chat");
+    expect(result.messageId).toBeNull();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
   test("passive vellum signal appends the body to the producing conversation", async () => {
     mockExistingConversations["conv-producer"] = {
       id: "conv-producer",

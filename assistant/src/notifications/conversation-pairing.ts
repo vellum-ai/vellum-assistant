@@ -56,6 +56,7 @@ import {
 } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
+import { readCompletionContext } from "./completion-policy.js";
 import {
   composeConversationSeed,
   isConversationSeedSane,
@@ -265,14 +266,15 @@ export async function pairDeliveryWithConversation(
     // notification can appear. The home feed aims its "Go to Conversation"
     // button at the same row whenever it mirrors the signal.
     //
-    // `chat.assistant_reply` already has its complete reply in that transcript.
-    // Its notification body is a lock-screen preview, so appending it would
+    // Reply and explicit background completions have their result persisted.
+    // Their notification body is a lock-screen preview, so appending it would
     // create a second, truncated assistant row. Keep the conversation target
     // for deep links without writing the preview into the transcript.
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      signal.sourceEventName === ASSISTANT_REPLY_EVENT
+      (signal.sourceEventName === ASSISTANT_REPLY_EVENT ||
+        readCompletionContext(signal) !== undefined)
     ) {
       return {
         conversationId: resolveSourceConversation(signal)?.id ?? null,

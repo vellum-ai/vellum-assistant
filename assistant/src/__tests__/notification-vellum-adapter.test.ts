@@ -395,4 +395,55 @@ describe("VellumAdapter guardian scoping", () => {
 
     expect(options).toEqual([{ targetActorPrincipalId: undefined }]);
   });
+
+  test.each(["chat.assistant_reply", "schedule.result"])(
+    "%s reaches only the bound recipient and can banner at medium urgency",
+    async (sourceEventName) => {
+      const intents: AssistantEvent[] = [];
+      const scopes: Array<BroadcastMessageOptions | undefined> = [];
+      const adapter = new VellumAdapter((message, _conversationId, options) => {
+        intents.push(message);
+        scopes.push(options);
+      });
+      const result = await adapter.send(
+        makePayload({ sourceEventName, urgency: "medium" }),
+        makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(scopes).toEqual([{ targetActorPrincipalId: "principal-g" }]);
+      expect(intents[0]).toMatchObject({
+        silent: false,
+        targetGuardianPrincipalId: "principal-g",
+      });
+    },
+  );
+
+  test("a completion with no resolved recipient sends no preview", async () => {
+    const { adapter, sent } = captureBroadcast();
+    const result = await adapter.send(
+      makePayload({ sourceEventName: "chat.assistant_reply" }),
+      makeDestination(),
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: "completion recipient unavailable",
+    });
+    expect(sent).toEqual([]);
+  });
+
+  test("honors broadcaster presentation independently of urgency", async () => {
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(
+      makePayload({
+        sourceEventName: "chat.assistant_reply",
+        urgency: "medium",
+        silent: true,
+      }),
+      makeDestination({ metadata: { guardianPrincipalId: "principal-g" } }),
+    );
+
+    expect(sent[0]).toMatchObject({ silent: true });
+  });
 });

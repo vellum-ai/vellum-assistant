@@ -2,6 +2,37 @@
 
 Signal-driven notification architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user.
 
+## Completion alerts
+
+`chat.assistant_reply`, `schedule.result`, and explicitly user-facing
+`activity.complete` signals use the available subset of `vellum` and
+`platform`. A self-hosted assistant can deliver through `vellum` without
+mobile push. `completion-policy.ts` owns local presentation: selected
+completions can banner at medium urgency, unrelated low/medium notifications
+remain silent, and explicitly quiet work stays silent. The broadcaster resolves
+the existing `silent` contract once for the local intent and paired-conversation
+event; clients continue honoring it.
+
+Local completion delivery requires the active Vellum guardian principal from
+the resolved destination. The broadcaster checks that identity before pairing,
+and the adapter targets the event hub's `targetActorPrincipalId` before sending
+title or body. Missing identity, or a background completion naming a different
+recipient, fails closed without an unrestricted broadcast. The existing
+`targetGuardianPrincipalId` field records the same scope for clients.
+
+Background completions opt in with typed `contextPayload.completion` provenance:
+the stable work ID, result conversation ID, recipient principal ID, and owning
+path (`parent_continuation`). Ordinary maintenance events
+without that context retain their existing policy. Producers persist the
+user-facing result before emitting. Reply previews and these explicit background
+previews link to that result without appending another transcript row.
+
+The local send waits for the bounded platform outcome and carries its accepted
+mobile platforms, preserving remote/local mobile deduplication. A successful
+local adapter send means the scoped intent was handed to the event hub; it is
+not proof that an OS banner appeared. Client delivery acknowledgements retain
+their existing handled/suppressed semantics.
+
 ## Lifecycle
 
 ```
