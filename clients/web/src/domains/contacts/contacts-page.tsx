@@ -61,6 +61,7 @@ import { useTranslation } from "@/i18n";
 import { useSlackConfigured } from "@/hooks/use-slack-configured";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
+import { usePendingContactIds } from "@/domains/contacts/hooks/use-pending-contact-ids";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   PUSHED_FROM_LIST_STATE,
@@ -304,12 +305,12 @@ export function ContactsPage({
   const resolvingRouteContact =
     Boolean(routeContactId) && !selectedContact && !contactsListSettled;
 
-  // One observer reports only its newest mutation, so the ids are held here:
-  // deleting a second contact while the first is still in flight must not let
-  // the first back into the list.
-  const [deletingContactIds, setDeletingContactIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  // One observer reports only its newest mutation, so each page-global
+  // mutation's in-flight contacts are held by id: a second request must not
+  // speak for the one still open before it.
+  const pendingDeletes = usePendingContactIds();
+  const pendingSaves = usePendingContactIds();
+  const pendingThresholds = usePendingContactIds();
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
     if (!contactsData || !selectedContact) {
@@ -321,9 +322,9 @@ export function ContactsPage({
       (c) =>
         c.id !== selectedContact.id &&
         c.role !== "guardian" &&
-        !deletingContactIds.has(c.id),
+        !pendingDeletes.ids.has(c.id),
     );
-  }, [contactsData, selectedContact, deletingContactIds]);
+  }, [contactsData, selectedContact, pendingDeletes.ids]);
   const canMerge = mergeCandidates.length > 0;
 
   // ---------------------------------------------------------------------------
@@ -363,7 +364,7 @@ export function ContactsPage({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
     onMutate: (contactId) => {
-      setDeletingContactIds((prev) => new Set(prev).add(contactId));
+      pendingDeletes.add(contactId);
     },
     onSuccess: (_data, contactId) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
@@ -381,11 +382,7 @@ export function ContactsPage({
     },
     onError: toastOnError(t("contactsPage.deleteFailed")),
     onSettled: (_data, _error, contactId) => {
-      setDeletingContactIds((prev) => {
-        const next = new Set(prev);
-        next.delete(contactId);
-        return next;
-      });
+      pendingDeletes.remove(contactId);
       return invalidateContacts();
     },
   });
@@ -403,6 +400,9 @@ export function ContactsPage({
         displayName: patch.displayName,
         notes: patch.notes,
       }),
+    onMutate: ({ contactId }) => {
+      pendingSaves.add(contactId);
+    },
     onSuccess: (updatedContact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -416,7 +416,10 @@ export function ContactsPage({
       );
     },
     onError: toastOnError(t("contactsPage.saveFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, { contactId }) => {
+      pendingSaves.remove(contactId);
+      return invalidateContacts();
+    },
   });
 
   const thresholdMutation = useMutation({
@@ -434,6 +437,9 @@ export function ContactsPage({
         displayName,
         autoApproveThreshold,
       }),
+    onMutate: ({ contactId }) => {
+      pendingThresholds.add(contactId);
+    },
     onSuccess: (updatedContact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
         prev
@@ -447,7 +453,10 @@ export function ContactsPage({
       );
     },
     onError: toastOnError(t("contactPermissions.saveFailed")),
-    onSettled: () => invalidateContacts(),
+    onSettled: (_data, _error, { contactId }) => {
+      pendingThresholds.remove(contactId);
+      return invalidateContacts();
+    },
   });
 
   const mergeMutation = useContactsMergePostMutation({
@@ -678,6 +687,9 @@ export function ContactsPage({
   // Derived optimistic state
   // ---------------------------------------------------------------------------
 
+  // The overlay reads the observer because it needs the values a request
+  // carries, which only the newest call reports. Whether a contact has a
+  // request open at all is the pending-id sets' answer, below.
   const optimisticContact = useMemo<ContactPayload | null>(() => {
     if (!selectedContact) {
       return null;
@@ -711,14 +723,13 @@ export function ContactsPage({
     thresholdMutation.variables,
   ]);
 
-  // Both flags are page-global, so each is narrowed to the contact its request
-  // names: saving one contact must not freeze the form of another.
+  // Each flag belongs to the open contact alone: saving one contact must not
+  // freeze the form of another, and must stay set while a later save on a
+  // different contact is the one the observer describes.
   const savePending =
-    updateMutation.isPending &&
-    updateMutation.variables?.contactId === selectedContactId;
+    selectedContactId !== null && pendingSaves.ids.has(selectedContactId);
   const thresholdPending =
-    thresholdMutation.isPending &&
-    thresholdMutation.variables?.contactId === selectedContactId;
+    selectedContactId !== null && pendingThresholds.ids.has(selectedContactId);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -744,7 +755,7 @@ export function ContactsPage({
         }
       : null,
     regularContacts: regularContacts
-      .filter((c) => !deletingContactIds.has(c.id))
+      .filter((c) => !pendingDeletes.ids.has(c.id))
       .map((c) => ({
         id: c.id,
         displayName: c.displayName,
@@ -837,7 +848,7 @@ export function ContactsPage({
               savePending={savePending}
               // The list stays reachable during a delete, so the freeze
               // belongs to the contact being deleted, not whichever is open.
-              deletePending={deletingContactIds.has(optimisticContact.id)}
+              deletePending={pendingDeletes.ids.has(optimisticContact.id)}
               verifyPending={
                 verifyChannelMutation.isPending ||
                 linkAndVerifyMutation.isPending
