@@ -2,10 +2,10 @@
  * Shared setup for the provisioning-takeover playground: everything that stands
  * in for what `BillingOnboardingModal` supplies and Storybook cannot.
  *
- * That is the plan catalog and the avatar reads, answered from a story-local
- * query cache; the takeover frame the modal draws around the step; the props it
- * passes on every mount; and the fixture tables the Controls panel selects a row
- * from (the plan move, the captured reconcile failure, the seeded assistant).
+ * That is the plan catalog read, answered from a story-local query cache; the
+ * takeover frame the modal draws around the step; the props it passes on
+ * every mount; and the fixture tables the Controls panel selects a row from
+ * (the plan move, the captured reconcile failure).
  *
  * The catalog fixture mirrors the platform's real Pro catalog (Mighty on
  * `credits_25`, Super on `credits_45`), so the credits chip quotes the amounts a
