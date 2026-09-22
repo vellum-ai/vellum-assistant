@@ -14,7 +14,7 @@ import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
 
 const migration = WORKSPACE_MIGRATIONS.find(
-  (entry) => entry.id === "158-rename-colliding-jev-profile-name",
+  (entry) => entry.id === "159-rename-colliding-jev-profile-name",
 )!;
 
 let workspaceDir: string;
@@ -72,7 +72,7 @@ function readPins(table: string): string[] {
 beforeEach(() => {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-158-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-159-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 });
@@ -84,7 +84,7 @@ afterEach(() => {
   }
 });
 
-describe("158-rename-colliding-jev-profile-name migration", () => {
+describe("159-rename-colliding-jev-profile-name migration", () => {
   test("is registered under its id with checkpoint retry", () => {
     expect(migration).toBeDefined();
     expect(migration.retryFailedCheckpoint).toBe(true);

@@ -1,5 +1,5 @@
 /**
- * Workspace migration `158-rename-colliding-jev-profile-name`.
+ * Workspace migration `159-rename-colliding-jev-profile-name`.
  *
  * `jev-managed` became a reserved code-owned profile name (the managed Jev
  * profile). From this release on, that name resolves to the code body no
@@ -50,7 +50,7 @@ import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const log = getLogger(
-  "workspace-migration-158-rename-colliding-jev-profile-name",
+  "workspace-migration-159-rename-colliding-jev-profile-name",
 );
 
 /**
@@ -86,7 +86,7 @@ const DB_ATTEMPTS = 4;
 const DB_RETRY_BASE_DELAY_MS = 50;
 
 export const renameCollidingJevProfileNameMigration: WorkspaceMigration = {
-  id: "158-rename-colliding-jev-profile-name",
+  id: "159-rename-colliding-jev-profile-name",
   description:
     "Rename a user profile colliding with the reserved managed Jev profile key and rewrite its references",
   // The failure this migration can hit is a database it cannot write, and

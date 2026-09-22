@@ -155,7 +155,7 @@ import { repairRetiredCodexGpt54ModelIdsMigration } from "./154-repair-retired-c
 import { moveFrontModelConfigToVoiceMigration } from "./155-move-front-model-config-to-voice.js";
 import { extractWorkspaceMcpJsonMigration } from "./156-extract-workspace-mcp-json.js";
 import { addDesktopFilesLauncherMigration } from "./157-add-desktop-files-launcher.js";
-import { renameCollidingJevProfileNameMigration } from "./158-rename-colliding-jev-profile-name.js";
+import { renameCollidingJevProfileNameMigration } from "./159-rename-colliding-jev-profile-name.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
