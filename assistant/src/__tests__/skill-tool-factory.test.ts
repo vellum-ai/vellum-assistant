@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import type { SkillToolEntry } from "../config/skills.js";
+import { getBundledSkillsDir, type SkillToolEntry } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { resolveSubagentRole } from "../subagent/role-resolution.js";
@@ -259,6 +259,42 @@ describe("createSkillTool — unknown parameter validation", () => {
     expect(result.content).toContain('Invalid input for tool "test_tool"');
     expect(result.content).toContain('Unknown parameter "foo"');
     expect(result.content).toContain('Unknown parameter "bar"');
+  });
+
+  test("an annotation validation error provides enough schema for one corrected retry", async () => {
+    const skillDir = join(getBundledSkillsDir(), "screen-annotation");
+    const manifest = JSON.parse(
+      readFileSync(join(skillDir, "TOOLS.json"), "utf-8"),
+    );
+    const entry = manifest.tools.find(
+      (tool: SkillToolEntry) => tool.name === "screen_point_at",
+    );
+    const tool = createSkillTool(
+      entry,
+      skillDir,
+      computeSkillVersionHash(skillDir),
+      BUNDLED,
+    );
+    const calls: unknown[] = [];
+    const context = makeContext({
+      proxyToolResolver: async (name, input) => {
+        calls.push({ name, input });
+        return { content: "Drew 1 mark", isError: false };
+      },
+    });
+
+    const rejected = await tool.execute({ description: "Filters" }, context);
+    expect(rejected.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(rejected.content).toContain("skill_load");
+    const schemaMatch = rejected.content.match(/```json\n([\s\S]*?)\n```/);
+    expect(schemaMatch).not.toBeNull();
+    expect(JSON.parse(schemaMatch![1])).toEqual(entry.input_schema);
+
+    const input = { marks: [{ target: "Filters", caption: "Click Filters" }] };
+    const corrected = await tool.execute(input, context);
+    expect(corrected.isError).toBe(false);
+    expect(calls).toEqual([{ name: "computer_use_point_at", input }]);
   });
 
   test("allows input with only known parameters", async () => {

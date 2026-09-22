@@ -178,7 +178,7 @@ export function augmentSkillExecuteError(
 export const skillExecuteTool = {
   name: "skill_execute",
   description:
-    "Execute a tool provided by a loaded skill. Use this instead of calling skill tools directly. The skill's instructions (from skill_load) describe available tools and their parameters. For browser automation, use the `assistant browser` CLI commands instead.",
+    "Execute a tool provided by a loaded skill. Before first use, call skill_load for the owning skill, even if a capability card says it is available. Use the returned instructions and input schema, not remembered arguments. Use this instead of calling skill tools directly. For browser automation, use the `assistant browser` CLI commands instead.",
   category: "skills",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,

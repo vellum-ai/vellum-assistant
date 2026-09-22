@@ -35,6 +35,7 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+import { formatSkillInputSchema } from "./format-input-schema.js";
 
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
@@ -123,32 +124,7 @@ function formatToolSchemas(
       tool.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay()),
     );
 
-    const schema = tool.input_schema;
-    const properties = schema.properties as
-      | Record<string, Record<string, unknown>>
-      | undefined;
-    if (properties && Object.keys(properties).length > 0) {
-      const requiredSet = new Set<string>(
-        Array.isArray(schema.required) ? (schema.required as string[]) : [],
-      );
-
-      lines.push("Parameters:");
-      for (const [paramName, paramDef] of Object.entries(properties)) {
-        const paramType =
-          typeof paramDef.type === "string" ? paramDef.type : "any";
-        const requiredLabel = requiredSet.has(paramName)
-          ? "required"
-          : "optional";
-        const descPart =
-          typeof paramDef.description === "string"
-            ? `: ${paramDef.description.replaceAll("{workspaceDir}", getWorkspaceDirDisplay())}`
-            : "";
-        lines.push(
-          `- ${paramName} (${paramType}, ${requiredLabel})${descPart}`,
-        );
-      }
-    }
-
+    lines.push(formatSkillInputSchema(tool.input_schema));
     lines.push("");
   }
 
