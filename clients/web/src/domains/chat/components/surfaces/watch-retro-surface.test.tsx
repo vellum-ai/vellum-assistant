@@ -164,12 +164,12 @@ describe("WatchRetroSurface", () => {
     ).toBeDefined();
 
     // Nothing is preselected: the recommendation is marked, not chosen.
-    const options = screen.getAllByRole("button", { pressed: false });
+    const options = screen.getAllByRole("radio", { checked: false });
     expect(options.map((option) => option.textContent)).toEqual([
       expect.stringContaining("Over 100 events"),
       expect.stringContaining("It hit a customer"),
     ]);
-    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+    expect(screen.queryAllByRole("radio", { checked: true })).toHaveLength(0);
     // The recommendation is visible without being the answer.
     expect(options[0]!.textContent).toContain("Recommended");
     expect(options[1]!.textContent).not.toContain("Recommended");
@@ -192,7 +192,7 @@ describe("WatchRetroSurface", () => {
     // Back on the pick, the answer is still marked, and Next has appeared so
     // moving on does not mean tapping the same option again.
     fireEvent.click(screen.getByText("Back"));
-    const chosen = screen.getByRole("button", { pressed: true });
+    const chosen = screen.getByRole("radio", { checked: true });
     expect(chosen.textContent).toContain("It hit a customer");
     fireEvent.click(screen.getByText("Next"));
     expect(

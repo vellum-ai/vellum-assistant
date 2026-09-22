@@ -99,9 +99,9 @@ export function DesktopViewer({
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 bg-[var(--surface-base)] p-2">
           {VIEWPORT_MODES.map(({ mode, label }) => (
             <Button
+              size="large"
               key={mode}
               variant="ghost"
-              className="h-11 px-4"
               active={mobileMode === mode}
               aria-pressed={mobileMode === mode}
               onClick={() => setMobileMode(mode)}

@@ -15,7 +15,7 @@ import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { Trans, useTranslation } from "@/i18n";
 import { useSupportsRemoteWebPairing } from "@/lib/backwards-compat/remote-web-pairing-gate";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { handleNativeAnchorClick } from "@/utils/native-anchor";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { docsUrl, routes } from "@/utils/routes";
 
 import { CODE_CHIP_CLASS } from "./code-chip";
@@ -324,15 +324,14 @@ export function PairDeviceCard() {
           />
         )}
 
-        <a
+        <ExternalAnchor
           href={PAIRING_DOCS_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => handleNativeAnchorClick(event, PAIRING_DOCS_URL)}
-          className="self-start text-body-medium-default text-[var(--content-tertiary)] underline hover:text-[var(--content-default)]"
+          tone="quiet"
+          glyph={false}
+          className="self-start text-body-medium-default text-[var(--content-tertiary)]"
         >
           {t("pairDeviceCard.learnMore")}
-        </a>
+        </ExternalAnchor>
       </div>
     </DetailCard>
   );

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import { OnboardingLayout } from "@/components/onboarding-layout";
 import { NEW_ASSISTANT_PARAM } from "@/domains/onboarding/onboarding-destination";
 import {
@@ -211,14 +212,14 @@ export function ApiKeyScreen() {
               {entry.docsUrl && (
                 <p className="self-start text-body-medium-lighter text-[var(--content-tertiary)]">
                   {t("apiKeyScreen.noKeyPrompt")}{" "}
-                  <a
+                  <ExternalAnchor
                     href={entry.docsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[var(--content-default)] underline"
+                    tone="quiet"
+                    className="text-[var(--content-default)]"
+                    glyph={false}
                   >
                     {t("apiKeyScreen.getKeyLink")}
-                  </a>
+                  </ExternalAnchor>
                 </p>
               )}
             </div>
@@ -231,20 +232,18 @@ export function ApiKeyScreen() {
         >
           <Button
             variant="primary"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             disabled={!canContinue}
             onClick={onContinue}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.continue")}
           </Button>
           <Button
             variant="outlined"
-            size="regular"
+            size={electron ? "regular" : "large"}
             fullWidth
             onClick={onBack}
-            className={electron ? undefined : "h-11 text-base"}
           >
             {t("actions.back")}
           </Button>

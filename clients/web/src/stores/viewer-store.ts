@@ -47,7 +47,10 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
-import type { WebSearchResultItem } from "@/assistant/web-activity-types";
+import type {
+  ToolActivityMetadata,
+  WebSearchResultItem,
+} from "@vellumai/assistant-api";
 import { createSelectors } from "@/utils/create-selectors";
 import { isAppMainView } from "@/stores/pane-state";
 
@@ -420,6 +423,12 @@ export interface ToolDetailPayload {
    * flight. Unset for other kinds.
    */
   searchResults?: WebSearchResultItem[];
+  /**
+   * The call's structured result, for the tools that report one alongside
+   * their text. Like `result`, an open-time snapshot the drawer falls back to
+   * when the call can't be resolved live.
+   */
+  activityMetadata?: ToolActivityMetadata;
   /**
    * Stable identity of the reasoning run this drawer mirrors. When present, the
    * panel re-derives live text from the chat-session store (via

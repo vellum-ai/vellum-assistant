@@ -524,6 +524,8 @@ export interface VoiceTurnOptions {
    * fixed sentinel.
    */
   hiddenSyntheticPrompt?: boolean;
+  /** Original caller request resumed by a synthetic turn, used for routing. */
+  routingUtterance?: string;
   /**
    * Unified front-door: this leg was dispatched speculatively at a silence
    * boundary, so its decision rule includes the hold branch (leading token
@@ -988,10 +990,8 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
-  // The front-door rule anchors on the words the model sees as the user
-  // turn, which for a phone sentinel is its neutral persisted form rather
-  // than the marker itself.
-  const routingLegRule = routingLegRuleFor(opts, persistedContent);
+  const routingUtterance = opts.routingUtterance?.trim() || persistedContent;
+  const routingLegRule = routingLegRuleFor(opts, routingUtterance);
   let voiceCallControlPrompt: string | null;
   if (opts.voiceControlPrompt === undefined) {
     voiceCallControlPrompt = buildVoiceCallControlPrompt({
@@ -1997,6 +1997,8 @@ export async function startVoiceTurn(
   // The escalation judge runs beside the front-door leg's model call, so its
   // verdict is usually in before the leg's first answer word. Snapshot the
   // history now: the leg's own reply must not be part of what is judged.
+  // Hidden fresh-view follow-ups route with their image; this text-only judge
+  // cannot assess that context.
   const escalationJudgement =
     opts.routingLeg === "front-door" && !isHiddenSyntheticPrompt
       ? judgeEscalation({

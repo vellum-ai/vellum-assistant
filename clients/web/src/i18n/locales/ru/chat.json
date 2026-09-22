@@ -118,14 +118,8 @@
     "reconnectButton": "Переподключиться",
     "title": "Рабочий стол",
     "unavailable": "Виртуальный рабочий стол недоступен для этого ассистента.",
-    "installButton": "Установить виртуальный рабочий стол",
     "checkingSetup": "Проверка виртуального рабочего стола…",
-    "installingPackages": "Установка компонентов виртуального рабочего стола…",
-    "installingChrome": "Установка Google Chrome…",
-    "checkingInstall": "Проверка установки…",
-    "installFailed": "Не удалось завершить установку. Попробуйте ещё раз.",
-    "setupRequestFailed": "Не удалось проверить установку. Подключитесь заново.",
-    "setupUnsupported": "Для установки нужен контейнер Linux x64 или ARM64 с правами администратора."
+    "setupRequestFailed": "Не удалось проверить рабочий стол. Подключитесь заново."
   },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Не удалось загрузить все диалоги в этом разделе. Повторите попытку."
@@ -444,6 +438,8 @@
     "markRead": "Отметить как прочитанный",
     "markUnread": "Отметить как непрочитанный",
     "moveToGroup": "Перенести в группу",
+    "newDocument": "Новый документ",
+    "newDocumentFailed": "Не удалось создать документ. Попробуйте ещё раз.",
     "newGroup": "Новая группа…",
     "openInNewWindow": "Открыть в новом окне",
     "pin": "Закрепить",
@@ -923,6 +919,10 @@
     "noContentAvailable": "Содержимое недоступно.",
     "promptSectionsTitle": "Секции промпта"
   },
+  "rawDisclosure": {
+    "input": "Исходные входные данные",
+    "output": "Исходные выходные данные"
+  },
   "rawTab": {
     "copyRequestPayloadAriaLabel": "Скопировать тело запроса",
     "copyResponsePayloadAriaLabel": "Скопировать тело ответа",
@@ -1049,6 +1049,7 @@
     "reactionSomeone": "Кто-то"
   },
   "toolDetailPanel": {
+    "output": "Вывод",
     "changes": "Изменения",
     "command": "Команда",
     "denied": "Этот вызов инструмента не был одобрен, поэтому он не выполнился.",
@@ -1057,12 +1058,10 @@
   },
   "toolInputParameters": {
     "parameters": "Параметры",
-    "rawInput": "Исходные входные данные",
     "moreCount": "{count, plural, one {Ещё # в «Исходные входные данные»} few {Ещё # в «Исходные входные данные»} many {Ещё # в «Исходные входные данные»} other {Ещё # в «Исходные входные данные»}}"
   },
   "toolOutputSection": {
-    "moreCount": "{count, plural, one {Ещё # в «Исходные выходные данные»} few {Ещё # в «Исходные выходные данные»} many {Ещё # в «Исходные выходные данные»} other {Ещё # в «Исходные выходные данные»}}",
-    "rawOutput": "Исходные выходные данные"
+    "moreCount": "{count, plural, one {Ещё # в «Исходные выходные данные»} few {Ещё # в «Исходные выходные данные»} many {Ещё # в «Исходные выходные данные»} other {Ещё # в «Исходные выходные данные»}}"
   },
   "valueFields": {
     "copyValue": "Скопировать {label}"
@@ -1082,12 +1081,12 @@
     "workflowFinished": "Рабочий процесс завершён"
   },
   "wakeDetailPanel": {
-    "close": "Закрыть",
     "details": "Подробности",
     "result": "Результат",
     "runStatus": "Статус запуска",
     "title": "Разговор возобновлён",
-    "workflow": "Рабочий процесс"
+    "workflow": "Рабочий процесс",
+    "closeAria": "Закрыть подробности"
   },
   "watchRetroSurface": {
     "doneDiscarded": "Не сохранено",
@@ -1130,5 +1129,32 @@
     "skip": "Пропустить",
     "showMore": "Показать больше",
     "showLess": "Показать меньше"
+  },
+  "dynamicPageSurface": {
+    "collapse": "Свернуть"
+  },
+  "fileUploadSurface": {
+    "removeFile": "Удалить {name}"
+  },
+  "rememberDetail": {
+    "saved": "Сохранено",
+    "saving": "Сохранение",
+    "notSaved": "Не сохранено"
+  },
+  "recallDetail": {
+    "searchedFor": "Запрос",
+    "scope": "{depth} · {sources}",
+    "answer": "Ответ",
+    "evidence": "{count, plural, one {# результат} few {# результата} many {# результатов} other {# результата}}",
+    "noEvidence": "Ничего подходящего не нашлось.",
+    "degraded": "Некоторые места не удалось просмотреть полностью",
+    "degradedSource": "{source}: {error}"
+  },
+  "recallLabels": {
+    "source": "{source, select, memory {Память} conversations {Беседы} workspace {Файлы рабочей области} other {{source}}}",
+    "depth": "{depth, select, fast {Быстрый поиск} standard {Обычный поиск} deep {Глубокий поиск} other {Поиск}}"
+  },
+  "skillExecuteDetail": {
+    "unnamedTool": "Инструмент навыка"
   }
 }

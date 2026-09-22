@@ -641,6 +641,53 @@ export interface VoiceActivityContent {
    * with them so a decision answers the request the user was shown.
    */
   approvalRequestId: string;
+  /**
+   * The work the call is carrying: the foreground turn while it is on a tool
+   * step, and every sub-agent it set going. Drawn on the call's bar as a count
+   * and a list. Absent from a sender that predates it, which the surface reads
+   * as "no list": its line then carries `detail` as it always did.
+   *
+   * Desktop only. The iOS island's `ContentState` has no room for it.
+   */
+  work?: VoiceActivityWork[];
+}
+
+/**
+ * `waiting` is a sub-agent blocked on the user's reply: still the call's work,
+ * but nothing is moving until they answer.
+ */
+export const VOICE_ACTIVITY_WORK_STATES = [
+  "running",
+  "waiting",
+  "done",
+  "failed",
+] as const;
+
+export type VoiceActivityWorkState =
+  (typeof VOICE_ACTIVITY_WORK_STATES)[number];
+
+/**
+ * The longest `title` or `step` a piece of work carries. Both are model-worded,
+ * so the sender clamps them to this rather than have the whole update refused.
+ */
+export const VOICE_ACTIVITY_WORK_TEXT_MAX = 500;
+
+/** The most pieces of work one update carries; the sender keeps the newest. */
+export const VOICE_ACTIVITY_WORK_MAX = 50;
+
+/** One piece of work on the call's list. */
+export interface VoiceActivityWork {
+  /** Stable across updates: `turn` for the foreground, the sub-agent's id otherwise. */
+  id: string;
+  /** The foreground turn, or a sub-agent it spawned. */
+  kind: "turn" | "subagent";
+  /** What it is: the assistant's name for the turn, the task for a sub-agent. */
+  title: string;
+  /** What it is doing this moment ("Searching the web"), or `""` between steps. */
+  step: string;
+  state: VoiceActivityWorkState;
+  /** Epoch milliseconds it started, for the elapsed time beside a sub-agent. */
+  startedAt: number;
 }
 
 /** {@link VoiceActivityContent} plus the fields fixed for the session's lifetime. */
@@ -1314,6 +1361,17 @@ export const COMPANION_BASE_CARD_HEIGHT = 290;
 export const COMPANION_BASE_MAX_PILL_WIDTH = 400;
 
 /**
+ * The width of the card Teach and Share open to pick what to read or show, at
+ * the base size.
+ *
+ * Held here because main sizes the canvas from it. On a row the card sits
+ * over the bar and the pill's reach already holds it. On a side dock it
+ * stands beside the column, facing the middle of the screen, and the canvas
+ * has to reach that far past the column to hold it.
+ */
+export const COMPANION_BASE_CAPTURE_PICKER_WIDTH = 460;
+
+/**
  * The room between the avatar's edge and the options pill beside it, at the
  * base size.
  *
@@ -1540,13 +1598,15 @@ export type CompanionWatchRetro = "pending" | "ready";
  * Words a dictation produced that the surface is holding out to the user,
  * and why they were not simply typed where the user was.
  *
- * Two things end a hold with the words still in hand, and the surface draws
- * the same card for both. `claimed`: another dictation app heard the key
+ * Three things end a hold with the words still in hand, and the surface draws
+ * the same card for each. `claimed`: another dictation app heard the key
  * too, since nothing on macOS owns one, and has already pasted its own
  * version, so Vellum offers to put its own in place instead, to get that app
  * off the key, or to leave it. `no-text-field`: nothing in the application
  * in front takes text, so no paste was sent at all and the only place left
- * to put the words is the clipboard.
+ * to put the words is the clipboard. `paste-failed`: there was somewhere to
+ * put them and the paste did not go through, which the card says so the user
+ * knows to look for their words here rather than at the cursor.
  *
  * The reason is what the card reads to pick its answers, since the two cases
  * can offer nothing in common: there is no app to quit when none claimed the
@@ -1572,7 +1632,7 @@ interface OfferedDictation {
 
 export type CompanionDictationOffer =
   | (OfferedDictation & { reason: "claimed"; app: string })
-  | (OfferedDictation & { reason: "no-text-field" });
+  | (OfferedDictation & { reason: "no-text-field" | "paste-failed" });
 
 /**
  * The most an offered dictation can be, in characters. One bound for the
@@ -2295,24 +2355,67 @@ export interface CompanionContext {
    */
   voicesPickable?: boolean;
   /**
-   * How many times the voice key has been tapped since the publishing window
-   * loaded.
+   * How many taps of the voice key landed while an introduction was running,
+   * since the publishing window loaded.
    *
    * Raw key edges reach only the window that claimed the binding, which is
    * never the surface's, so a tap is invisible to the one surface that has
    * anything to say about it: the introduction, which draws the key and asks
    * for it to be pressed.
    *
+   * That introduction is the only reader, so the publisher counts only while
+   * one is staged and this number stands still the rest of the time. A key that
+   * is also the globe key would otherwise spend the life of the install
+   * rebuilding this payload for a surface with nothing to do with it.
+   *
    * A running count rather than an event, the way `captureCount` is, and for
    * the same reason: a number that goes up is the only shape that survives the
    * crossing and still says "that was another one" to a renderer that repaints
    * on its own schedule. Never reset, so a reader measuring taps since some
-   * moment of its own subtracts the value it saw then.
+   * moment of its own subtracts the value it saw then, which is also what lets
+   * a second run open on the total the first one left standing.
    *
    * Optional and defaulted, the bargain `captureCount` makes: a publisher that
    * reports no taps has reported none.
    */
   voiceKeyTaps?: number;
+  /**
+   * Presses of a call shortcut made while the introduction was asking for one,
+   * counted by the window that armed it, since the publishing window loaded.
+   *
+   * The same errand `voiceKeyTaps` runs, for the other half of the run. Three
+   * of its beats draw a call control beside the chord that reaches it, and a
+   * chord reaches only the window that armed the binding, which is never the
+   * surface's. So the press is counted here and the card is told.
+   *
+   * Counted only while one of those beats is up, which is also the only time
+   * anything is armed to hear a press: the binding takes Option+S off the
+   * desktop while it is up, so it is held for exactly as long as a card is
+   * asking for it. Nothing acts on the press. The beat draws a demonstration
+   * rather than a call, so the chord lights the card and does nothing else,
+   * exactly as a tap of the voice key does.
+   *
+   * A running count rather than an event, for the reason `voiceKeyTaps` is: a
+   * number that goes up is the only shape that survives the crossing and still
+   * says "that was another one" to a renderer repainting on its own schedule.
+   *
+   * Optional and defaulted, the bargain `captureCount` makes.
+   */
+  introChordPresses?: number;
+  /**
+   * Which control the last of those presses was for, while there has been one.
+   *
+   * Published with the count rather than beside it, the way `captureTarget`
+   * travels with `captureCount`: the two are one fact about one press, and a
+   * count that arrived a push apart from the control it belongs to would light
+   * a chip for a chord the user pressed on some other card. The card reads it
+   * as the press's address and ignores a step in the count that is not for the
+   * beat it is drawing.
+   *
+   * Absent until a press has been made, which is a publisher that has counted
+   * none.
+   */
+  introChordControl?: CompanionIntroCallControl;
 }
 
 /**
@@ -2400,6 +2503,61 @@ export const COMPANION_INTRO_BEATS = [
 ] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
+
+/**
+ * The beats that draw a call control beside the key that reaches it.
+ *
+ * Each of these cards says the same thing twice over: here is the button on the
+ * pill, and here is the shortcut for it. A beat named here is a beat whose card
+ * is asking for a chord, which is what makes it worth taking that chord off the
+ * desktop for as long as the card is up and worth nothing at all the rest of
+ * the time.
+ *
+ * The names are the beats' own, because the control and the beat about it are
+ * one thing: a reader with one can light the other without a table in between.
+ * Asserted against the beats so a beat renamed cannot leave a control pointing
+ * at a card that no longer exists.
+ */
+export const COMPANION_INTRO_CALL_CONTROLS = [
+  "share",
+  "draw",
+  "mute",
+] as const satisfies readonly CompanionIntroBeat[];
+
+export type CompanionIntroCallControl =
+  (typeof COMPANION_INTRO_CALL_CONTROLS)[number];
+
+/** Whether a beat is one of those controls, as a narrowing. */
+const isCallControlBeat = (
+  beat: CompanionIntroBeat,
+): beat is CompanionIntroCallControl =>
+  (COMPANION_INTRO_CALL_CONTROLS as readonly CompanionIntroBeat[]).includes(
+    beat,
+  );
+
+/**
+ * Which call control a beat is about, or `undefined` where it is about none.
+ *
+ * **The one derivation, because three processes act on the same answer.** Main
+ * arms a chord from it, the card draws a control and a key from it, and the
+ * pill lights a button from it, and those run in the main process and in two
+ * renderers with no symbol table in common. A switch on the beat repeated
+ * either side of the IPC is a control the host listens for that the surface
+ * never points at, or a key printed on a card that nothing is listening for.
+ * So it lives here, beside the beats themselves, the way
+ * {@link COMPANION_INTRO_BEAT_GROUPS} does.
+ *
+ * `undefined` for absence rather than `null`, which is the shape the optional
+ * fields carrying it across the wire take.
+ */
+export const companionIntroCallControlFor = (
+  beat: CompanionIntroBeat | null,
+): CompanionIntroCallControl | undefined =>
+  // The list is widened to the beats for the lookup, which is an upcast and so
+  // carries no claim, and the narrowing back is the predicate's: the beats the
+  // type is built from are the beats it answers yes to, so the two cannot come
+  // apart.
+  beat !== null && isCallControlBeat(beat) ? beat : undefined;
 
 /**
  * Which introduction this is, counted up whenever the run is rewritten enough
@@ -2861,17 +3019,41 @@ export interface CompanionSurfaceState {
    */
   intro: CompanionIntroBeat | null;
   /**
-   * Taps of the voice key, counted by the window that holds the binding. See
-   * {@link CompanionContext.voiceKeyTaps}.
+   * Taps of the voice key, counted by the window that holds the binding while
+   * an introduction is running. See {@link CompanionContext.voiceKeyTaps}.
    *
    * What the introduction's drawn keycap answers with: the beat asks for the
    * real key, and a step in this number is the only evidence this window has
-   * that the user pressed it.
+   * that the user pressed it. Outside a run nothing steps it, since the card is
+   * the only thing that ever asked.
    *
    * Optional, and absence reads as no taps, the same bargain
    * {@link CompanionSurfaceState.captureCount} makes with absence.
    */
   voiceKeyTaps?: number;
+  /**
+   * Presses of a call shortcut, counted by the window that armed the binding
+   * while the introduction was asking for one. See
+   * {@link CompanionContext.introChordPresses}.
+   *
+   * What the three call beats' shortcut chips answer with: the card draws the
+   * chord beside the button it belongs to, and a step in this number is the
+   * only evidence this window has that the user pressed it. Outside those
+   * beats nothing is armed, so nothing steps it.
+   *
+   * Optional, and absence reads as no presses, the bargain
+   * {@link CompanionSurfaceState.captureCount} makes.
+   */
+  introChordPresses?: number;
+  /**
+   * Which control that last press was for. See
+   * {@link CompanionContext.introChordControl}.
+   *
+   * Carried with the count because a count alone cannot say which card it
+   * answers: a press still crossing when the run walked on would otherwise
+   * light the next card's chip for a chord made on the last one.
+   */
+  introChordControl?: CompanionIntroCallControl;
 }
 
 // ---------------------------------------------------------------------------

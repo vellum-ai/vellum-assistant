@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import {
   isCleanPin,
   PACKAGE_ORDER,
@@ -884,11 +885,11 @@ function PlansPageContent() {
             i18nKey="plansPage.cancelAnytimeFooter"
             components={{
               docsLink: (
-                <a
+                <ExternalAnchor
                   href={PRICING_DOCS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--content-default)] underline"
+                  tone="quiet"
+                  className="text-[var(--content-default)]"
+                  glyph={false}
                 />
               ),
             }}

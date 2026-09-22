@@ -31,6 +31,7 @@ import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 import { toast } from "@vellumai/design-library/components/toast";
 
 // Debounce window before firing the availability check. Tight enough that
@@ -566,7 +567,7 @@ export function AssistantHandleSection({
               releaseLink: (
                 <Link
                   to={`${routes.channels}?setup=email&release=1`}
-                  className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+                  className={textLinkVariants()}
                 />
               ),
             }}

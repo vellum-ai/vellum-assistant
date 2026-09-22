@@ -17,9 +17,10 @@
  * Replaces both the legacy bearer shared-secret check and the
  * actor-token HMAC middleware with a single JWT verification path.
  *
- * When DISABLE_HTTP_AUTH is set (platform-managed deployments), JWT
- * verification is skipped and a synthetic AuthContext is constructed
- * so downstream code always has a typed context to consume.
+ * When DISABLE_HTTP_AUTH is set (platform-managed deployments), a request
+ * carrying no bearer gets a synthetic AuthContext so downstream code always
+ * has a typed context to consume. A request that carries one is verified
+ * normally, and a bad token is refused rather than falling back.
  */
 
 import { isHttpAuthDisabled } from "../../config/env.js";
@@ -73,17 +74,18 @@ function buildDevBypassContext(): AuthContext {
  * The caller should return the error Response directly to the client.
  */
 export function authenticateRequest(req: Request): AuthenticateResult {
-  // Dev bypass: skip JWT verification entirely
-  if (isHttpAuthDisabled()) {
-    return { ok: true, context: buildDevBypassContext() };
-  }
-
-  const path = new URL(req.url).pathname;
-
   const rawToken = extractBearerToken(req);
   if (!rawToken) {
+    // Dev bypass covers only a request that supplied no Authorization header
+    // at all. A header that is present but unusable (empty or whitespace-only
+    // value, a non-bearer scheme, a malformed credential) is refused rather
+    // than handed the guardian context. `has` rather than `get`: an empty
+    // value reads back as "" and would otherwise pass as absent.
+    if (isHttpAuthDisabled() && !req.headers.has("authorization")) {
+      return { ok: true, context: buildDevBypassContext() };
+    }
     log.warn(
-      { reason: "missing_token", path },
+      { reason: "missing_token", path: new URL(req.url).pathname },
       "Auth denied: missing Authorization header",
     );
     return {
@@ -99,6 +101,8 @@ export function authenticateRequest(req: Request): AuthenticateResult {
       ),
     };
   }
+
+  const path = new URL(req.url).pathname;
 
   // Verify the JWT — prefer vellum-daemon audience (gateway-proxied requests
   // and daemon-minted tokens), but also accept vellum-gateway audience for

@@ -7,10 +7,13 @@ const meta: Meta<typeof Card> = {
   component: Card,
   argTypes: {
     padding: { control: "select", options: ["sm", "md", "lg"] },
+    surface: { control: "inline-radio", options: ["lift", "overlay"] },
     bordered: { control: "boolean" },
     elevated: { control: "boolean" },
     noPadding: { control: "boolean" },
     clipContents: { control: "boolean" },
+    interactive: { control: "boolean" },
+    selected: { control: "boolean" },
   },
 };
 
@@ -20,6 +23,25 @@ type Story = StoryObj<typeof Card>;
 
 export const Default: Story = {
   args: { children: "A simple card with default settings." },
+};
+
+/**
+ * A card on a `--surface-lift` background, such as a side drawer's body. With
+ * the default `lift` fill it would take the background's own color; `overlay`
+ * gives it a fill of its own.
+ */
+export const OnLiftSurface: Story = {
+  args: {
+    surface: "overlay",
+    children: "Card on a lift surface, with the overlay fill.",
+  },
+  decorators: [
+    (Story) => (
+      <div className="bg-[var(--surface-lift)] p-6">
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const Bordered: Story = {
@@ -76,4 +98,55 @@ export const NoPadding: Story = {
     bordered: true,
     children: "Card with no padding — useful for full-bleed content.",
   },
+};
+
+/**
+ * `interactive` makes the whole card a click target: pointer cursor, hover and
+ * pressed fills, and the keyboard-focus ring. It adds no role or tab stop, so
+ * slot a `<button>` in with `asChild` to get the semantics.
+ */
+export const Interactive: Story = {
+  args: { interactive: true, asChild: true, noPadding: true },
+  argTypes: { asChild: { control: false }, noPadding: { control: false } },
+  render: (args) => (
+    <Card {...args}>
+      <button type="button" className="p-4">
+        Open the weekly report
+      </button>
+    </Card>
+  ),
+};
+
+/** The same chrome around a link: `asChild` hands the card's look to the anchor. */
+export const InteractiveAsLink: Story = {
+  args: { interactive: true, asChild: true, noPadding: true },
+  argTypes: { asChild: { control: false }, noPadding: { control: false } },
+  render: (args) => (
+    <Card {...args}>
+      <a href="#report" className="p-4">
+        Go to the weekly report
+      </a>
+    </Card>
+  ),
+};
+
+/**
+ * `selected` draws the chosen card of a set. Visual only: the caller owns the
+ * ARIA state. For a tile with radio or checkbox semantics use `OptionCard`.
+ */
+export const Selected: Story = {
+  args: {
+    interactive: true,
+    selected: true,
+    asChild: true,
+    noPadding: true,
+  },
+  argTypes: { asChild: { control: false }, noPadding: { control: false } },
+  render: (args) => (
+    <Card {...args}>
+      <button type="button" aria-pressed={args.selected} className="p-4">
+        Weekly report
+      </button>
+    </Card>
+  ),
 };

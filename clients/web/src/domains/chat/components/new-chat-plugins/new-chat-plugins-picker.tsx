@@ -11,6 +11,8 @@ import { routes } from "@/utils/routes";
 
 import { PluginPill } from "./plugin-pill";
 import type { UseNewChatPluginsResult } from "./use-new-chat-plugins";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /** Pills shown before the "Show all (+N)" expander reveals the rest. */
 const COLLAPSED_PILL_COUNT = 12;
@@ -57,7 +59,7 @@ export function NewChatPluginsPicker({
         </div>
         <Link
           to={`${routes.superpowers}?filter=plugins`}
-          className="text-body-medium-default text-[var(--primary-base)] hover:text-[var(--primary-hover)]"
+          className={cn(textLinkVariants(), "text-body-medium-default")}
         >
           {t("newChatPluginsPicker.managePlugins")}
         </Link>
@@ -78,6 +80,7 @@ export function NewChatPluginsPicker({
         <button
           type="button"
           onClick={() => setShowAll((prev) => !prev)}
+          aria-expanded={showAll}
           className="flex items-center gap-1 self-start text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
         >
           {showAll ? (

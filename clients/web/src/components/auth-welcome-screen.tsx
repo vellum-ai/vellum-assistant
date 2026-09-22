@@ -220,9 +220,8 @@ export function AuthWelcomeScreen({
       <WelcomeScreenCopy error={error}>
         <Button
           variant="primary"
-          size="regular"
+          size="large"
           fullWidth
-          className="h-11 text-base"
           disabled={awaitingRedirect}
           onClick={loading && cancellable ? cancel : () => void login()}
         >

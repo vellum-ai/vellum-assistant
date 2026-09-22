@@ -14,6 +14,8 @@
 
 import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
 import { FileChangeDetail } from "@/domains/chat/components/tool-activity/file-change-detail";
+import { RecallDetail } from "@/domains/chat/components/tool-activity/recall-detail";
+import { RememberDetail } from "@/domains/chat/components/tool-activity/remember-detail";
 import { SkillExecuteDetail } from "@/domains/chat/components/tool-activity/skill-execute-detail";
 import { SkillLoadDetail } from "@/domains/chat/components/tool-activity/skill-load-detail";
 import type { ToolActivityRenderer } from "@/domains/chat/components/tool-activity/types";
@@ -22,31 +24,37 @@ import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-se
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const RENDERERS: Record<string, ToolActivityRenderer> = {
-  // A command and what it printed, rather than a JSON object quoting one.
-  bash: { Component: BashDetail, ownsOutput: true },
-  host_bash: { Component: BashDetail, ownsOutput: true },
+  // A command and what it printed, rather than a JSON object quoting one. What
+  // it printed is shown as printed, so that is the raw output too.
+  bash: { Component: BashDetail, output: "verbatim" },
+  host_bash: { Component: BashDetail, output: "verbatim" },
   // One body for every tool that changes a file. The daemon returns the same
   // `{ filePath, oldContent, newContent, isNewFile }` for a write as for an
   // edit, so they are one thing here too, and the label saying whether it was
   // applied is written once rather than per tool.
-  file_edit: { Component: FileChangeDetail, ownsOutput: false },
-  host_file_edit: { Component: FileChangeDetail, ownsOutput: false },
-  file_write: { Component: FileChangeDetail, ownsOutput: false },
-  host_file_write: { Component: FileChangeDetail, ownsOutput: false },
+  file_edit: { Component: FileChangeDetail, output: "shared" },
+  host_file_edit: { Component: FileChangeDetail, output: "shared" },
+  file_write: { Component: FileChangeDetail, output: "shared" },
+  host_file_write: { Component: FileChangeDetail, output: "shared" },
   // `skill_load`'s result *is* the skill body, so it owns the Output section
   // rather than letting the generic one dump the same text again as a `<pre>`.
-  skill_load: { Component: SkillLoadDetail, ownsOutput: true },
+  skill_load: { Component: SkillLoadDetail, output: "own" },
   // `skill_execute` only reshapes the input envelope; the inner tool's output
   // is ordinary text and keeps the shared Output section.
-  skill_execute: { Component: SkillExecuteDetail, ownsOutput: false },
+  skill_execute: { Component: SkillExecuteDetail, output: "shared" },
   // The fetched page is the result, presented as a page rather than as text.
-  web_fetch: { Component: WebFetchDetailView, ownsOutput: true },
+  web_fetch: { Component: WebFetchDetailView, output: "own" },
+  // The facts saved, as a list. The result only confirms the save, which the
+  // list's label says, so it is offered raw rather than repeated.
+  remember: { Component: RememberDetail, output: "own" },
+  // The answer and the evidence under it, read from the structured result.
+  recall: { Component: RecallDetail, output: "own" },
 };
 
 /** A search presents its query and sources in place of input and output. */
 const WEB_SEARCH: ToolActivityRenderer = {
   Component: WebSearchDetailView,
-  ownsOutput: true,
+  output: "own",
 };
 
 /**

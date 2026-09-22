@@ -154,6 +154,7 @@ import { stripMcpPolicyFieldsMigration } from "./153-strip-mcp-policy-fields.js"
 import { repairRetiredCodexGpt54ModelIdsMigration } from "./154-repair-retired-codex-gpt-5-4-model-ids.js";
 import { moveFrontModelConfigToVoiceMigration } from "./155-move-front-model-config-to-voice.js";
 import { extractWorkspaceMcpJsonMigration } from "./156-extract-workspace-mcp-json.js";
+import { addDesktopFilesLauncherMigration } from "./157-add-desktop-files-launcher.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -323,4 +324,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRetiredCodexGpt54ModelIdsMigration,
   moveFrontModelConfigToVoiceMigration,
   extractWorkspaceMcpJsonMigration,
+  addDesktopFilesLauncherMigration,
 ];

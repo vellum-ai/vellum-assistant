@@ -38,11 +38,12 @@ function payload(
 }
 
 // ---------------------------------------------------------------------------
-// Native tools on the generic renderer
+// Native tools
 //
-// These are the tools with no entry in `tool-activity-renderers`, so each one
-// below renders as the title/activity/raw-JSON block plus a `<pre>` Output.
-// Together they are the large majority of production tool calls.
+// The large majority of production tool calls. `bash`, the file-change tools,
+// `remember` and `recall` have their own renderers in
+// `tool-activity-renderers`; the rest render as the generic parameters block
+// plus a `<pre>` Output.
 // ---------------------------------------------------------------------------
 
 /** `bash`, the single most-called tool in the product. */
@@ -242,15 +243,33 @@ export const rememberDetail: ToolDetailPayload = payload({
   toolCallId: "tc-remember-1",
   toolName: "remember",
   title: "Remembering",
-  activity: "Saving a preference",
+  activity: "Saving standup preferences",
   input: {
-    activity: "Saving a preference",
-    content:
+    activity: "Saving standup preferences",
+    content: [
       "Prefers the standup summary grouped by project rather than by day.",
+      "Wants blockers listed before progress in every summary.",
+    ],
   },
-  result: "Saved to memory.",
+  result: "Saved 2 facts to knowledge base.",
+  activityMetadata: {
+    remember: {
+      facts: [
+        "Prefers the standup summary grouped by project rather than by day.",
+        "Wants blockers listed before progress in every summary.",
+      ],
+    },
+  },
   riskLevel: "low",
 });
+
+const recallInput = {
+  activity: "Looking up the release checklist",
+  query: "release checklist staging bake",
+  depth: "deep",
+  max_results: 10,
+  sources: ["memory", "conversations", "workspace"],
+};
 
 /** `recall`, which sends the highest-arity native input. */
 export const recallDetail: ToolDetailPayload = payload({
@@ -258,19 +277,107 @@ export const recallDetail: ToolDetailPayload = payload({
   toolName: "recall",
   title: "Recalling",
   activity: "Looking up the release checklist",
-  input: {
-    activity: "Looking up the release checklist",
-    query: "release checklist staging bake",
-    depth: "deep",
-    max_results: 10,
-    sources: ["memory", "conversations", "documents"],
-  },
+  input: recallInput,
   result: [
-    "1. Release checklist (memory, updated 3 days ago)",
-    "   Cut the release branch, let staging bake, then dispatch production.",
-    "2. Staging bake window (conversation, 1 week ago)",
-    "   The bake is 30 minutes unless the diff touches the gateway.",
+    "Cut the release branch, let staging bake for 30 minutes, then dispatch production. The bake runs longer when the diff touches the gateway.",
+    "",
+    "Searched sources: memory, conversations, workspace.",
   ].join("\n"),
+  activityMetadata: {
+    recall: {
+      query: "release checklist staging bake",
+      depth: "deep",
+      sources: ["memory", "conversations", "workspace"],
+      answer:
+        "Cut the release branch, let staging bake for **30 minutes**, then dispatch production. The bake runs longer when the diff touches the gateway.",
+      evidence: [
+        {
+          source: "memory",
+          title: "release-checklist",
+          locator: "memory/concepts/release-checklist.md:3",
+          path: "memory/concepts/release-checklist.md",
+          excerpt:
+            "3: Cut the release branch, let staging bake, then dispatch production.",
+        },
+        {
+          source: "conversations",
+          title: "Planning the Thursday release",
+          locator:
+            "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47#c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
+          excerpt:
+            "The bake is 30 minutes unless the diff touches the gateway, then an hour.",
+          timestampMs: 1_757_000_000_000,
+          conversationId: "5b1e9c2a-7f40-4d8e-9a11-3c6f2e8d0b47",
+          messageId: "c02f4a91-1e6b-4b7d-8c35-9d2e7a6f1b08",
+        },
+        {
+          source: "workspace",
+          title: "docs/releasing.md",
+          locator: "docs/releasing.md:14",
+          path: "docs/releasing.md",
+          excerpt:
+            "14: Wait for the staging bake before dispatching production.",
+        },
+      ],
+      searchedSources: [
+        { source: "memory", status: "searched", evidenceCount: 4 },
+        { source: "conversations", status: "searched", evidenceCount: 2 },
+        { source: "workspace", status: "searched", evidenceCount: 1 },
+      ],
+    },
+  },
+  riskLevel: "low",
+});
+
+/**
+ * `recall` from history recorded before it reported a structured result: the
+ * text is all there is.
+ */
+export const recallTextOnlyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-recall-2",
+  toolName: "recall",
+  title: "Recalling",
+  activity: "Looking up the release checklist",
+  input: recallInput,
+  result: [
+    "Found evidence:",
+    "1. [memory] Release checklist (memory/release-checklist.md): Cut the release branch, let staging bake, then dispatch production.",
+    "2. [conversations] Staging bake window (Planning the Thursday release, 1 week ago): The bake is 30 minutes unless the diff touches the gateway, then an hour.",
+    "Searched sources: memory, conversations, workspace.",
+  ].join("\n"),
+  riskLevel: "low",
+});
+
+/** `recall` that found nothing, with one place it could not fully search. */
+export const recallNothingFoundDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-recall-3",
+  toolName: "recall",
+  title: "Recalling",
+  activity: "Looking for the offsite venue",
+  input: { activity: "Looking for the offsite venue", query: "offsite venue" },
+  result: [
+    "No reliable results found.",
+    "Searched sources: memory, conversations, workspace.",
+    "Degraded sources: workspace (search index is still building).",
+  ].join("\n"),
+  activityMetadata: {
+    recall: {
+      query: "offsite venue",
+      depth: "standard",
+      sources: ["memory", "conversations", "workspace"],
+      evidence: [],
+      searchedSources: [
+        { source: "memory", status: "searched", evidenceCount: 0 },
+        { source: "conversations", status: "searched", evidenceCount: 0 },
+        {
+          source: "workspace",
+          status: "degraded",
+          evidenceCount: 0,
+          error: "search index is still building",
+        },
+      ],
+    },
+  },
   riskLevel: "low",
 });
 
@@ -644,7 +751,7 @@ export function riskVariant(riskLevel: string | undefined): ToolDetailPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Skills, which are the only tools with purpose-built renderers today
+// Skills
 // ---------------------------------------------------------------------------
 
 /**
@@ -848,6 +955,46 @@ export const webSearchErrorDetail: ToolDetailPayload = payload({
   result:
     "Error: the search provider returned 503 Service Unavailable after 3 attempts.",
   status: "error",
+});
+
+/** A search still in flight: the query, and no sources yet. */
+export const webSearchRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-3",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  status: "running",
+});
+
+/** A search the user did not approve. Its result is the note to the model. */
+export const webSearchDeniedDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-4",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  result:
+    'Permission denied. The "web_search" tool was not allowed. Do NOT retry this tool call immediately.',
+  status: "denied",
+});
+
+/** A search that finished and found nothing. */
+export const webSearchNoSourcesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-5",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for an obscure configuration flag",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs zz-flag" },
+  searchQuery: "storybook autodocs zz-flag",
+  searchResults: [],
 });
 
 /**

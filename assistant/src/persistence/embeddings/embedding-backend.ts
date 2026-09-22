@@ -16,6 +16,7 @@ import {
   recordBillingSuccess,
 } from "./embedding-billing-breaker.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
+import type { LocalEmbeddingBackend } from "./embedding-local.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import {
   OpenAIEmbeddingBackend,
@@ -78,6 +79,13 @@ export const EMBEDDING_SHUTDOWN_BUDGET_MS = 8_000;
  * the failure is contained and other embedding backends can be used instead.
  */
 
+/**
+ * The local backend class, once {@link LazyLocalEmbeddingBackend} has loaded it.
+ * It lists every local backend this process owns, which process teardown needs
+ * and {@link backendCache} cannot supply.
+ */
+let localEmbeddingBackends: typeof LocalEmbeddingBackend | null = null;
+
 class LazyLocalEmbeddingBackend implements EmbeddingBackend {
   readonly provider = "local" as const;
   readonly model: string;
@@ -114,21 +122,9 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.delegate?.dispose?.();
   }
 
-  terminateNow(): void {
-    this.delegate?.terminateNow?.();
-  }
-
-  async sweepOwnedWorkers(): Promise<void> {
-    await this.delegate?.sweepOwnedWorkers?.();
-  }
-
-  async shutdown(): Promise<void> {
-    // A delegate under construction still ends up owning a worker, so settle
-    // the in-flight import before tearing down rather than skipping it.
-    if (!this.delegate && this.initPromise) {
-      await this.initPromise.catch(() => undefined);
-    }
-    await this.delegate?.shutdown?.();
+  /** Settles once a delegate under construction has been handed out or failed. */
+  async loaded(): Promise<void> {
+    await this.initPromise?.catch(() => undefined);
   }
 
   resetForRetry(): void {
@@ -146,7 +142,8 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
         try {
           const { LocalEmbeddingBackend } =
             await import("./embedding-local.js");
-          this.delegate = new LocalEmbeddingBackend(this.model);
+          localEmbeddingBackends = LocalEmbeddingBackend;
+          this.delegate = LocalEmbeddingBackend.forModel(this.model);
           return this.delegate;
         } catch (err) {
           localBackendBroken = true;
@@ -270,7 +267,7 @@ export function clearEmbeddingBackendCache(): void {
 }
 
 /**
- * Tear down every cached backend's OS resources and empty the caches.
+ * Tear down every local embedding worker this process owns and empty the caches.
  *
  * Called on daemon shutdown so process-owned embedding workers exit with their
  * owner instead of being orphaned. `clearEmbeddingBackendCache()` is the
@@ -279,24 +276,18 @@ export function clearEmbeddingBackendCache(): void {
  */
 export async function shutdownEmbeddingBackends(): Promise<void> {
   embeddingBackendsShutDown = true;
-  const backends = new Set(backendCache.values());
+  const loading = [...backendCache.values()].filter(
+    (backend) => backend instanceof LazyLocalEmbeddingBackend,
+  );
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
   backendDimCache.clear();
 
-  const teardown = Promise.all(
-    [...backends].map(async (backend) => {
-      try {
-        await backend.shutdown?.();
-        await backend.sweepOwnedWorkers?.();
-      } catch (err) {
-        log.warn(
-          { err, provider: backend.provider, model: backend.model },
-          "Failed to shut down embedding backend",
-        );
-      }
-    }),
+  // A delegate under construction still ends up owning a worker, so let it
+  // join the class's list before tearing that list down.
+  const teardown = Promise.all(loading.map((backend) => backend.loaded())).then(
+    () => localEmbeddingBackends?.shutdownAll(),
   );
 
   const timedOut = Symbol("timeout");
@@ -313,7 +304,7 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
 }
 
 /**
- * SIGKILL every cached backend's worker synchronously.
+ * SIGKILL every local embedding worker this process owns, synchronously.
  *
  * For a process that must exit immediately and cannot run the graceful
  * teardown: the memory worker on PID-file eviction, where staying alive to reap
@@ -322,16 +313,7 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
  * sweep has passed, leaving two workers alive (JARVIS-1125).
  */
 export function terminateEmbeddingWorkersNow(): void {
-  for (const backend of new Set(backendCache.values())) {
-    try {
-      backend.terminateNow?.();
-    } catch (err) {
-      log.warn(
-        { err, provider: backend.provider, model: backend.model },
-        "Failed to terminate embedding worker",
-      );
-    }
-  }
+  localEmbeddingBackends?.terminateAllNow();
 }
 
 /** Reset the sticky local-backend failure flag without evicting live backends. */

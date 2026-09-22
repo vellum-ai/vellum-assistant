@@ -29,12 +29,12 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import { REDACTED_SENTINEL_OPEN } from "@vellumai/service-contracts/redacted-credential";
 
+import type { ToolActivityMetadata } from "../api/events/tool-result.js";
 import type { ResolvedRevealCandidate } from "../daemon/chat-credential-redaction.js";
 import {
   buildPersistedAssistantContent,
   stampThinkingTiming,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { ContentBlock } from "../providers/types.js";
 import {
   OPENAI_PROJECT_KEY_REDACTION_MARKER,

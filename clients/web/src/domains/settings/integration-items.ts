@@ -8,6 +8,7 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { OauthProvidersGetResponse } from "@/generated/daemon/types.gen";
 
 import type { McpServerEntry } from "./mcp/mcp-api";
+import { pluginAuthTarget } from "./mcp/plugin-mcp-connect";
 
 export type OAuthProvider = OauthProvidersGetResponse["providers"][number];
 
@@ -94,26 +95,81 @@ export function connectionsForOAuthProvider(
 export function summarizeIntegrationConnections(
   connections: OAuthConnection[],
   methods: McpPluginMethod[],
+  mcpServersKnown = true,
 ) {
   const servers = methods.flatMap((method) => method.servers);
-  const configuredMethods = methods.filter(isMcpPluginMethodConfigured);
+  const configuredMethods = methods.filter((method) =>
+    isMcpPluginMethodConfigured(method, mcpServersKnown),
+  );
   return {
     connectedCount:
       connections.filter((connection) => connection.connected).length +
       servers.filter((server) => server.status === "connected").length,
     needsAttention:
       connections.some((connection) => !connection.connected) ||
-      configuredMethods.some(
-        (method) =>
-          method.servers.length === 0 ||
-          method.servers.some((server) => server.status !== "connected"),
+      // A plugin that declared no server is not asking for anything: the
+      // servers that could need attention are the ones that exist, and an
+      // empty list is as often a list that has not arrived. The rows that
+      // read this summary have no way to tell those two apart, so neither
+      // draws a badge the dialog would then have to explain away.
+      configuredMethods.some((method) =>
+        method.servers.some((server) => server.status !== "connected"),
       ),
     configured: connections.length > 0 || configuredMethods.length > 0,
   };
 }
 
-export function isMcpPluginMethodConfigured(method: McpPluginMethod): boolean {
-  return Boolean(method.definition.installed || method.servers.length > 0);
+/**
+ * Whether a server has ever been signed in to.
+ *
+ * `hasOAuth` is the daemon's answer to "are there stored tokens for this
+ * server", and `hasStaticAuth` the same question for a hand-configured
+ * header. A server that is connected right now is authorized by definition,
+ * whichever of the two got it there. A server with none of the three has only
+ * been declared: something installed it, nobody has authorized it.
+ */
+export function mcpServerIsAuthorized(server: McpServerEntry): boolean {
+  return (
+    server.status === "connected" || server.hasOAuth || server.hasStaticAuth
+  );
+}
+
+/**
+ * Whether a plugin method stands for an integration the user actually has.
+ *
+ * Installing the plugin is only half of connecting: it declares the server,
+ * and the sign-in that follows is what makes the integration real. A plugin
+ * whose one server was never authorized is what a cancelled or failed
+ * sign-in leaves behind, so it belongs back among the integrations still on
+ * offer, where its tile can finish the job it started.
+ *
+ * Everything the tile cannot finish stays here, where the dialog can: a
+ * plugin that declared several servers has no single one to sign in to, one
+ * whose servers are local commands has nothing to sign in to at all, and one
+ * that declared nothing has only itself to be taken away. The test is the
+ * connect sequence's own `pluginAuthTarget`, so an integration is offered
+ * exactly when pressing + on it would reach a server.
+ *
+ * `mcpServersKnown` is false while the server list has not arrived or failed
+ * to load. A list that is missing and a plugin whose servers are all
+ * unauthorized are the same empty array, and only one of them is an answer:
+ * until the real one lands, the install is the better guess, because it
+ * leaves a connected integration where the user last saw it.
+ */
+export function isMcpPluginMethodConfigured(
+  method: McpPluginMethod,
+  mcpServersKnown = true,
+): boolean {
+  if (!mcpServersKnown) {
+    return Boolean(method.definition.installed) || method.servers.length > 0;
+  }
+  if (method.servers.some(mcpServerIsAuthorized)) {
+    return true;
+  }
+  return (
+    Boolean(method.definition.installed) &&
+    pluginAuthTarget(method.servers) === null
+  );
 }
 
 export function integrationHostname(
@@ -134,6 +190,8 @@ export function buildIntegrationItems(
   connections: OAuthConnection[],
   servers: McpServerEntry[],
   definitions: McpPluginDefinition[] = [],
+  /** False while the MCP server list has not arrived or failed to load. */
+  mcpServersKnown = true,
 ): IntegrationItem[] {
   const methods = definitions.map(
     (definition): McpPluginMethod => ({
@@ -171,8 +229,11 @@ export function buildIntegrationItems(
           ]
             .filter(Boolean)
             .join(" "),
-          configured: summarizeIntegrationConnections(accounts, alternatives)
-            .configured,
+          configured: summarizeIntegrationConnections(
+            accounts,
+            alternatives,
+            mcpServersKnown,
+          ).configured,
           category: integrationCategory(provider.category),
           provider,
           connections: accounts,
@@ -191,9 +252,7 @@ export function buildIntegrationItems(
           id: `plugin:${method.definition.pluginName}`,
           name: method.definition.displayName,
           description: method.definition.description,
-          configured: Boolean(
-            method.definition.installed || method.servers.length > 0,
-          ),
+          configured: isMcpPluginMethodConfigured(method, mcpServersKnown),
           category: method.definition.category ?? null,
           method,
         }),

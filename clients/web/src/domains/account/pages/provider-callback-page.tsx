@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
+import { ExternalAnchor } from "@/components/external-anchor";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -21,6 +22,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
+import { cn } from "@vellumai/design-library/utils/cn";
+import { textLinkVariants } from "@vellumai/design-library/components/text-link";
 
 /**
  * OAuth provider callback handler for the **web** login flow.
@@ -127,17 +130,19 @@ export function ProviderCallbackPage() {
           subtitle={t("providerCallbackPage.signupClosedSubtitle")}
         />
         <div className="flex flex-col items-center gap-4">
-          <a
+          <ExternalAnchor
             href={VELLUM_COMMUNITY_URL}
-            target="_blank"
-            rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
+            glyph={false}
           >
             {t("providerCallbackPage.joinCommunity")}
-          </a>
+          </ExternalAnchor>
           <Link
             to={routes.account.login}
-            className="text-sm font-medium text-[var(--content-emphasised)] hover:underline"
+            className={cn(
+              textLinkVariants({ tone: "quiet" }),
+              "text-sm font-medium text-[var(--content-emphasised)]",
+            )}
           >
             {t("providerCallbackPage.backToSignIn")}
           </Link>

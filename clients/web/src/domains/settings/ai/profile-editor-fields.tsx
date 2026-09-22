@@ -1,6 +1,6 @@
-import { ChevronRight } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { Disclosure } from "@vellumai/design-library/components/disclosure";
 import { Select } from "@vellumai/design-library/components/select";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -422,22 +422,20 @@ export function ProfileEditorFields({
     const createAdvanced = flat
       ? modelChosen && <div className="space-y-4">{advancedFields}</div>
       : modelChosen && (
-          <div>
-            <button
-              type="button"
-              aria-expanded={createAdvancedOpen}
-              onClick={() => setAdvancedExpanded((v) => !v)}
-              className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-            >
-              <ChevronRight
-                className={`h-4 w-4 transition-transform ${createAdvancedOpen ? "rotate-90" : ""}`}
-              />
-              <span>{t("profileEditorFields.advanced")}</span>
-            </button>
-            {createAdvancedOpen ? (
-              <div className="mt-4 space-y-4">{advancedFields}</div>
-            ) : null}
-          </div>
+          <Disclosure.Root
+            open={createAdvancedOpen}
+            // A name error holds the region open over the user's own choice,
+            // so a click flips that choice rather than adopting the state
+            // the click appears to ask for.
+            onOpenChange={() => setAdvancedExpanded((v) => !v)}
+          >
+            <Disclosure.Trigger fullWidth>
+              {t("profileEditorFields.advanced")}
+            </Disclosure.Trigger>
+            <Disclosure.Content className="mt-4 space-y-4">
+              {advancedFields}
+            </Disclosure.Content>
+          </Disclosure.Root>
         );
 
     // Create asks two questions: which provider, and which model. Everything

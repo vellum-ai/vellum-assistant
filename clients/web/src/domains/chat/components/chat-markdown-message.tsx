@@ -18,16 +18,13 @@ import {
   type MarkdownImageComponent,
   MarkdownMessage,
   type MarkdownMessageProps,
+  textLinkVariants,
 } from "@vellumai/design-library";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { defaultUrlTransform } from "react-markdown";
-import {
-  EXTERNAL_LINK_CLASS,
-  ExternalLinkGlyph,
-  isWebUrl,
-} from "@/components/external-anchor";
+import { ExternalLinkGlyph, isWebUrl } from "@/components/external-anchor";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 import {
@@ -98,7 +95,8 @@ function OAuthAwareLink({
         // route through the native opener there (no-op elsewhere).
         handleNativeAnchorClick(event, href);
       }}
-      className={EXTERNAL_LINK_CLASS}
+      data-slot="text-link"
+      className={textLinkVariants()}
     >
       {children}
       {isWebUrl(href) ? <ExternalLinkGlyph /> : null}

@@ -32,11 +32,16 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ToolDetailPanel } =
+const { ToolDetailBody, ToolDetailPanel } =
   await import("@/domains/chat/components/tool-detail-panel");
+const { SNAPSHOT_TOOL_CALL_SOURCE } =
+  await import("@/domains/chat/hooks/use-live-tool-call");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
+const { buildSubagentStepDetails } =
+  await import("@/domains/chat/hooks/use-subagent-card-data");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
@@ -498,6 +503,202 @@ describe("ToolDetailPanel", () => {
     expect(getByText("3 more in Raw input")).toBeDefined();
   });
 
+  describe("raw data", () => {
+    const fetched = [
+      "Requested URL: https://example.com/page",
+      "Status: 200 OK",
+      "Content:",
+      "<external_content>A page about examples.</external_content>",
+    ].join("\n");
+    const cases: {
+      name: string;
+      detail: Partial<ToolDetailPayload>;
+      rawOutput: boolean;
+    }[] = [
+      {
+        name: "a structured result laid out as fields",
+        detail: {},
+        rawOutput: true,
+      },
+      {
+        name: "a text result, shown as it is",
+        detail: { toolName: "acme_notes_append", result: "Saved." },
+        rawOutput: false,
+      },
+      {
+        name: "a command, whose output is shown as printed",
+        detail: { toolName: "bash", input: { command: "ls" }, result: "a\nb" },
+        rawOutput: false,
+      },
+      {
+        name: "a fetched page, shown readably",
+        detail: {
+          toolName: "web_fetch",
+          input: { url: "https://example.com/page" },
+          result: fetched,
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a loaded skill, shown as its instructions",
+        detail: {
+          toolName: "skill_load",
+          input: { skill: "app-builder" },
+          result: [
+            "Skill: App Builder",
+            "ID: app-builder",
+            "",
+            "# App Builder",
+            "",
+            "Build apps.",
+          ].join("\n"),
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a remember call, shown as the facts it saved",
+        detail: {
+          toolName: "remember",
+          input: { content: "Prefers window seats." },
+          result: "Saved to knowledge base.",
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a recall, shown as its answer and evidence",
+        detail: {
+          toolName: "recall",
+          input: { query: "seat preference" },
+          result: "Window seats.\n\nSearched sources: memory.",
+        },
+        rawOutput: true,
+      },
+      {
+        name: "a refused call, which has no result of its own",
+        detail: { status: "denied" },
+        rawOutput: false,
+      },
+    ];
+
+    for (const { name, detail, rawOutput } of cases) {
+      test(`offers the raw input${rawOutput ? " and raw output" : ""} of ${name}`, () => {
+        const { getByText, queryByText } = render(
+          <ToolDetailPanel detail={makeDetail(detail)} onClose={noop} />,
+        );
+
+        expect(getByText("Raw input")).toBeDefined();
+        expect(queryByText("Raw output") !== null).toBe(rawOutput);
+      });
+    }
+
+    test("offers the raw input and raw output of a web search a subagent ran", () => {
+      // Built through the projection the subagent timeline opens it from,
+      // the only path that opens a web search's details.
+      const events: SubagentTimelineEvent[] = [
+        {
+          id: "e-1",
+          type: "tool_call",
+          toolName: "web_search",
+          toolUseId: "ws-1",
+          input: { query: "examples" },
+          content: "",
+          timestamp: 1,
+        },
+        {
+          id: "e-2",
+          type: "tool_result",
+          toolName: "web_search",
+          toolUseId: "ws-1",
+          result:
+            "Example page\nhttps://example.com/page\nA page about examples.",
+          content: "",
+          timestamp: 2,
+        },
+      ];
+      const detail = buildSubagentStepDetails(events).get("ws-1");
+      if (!detail) {
+        throw new Error("the projection built no detail for the search");
+      }
+      const { getByText } = render(
+        <ToolDetailPanel detail={detail} onClose={noop} />,
+      );
+
+      expect(getByText("Raw input")).toBeDefined();
+      expect(getByText("Raw output")).toBeDefined();
+    });
+
+    test("keeps raw data below what the call shows readably", () => {
+      const { getByText } = render(
+        <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+      );
+      const output = getByText("Output");
+      const rawInput = getByText("Raw input");
+
+      expect(
+        output.compareDocumentPosition(rawInput) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    test("names the opened raw text once, not once per region", () => {
+      restoreLayout = stubContentHeight((el) =>
+        el.style.maxHeight ? 1000 : undefined,
+      );
+      const observer = stubResizeObserver();
+      try {
+        const { getByText, getAllByText, getAllByRole } = render(
+          <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
+        );
+        act(() => {
+          fireEvent.click(getByText("Raw input"));
+        });
+        // The raw input is the last thing in the panel, so its fold is too.
+        const folds = getAllByText("Show more");
+        act(() => {
+          fireEvent.click(folds[folds.length - 1]!);
+        });
+        act(observer.resize);
+
+        // The disclosure already is a region named for its label; the fold
+        // inside it must not add a second region of the same name.
+        expect(getAllByRole("region", { name: "Raw input" })).toHaveLength(1);
+      } finally {
+        observer.restore();
+      }
+    });
+
+    test("builds the raw input only when it is opened", () => {
+      const { getByText, container } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ input: { label: "toronto-location" } })}
+          onClose={noop}
+        />,
+      );
+      expect(container.textContent).not.toContain(
+        '"label": "toronto-location"',
+      );
+
+      act(() => {
+        fireEvent.click(getByText("Raw input"));
+      });
+
+      expect(container.textContent).toContain('"label": "toronto-location"');
+    });
+  });
+
+  test("the body is one element, so a host's own gap cannot add to its spacing", () => {
+    const { getByTestId } = render(
+      <div data-testid="host" className="flex flex-col gap-4">
+        <ToolDetailBody
+          detail={makeDetail()}
+          source={SNAPSHOT_TOOL_CALL_SOURCE}
+        />
+      </div>,
+    );
+
+    expect(getByTestId("host").children).toHaveLength(1);
+  });
+
   test("omits the Technical details label", () => {
     const { queryByText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
@@ -634,6 +835,58 @@ describe("ToolDetailPanel", () => {
     expect(queryByText(/Do NOT retry/)).toBeNull();
   });
 
+  test("reads a recall's structured result that lands while the drawer is open", () => {
+    // Opened mid-call: the snapshot has neither the result nor its metadata.
+    // Both reach the drawer through the live tool call.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        toolCalls: [
+          {
+            id: "tc-1",
+            name: "recall",
+            input: { query: "seat preference" },
+            result: "Window seats.\n\nSearched sources: memory.",
+            activityMetadata: {
+              recall: {
+                query: "seat preference",
+                depth: "fast",
+                sources: ["memory"],
+                answer: "Window seats.",
+                evidence: [
+                  {
+                    source: "memory",
+                    title: "Travel preferences",
+                    locator: "memory/travel.md",
+                    excerpt: "Prefers window seats on morning flights.",
+                  },
+                ],
+                searchedSources: [
+                  { source: "memory", status: "searched", evidenceCount: 1 },
+                ],
+              },
+            },
+          },
+        ],
+      } as DisplayMessage,
+    ]);
+    const { getByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "recall",
+          input: { query: "seat preference" },
+          result: undefined,
+          status: "running",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("Travel preferences")).toBeDefined();
+    expect(getByText("Quick search · Memory")).toBeDefined();
+  });
+
   test("picks up a denial that lands while the drawer is open", () => {
     // The payload was captured before the guardian answered, so the snapshot
     // still says the call was running. The live tool call carries the decision.
@@ -702,6 +955,39 @@ describe("ToolDetailPanel", () => {
     });
     expect(getByText("Show less")).toBeDefined();
     expect(queryByText("Show more")).toBeNull();
+  });
+
+  test("drops Show less when the drawer moves to a call whose output fits", () => {
+    // The drawer stays mounted from one call to the next, so an opened fold
+    // can have its content replaced under it.
+    const long = "a line of output\n".repeat(200);
+    restoreLayout = stubOverflow((el) => el.textContent === long);
+    const observer = stubResizeObserver();
+    try {
+      const { getByText, queryByText, rerender } = render(
+        <ToolDetailPanel
+          detail={makeDetail({ result: long })}
+          onClose={noop}
+        />,
+      );
+      act(() => {
+        fireEvent.click(getByText("Show more"));
+      });
+      expect(getByText("Show less")).toBeDefined();
+
+      rerender(
+        <ToolDetailPanel
+          detail={makeDetail({ toolCallId: "tc-next", result: "done" })}
+          onClose={noop}
+        />,
+      );
+      act(observer.resize);
+
+      expect(queryByText("Show less")).toBeNull();
+      expect(queryByText("Show more")).toBeNull();
+    } finally {
+      observer.restore();
+    }
   });
 
   test("offers no Show more for long text that fits the fold", () => {

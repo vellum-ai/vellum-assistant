@@ -55,6 +55,8 @@ export type BargeInGuardStep = "pending" | "reset" | "fired";
 export interface BargeInGuard {
   /** Speech accumulated in the current run. */
   readonly speechMs: number;
+  /** Whether this run has met the threshold, latched until the guard is replaced. */
+  readonly fired: boolean;
   /** Feed one classified chunk of `chunkMs` audio. */
   track(
     classification: BargeInChunkClassification,
@@ -82,6 +84,9 @@ export function createBargeInGuard(minSpeechMs: number): BargeInGuard {
   };
 
   return {
+    get fired() {
+      return fired;
+    },
     get speechMs() {
       return speechMs;
     },

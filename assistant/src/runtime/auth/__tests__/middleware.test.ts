@@ -326,6 +326,144 @@ describe("authenticateRequest for /v1/host-browser-result", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Dev bypass covers only a request that supplied no Authorization header. A
+// bearer sent to a platform pod (the gateway's exchange token, or a trusted
+// contact's) is verified on its own terms.
+// ---------------------------------------------------------------------------
+
+describe("authenticateRequest with auth disabled and a bearer present", () => {
+  beforeEach(() => {
+    authDisabled = true;
+  });
+
+  test("uses the token's claims rather than the dev-bypass context", () => {
+    const token = mintValidToken({ sub: "actor:self:contact-principal" });
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBe("contact-principal");
+      expect(result.context.policyEpoch).toBe(CURRENT_POLICY_EPOCH);
+    }
+  });
+
+  test("accepts the gateway's exchange token", () => {
+    const token = mintValidToken({
+      sub: "svc:gateway:self",
+      scope_profile: "gateway_service_v1",
+    });
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.principalType).toBe("svc_gateway");
+    }
+  });
+
+  test("accepts a gateway-audience token through the fallback", () => {
+    const token = mintValidToken({
+      aud: "vellum-gateway",
+      sub: "actor:self:local-client",
+    });
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBe("local-client");
+      expect(result.context.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+    }
+  });
+
+  test.each([
+    ["malformed", () => "not-a-token.xxxxxxxxxxxxx"],
+    [
+      "expired",
+      () => mintValidToken({ exp: Math.floor(Date.now() / 1000) - 100 }),
+    ],
+    [
+      "wrong-audience",
+      () => mintValidToken({ aud: "vellum-other" as TokenAudience }),
+    ],
+    ["unparseable-sub", () => mintValidToken({ sub: "garbage" })],
+  ])("refuses a %s token rather than falling back", (_label, build) => {
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${build()}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
+
+  test("still returns the dev-bypass context when no bearer is sent", () => {
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBe("dev-bypass");
+    }
+  });
+
+  test("verifies a lowercase bearer scheme rather than bypassing it", () => {
+    const token = mintValidToken({ sub: "actor:self:contact-principal" });
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { Authorization: `bearer ${token}` },
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBe("contact-principal");
+    }
+  });
+
+  test.each([
+    ["lowercase scheme with a bad token", "bearer not-a-jwt.xxxxxxxx"],
+    ["empty credential", "Bearer "],
+    ["non-bearer scheme", "Basic dXNlcjpwYXNz"],
+    ["an empty header value", ""],
+    ["a whitespace-only header value", "   "],
+  ])(
+    "refuses %s instead of granting the dev-bypass context",
+    (_label, header) => {
+      const req = new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { Authorization: header },
+      });
+
+      const result = authenticateRequest(req);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.response.status).toBe(401);
+      }
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
 // oauth_proxy_v1 grants: the narrow bearer a third-party CLI presents to the
 // OAuth passthrough route. Accepted on either audience, and carrying nothing
 // but oauth.proxy.

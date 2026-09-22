@@ -65,6 +65,13 @@ mock.module("@/hooks/use-onboarding-login", () => ({
 
 mock.module("@/runtime/is-electron", () => ({ isElectron: () => false }));
 
+// The screens' external links go through `ExternalAnchor`, whose click handler
+// would otherwise pull the native-auth module graph past the partial mocks
+// below.
+mock.module("@/utils/native-anchor", () => ({
+  handleNativeAnchorClick: () => {},
+}));
+
 mock.module("@/lib/auth/gateway-session", () => ({
   clearGatewayToken: mock(() => {}),
 }));

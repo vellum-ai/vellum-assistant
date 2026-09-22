@@ -25,6 +25,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -51,9 +52,19 @@ import type {
   CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
+  VoiceActivityWork,
 } from "@vellumai/ipc-contract";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import {
+  CompanionCallWorkSettled,
+  CompanionCallWorkShelf,
+  CompanionCallWorkSpinner,
+  callWorkAccent,
+  runningCallWork,
+  waitingCallWork,
+} from "@/components/companion-call-work";
+import { unplacedOfferLabelKey } from "@/components/companion-dictation-offer";
 import { CompanionPeek } from "@/components/companion-peek";
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
@@ -957,6 +968,13 @@ export interface CompanionSurfaceProps {
    * {@link CompanionContext.dictationText}.
    */
   dictationText?: string;
+  /**
+   * Told when the list of the call's work opens or closes on the bar. The
+   * host hit-tests the pointer against the joined row, and a list that closes
+   * on its own (the work ran out) under a still pointer leaves nothing there
+   * to move off; the host gives the desktop back on this.
+   */
+  onWorkShelfChange?: (shown: boolean) => void;
 }
 
 export function CompanionSurface({
@@ -1012,12 +1030,55 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
-  prompt,
+  prompt: hostPrompt,
   promptRef,
   promptsDeferred = 0,
   onReviewPrompts,
+  onWorkShelfChange,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
+  /**
+   * Whether the list of the call's work is open on the bar. The surface's own
+   * state rather than the host's: it is a view of what the call already
+   * carries, opened and closed from the bar, and nothing outside the bar acts
+   * on it. Closed when the work runs out, so the next piece of work arrives
+   * as a count rather than reopening a list the user closed long ago.
+   */
+  const work = phase === "call" ? call?.work : undefined;
+  const hasWork = work !== undefined && work.length > 0;
+  const [workShelfOpen, setWorkShelfOpen] = useState(false);
+  useEffect(() => {
+    if (!hasWork) {
+      setWorkShelfOpen(false);
+    }
+  }, [hasWork]);
+  /**
+   * What stands joined to the bar: the host's prompt, which is waiting on the
+   * user and so always outranks it, or else the call's work while its list is
+   * open.
+   */
+  /**
+   * The host's prompt, which only a row carries: a column has no edge for a
+   * list of answers, and the host draws those in a window of their own there.
+   * The call's own list stands beside a column instead.
+   */
+  const sideDocked = dock === "left" || dock === "right";
+  const rowPrompt = sideDocked ? undefined : hostPrompt;
+  const workShelfShown =
+    rowPrompt === null || rowPrompt === undefined
+      ? workShelfOpen && hasWork
+      : false;
+  useEffect(() => {
+    onWorkShelfChange?.(workShelfShown);
+  }, [onWorkShelfChange, workShelfShown]);
+  const prompt = useMemo(
+    () =>
+      rowPrompt ??
+      (workShelfOpen && hasWork ? (
+        <CompanionCallWorkShelf work={work} accentHex={accentHex} />
+      ) : undefined),
+    [rowPrompt, workShelfOpen, hasWork, work, accentHex],
+  );
   /**
    * Whether the pill is drawn.
    *
@@ -1152,12 +1213,12 @@ export function CompanionSurface({
     height: number;
   } | null>(null);
   /**
-   * The width the call's line was given past its own while the bar carries a
-   * wider prompt, as last drawn. Taken back out of every measurement, so the
-   * content is measured at its own width and the bar never grows to fit a
-   * line that was only stretched to fill it.
+   * The length the call's line was given past its own while the bar carries a
+   * bigger prompt, as last drawn: across a row, or down a column. Taken back
+   * out of every measurement, so the content is measured at its own size and
+   * the bar never grows to fit a line that was only stretched to fill it.
    */
-  const lineExtraRef = useRef(0);
+  const lineExtraRef = useRef({ width: 0, height: 0 });
 
   // The body is measured while it is still clipped, so the pill knows how wide
   // to grow before it starts growing. `scrollWidth` reports the content's own
@@ -1170,8 +1231,8 @@ export function CompanionSurface({
     }
     const measure = () => {
       setContentSize({
-        width: element.scrollWidth - lineExtraRef.current,
-        height: element.scrollHeight,
+        width: element.scrollWidth - lineExtraRef.current.width,
+        height: element.scrollHeight - lineExtraRef.current.height,
       });
     };
     measure();
@@ -1243,12 +1304,12 @@ export function CompanionSurface({
     : (contentSize?.height ?? FALLBACK_COLUMN.height) + 2 * INNER_GAP;
 
   /**
-   * Whether the call's bar carries a prompt row, joined to it as one shape.
-   * Only a row can: a column has no edge to stand a line of words on.
+   * Whether the call's bar carries a prompt, joined to it as one shape: over
+   * or under a row, beside a column.
    */
-  const joined = inCall && !vertical && prompt !== null && prompt !== undefined;
+  const joined = inCall && prompt !== null && prompt !== undefined;
   const promptMeasureRef = useRef<HTMLDivElement | null>(null);
-  const [promptWidth, setPromptWidth] = useState(0);
+  const [promptSize, setPromptSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const element = promptMeasureRef.current;
     if (!joined || element === null) {
@@ -1258,7 +1319,11 @@ export function CompanionSurface({
       // Its fractional width, rounded up, in the surface's own units: a
       // whole-point width rounded down leaves the row a fraction too narrow
       // for its words, and they wrap onto a second line they do not need.
-      setPromptWidth(Math.ceil(element.getBoundingClientRect().width / scale));
+      const rect = element.getBoundingClientRect();
+      setPromptSize({
+        width: Math.ceil(rect.width / scale),
+        height: Math.ceil(rect.height / scale),
+      });
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -1272,16 +1337,25 @@ export function CompanionSurface({
    * two, so the prompt's words are never cut to fit the call's controls and
    * the two keep one edge.
    */
-  const barWidth = joined ? Math.max(width, promptWidth) : width;
+  const barWidth =
+    joined && !vertical ? Math.max(width, promptSize.width) : width;
+  /**
+   * The column's length while a list stands beside it, for the same reason:
+   * as long as the longer of the two, so the two keep one edge.
+   */
+  const barHeight =
+    joined && vertical ? Math.max(height, promptSize.height) : height;
   /**
    * What the prompt widened the bar by, given to the call's line: the line
    * says more of what the session is doing, and the controls end at the
    * bar's far edge under the prompt's answers rather than short of it.
    */
-  const lineExtra = barWidth - width;
+  const lineExtra = vertical ? barHeight - height : barWidth - width;
   useLayoutEffect(() => {
-    lineExtraRef.current = lineExtra;
-  }, [lineExtra]);
+    lineExtraRef.current = vertical
+      ? { width: 0, height: lineExtra }
+      : { width: lineExtra, height: 0 };
+  }, [lineExtra, vertical]);
 
   /**
    * The line the creature stands on, as the CSS edge the surface is drawn
@@ -1345,7 +1419,7 @@ export function CompanionSurface({
     ? {
         width: barWidth,
         // A column has a length of its own; a row is one row tall.
-        ...(vertical ? { height } : {}),
+        ...(vertical ? { height: barHeight } : {}),
         // **Centred on the creature's own point.** The bar takes the point
         // the creature holds everywhere else and stands on its centre line
         // rather than on its baseline, and the canvas is symmetric about
@@ -1434,7 +1508,9 @@ export function CompanionSurface({
         <PromptShelf
           dock={dock}
           top={avatarLine}
-          width={barWidth}
+          width={vertical ? promptSize.width : barWidth}
+          height={barHeight}
+          barThickness={vertical ? width : 44}
           accentHex={accentHex}
           lit={expanded}
           promptRef={promptRef}
@@ -1451,7 +1527,11 @@ export function CompanionSurface({
           inert
           aria-hidden
           data-theme="dark"
-          className="pointer-events-none invisible absolute top-0 left-0 w-max max-w-[640px]"
+          className={`pointer-events-none invisible absolute top-0 left-0 w-max ${
+            // Beside a column the list has the room the canvas keeps for the
+            // capture picker, which stands on the same side.
+            vertical ? "max-w-[400px]" : "max-w-[640px]"
+          }`}
         >
           {prompt}
         </div>
@@ -1599,6 +1679,11 @@ export function CompanionSurface({
                   promptsDeferred={promptsDeferred}
                   lineExtra={lineExtra}
                   onReviewPrompts={onReviewPrompts}
+                  accentHex={accentHex}
+                  workShelfOpen={workShelfShown}
+                  onToggleWorkShelf={() => {
+                    setWorkShelfOpen((open) => !open);
+                  }}
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -2248,7 +2333,7 @@ function DictatingBody({
  * The pill's line while a dictation's words are on offer beside it.
  *
  * Only why they are being offered: the other app that pasted its own version,
- * or that nothing in front would take them. The words and the answers are on
+ * that nothing in front would take them, or that the paste failed. The words and the answers are on
  * the card ({@link CompanionSurfaceProps.offer}), since the pill is one line
  * tall and the words have to be read whole.
  */
@@ -2263,7 +2348,7 @@ function OfferBody({ offer }: { offer: CompanionDictationOffer }) {
       >
         {offer.reason === "claimed"
           ? t("companionSurface.offerHeard", { app: offer.app })
-          : t("companionSurface.offerNowhere")}
+          : t(unplacedOfferLabelKey(offer.reason))}
       </span>
     </div>
   );
@@ -2444,6 +2529,8 @@ function PromptShelf({
   dock,
   top,
   width,
+  height,
+  barThickness,
   accentHex,
   lit,
   promptRef,
@@ -2451,29 +2538,65 @@ function PromptShelf({
 }: {
   dock: CompanionSurfaceDock;
   top: string;
+  /** Across a row, the bar's width; beside a column, the list's own. */
   width: number;
+  /** The column's length, which the list beside it matches. */
+  height: number;
+  /** How thick the bar is across: a row's height, or a column's width. */
+  barThickness: number;
   accentHex: string;
   /** Whether the call's light travels the shape's edge. */
   lit: boolean;
   promptRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
-  const below = dock === "top";
+  const half = barThickness / 2;
+  // Which way the shelf stands off the bar: toward the middle of the screen.
+  const side =
+    dock === "top"
+      ? "below"
+      : dock === "left"
+        ? "right"
+        : dock === "right"
+          ? "left"
+          : "above";
+  const across = side === "left" || side === "right";
+  const placed: CSSProperties = across
+    ? {
+        // Beside the column: its own width plus the half of the column it
+        // runs behind, as long as the column, and centred on the same line.
+        left: "50%",
+        top,
+        width: width + half,
+        height,
+        transform:
+          side === "right" ? "translate(0, -50%)" : "translate(-100%, -50%)",
+        [side === "right" ? "paddingLeft" : "paddingRight"]: half,
+      }
+    : {
+        left: "50%",
+        top,
+        width,
+        transform:
+          side === "below" ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        // The half of the bar the shelf runs behind.
+        [side === "below" ? "paddingTop" : "paddingBottom"]: half,
+      };
+  const rounded = {
+    above: "rounded-t-[22px]",
+    below: "rounded-b-[22px]",
+    left: "rounded-l-[22px]",
+    right: "rounded-r-[22px]",
+  }[side];
   return (
     <div
       ref={promptRef}
       // The surface paints its own dark ground in every host theme, so the
       // design-library tokens the row is drawn with resolve against dark.
       data-theme="dark"
+      data-shelf-side={side}
       className="absolute"
-      style={{
-        left: "50%",
-        top,
-        width,
-        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
-        // The half of the bar the shelf runs behind.
-        [below ? "paddingTop" : "paddingBottom"]: 22,
-      }}
+      style={placed}
       onPointerDown={(event) => {
         // A press here is an answer, not a grab of the surface.
         event.stopPropagation();
@@ -2481,14 +2604,14 @@ function PromptShelf({
     >
       <span
         aria-hidden
-        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${
-          below ? "rounded-b-[22px]" : "rounded-t-[22px]"
-        }`}
+        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${rounded}`}
       />
       <span
         aria-hidden
-        className="absolute right-4 left-4 h-px bg-white/10"
-        style={below ? { top: 22 } : { bottom: 22 }}
+        className={`absolute bg-white/10 ${
+          across ? "top-4 bottom-4 w-px" : "right-4 left-4 h-px"
+        }`}
+        style={{ [oppositeEdge[side]]: half }}
       />
       {/* The call's light, travelling the edge of the whole shape: the shelf
           and the half of the bar it does not run behind. The bar's own ring
@@ -2499,8 +2622,9 @@ function PromptShelf({
         style={{
           left: -2,
           right: -2,
-          top: below ? -24 : -2,
-          bottom: below ? -2 : -24,
+          top: -2,
+          bottom: -2,
+          [oppositeEdge[side]]: -(half + 2),
           borderRadius: 24,
           opacity: lit ? 1 : 0,
           ["--companion-ring-accent" as string]: accentHex,
@@ -2510,6 +2634,14 @@ function PromptShelf({
     </div>
   );
 }
+
+/** The edge of the shelf that runs behind the bar, by the side it stands on. */
+const oppositeEdge = {
+  above: "bottom",
+  below: "top",
+  left: "right",
+  right: "left",
+} as const;
 
 function CallBody({
   call,
@@ -2543,6 +2675,9 @@ function CallBody({
   promptsDeferred = 0,
   onReviewPrompts,
   lineExtra = 0,
+  accentHex,
+  workShelfOpen,
+  onToggleWorkShelf,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -2582,6 +2717,10 @@ function CallBody({
   onReviewPrompts?: () => void;
   /** Width past its own the line takes, to fill a bar a prompt widened. */
   lineExtra?: number;
+  accentHex: string;
+  workShelfOpen: boolean;
+  /** Absent where the bar cannot carry the list, which leaves the count. */
+  onToggleWorkShelf?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2612,11 +2751,12 @@ function CallBody({
       </>
     );
   }
-  // The activity line when the turn has one, the phase otherwise. `detail` is
-  // the more specific of the two ("Reading a file" against "Thinking…") and is
-  // empty for most of a call, so this reads as the surface saying more exactly
-  // when there is more to say. The mascot carries the state either way.
-  const line = call.detail || call.label;
+  // The phase, and the turn's own step when the session has no work list to
+  // carry it. A session that sends `work` names the step there, on the
+  // foreground's line, and the phase reads "Working…" for it; one that
+  // predates the list has only this line, and the step is the more specific
+  // of the two ("Reading a file" against "Thinking…").
+  const line = call.work === undefined ? call.detail || call.label : call.label;
   const { muted, outputMuted } = call;
   // Who is on this call, which is not always who the app is showing. A
   // session outlives a switch to another assistant, while `assistantName` on
@@ -2635,6 +2775,14 @@ function CallBody({
           would measure its own collapsed self: the width and the truncation
           would chase each other down. */}
       <CallLine vertical={vertical} extra={lineExtra} text={line} />
+      {call.work !== undefined && call.work.length > 0 ? (
+        <WorkChip
+          work={call.work}
+          accentHex={accentHex}
+          open={workShelfOpen}
+          onToggle={onToggleWorkShelf}
+        />
+      ) : null}
       {/* What was put off, beside what the session is doing: it is the
           assistant waiting on the user, which is part of what the call is
           doing. A press lists it again. */}
@@ -2811,7 +2959,7 @@ function CallLine({
       <span
         className="mt-1 shrink-0 truncate text-[12px] text-white/85"
         style={{
-          height: CALL_COLUMN_LINE_LENGTH,
+          height: CALL_COLUMN_LINE_LENGTH + extra,
           writingMode: "vertical-rl",
         }}
         data-label="line"
@@ -3185,6 +3333,90 @@ const captionStance = (
         className: CONTROL_CAPTION_BESIDE[side],
         beak: side === "right" ? "left" : "right",
       };
+
+/**
+ * The call's work on its row: a turning arc around how many pieces are
+ * running, which settles to a mark for a beat when the last one finishes. A
+ * press opens the list of them joined to the bar. Beside the line, since it is
+ * part of what the call is doing.
+ *
+ * The caption names what is running rather than the press, the way a count
+ * is read: the names are what the pointer came for.
+ */
+function WorkChip({
+  work,
+  accentHex,
+  open,
+  onToggle,
+}: {
+  work: readonly VoiceActivityWork[];
+  accentHex: string;
+  open: boolean;
+  onToggle?: () => void;
+}) {
+  const { t } = useTranslation();
+  const stance = captionStance(useContext(CaptionSideContext));
+  const running = runningCallWork(work);
+  const waiting = waitingCallWork(work);
+  // What the count counts: the work moving, or failing that the work held on
+  // the user, which is still open but not running.
+  const counted = running.length > 0 ? running : waiting;
+  const last = work.at(-1);
+  const names = (counted.length > 0 ? counted : work)
+    .map((item) => item.title)
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      aria-label={
+        running.length === 0 && waiting.length > 0
+          ? t("companionSurface.workWaiting", { count: waiting.length })
+          : t("companionSurface.workCount", { count: running.length })
+      }
+      aria-expanded={onToggle === undefined ? undefined : open}
+      data-control="work"
+      disabled={onToggle === undefined}
+      // The same 32 by 28 capsule as the call's other controls, a 16pt icon
+      // in `px-2`, so its hover and open background is the same shape theirs is.
+      className={`group flex h-7 shrink-0 items-center justify-center rounded-full px-1.5 transition-colors enabled:hover:bg-white/15 ${
+        open ? "bg-white/15" : ""
+      }`}
+      style={callWorkAccent(accentHex)}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+      onClick={onToggle}
+    >
+      <span className="relative grid size-5 place-items-center">
+        {counted.length > 0 ? (
+          <>
+            <span className="absolute inset-0 grid place-items-center">
+              <CompanionCallWorkSpinner
+                size={20}
+                still={running.length === 0}
+              />
+            </span>
+            <span className="text-[10px] leading-none font-semibold text-white/90 tabular-nums">
+              {counted.length}
+            </span>
+          </>
+        ) : (
+          <CompanionCallWorkSettled
+            state={last?.state === "failed" ? "failed" : "done"}
+          />
+        )}
+      </span>
+      {open ? null : (
+        <Caption
+          label={names}
+          className={`opacity-0 group-hover:opacity-100 ${stance.className}`}
+          beak={stance.beak}
+          data-label="hover"
+        />
+      )}
+    </button>
+  );
+}
 
 /**
  * A control in the pill.

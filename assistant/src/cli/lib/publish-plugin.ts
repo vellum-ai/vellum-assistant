@@ -337,8 +337,7 @@ export async function postPublishRequest(
     },
   );
 
-  const data = (await resp.json()) as PublishResult;
-  return data;
+  return (await resp.json()) as PublishResult;
 }
 
 /**

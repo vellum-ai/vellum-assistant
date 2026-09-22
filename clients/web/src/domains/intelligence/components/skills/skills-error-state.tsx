@@ -10,7 +10,7 @@ export function SkillsErrorState() {
   return (
     <SkillsStateCard
       icon={TriangleAlert}
-      iconColor="var(--system-danger)"
+      iconColor="var(--system-negative-strong)"
       title={t("skillsErrorState.title")}
       subtitle={t("skillsErrorState.subtitle")}
     />

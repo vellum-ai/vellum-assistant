@@ -395,11 +395,11 @@ export function GiveMeAFaceScreen({
         <Button
           type="button"
           variant="primary"
-          size="regular"
+          size="large"
           rightIcon={<ArrowRight size={16} />}
           disabled={!ready}
           onClick={handleContinue}
-          className="h-11 w-[234px] text-base"
+          className="w-[234px]"
         >
           {t("actions.continue")}
         </Button>

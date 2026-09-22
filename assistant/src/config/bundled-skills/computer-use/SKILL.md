@@ -21,7 +21,7 @@ connected desktop. CU tools run through the main agent loop via HostCuProxy.
 The skill is internally preactivated for conversations with a connected desktop client.
 
 Tools in this skill are proxy tools. Execution is forwarded to a connected
-desktop client and is never handled locally by the assistant.
+desktop client or handled by the assistant's virtual desktop.
 
 ## Observations
 

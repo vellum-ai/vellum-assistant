@@ -86,7 +86,7 @@ function handleWatcherCreate({ body = {} }: RouteHandlerArgs) {
   const credentialService =
     credentialServiceOverride ?? provider.requiredCredentialService;
 
-  const watcher = createWatcher({
+  return createWatcher({
     name,
     providerId,
     actionPrompt,
@@ -94,8 +94,6 @@ function handleWatcherCreate({ body = {} }: RouteHandlerArgs) {
     pollIntervalMs,
     configJson: config ? JSON.stringify(config) : null,
   });
-
-  return watcher;
 }
 
 function handleWatcherList({ body = {} }: RouteHandlerArgs) {

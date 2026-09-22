@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { SttError, type SttStreamServerEvent } from "../../../stt/types.js";
+import { VellumManagedFluxRealtimeTranscriber } from "../vellum-managed-flux-realtime.js";
 import { VellumManagedRealtimeTranscriber } from "../vellum-managed-realtime.js";
 import type { SpeechRelayConnection } from "../vellum-speech-relay-connection.js";
 
@@ -99,7 +100,7 @@ const CONNECTION: SpeechRelayConnection = {
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-describe("VellumManagedRealtimeTranscriber", () => {
+describe("Vellum managed realtime transcribers", () => {
   let sockets: MockWebSocket[];
   let originalWebSocket: unknown;
   let originalFetch: unknown;
@@ -260,6 +261,54 @@ describe("VellumManagedRealtimeTranscriber", () => {
     ]);
     // The second dial reuses the same auth/params.
     expect(new URL(sockets[1]!.url).searchParams.get("key")).toBe("vk-secret");
+  });
+
+  test("Flux turn indices stay in one sequence across relay reconnects", async () => {
+    const adapter = new VellumManagedFluxRealtimeTranscriber(CONNECTION);
+    const { events, onEvent } = collector();
+    const started = adapter.start(onEvent);
+    sockets[0]!.simulateOpen();
+    await started;
+    try {
+      for (let generation = 0; generation < 3; generation += 1) {
+        const socket = sockets[generation]!;
+        const turnIndex = generation === 0 ? 5 : 0;
+        const startFrame = JSON.stringify({
+          type: "TurnInfo",
+          event: "StartOfTurn",
+          turn_index: turnIndex,
+        });
+        socket.simulateMessage(startFrame);
+        socket.simulateMessage(startFrame);
+        socket.simulateMessage(
+          JSON.stringify({
+            type: "TurnInfo",
+            event: "EndOfTurn",
+            // A later end without its start still advances the sequence.
+            turn_index: generation === 1 ? 2 : turnIndex,
+            transcript: "hello",
+          }),
+        );
+        if (generation < 2) {
+          socket.simulateMessage(velayErrorFrame("session_duration_exceeded"));
+          socket.simulateClose(1000, "session_duration_exceeded");
+          await tick();
+          sockets[generation + 1]!.simulateOpen();
+          await tick();
+        }
+      }
+      expect(
+        events.flatMap((event) =>
+          event.type === "turn-start" || event.type === "turn-end"
+            ? [event.turnIndex]
+            : [],
+        ),
+      ).toEqual([5, 5, 5, 6, 6, 8, 9, 9, 9]);
+      expect(events.some((event) => event.type === "closed")).toBe(false);
+    } finally {
+      adapter.stop();
+      sockets.at(-1)!.simulateClose();
+    }
   });
 
   test("finalize during a re-dial settles immediately", async () => {

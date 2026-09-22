@@ -6,7 +6,7 @@
 
 import type { MouseEvent, ReactNode } from "react";
 
-import { toast } from "@vellumai/design-library";
+import { cn, textLinkVariants, toast } from "@vellumai/design-library";
 
 import {
   LocalFileIcon,
@@ -105,7 +105,11 @@ export function LocalFileLink({
       onClick={handleClick}
       aria-expanded={mode === "preview" ? isOpen : undefined}
       aria-haspopup={mode === "options" ? "dialog" : undefined}
-      className="inline-flex max-w-full items-baseline gap-1 cursor-pointer text-[var(--system-positive-strong)] underline hover:opacity-80"
+      data-slot="text-link"
+      className={cn(
+        textLinkVariants(),
+        "inline-flex max-w-full items-baseline gap-1",
+      )}
     >
       <LocalFileIcon
         kind={localFileKindFromFilename(filename)}

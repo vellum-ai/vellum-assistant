@@ -23,6 +23,7 @@ import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
   CompanionIntroAction,
+  CompanionIntroCallControl,
   CompanionIntroReport,
   CompanionSurfaceState,
   ConnectivityState,
@@ -546,6 +547,22 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:companion:introStage", handler);
       };
     },
+    getIntroChord: (): Promise<CompanionIntroCallControl | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:getIntroChord",
+      ) as Promise<CompanionIntroCallControl | null>,
+    onIntroChord: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        control: CompanionIntroCallControl | null,
+      ) => {
+        callback(control);
+      };
+      ipcRenderer.on("vellum:companion:introChord", handler);
+      return () => {
+        ipcRenderer.off("vellum:companion:introChord", handler);
+      };
+    },
     onIntroReport: (callback) => {
       const handler = (
         _event: IpcRendererEvent,
@@ -620,6 +637,9 @@ const bridge: VellumBridge = {
     },
     setFrameScrolling: (scrolling: boolean): void => {
       ipcRenderer.send("vellum:companion:setFrameScrolling", scrolling);
+    },
+    frameDrawn: (): void => {
+      ipcRenderer.send("vellum:companion:frameDrawn");
     },
     sharedFrame: (target: WatchCaptureTarget): void => {
       ipcRenderer.send("vellum:companion:sharedFrame", target);

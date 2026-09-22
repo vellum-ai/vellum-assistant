@@ -57,6 +57,7 @@ import {
 import { handle } from "./ipc";
 import log from "./logger";
 import {
+  JsonRpcHelperError,
   MacHelperClient,
   type MacHelperClientOptions,
   type MacHelperState,
@@ -492,29 +493,83 @@ const INPUT_PRESSED_SCHEMA = z.object({
 });
 
 /**
- * Whether a paste sent to the application in front would land in something
- * that takes text.
+ * What the helper can say about where a paste to the application in front
+ * would land.
  *
- * True on every answer but a confident no. A helper that is not running, not
- * trusted, or slow to answer cannot see a text field that is genuinely there,
- * and the cost of the two mistakes is not the same: withholding a paste that
- * would have worked breaks dictation into that application, where sending one
- * that lands nowhere is caught downstream and the words are offered instead.
+ * `takesText` is true on every answer but a confident no. A helper that is
+ * not running, not trusted, or slow to answer cannot see a text field that is
+ * genuinely there, and the cost of the two mistakes is not the same:
+ * withholding a paste that would have worked breaks dictation into that
+ * application, where sending one that lands nowhere is caught downstream and
+ * the words are offered instead.
+ *
+ * `helperAnswered` says whether the helper replied at all, so the paste that
+ * follows knows whether the helper can be asked to send it.
  */
-export const frontAppTakesText = async (): Promise<boolean> => {
+export type FrontAppFocus = { takesText: boolean; helperAnswered: boolean };
+
+export const readFrontAppFocus = async (): Promise<FrontAppFocus> => {
   try {
     const result = await client.call("focus.read");
     const parsed = FRONT_FOCUS_SCHEMA.safeParse(result);
     if (!parsed.success) {
       log.warn("[mac-helper] focus read returned an invalid result");
-      return true;
+      return { takesText: true, helperAnswered: false };
     }
-    return parsed.data.takesText;
+    return { takesText: parsed.data.takesText, helperAnswered: true };
   } catch (err) {
     log.warn(
       `[mac-helper] focus read failed: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return true;
+    return { takesText: true, helperAnswered: false };
+  }
+};
+
+const FRONT_SHORTCUT_SCHEMA = z.object({
+  outcome: z.enum(["posted", "untrusted", "noFrontApp", "failed"]),
+});
+
+/**
+ * Whether the helper sent a shortcut: `posted`; `declined` when it is certain
+ * nothing went (no helper to ask, the helper refused the call, or it said it
+ * did not post); `unknown` when the call was lost after it went out, which
+ * may have been after the keystroke did.
+ */
+export type ShortcutOutcome = "posted" | "declined" | "unknown";
+
+/** Send Command plus `key` to the application in front, from the helper. */
+export const postFrontAppShortcut = async (
+  key: "v" | "z",
+): Promise<ShortcutOutcome> => {
+  let pending: Promise<unknown>;
+  try {
+    pending = client.call("keys.shortcut", { key });
+  } catch (err) {
+    log.warn(
+      `[mac-helper] shortcut not sent: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return "declined";
+  }
+  try {
+    const parsed = FRONT_SHORTCUT_SCHEMA.safeParse(await pending);
+    if (!parsed.success) {
+      log.warn("[mac-helper] shortcut returned an invalid result");
+      return "unknown";
+    }
+    if (parsed.data.outcome !== "posted") {
+      log.warn(
+        `[mac-helper] shortcut cmd+${key} not posted: ${parsed.data.outcome}`,
+      );
+      return "declined";
+    }
+    return "posted";
+  } catch (err) {
+    log.warn(
+      `[mac-helper] shortcut failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    // An error the helper sent back means the handler refused the call before
+    // posting anything. Anything else lost the reply, not the request.
+    return err instanceof JsonRpcHelperError ? "declined" : "unknown";
   }
 };
 

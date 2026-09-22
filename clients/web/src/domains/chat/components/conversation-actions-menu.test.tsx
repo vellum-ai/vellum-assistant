@@ -308,6 +308,7 @@ describe("renderConversationMenuItems", () => {
           Primitive: Menu as unknown as ConversationMenuPrimitive,
           t,
           variant: "header",
+          onNewDocument: () => {},
           onCopyConversation: () => {},
           onForkConversation: () => {},
           onInspect: () => {},
@@ -323,6 +324,7 @@ describe("renderConversationMenuItems", () => {
     // from a parallel builder, so a reshuffle here that the sheet does not
     // follow is exactly the drift both surfaces exist to avoid.
     const order = [
+      "New Document",
       "Copy Full Conversation",
       "Fork Conversation",
       "Analyze Conversation",
@@ -335,6 +337,43 @@ describe("renderConversationMenuItems", () => {
     const positions = order.map((label) => html.indexOf(label));
     expect(positions).not.toContain(-1);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  test("New Document appears only in the header variant, and only when wired", () => {
+    const render = (props: Parameters<typeof renderConversationMenuItems>[0]) =>
+      renderToStaticMarkup(<>{renderConversationMenuItems(props)}</>);
+    const base = {
+      Primitive: Menu as unknown as ConversationMenuPrimitive,
+      t,
+      onRename: () => {},
+    };
+
+    expect(
+      render({ ...base, variant: "header", onNewDocument: () => {} }),
+    ).toContain("New Document");
+    expect(render({ ...base, variant: "header" })).not.toContain(
+      "New Document",
+    );
+    expect(
+      render({ ...base, variant: "sidebar", onNewDocument: () => {} }),
+    ).not.toContain("New Document");
+  });
+
+  test("the header sheet leads with New Document when wired", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          t,
+          variant: "header",
+          onNewDocument: () => {},
+          onCopyConversation: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    const newDocument = html.indexOf("New Document");
+    expect(newDocument).not.toBe(-1);
+    expect(newDocument).toBeLessThan(html.indexOf("Copy Full Conversation"));
   });
 
   test("renders Copy conversation ID in both variants when wired", () => {

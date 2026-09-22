@@ -1,32 +1,26 @@
+import {
+  type RecallSearchedSource,
+  type RecallSource,
+  RecallSourceSchema,
+} from "../../../../api/events/tool-result.js";
 import { isAbortReason } from "../host-utils.js";
 import {
-  ALL_RECALL_SOURCES,
   type NormalizedRecallInput,
   normalizeRecallInput,
   RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE,
   RECALL_TOTAL_EVIDENCE_TEXT_CAP,
 } from "./limits.js";
+import type { RecallInput } from "./recall-input.js";
 import type {
   RecallEvidence,
-  RecallInput,
   RecallSearchContext,
   RecallSearchResult,
-  RecallSource,
   RecallSourceAdapter,
 } from "./types.js";
 
-export type DeterministicRecallSourceStatus = "searched" | "degraded";
-
-export interface DeterministicRecallSourceNote {
-  source: RecallSource;
-  status: DeterministicRecallSourceStatus;
-  evidenceCount: number;
-  error?: string;
-}
-
 export interface DeterministicRecallSearchResult extends RecallSearchResult {
   input: NormalizedRecallInput;
-  searchedSources: DeterministicRecallSourceNote[];
+  searchedSources: RecallSearchedSource[];
 }
 
 export interface DeterministicRecallSearchOptions {
@@ -34,7 +28,7 @@ export interface DeterministicRecallSearchOptions {
 }
 
 const SOURCE_PRIORITY = new Map<RecallSource, number>(
-  ALL_RECALL_SOURCES.map((source, index) => [source, index]),
+  RecallSourceSchema.options.map((source, index) => [source, index]),
 );
 
 export async function runDeterministicRecallSearch(

@@ -105,6 +105,8 @@ export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
   assistantAudioActive?: boolean;
   responsePhase?: LiveVoiceResponsePhase | null;
+  /** Whether the turn is on a tool step, which reads as "Working…". */
+  onToolStep?: boolean;
   /** Mic level, polled ~30 Hz by the band's draw loop. No re-render per sample. */
   getAmplitude: () => number;
   /**
@@ -147,6 +149,7 @@ export function VoiceComposerBar({
   state,
   assistantAudioActive = state === "speaking",
   responsePhase = null,
+  onToolStep = false,
   getAmplitude,
   getOutputAmplitude,
   muted,
@@ -193,6 +196,7 @@ export function VoiceComposerBar({
     assistantAudioActive,
     false,
     responsePhase,
+    onToolStep,
   );
   return (
     <div

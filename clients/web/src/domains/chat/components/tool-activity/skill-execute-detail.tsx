@@ -28,7 +28,9 @@ export function SkillExecuteDetail({
     detail.input,
   );
 
-  const heading = innerToolName ? friendlyName(innerToolName) : "Skill tool";
+  const heading = innerToolName
+    ? friendlyName(innerToolName)
+    : t("skillExecuteDetail.unnamedTool");
   const subtitle = activity || detail.activity;
 
   return (
@@ -70,7 +72,7 @@ export function SkillExecuteDetail({
         </Typography>
       )}
 
-      <ToolInputParameters params={params} rawInput={detail.input} />
+      <ToolInputParameters params={params} />
     </div>
   );
 }

@@ -24,7 +24,7 @@
  */
 import { useLayoutEffect, useState, type ReactNode } from "react";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CalendarClock } from "lucide-react";
 
@@ -37,6 +37,7 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -53,12 +54,7 @@ function BillingQueryFixture({
   children: ReactNode;
   autoTopUpEnabled?: boolean;
 }) {
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      }),
-  );
+  const [client] = useState(() => createStoryQueryClient());
 
   // `useBillingBalanceStatus` refuses to read the summary unless the org is
   // resolved and the active assistant is platform hosted, so seeding the cache

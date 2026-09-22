@@ -3,9 +3,8 @@
  *
  * The gateway resolves this verdict from its ACL DB and stamps it onto the
  * inbound payload's `sourceMetadata`; the runtime consumes it. Keeping the
- * type here avoids the runtime importing from `gateway/src` and lets the
- * daemon's `trustClass` union (`actor-trust-resolver.ts`) converge on this
- * one source of truth.
+ * type here avoids the runtime importing from `gateway/src`, and the daemon
+ * imports {@link TrustClass} from here rather than declaring its own.
  *
  * This contract carries ACL + identity keys + minimal labels only — never
  * info fields (notes, userFile, contactType). `status` / `policy` / `type`
@@ -19,9 +18,9 @@ import { z } from "zod";
 import { AdmissionPolicySchema } from "./admission-policy-contract.js";
 
 /**
- * Verification-purpose trust classification. Mirrors the daemon's
- * `TrustClass` union (`actor-trust-resolver.ts`), ordered most- to
- * least-trusted.
+ * Trust classification of an inbound actor, ordered most- to least-trusted.
+ * The one declaration of the vocabulary: the gateway classifies with it and
+ * the daemon derives capabilities from it.
  */
 export const TRUST_CLASS_VALUES = [
   "guardian",

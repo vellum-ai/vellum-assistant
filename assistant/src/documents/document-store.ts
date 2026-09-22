@@ -5,6 +5,8 @@
  * background jobs (e.g. proactive artifact generation) can persist documents
  * without going through the HTTP layer.
  */
+import { randomUUID } from "node:crypto";
+
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
@@ -454,6 +456,27 @@ export function saveDocument(params: {
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }
+}
+
+export const DEFAULT_DOCUMENT_TITLE = "Untitled Document";
+
+/**
+ * Create a new document owned by `conversationId` under a freshly minted
+ * surface ID. A missing or empty title falls back to `DEFAULT_DOCUMENT_TITLE`.
+ */
+export function createDocument(params: {
+  conversationId: string;
+  title?: string;
+  content?: string;
+}): ReturnType<typeof saveDocument> {
+  const content = params.content ?? "";
+  return saveDocument({
+    surfaceId: `doc-${randomUUID()}`,
+    conversationId: params.conversationId,
+    title: params.title || DEFAULT_DOCUMENT_TITLE,
+    content,
+    wordCount: countWords(content),
+  });
 }
 
 // ---------------------------------------------------------------------------

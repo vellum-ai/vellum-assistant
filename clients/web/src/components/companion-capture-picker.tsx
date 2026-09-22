@@ -14,11 +14,16 @@ import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
-import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
+import {
+  COMPANION_BASE_AVATAR_BOX,
+  COMPANION_BASE_CAPTURE_PICKER_WIDTH,
+  companionLowerReachFor,
+} from "@vellumai/ipc-contract";
 import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
+  CompanionGrowth,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -61,9 +66,9 @@ import type {
  * Three tiles across at a size a window is still recognisable at. The canvas
  * holds it: main sizes the canvas for the call bar's own reach either side of
  * the creature, which is wider than this at every size the surface is drawn
- * at.
+ * at, and on a side dock for this card beside the column.
  */
-const CARD_WIDTH = 460;
+const CARD_WIDTH = COMPANION_BASE_CAPTURE_PICKER_WIDTH;
 
 /** How many tiles stand across the card. */
 const GRID_COLUMNS = 3;
@@ -127,6 +132,12 @@ export interface CompanionCapturePickerProps {
    */
   captureThumbnail?: (target: WatchCaptureTarget) => Promise<string | null>;
   cardGrowth?: CompanionCardGrowth;
+  /**
+   * The side of the call bar the card opens on while the bar stands up as a
+   * column on a side dock: away from the edge it is docked to. Absent on a
+   * row, where the card opens over or under the bar by `cardGrowth`.
+   */
+  side?: CompanionGrowth;
   avatarBox?: number;
   optionsBox?: number;
   /**
@@ -153,6 +164,7 @@ export function CompanionCapturePicker({
   sources,
   captureThumbnail,
   cardGrowth = "up",
+  side,
   avatarBox = COMPANION_BASE_AVATAR_BOX,
   optionsBox = COMPANION_BASE_AVATAR_BOX,
   cardRef,
@@ -161,7 +173,7 @@ export function CompanionCapturePicker({
   onAllowScreenRecording,
 }: CompanionCapturePickerProps) {
   const { t } = useTranslation();
-  const { inUnits, lineAt, introStepOff } = companionLayoutFor(
+  const { inUnits, lineAt, edgeAt, introStepOff, gap } = companionLayoutFor(
     avatarBox,
     optionsBox,
   );
@@ -174,15 +186,27 @@ export function CompanionCapturePicker({
   // introduction hangs its card off the creature's edge because the pill is
   // beside the creature then; here the bar closes around it, and a card hung
   // off one edge of a centred bar would sit lopsided over it. Teach is only
-  // on the call row, so this card is only ever over the bar.
-  const anchor: CSSProperties = {
-    left: "50%",
-    top: lineAt(cardGrowth, 0),
-    transform:
-      cardGrowth === "up"
-        ? `translate(-50%, calc(-100% - ${stepOff}px))`
-        : `translate(-50%, ${stepOff}px)`,
-  };
+  // on the call row, so on a row this card is only ever over the bar.
+  //
+  // On a side dock the bar is a column against the display's edge, and a card
+  // centred over it would hang half off the screen. So it stands beside the
+  // column instead, clear of its cross reach and the gap, centred on the
+  // column's middle, which is the canvas's.
+  const anchor: CSSProperties =
+    side !== undefined
+      ? {
+          ...edgeAt(side, companionLowerReachFor(avatarBox, optionsBox) + gap),
+          top: "50%",
+          transform: "translateY(-50%)",
+        }
+      : {
+          left: "50%",
+          top: lineAt(cardGrowth, 0),
+          transform:
+            cardGrowth === "up"
+              ? `translate(-50%, calc(-100% - ${stepOff}px))`
+              : `translate(-50%, ${stepOff}px)`,
+        };
 
   // What the host listed, while there is anything that could be drawn from
   // it. Without Screen Recording no tile could show or share what it names,

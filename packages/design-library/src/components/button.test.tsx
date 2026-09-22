@@ -328,7 +328,10 @@ describe("Button class output", () => {
     expect(html).toContain("h-auto");
     expect(html).toContain("p-0");
     expect(html).toContain("rounded-none");
-    expect(html).toContain("hover:underline");
+    // Underlined at rest, like TextLink, never only on hover.
+    expect(html).toMatch(/(^|\s)underline(\s|")/);
+    expect(html).not.toContain("hover:underline");
+    expect(html).toContain("hover:[--vbtn-fg:var(--content-link-hover)]");
     expect(html).not.toContain("h-8");
     expect(html).not.toContain("px-2.5");
   });
@@ -351,5 +354,97 @@ describe("Button class output", () => {
       </div>,
     );
     expect(html).not.toMatch(/#[0-9A-Fa-f]{6}\b/);
+  });
+
+  test("loading swaps the leading icon for a spinner and marks the button busy", () => {
+    const html = renderToStaticMarkup(
+      <Button loading leftIcon={<svg data-testid="left-icon" />}>
+        Save
+      </Button>,
+    );
+    expect(html).toContain("animate-spin");
+    expect(html).not.toContain('data-testid="left-icon"');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain("data-loading");
+    expect(html).toContain("Save");
+  });
+
+  test("loading stays focusable: it never sets the native disabled attribute", () => {
+    const html = renderToStaticMarkup(<Button loading>Save</Button>);
+    expect(html).not.toMatch(/<button[^>]*\sdisabled(=|\s|>)/);
+    expect(html).not.toContain('tabindex="-1"');
+  });
+
+  test("loading with no icon puts the spinner in the leading slot", () => {
+    const html = renderToStaticMarkup(<Button loading>Save</Button>);
+    expect(html.indexOf("animate-spin")).toBeGreaterThan(-1);
+    expect(html.indexOf("animate-spin")).toBeLessThan(html.indexOf("Save"));
+  });
+
+  test("loading replaces the icon-only glyph", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        loading
+        iconOnly={<svg data-testid="only-icon" />}
+        aria-label="Delete"
+      />,
+    );
+    expect(html).toContain("animate-spin");
+    expect(html).not.toContain('data-testid="only-icon"');
+    expect(html).toContain('aria-label="Delete"');
+  });
+
+  test("loading + disabled keeps the native disabled look and adds no aria-disabled", () => {
+    const html = renderToStaticMarkup(
+      <Button loading disabled>
+        Save
+      </Button>,
+    );
+    expect(html).toMatch(/<button[^>]*\sdisabled=""/);
+    expect(html).not.toContain('aria-disabled="');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("animate-spin");
+  });
+
+  test("a button that is not loading carries none of the loading attributes", () => {
+    const html = renderToStaticMarkup(<Button>Save</Button>);
+    expect(html).not.toContain("aria-busy");
+    expect(html).not.toContain("data-loading");
+    expect(html).not.toContain("animate-spin");
+  });
+
+  test("large size is 44px tall with the body-large type and a 16px icon", () => {
+    const html = renderToStaticMarkup(
+      <Button size="large" leftIcon={<svg />}>
+        Continue
+      </Button>,
+    );
+    expect(html).toContain("h-11");
+    expect(html).toContain("px-4");
+    expect(html).toContain("text-body-large-default");
+    expect(html).toContain("width:16px");
+    expect(html).not.toContain("h-8");
+  });
+
+  test("large icon-only is a 44px square with a 16px glyph", () => {
+    const html = renderToStaticMarkup(
+      <Button size="large" iconOnly={<svg />} aria-label="a" />,
+    );
+    expect(html).toContain("h-11");
+    expect(html).toContain("w-11");
+    expect(html).toContain("[&amp;_svg]:size-4");
+  });
+
+  test("pill shape rounds fully and wins over the size's own radius", () => {
+    const html = renderToStaticMarkup(<Button shape="pill">Pill</Button>);
+    expect(html).toContain("rounded-full");
+    expect(html).not.toContain("rounded-md");
+  });
+
+  test("default shape keeps the size's radius", () => {
+    const html = renderToStaticMarkup(<Button>Default</Button>);
+    expect(html).toContain("rounded-md");
+    expect(html).not.toContain("rounded-full");
   });
 });

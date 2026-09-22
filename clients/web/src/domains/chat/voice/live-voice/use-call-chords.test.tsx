@@ -10,7 +10,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-import type { ChordBinding, HotkeyEvent } from "@vellumai/ipc-contract";
+import type {
+  ChordBinding,
+  CompanionIntroCallControl,
+  HotkeyEvent,
+} from "@vellumai/ipc-contract";
 
 let chordsSupported = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
@@ -54,6 +58,17 @@ mock.module("@/domains/chat/voice/live-voice/call-chords", () => ({
   callChords,
 }));
 
+/**
+ * Which control the companion's introduction is asking for a chord for, as
+ * main reports it. Driven directly rather than through a fake bridge: what
+ * this hook owns is what it arms for each answer, and the answer arriving is
+ * `companion-intro-chord`'s own business.
+ */
+let introControl: CompanionIntroCallControl | null = null;
+mock.module("@/runtime/companion-intro-chord", () => ({
+  useCompanionIntroChord: () => introControl,
+}));
+
 let canBeShownTheScreen = false;
 mock.module(
   "@/domains/chat/voice/live-voice/screen-share-availability",
@@ -66,6 +81,12 @@ const { useCallChords } =
   await import("@/domains/chat/voice/live-voice/use-call-chords");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
+// The real store and the real key table, since what a press amounts to is half
+// of what the introduction's half of this hook does.
+const { useIntroCallChordStore } =
+  await import("@/domains/chat/voice/intro-call-chord-store");
+const { INTRO_CALL_CHORD_KEYS } =
+  await import("@/domains/chat/voice/live-voice/intro-call-chords");
 
 /** Move the session, which is what the hook is subscribed through. */
 const setCall = (running: boolean): void => {
@@ -82,6 +103,7 @@ describe("the call's chords", () => {
   beforeEach(() => {
     chordsSupported = true;
     canBeShownTheScreen = false;
+    introControl = null;
     setChordBinding.mockClear();
     handleCallChord.mockClear();
     callChords.mockClear();
@@ -196,6 +218,188 @@ describe("the call's chords", () => {
     renderHook(() => useCallChords());
 
     setCall(true);
+
+    expect(setChordBinding).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The chord the companion's introduction asks for, which the same effect arms
+ * because the host holds one binding per window.
+ *
+ * Three beats of the run draw a call control beside its shortcut, and the chip
+ * lights when the real keys are pressed. Nothing else happens: the pill those
+ * beats draw is a picture of a call with no session behind it, so there is
+ * nothing for the press to do, and while the binding is up the host takes
+ * Option+M from whatever the user is actually working in.
+ */
+describe("the introduction's chord", () => {
+  /** Move the beat, which reaches the hook as a re-render the way main's push does. */
+  const setIntro = (
+    view: { rerender: () => void },
+    control: CompanionIntroCallControl | null,
+  ): void => {
+    act(() => {
+      introControl = control;
+      view.rerender();
+    });
+  };
+
+  beforeEach(() => {
+    chordsSupported = true;
+    canBeShownTheScreen = false;
+    introControl = null;
+    setChordBinding.mockClear();
+    handleCallChord.mockClear();
+    useLiveVoiceStore.getState().setState("idle");
+    useIntroCallChordStore.setState({ presses: 0, control: null });
+  });
+
+  afterEach(() => {
+    cleanup();
+    emitHotkeyEvent = null;
+    introControl = null;
+    useLiveVoiceStore.getState().setState("idle");
+  });
+
+  /**
+   * Five of the eight beats ask for nothing, and so does the whole of the rest
+   * of the install. A binding armed there is a key taken for a card nobody is
+   * looking at.
+   */
+  test("arms nothing on the beats that ask for none", () => {
+    renderHook(() => useCallChords());
+
+    expect(setChordBinding).not.toHaveBeenCalled();
+  });
+
+  /**
+   * One key, not the call's four. A beat offers one control, and the other
+   * three chords would be taken from the desktop for a card that never
+   * mentions them.
+   */
+  test("arms the one key the beat is asking for", () => {
+    const view = renderHook(() => useCallChords());
+
+    setIntro(view, "mute");
+
+    expect(armedWith()).toEqual({
+      kind: "chord",
+      modifiers: ["option"],
+      keys: [INTRO_CALL_CHORD_KEYS.mute],
+    });
+  });
+
+  test("counts a press against the control the beat named", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "draw");
+
+    act(() => {
+      emitHotkeyEvent?.({
+        kind: "chord",
+        state: "down",
+        key: INTRO_CALL_CHORD_KEYS.draw,
+      });
+    });
+
+    expect(useIntroCallChordStore.getState()).toMatchObject({
+      presses: 1,
+      control: "draw",
+    });
+  });
+
+  /** The beat's pill is a drawing of a call, so there is nothing to act on. */
+  test("performs nothing the press would do on a real call", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "share");
+
+    act(() => {
+      emitHotkeyEvent?.({
+        kind: "chord",
+        state: "down",
+        key: INTRO_CALL_CHORD_KEYS.share,
+      });
+    });
+
+    expect(handleCallChord).not.toHaveBeenCalled();
+  });
+
+  /** Only one key was armed, so another arriving is the two sides disagreeing. */
+  test("ignores a key it did not arm", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "mute");
+
+    act(() => {
+      emitHotkeyEvent?.({
+        kind: "chord",
+        state: "down",
+        key: INTRO_CALL_CHORD_KEYS.share,
+      });
+    });
+
+    expect(useIntroCallChordStore.getState().presses).toBe(0);
+  });
+
+  test("gives the key back when the run walks on", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "mute");
+    setChordBinding.mockClear();
+
+    setIntro(view, null);
+
+    expect(armedWith()).toEqual({ kind: "off" });
+  });
+
+  /**
+   * The run ends by starting a real call, so the beat going away and the
+   * session arriving are the same moment from two directions. Whichever lands
+   * first, what the user is left with is the call's own binding: a release that
+   * outlived it would be Option+M doing nothing mid-conversation.
+   */
+  test("leaves the call's binding standing when the run ends into a call", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "mute");
+
+    setCall(true);
+    setIntro(view, null);
+
+    expect(armedWith()).toBe(ALL_CHORDS);
+
+    act(() => {
+      emitHotkeyEvent?.({ kind: "chord", state: "down", key: "s" });
+    });
+    expect(handleCallChord).toHaveBeenCalledWith("s");
+  });
+
+  /**
+   * The other order: a call that starts while a beat still has a key armed.
+   * The call is the only one of the two whose chords do anything, so it takes
+   * the binding and the press with it.
+   */
+  test("hands the binding to a call that starts mid-beat", () => {
+    const view = renderHook(() => useCallChords());
+    setIntro(view, "mute");
+
+    setCall(true);
+
+    expect(armedWith()).toBe(ALL_CHORDS);
+
+    act(() => {
+      emitHotkeyEvent?.({
+        kind: "chord",
+        state: "down",
+        key: INTRO_CALL_CHORD_KEYS.mute,
+      });
+    });
+    expect(handleCallChord).toHaveBeenCalledWith(INTRO_CALL_CHORD_KEYS.mute);
+    expect(useIntroCallChordStore.getState().presses).toBe(0);
+  });
+
+  test("arms nothing on a host that cannot watch a chord", () => {
+    chordsSupported = false;
+    const view = renderHook(() => useCallChords());
+
+    setIntro(view, "share");
 
     expect(setChordBinding).not.toHaveBeenCalled();
   });

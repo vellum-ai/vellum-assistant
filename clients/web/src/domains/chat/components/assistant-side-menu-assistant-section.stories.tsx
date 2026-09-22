@@ -23,8 +23,9 @@
  * breaks this build rather than surfacing later in the app.
  */
 
+import { createStoryQueryClient } from "@/lib/story-query-cache";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cn } from "@vellumai/design-library";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -132,11 +133,7 @@ const PINNED: Conversation[] = [
 ];
 
 function seededClient(assistantThreads: Conversation[]): QueryClient {
-  const client = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, staleTime: Infinity, gcTime: Infinity },
-    },
-  });
+  const client = createStoryQueryClient();
 
   /* The section index: what the daemon serves from
      GET /v1/conversations/sections. The `assistant` row is emitted only under

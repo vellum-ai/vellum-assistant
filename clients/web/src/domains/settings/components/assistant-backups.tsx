@@ -208,9 +208,8 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
       )}
       <Button
         variant="outlined"
-        leftIcon={
-          creatingBackup ? <Loader2 className="animate-spin" /> : <Save />
-        }
+        loading={creatingBackup}
+        leftIcon={<Save />}
         onClick={handleCreateBackup}
         disabled={creatingBackup || restoringSnapshot !== null}
         className="shrink-0"
@@ -296,13 +295,8 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                   <td className="py-2.5 text-right">
                     <Button
                       variant="ghost"
-                      leftIcon={
-                        restoringSnapshot === backup.snapshot_name ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <RotateCcw />
-                        )
-                      }
+                      loading={restoringSnapshot === backup.snapshot_name}
+                      leftIcon={<RotateCcw />}
                       onClick={() => setPendingBackup(backup)}
                       disabled={
                         restoringSnapshot !== null || !backup.ready_to_use
@@ -362,13 +356,8 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
               </div>
               <Button
                 variant="ghost"
-                leftIcon={
-                  restoringSnapshot === backup.snapshot_name ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <RotateCcw />
-                  )
-                }
+                loading={restoringSnapshot === backup.snapshot_name}
+                leftIcon={<RotateCcw />}
                 onClick={() => setPendingBackup(backup)}
                 disabled={restoringSnapshot !== null || !backup.ready_to_use}
                 title={

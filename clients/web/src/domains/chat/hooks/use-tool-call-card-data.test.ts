@@ -29,7 +29,7 @@ import { toolCallStatusWireFields } from "@/domains/chat/utils/message-test-help
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
-} from "@/assistant/web-activity-types";
+} from "@vellumai/assistant-api";
 
 function makeResult(
   i: number,

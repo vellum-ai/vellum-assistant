@@ -7,9 +7,10 @@
  * Not a Zustand store. The bus has no state; what looks like state
  * (the handler set) is a registry, not user-observable application
  * state, so Zustand's selector + re-render machinery does not apply.
- * Handlers fire synchronously from `publish()` so a burst of events
- * is not collapsed into a single React commit. See
- * `STATE_MANAGEMENT.md` for the convention carve-out.
+ * Handlers fire synchronously from `publish()` and never through
+ * reactive state, where a burst written inside one batched commit would
+ * surface only its last event. See `STATE_MANAGEMENT.md` for the
+ * convention carve-out.
  *
  * Producers:
  *   - `runtime/event-sources/*` for host-environment signals
@@ -25,6 +26,7 @@
  */
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { CommandUrlProvenance } from "@/runtime/native-deep-link";
 
 /**
@@ -437,12 +439,16 @@ export function publish<K extends BusEventName>(
     try {
       (handler as (p: typeof payload) => void)(payload);
     } catch (err) {
-      // One bad subscriber must not block downstream subscribers.
-      // Console-log rather than re-throw or call Sentry directly so
-      // the bus stays free of a hard dependency on the reporting
-      // layer (subscribers already log their own captures via Sentry
-      // when they care about it).
-      console.error("[event-bus] handler threw", event, err);
+      // One bad subscriber must not block downstream subscribers, and its
+      // error must not stop here either: a handler that throws has skipped
+      // the rest of its work for this event, and most subscribers have no
+      // catch of their own. `captureError` logs to the console and reports
+      // to Sentry, tagged with the event so one failing handler groups apart
+      // from another's.
+      captureError(err, {
+        context: "event_bus.handler",
+        tags: { bus_event: event },
+      });
     }
   }
 }

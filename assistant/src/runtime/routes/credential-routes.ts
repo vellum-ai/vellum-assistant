@@ -607,8 +607,7 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 }
 
 async function handleCredentialsStatus() {
-  const info = await getActiveBackendInfoAsync();
-  return info;
+  return getActiveBackendInfoAsync();
 }
 
 // ---------------------------------------------------------------------------

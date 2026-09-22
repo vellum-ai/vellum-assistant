@@ -86,3 +86,23 @@ describe("the card offering a dictation nothing would take", () => {
     expect(answers).toEqual(["copy", "dismiss"]);
   });
 });
+
+/**
+ * A paste that failed leaves the same words in hand with the same answers.
+ * Only the heading differs: there was somewhere to put them, and the user is
+ * looking at the cursor for them, so the card says the paste did not go.
+ */
+describe("the card offering a dictation whose paste failed", () => {
+  test("says the paste failed and offers the clipboard", () => {
+    const { container } = render(
+      <CompanionDictationOffer
+        offer={{ ...UNPLACED, reason: "paste-failed" }}
+      />,
+    );
+    expect(container.textContent).toContain("Couldn't paste these");
+    expect(container.textContent).not.toContain("Nowhere to put these");
+    expect(buttonOf(container, "Copy")).not.toBeNull();
+    expect(buttonOf(container, "Discard")).not.toBeNull();
+    expect(buttonOf(container, "Use Vellum's")).toBeNull();
+  });
+});

@@ -52,7 +52,7 @@ export function ContentActionBar({
   }
 
   return (
-    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-primary)] shadow-sm">
+    <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-lift)] shadow-sm">
       {showEdit && onToggleEdit && (
         <Button
           variant="ghost"
@@ -136,7 +136,7 @@ export function EditFooter({
       {error && (
         <span
           className="mr-auto text-body-small-default"
-          style={{ color: "var(--system-error)" }}
+          style={{ color: "var(--system-negative-strong)" }}
         >
           {error}
         </span>

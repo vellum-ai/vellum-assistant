@@ -237,7 +237,7 @@ export function SlackChannelList({
         <Typography
           as="span"
           variant="body-small-lighter"
-          className="text-[color:var(--content-negative)]"
+          className="text-[color:var(--system-negative-strong)]"
         >
           {t("slackChannelList.loadFailed")}
         </Typography>

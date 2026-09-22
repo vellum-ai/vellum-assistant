@@ -34,6 +34,9 @@ let mcpFails = false;
 let pluginCatalogFails = false;
 let pluginListFails = false;
 let mcpAuthFails = false;
+let mcpAuthCompletes = false;
+let heldPluginRemoval: (() => void) | null = null;
+let holdPluginRemoval = false;
 let assistantAvailable = true;
 let platformGate = "full";
 let allowAdd = true;
@@ -130,12 +133,21 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   }) => ({
     mutate: (variables: { path: { name: string } }) => {
       const name = variables.path.name;
-      removedPluginNames.push(name);
-      seededPlugins = seededPlugins.filter((plugin) => plugin.name !== name);
-      seededServers = seededServers.filter(
-        (entry) => entry.pluginName !== name,
-      );
-      options?.onSuccess?.({}, variables);
+      const settle = () => {
+        removedPluginNames.push(name);
+        seededPlugins = seededPlugins.filter((plugin) => plugin.name !== name);
+        seededServers = seededServers.filter(
+          (entry) => entry.pluginName !== name,
+        );
+        options?.onSuccess?.({}, variables);
+      };
+      // A removal the test holds open stands for the window between the
+      // request and its answer, which is where a second connect would land.
+      if (holdPluginRemoval) {
+        heldPluginRemoval = settle;
+        return;
+      }
+      settle();
     },
     isPending: false,
     isError: false,
@@ -223,7 +235,9 @@ mock.module("@/domains/settings/mcp/mcp-api", () => ({
     }
     return { auth_url: "https://example.com/oauth", state: "state-123" };
   },
-  pollMcpAuthStatus: async () => ({ status: "pending" }),
+  pollMcpAuthStatus: async () => ({
+    status: mcpAuthCompletes ? "complete" : "pending",
+  }),
 }));
 
 const { IntegrationsPage } = await import("./integrations-page");
@@ -365,6 +379,9 @@ afterEach(() => {
   pluginCatalogFails = false;
   pluginListFails = false;
   mcpAuthFails = false;
+  mcpAuthCompletes = false;
+  holdPluginRemoval = false;
+  heldPluginRemoval = null;
   assistantAvailable = true;
   platformGate = "full";
   platformHosted = true;
@@ -456,6 +473,22 @@ describe("IntegrationsPage", () => {
     await screen.findByText(/MCP connections could not be loaded/);
   });
 
+  test("an unreadable server list leaves connected plugins where they are", async () => {
+    mcpFails = true;
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    // Without the list there is no telling an unauthorized plugin from one
+    // whose servers simply did not arrive, so the install is trusted and the
+    // integration keeps its place.
+    await screen.findByText(/MCP connections could not be loaded/);
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    screen.getByRole("button", { name: "Configure Example" });
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    await settle();
+  });
+
   test("plugin catalog failures do not hide existing integrations", async () => {
     pluginCatalogFails = true;
     seededProviders = [provider()];
@@ -504,6 +537,147 @@ describe("IntegrationsPage", () => {
         screen.queryByText("Finish signing in to Example in your browser."),
       ).toBeNull(),
     );
+    await settle();
+  });
+
+  test("cancelling a sign-in takes back the plugin it installed", async () => {
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+    await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
+    await screen.findByText("Finish signing in to Example in your browser.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // The install only happened to reach a sign-in that never did, so the
+    // integration goes back to how it was found: on offer, with nothing to
+    // attend to and no half-connected plugin behind it.
+    await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
+    await screen.findByRole("heading", { name: /Available/ });
+    expect(
+      screen.queryByRole("heading", { name: /Your integrations/ }),
+    ).toBeNull();
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    screen.getByRole("button", { name: "Connect Example" });
+    await settle();
+  });
+
+  test("cancelling before the install lands still takes it back", async () => {
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    // The cancel is clicked in the same tick as the connect, so the install
+    // request has not settled yet. The removal waits for it rather than
+    // missing it.
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
+    await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
+    await settle();
+  });
+
+  test("giving up the wait after the grant lands keeps the plugin", async () => {
+    // The sign-in completed and the connection is coming up. The plugin holds
+    // credentials the user just gave it, so giving up on watching it must not
+    // take them away again.
+    mcpAuthCompletes = true;
+    // A manual setup runs in the dialog, which is the surface that can still
+    // stop a wait this far along.
+    seededCatalog = [
+      catalogMatch({
+        integration: {
+          ...catalogMatch().integration!,
+          setup: { mode: "manual", instructions: "Allowlist the callback." },
+        },
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
+
+    await screen.findByText("Connecting to Example...");
+    fireEvent.click(screen.getByRole("button", { name: "Stop waiting" }));
+
+    await settle();
+    expect(removedPluginNames).toEqual([]);
+  });
+
+  test("a cancelled connect cannot restart until its removal settles", async () => {
+    holdPluginRemoval = true;
+    seededCatalog = [catalogMatch()];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByText("Example");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Example" }));
+    await waitFor(() => expect(installedPluginNames).toEqual(["example-mcp"]));
+    await screen.findByText("Finish signing in to Example in your browser.");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // The removal is in flight. A connect over it would be handed the plugin
+    // that removal is on its way to taking, so the tile waits for it.
+    const connect = await screen.findByRole("button", {
+      name: "Connect Example",
+    });
+    await waitFor(() =>
+      expect((connect as HTMLButtonElement).disabled).toBe(true),
+    );
+    fireEvent.click(connect);
+    expect(authStarts).toEqual(["example-mcp-server"]);
+
+    act(() => heldPluginRemoval?.());
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Connect Example",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+    await settle();
+  });
+
+  test("cancelling a reconnect keeps the plugin that predates it", async () => {
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    seededServers = [
+      server({
+        id: "example-server",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+        hasOAuth: true,
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+    await screen.findByText(
+      "Finish signing in to Example in your browser, then come back here.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Nothing was installed for this attempt, so nothing is taken away: the
+    // integration the user already had survives giving up on signing in again.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Finish signing in to Example in your browser, then come back here.",
+        ),
+      ).toBeNull(),
+    );
+    expect(removedPluginNames).toEqual([]);
+    expect(installedPluginNames).toEqual([]);
     await settle();
   });
 
@@ -720,6 +894,7 @@ describe("IntegrationsPage", () => {
         source: "plugin",
         pluginName: "notion-mcp",
         status: "needs-auth",
+        hasOAuth: true,
       }),
     ];
     render(<IntegrationsPage />, { wrapper: Wrapper });
@@ -965,6 +1140,7 @@ describe("IntegrationsPage", () => {
         source: "plugin",
         pluginName: "example-mcp",
         status: "needs-auth",
+        hasOAuth: true,
       }),
     ];
     render(<IntegrationsPage />, { wrapper: Wrapper });
@@ -991,6 +1167,7 @@ describe("IntegrationsPage", () => {
         source: "plugin",
         pluginName: "example-mcp",
         status: "needs-auth",
+        hasOAuth: true,
       }),
     ];
     render(<IntegrationsPage />, { wrapper: Wrapper });
@@ -1021,6 +1198,7 @@ describe("IntegrationsPage", () => {
         source: "plugin",
         pluginName: "example-mcp",
         status: "needs-auth",
+        hasOAuth: true,
       }),
     ];
     render(<IntegrationsPage />, { wrapper: Wrapper });
@@ -1048,6 +1226,9 @@ describe("IntegrationsPage", () => {
     seededPlugins = [installedPlugin()];
     render(<IntegrationsPage />, { wrapper: Wrapper });
 
+    // Nothing was ever signed in to, but there is also no single server for a
+    // tile to offer, so the integration stays where the only thing left to do
+    // with it lives.
     await screen.findByRole("heading", { name: /Your integrations/ });
     fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
     await screen.findByText("Manage how Vellum connects to Example.");
@@ -1058,6 +1239,33 @@ describe("IntegrationsPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
 
     await waitFor(() => expect(removedPluginNames).toEqual(["example-mcp"]));
+    await settle();
+  });
+
+  test("keeps a multi-server plugin manageable before any sign-in", async () => {
+    seededCatalog = [catalogMatch()];
+    seededPlugins = [installedPlugin()];
+    seededServers = [
+      server({
+        id: "example-a",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+      }),
+      server({
+        id: "example-b",
+        source: "plugin",
+        pluginName: "example-mcp",
+        status: "needs-auth",
+      }),
+    ];
+    render(<IntegrationsPage />, { wrapper: Wrapper });
+
+    // Two servers and no credentials: a tile could not choose between them,
+    // so the dialog keeps the per-server sign-ins reachable.
+    await screen.findByRole("heading", { name: /Your integrations/ });
+    fireEvent.click(screen.getByRole("button", { name: "Configure Example" }));
+    expect(await screen.findAllByRole("button", { name: "Reconnect" })).toHaveLength(2);
     await settle();
   });
 

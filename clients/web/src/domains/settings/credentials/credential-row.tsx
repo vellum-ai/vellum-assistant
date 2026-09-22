@@ -133,13 +133,8 @@ export function CredentialRow({
               onClick={onGenerateLink}
               disabled={busy}
               aria-label={t("credentialRow.generateLinkAriaLabel", { name })}
-              iconOnly={
-                generatingLink ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Link2 aria-hidden />
-                )
-              }
+              loading={generatingLink}
+              iconOnly={<Link2 aria-hidden />}
             />
           </Tooltip>
           <Tooltip content={t("credentialRow.deleteLabel")} side="top">
@@ -148,13 +143,8 @@ export function CredentialRow({
               onClick={onDelete}
               disabled={busy}
               aria-label={t("credentialRow.deleteAriaLabel", { name })}
-              iconOnly={
-                deleting ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Trash2 aria-hidden />
-                )
-              }
+              loading={deleting}
+              iconOnly={<Trash2 aria-hidden />}
             />
           </Tooltip>
         </div>
@@ -294,7 +284,7 @@ function CredentialValue({
         // (first4****) is also excluded, not just the revealed plaintext.
         // https://docs.logrocket.com/reference/dom#sanitizing-individual-elements
         data-private
-        className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)] ${
+        className={`min-w-0 truncate rounded-sm text-left transition-[filter,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] ${
           isRevealed
             ? "text-[var(--content-secondary)]"
             : "select-none text-[var(--content-tertiary)] blur-[3px] hover:blur-[2px]"
@@ -311,7 +301,7 @@ function CredentialValue({
             onClick={copy}
             aria-label={t("credentialRow.copyValueAriaLabel", { name })}
             title={t("credentialRow.copyValueTitle")}
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           >
             {justCopied ? (
               <Check className="h-3.5 w-3.5" aria-hidden />
@@ -324,7 +314,7 @@ function CredentialValue({
             onClick={hide}
             aria-label={t("credentialRow.hideValueAriaLabel", { name })}
             title={t("credentialRow.hideValueTitle")}
-            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+            className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
           >
             <EyeOff className="h-3.5 w-3.5" aria-hidden />
           </button>
@@ -335,7 +325,7 @@ function CredentialValue({
           onClick={() => void reveal()}
           aria-label={t("credentialRow.revealValueAriaLabel", { name })}
           title={t("credentialRow.clickToRevealTitle")}
-          className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]"
+          className="shrink-0 rounded-sm p-0.5 text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
         >
           <Eye className="h-3.5 w-3.5" aria-hidden />
         </button>

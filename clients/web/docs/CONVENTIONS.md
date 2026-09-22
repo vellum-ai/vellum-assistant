@@ -714,15 +714,27 @@ useEffect(() => {
 }, []);
 ```
 
-This is not micro-optimization. React increments an internal counter on
-every commit that finishes with an ordinary update already queued, and
-throws `Maximum update depth exceeded` once fifty-one land back to back —
-no render loop required, just enough independent updaters overlapping. A
-streaming conversation already runs several (the transcript snapshot, the
-smooth-text reveal, scroll classification, query notifications); a
-decorative animation that adds one more per visible instance, for the
-whole length of a turn, is what tipped that over in production
-(LUM-2859).
+This is not micro-optimization. Every state update is a commit, and a
+streaming conversation already pays for many (the transcript snapshot,
+the smooth-text reveal, scroll classification, query notifications); a
+decorative animation adds one more per visible instance, per tick, for
+the whole length of a turn.
+
+Commits also have a hard ceiling. React increments an internal counter
+on every commit that finishes with an ordinary update already queued,
+resets it on the first commit that does not, and throws
+`Maximum update depth exceeded` from whatever `setState` runs after the
+fiftieth, so the stack names a bystander. No render loop is required.
+What reaches the ceiling is a run of synchronous commits inside one
+task, with any effect that sets state in the tree: the effect's update
+is default priority, it cannot render until the task ends, and so every
+commit after it counts. Stream delivery is such a run when each SSE
+envelope is published on arrival, which is why
+`assistant/sse-service.ts` drains envelopes once per task (see
+[`EVENT_BUS.md`](./EVENT_BUS.md#sse-envelope-delivery)). The same shape
+is reachable from any producer that writes a store once per microtask
+(a `for await` loop, a promise chain over a list), so batch those writes
+into one task as well.
 
 When a component drives `d`/`transform`/`style` imperatively, the value
 it renders must stay constant across re-renders — React only patches
@@ -1085,12 +1097,21 @@ body, a response shape, an enum from the schema. The generated types in
 fields like a blob `previewUrl`). A hand-written copy silently drifts
 from the wire the moment the schema changes.
 
+`src/generated/` covers what the HTTP routes carry. A wire shape no route
+declares, such as a conversation stream event and the shapes nested in it,
+comes from `@vellumai/assistant-api` instead: the zod schemas in
+`assistant/src/api`, served to the web as source (see `AGENTS.md`). The two
+share one origin, since a route whose `responseBody` embeds one of those
+schemas reaches `src/generated/` through the OpenAPI spec. Import the value
+from whichever of the two carries it, never a copy of either.
+
 If a type is **missing or wrong**, the fix is at the schema, not in the
 client: add or correct the route's `responseBody` (the daemon routes in
 `assistant/src/runtime/routes/*` declare zod `responseBody` schemas that
 drive the OpenAPI spec) and regenerate — do **not** paper over it with a
 hand-rolled type. A missing response-body schema is the usual reason a
-type isn't generated.
+type isn't generated. For a shape from `@vellumai/assistant-api`, the fix
+is its schema in `assistant/src/api`.
 
 ```ts
 // Good — derive the client view-model from the generated shape
@@ -1540,6 +1561,16 @@ renders correctly given the data it actually receives in production.
   regression in the thing it claims to document. If a story needs a
   layout the shipped primitives can't express, that's the signal a
   primitive is missing, not a licence to hand-roll one in the story.
+- **A story's seeded query cache comes from `lib/story-query-cache`.** A
+  story, or a story-support module, that seeds query data does it with
+  `withQueryCache((client) => client.setQueryData(...))`, or
+  `createStoryQueryClient(seed)` where it needs the client itself. Never
+  build a `QueryClient` by hand for it: the helper is the one statement of
+  what a seeded story cache does (no retries, no refetches of a seeded
+  entry, nothing collected), and a hand-built copy drifts from it. The one
+  other story client is `.storybook/preview.tsx`'s shared fallback, which
+  keeps default staleness because stories that answer requests through
+  `stubClientFetch` rely on each mount refetching from their own stub.
 - **Wrappers go in decorators, styling goes in the component.** A story
   may frame its subject (a width, a backdrop, a provider); it may not
   restyle it. When a story and a call site need the same treatment,

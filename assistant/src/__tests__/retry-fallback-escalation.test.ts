@@ -12,7 +12,9 @@ mock.module("../util/retry.js", () => ({
 import {
   recordFallbackServed,
   resetFallbackBreaker,
+  shouldSkipPrimary,
 } from "../providers/fallback-breaker.js";
+import { malformedToolCallError } from "../providers/malformed-tool-call.js";
 import type {
   Message,
   Provider,
@@ -664,6 +666,26 @@ describe("RetryProvider fallback-route escalation", () => {
     expect(primary.calls()).toBe(1);
     expect(route.calls()).toBe(1);
     expect(backup.calls()).toBe(1);
+  });
+
+  test("malformed tool call exhausts retries → backup serves, breaker stays closed", async () => {
+    const primary = failingProvider("openai", () =>
+      malformedToolCallError("openai", "MALFORMED_FUNCTION_CALL"),
+    );
+    const backup = backupProvider();
+    const route = makeRoute(backup.provider);
+    const wrapped = new RetryProvider(primary.provider, {
+      resolveFallbackRoute: route.resolveFallbackRoute,
+    });
+
+    const result = await wrapped.sendMessage(MESSAGES, {
+      config: { callSite: "mainAgent" },
+    });
+
+    expect(primary.calls()).toBe(1 + DEFAULT_MAX_RETRIES);
+    expect(backup.calls()).toBe(1);
+    expect(result.model).toBe("backup-model");
+    expect(shouldSkipPrimary({ upstream: "openai" })).toBe(false);
   });
 
   test("resolveFallbackRoute unset → behavior unchanged (original error rethrown)", async () => {

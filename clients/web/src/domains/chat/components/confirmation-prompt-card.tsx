@@ -136,6 +136,7 @@ export function ConfirmationPromptCard({
           <button
             type="button"
             onClick={() => setShowDetails((v) => !v)}
+            aria-expanded={showDetails}
             className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]"
           >
             <ChevronRight

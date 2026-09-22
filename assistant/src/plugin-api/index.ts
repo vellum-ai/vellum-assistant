@@ -33,9 +33,11 @@
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
  * - {@link getModelProfiles} — list the workspace inference profiles a plugin
  *   can route to (e.g. a model router building its category → profile map)
- * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
+ * - {@link getConfiguredProvider}: resolve a {@link Provider} for a call site
  *   (optionally overriding the profile) and run inference through the
- *   workspace's configured profiles and credentials — no plugin-supplied API key
+ *   workspace's configured profiles and credentials, with no plugin-supplied API key
+ * - {@link getEffectiveContextWindow}: resolve that call site's provider,
+ *   model, and effective maximum input size
  *
  * - {@link InitContext} — passed to `init` hook at bootstrap
  * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
@@ -220,6 +222,11 @@ export { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+export type {
+  EffectiveContextWindowInfo,
+  EffectiveContextWindowOptions,
+} from "./effective-context-window.js";
+export { getEffectiveContextWindow } from "./effective-context-window.js";
 // Resolve an image/file block's media `source` to its bytes as inline base64,
 // whether the source is inline base64 or a persisted workspace reference
 // (attachment-store row or a file on disk). Returns null when a reference can no
@@ -403,6 +410,16 @@ export { persistSystemCard } from "./system-card.js";
 // what makes that true. Host tools and plugin tools share this one guard.
 export type { CancellableToolContext } from "./tool-cancellation.js";
 export { throwIfCancelled } from "./tool-cancellation.js";
+// Tool input from a Zod schema: derive the advertised `input_schema` from the
+// schema the tool parses its input with, so what the model is told and what
+// the tool accepts share one source. The host validates built-in tools'
+// input centrally; a plugin tool parses its own, and answers a failed parse
+// with `invalidToolInputResult` so its message reads the same as the host's.
+export {
+  invalidToolInputResult,
+  nullAsOmitted,
+  toToolInputSchema,
+} from "../tools/shared/zod-tool-schema.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

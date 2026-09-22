@@ -43,6 +43,7 @@ import {
 } from "@/domains/chat/watch/watch-controller";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
+import { useIntroCallChordStore } from "@/domains/chat/voice/intro-call-chord-store";
 import { useVoiceKeyTapStore } from "@/domains/chat/voice/voice-key-tap-store";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
@@ -164,6 +165,14 @@ function currentContext(): CompanionContext {
     // surface that draws the key while teaching it is a different renderer
     // entirely.
     voiceKeyTaps: useVoiceKeyTapStore.getState().taps,
+    // Presses of a call's shortcut, published from here for the reason the
+    // taps are: the chord reaches only the window that armed it, and the card
+    // drawing that shortcut is a different renderer. The control travels with
+    // the count the way `captureTarget` travels with `captureCount`: the two
+    // are one fact about one press, and a count that arrived a push apart from
+    // the control it belongs to would light a chip on the wrong card.
+    introChordPresses: useIntroCallChordStore.getState().presses,
+    introChordControl: useIntroCallChordStore.getState().control ?? undefined,
   };
 }
 
@@ -172,8 +181,8 @@ function currentOffer(): CompanionDictationOffer | undefined {
   if (offer === null) {
     return undefined;
   }
-  if (offer.reason === "no-text-field") {
-    return { reason: "no-text-field", id: offer.id, text: offer.text };
+  if (offer.reason !== "claimed") {
+    return { reason: offer.reason, id: offer.id, text: offer.text };
   }
   return {
     reason: "claimed",
@@ -301,7 +310,9 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.dictationOffer?.text === b.dictationOffer?.text &&
     samePopover(a.popover, b.popover) &&
     a.voicesPickable === b.voicesPickable &&
-    a.voiceKeyTaps === b.voiceKeyTaps
+    a.voiceKeyTaps === b.voiceKeyTaps &&
+    a.introChordPresses === b.introChordPresses &&
+    a.introChordControl === b.introChordControl
   );
 }
 
@@ -429,11 +440,25 @@ export function useCompanionMirror(): void {
     const unsubscribeDictation = useVoiceRecordingStore.subscribe(
       onDictationMaybeFlipped,
     );
-    // The key being touched. Its store moves once per tap and for nothing
-    // else, so it goes straight to `sync` with no gate in front of it. One push
-    // per tap is the cost, which is a tap of one key against an integer on a
-    // payload the surface is already being sent.
+    // The key being touched, which only the introduction has ever drawn. No
+    // gate here on purpose: the gate is upstream, on the count itself
+    // (`global-push-to-talk-bridge`), so the store moves only while a run is up
+    // and every move it makes is one the surface wants. A push is not the cheap
+    // thing it looks like, since `sync` reselects and remaps the whole context
+    // before it crosses two process boundaries and lands as a render, so the
+    // question is not what the payload costs but whether anybody asked for it.
+    //
+    // Gating here instead would leave the store climbing behind a closed
+    // publish, and the card baselines on what it is handed when the beat
+    // changes: the next run's first push would arrive carrying every tap made
+    // since, and open with the cap already filled.
     const unsubscribeTaps = useVoiceKeyTapStore.subscribe(sync);
+    // The call's shortcuts being pressed, which only the introduction has ever
+    // drawn. Ungated here for the reason the taps are, and with a sharper
+    // version of the same gate upstream: nothing is armed to hear one of these
+    // outside the three beats that ask (`use-call-chords`), so a move of this
+    // store is a press a card is waiting for.
+    const unsubscribeChords = useIntroCallChordStore.subscribe(sync);
     return () => {
       // **Before the unsubscribes**, so the flip this causes is still published
       // and the surface does not keep a capture indicator over a machine
@@ -456,6 +481,7 @@ export function useCompanionMirror(): void {
       unsubscribePopover();
       unsubscribeDictation();
       unsubscribeTaps();
+      unsubscribeChords();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record
       // of whose surface this is, and the surface is still on screen.

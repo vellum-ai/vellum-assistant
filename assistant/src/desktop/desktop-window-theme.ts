@@ -13,24 +13,7 @@ const BUTTON_MASKS = {
   iconify: [0, 0, 0, 0, 0x3ff, 0x3ff, 0, 0, 0, 0],
 };
 
-function windowTheme(accentHex: string | null): string {
-  const tint = (base: string, amount: number): string => {
-    if (!accentHex || !/^#[\da-f]{6}$/i.test(accentHex)) {
-      return base;
-    }
-    return (
-      "#" +
-      [1, 3, 5]
-        .map((offset) => {
-          const from = parseInt(base.slice(offset, offset + 2), 16);
-          const to = parseInt(accentHex.slice(offset, offset + 2), 16);
-          return Math.round(from + (to - from) * amount)
-            .toString(16)
-            .padStart(2, "0");
-        })
-        .join("")
-    );
-  };
+function windowTheme(): string {
   return `
 border.width: 1
 padding.width: 8
@@ -47,17 +30,15 @@ window.*.grip.bg: Flat Solid
 window.*.button.*.bg: Parentrelative
 window.*.button.*.hover.bg: Flat Solid
 window.*.button.*.pressed.bg: Flat Solid
-window.active.title.bg: Flat Gradient Horizontal
-window.active.title.bg.color: ${tint("#292930", 0.28)}
-window.active.title.bg.colorTo: #292930
+window.active.title.bg.color: #292930
 window.active.border.color: #4a4a54
 window.active.title.separator.color: #202026
 window.active.label.text.color: #f0f0f4
 window.active.handle.bg.color: #292930
 window.active.grip.bg.color: #292930
 window.active.button.*.image.color: #d4d4dc
-window.active.button.*.hover.bg.color: ${tint("#45454f", 0.22)}
-window.active.button.*.pressed.bg.color: ${tint("#555561", 0.18)}
+window.active.button.*.hover.bg.color: #45454f
+window.active.button.*.pressed.bg.color: #555561
 window.active.button.*.disabled.image.color: #62626e
 window.active.button.close.hover.bg.color: #b64150
 window.active.button.close.pressed.bg.color: #963442
@@ -97,7 +78,6 @@ osd.label.text.color: #f0f0f4
 export function writeDesktopWindowTheme(
   configDir: string,
   home?: string,
-  accentHex: string | null = null,
 ): string {
   let source: string | undefined;
   let sourcePath = "";
@@ -134,7 +114,7 @@ export function writeDesktopWindowTheme(
   mkdirSync(join(themeDir, "openbox-3"), { recursive: true });
   writeFileSync(
     join(themeDir, "openbox-3", "themerc"),
-    windowTheme(accentHex).trimStart(),
+    windowTheme().trimStart(),
   );
   for (const [name, rows] of Object.entries(BUTTON_MASKS)) {
     const bytes = rows.flatMap((row) => [row & 0xff, row >> 8]);

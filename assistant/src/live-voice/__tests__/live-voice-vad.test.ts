@@ -19,14 +19,11 @@ import type {
   ConversationModeSessionCoordinator,
   ModeSessionSourceHandle,
 } from "../../daemon/conversation-mode-session.js";
+import { RiskLevel } from "../../permissions/types.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import {
-  computerUseKeyTool,
-  computerUseObserveTool,
-} from "../../tools/computer-use/definitions.js";
 import {
   __resetRegistryForTesting,
   registerSkillTools,
@@ -1135,11 +1132,20 @@ describe("LiveVoiceSession server VAD", () => {
   // register the core baseline so built-in names resolve like in the daemon.
   beforeAll(() => {
     __resetRegistryForTesting();
-    registerSkillTools("computer-use-test", [
-      finalizeTool(computerUseKeyTool),
-      finalizeTool(computerUseObserveTool),
-      finalizeTool({ ...computerUseObserveTool, name: "read_file" }),
-    ]);
+    registerSkillTools(
+      "computer-use-test",
+      ["computer_use_key", "computer_use_observe", "read_file"].map((name) =>
+        finalizeTool({
+          name,
+          description: name,
+          category: "computer-use",
+          defaultRiskLevel: RiskLevel.Low,
+          executionTarget: "host",
+          input_schema: { type: "object", properties: {} },
+          execute: async () => ({ content: "ok", isError: false }),
+        }),
+      ),
+    );
   });
   afterAll(() => unregisterSkillTools("computer-use-test"));
 

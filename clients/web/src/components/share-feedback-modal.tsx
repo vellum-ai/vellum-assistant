@@ -32,6 +32,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { ExternalAnchor } from "@/components/external-anchor";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
@@ -1137,11 +1138,11 @@ export function ShareFeedbackModal({
                     i18nKey="shareFeedbackModal.bugTip"
                     components={{
                       discordLink: (
-                        <a
+                        <ExternalAnchor
                           href={VELLUM_COMMUNITY_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline text-[var(--content-default)]"
+                          tone="quiet"
+                          className="text-[var(--content-default)]"
+                          glyph={false}
                         />
                       ),
                     }}
@@ -1156,11 +1157,11 @@ export function ShareFeedbackModal({
                     i18nKey="shareFeedbackModal.featureTip"
                     components={{
                       roadmapLink: (
-                        <a
+                        <ExternalAnchor
                           href="https://vellum.ai/roadmap"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline text-[var(--content-default)]"
+                          tone="quiet"
+                          className="text-[var(--content-default)]"
+                          glyph={false}
                         />
                       ),
                     }}
@@ -1429,6 +1430,7 @@ function AttachmentThumbnail({
         <Paperclip className="h-5 w-5 text-[var(--content-secondary)]" />
       )}
       <Button
+        shape="pill"
         variant="ghost"
         size="compact"
         iconOnly={<X />}
@@ -1436,7 +1438,7 @@ function AttachmentThumbnail({
         aria-label={t("shareFeedbackModal.removeAttachmentAria", {
           name: file.name,
         })}
-        className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 text-white hover:bg-black/70"
+        className="absolute top-0.5 right-0.5 h-4 w-4 bg-black/60 text-white hover:bg-black/70"
         tintColor="#fff"
       />
     </div>

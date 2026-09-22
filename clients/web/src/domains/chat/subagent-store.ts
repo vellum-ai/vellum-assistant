@@ -36,7 +36,7 @@ import {
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
+import type { ToolActivityMetadata } from "@vellumai/assistant-api";
 import { isActiveStatus, shouldApplyStatus } from "@/utils/subagent-status";
 import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";

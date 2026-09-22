@@ -207,6 +207,7 @@ function makeClient(
       gatewayLoopbackBaseUrl: string,
     ) => Promise<VelayHttpResponseFrame>;
     websocketFrames?: VelayWebSocketInboundFrame[];
+    tunnelSend?: { send?: (frame: VelayFrame) => void };
     reconnectDelays?: number[];
     refresh?: { afterMs?: number; busyRetryMs?: number };
     timerCallbacks?: Array<() => void>;
@@ -235,6 +236,9 @@ function makeClient(
         : (_gatewayLoopbackBaseUrl, _sendFrame, onIdle) => {
             if (overrides.bridgeIdle && onIdle) {
               overrides.bridgeIdle.fire = onIdle;
+            }
+            if (overrides.tunnelSend) {
+              overrides.tunnelSend.send = _sendFrame;
             }
             return {
               handleFrame: (frame: VelayWebSocketInboundFrame) => {
@@ -424,6 +428,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -760,6 +765,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -821,6 +827,7 @@ describe("VelayTunnelClient", () => {
       protocols: [VELAY_TUNNEL_SUBPROTOCOL],
       headers: {
         Authorization: "Api-Key api-key-123",
+        "X-Vellum-Velay-Binary-WebSocket": "1",
         "X-Vellum-Velay-Allowed-Paths": VELAY_ALLOWED_PATHS_HEADER_VALUE,
       },
     });
@@ -1122,7 +1129,7 @@ describe("VelayTunnelClient", () => {
     expect(invalidations.count).toBe(1);
   });
 
-  test("dispatches HTTP and WebSocket frames to the loopback bridges", async () => {
+  test("keeps HTTP and WebSocket bridges usable after malformed tunnel messages", async () => {
     const sockets: FakeWebSocket[] = [];
     const websocketFrames: VelayWebSocketInboundFrame[] = [];
     const httpBridge = mock(
@@ -1141,6 +1148,18 @@ describe("VelayTunnelClient", () => {
     client.start();
     await flushPromises();
     sockets[0].readyState = WS_OPEN;
+
+    for (const data of [
+      "not JSON",
+      new Uint8Array().buffer,
+      new Uint8Array([1, 2]).buffer,
+      new Uint8Array([255]),
+      new TextEncoder().encode('{"type":"unknown"}'),
+    ]) {
+      sockets[0].emit("message", { data });
+    }
+    await flushPromises();
+    expect(sockets[0].closes).toEqual([]);
 
     sendFrame(sockets[0], {
       type: VELAY_FRAME_TYPES.httpRequest,
@@ -1184,6 +1203,59 @@ describe("VelayTunnelClient", () => {
       VELAY_FRAME_TYPES.websocketMessage,
       VELAY_FRAME_TYPES.websocketClose,
     ]);
+  });
+
+  test("writes binary envelopes without JSON while control frames remain JSON", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const tunnelSend: { send?: (frame: VelayFrame) => void } = {};
+    const client = makeClient({ sockets, websocketFrames: [], tunnelSend });
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    const id = "0123456789abcdef0123456789abcdef";
+    tunnelSend.send!({
+      type: "websocket_binary",
+      connection_id: id,
+      payload: new Uint8Array([0, 255]),
+    });
+    tunnelSend.send!({
+      type: "websocket_close",
+      connection_id: id,
+      code: 1000,
+    });
+    expect(sockets[0].sent).toEqual([
+      new Uint8Array([1, ...new TextEncoder().encode(id), 0, 255]),
+      JSON.stringify({
+        type: "websocket_close",
+        connection_id: id,
+        code: 1000,
+      }),
+    ]);
+    await client.stop();
+  });
+
+  test("dispatches binary tunnel messages and ignores malformed envelopes", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const websocketFrames: VelayWebSocketInboundFrame[] = [];
+    const client = makeClient({ sockets, websocketFrames });
+    client.start();
+    await flushPromises();
+    sockets[0].readyState = WS_OPEN;
+    const id = "0123456789abcdef0123456789abcdef";
+    sockets[0].emit("message", {
+      data: new Uint8Array([1, ...new TextEncoder().encode(id), 0, 255]).buffer,
+    });
+    expect(websocketFrames).toEqual([
+      {
+        type: "websocket_binary",
+        connection_id: id,
+        payload: new Uint8Array([0, 255]),
+      },
+    ]);
+    sockets[0].emit("message", { data: new Uint8Array([1, 2]).buffer });
+    expect(sockets[0].closes).toEqual([]);
+    expect(websocketFrames).toHaveLength(1);
+    await client.stop();
   });
 
   test("ignores websocket messages with invalid message types", async () => {
