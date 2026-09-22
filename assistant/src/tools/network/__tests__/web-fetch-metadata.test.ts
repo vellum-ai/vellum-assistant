@@ -130,6 +130,40 @@ describe("web_fetch activityMetadata", () => {
     expect(meta?.charCount).toBe(maxChars);
   });
 
+  test("flags a start_index past the end of a page it downloaded whole", async () => {
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/short", start_index: 500 },
+      {
+        requestExecutor: async () =>
+          new Response("x".repeat(100), {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+      },
+    );
+    expect(result.isError).toBe(false);
+    expect(result.activityMetadata?.webFetch?.startIndexPastEnd).toBe(true);
+  });
+
+  test("does not call a start_index past a capped download the end of the page", async () => {
+    // Over the 2 MB download cap: only a prefix is read, so an offset past it
+    // may still be inside the page.
+    const result = await executeWithMockFetch(
+      { url: "https://example.com/huge", start_index: 2_500_000 },
+      {
+        requestExecutor: async () =>
+          new Response("x".repeat(3_000_000), {
+            status: 200,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          }),
+      },
+    );
+    expect(result.isError).toBe(false);
+    const meta = result.activityMetadata?.webFetch;
+    expect(meta?.truncated).toBe(true);
+    expect(meta?.startIndexPastEnd).toBe(false);
+  });
+
   test("populates errorMessage and status on a 404 response", async () => {
     globalThis.fetch = (async () =>
       new Response("<title>Not Found</title>not here", {

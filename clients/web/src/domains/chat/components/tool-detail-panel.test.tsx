@@ -1334,15 +1334,17 @@ describe("ToolDetailPanel", () => {
   test("thinking variant renders the reasoning markdown without input/output sections", () => {
     const detail = makeDetail({
       kind: "thinking",
-      title: "Thinking",
+      title: "Thought process",
       thinkingText: "I should first check the directory listing.",
     });
     const { getByText, queryByText } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
-    // Title + full reasoning text are present.
+    // Headed "Thinking" whatever title the payload carries, then the full
+    // reasoning text.
     expect(getByText("Thinking")).toBeDefined();
+    expect(queryByText("Thought process")).toBeNull();
     expect(
       getByText("I should first check the directory listing."),
     ).toBeDefined();

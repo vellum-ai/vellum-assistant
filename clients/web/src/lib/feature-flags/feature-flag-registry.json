@@ -347,6 +347,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "auto-profile",
+      "scope": "assistant",
+      "key": "auto-profile",
+      "label": "Auto Profile",
+      "description": "Enable the Auto model profile, which asks Jev which default profile should answer each message.",
+      "defaultEnabled": false
+    },
+    {
       "id": "new-thread-suggestions",
       "scope": "client",
       "key": "new-thread-suggestions",
@@ -549,7 +557,7 @@
       "scope": "client",
       "key": "assistant-inbox",
       "label": "Assistant Inbox",
-      "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. Off hides the entry and redirects the route to chat.",
+      "description": "Shows an Assistant Inbox entry above Preferences in the web sidebar and the /assistant/inbox page it opens: a mailbox for the assistant's managed vellum.me address (received and sent, with a reading pane), the inline email setup card for entitled orgs with no address yet, and an upgrade card for orgs without the managed_email entitlement. With it on, email setup happens only there: the billing wizard hands off to the inbox instead of its own domain step, the billing page's finish-setup nudge gives way to the inbox's rail entry, and the Channels page's Email section points there instead of registering an address itself. Off hides the entry, redirects the route to chat, and keeps the older setup surfaces.",
       "defaultEnabled": false
     },
     {

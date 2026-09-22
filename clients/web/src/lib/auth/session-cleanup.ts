@@ -22,7 +22,6 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
-import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { resetNotificationIdentitySession } from "@/runtime/notification-avatar";
 import { clearCameraGateDebug } from "@/stores/camera-gate-debug-store";
@@ -78,12 +77,8 @@ export function clearUserScopedStorage(): void {
   resetNotificationIdentitySession();
   useChatSessionStore.getState().resetForLogout();
 
-  // The takeover avatar stash can outlive `sessionStorage.clear()` through its
-  // in-memory mirror when the write never reached storage.
-  clearTakeoverAvatarStash();
-
-  // Same shape: a typed-storage accessor holds a value in memory when the
-  // device refuses writes, so the key sweep below has nothing to remove.
+  // A typed-storage accessor holds a value in memory when the device refuses
+  // writes, so the key sweep below has nothing to remove.
   clearUserScopedOverrides();
 
   // And again: the camera gate's tuning readout keeps its enable bit in a

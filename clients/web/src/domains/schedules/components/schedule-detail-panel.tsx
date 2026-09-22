@@ -1,18 +1,15 @@
 import type { ReactNode } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  BarChart3,
-  ChevronRight,
-  Coins,
-  Loader2,
-  Repeat,
-  Trash2,
-} from "lucide-react";
+import { BarChart3, ChevronRight, Coins, Repeat, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
-import { DetailShellHeader } from "@/components/detail-shell";
+import {
+  DetailShellHeader,
+  DetailShellLoading,
+  DetailShellNotice,
+} from "@/components/detail-shell";
 import { InsetDetailCard } from "@/components/inset-detail-card";
 import { useScheduleConversationDoneLabel } from "@/utils/done-labels";
 import { useTranslation } from "@/i18n";
@@ -452,17 +449,13 @@ function RecentRuns({
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-6">
-        <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
-      </div>
-    );
+    return <DetailShellLoading placement="section" />;
   }
   if (!runs || runs.length === 0) {
     return (
-      <p className="py-2 text-body-medium-lighter text-[var(--content-tertiary)] italic">
+      <DetailShellNotice placement="section">
         {t("scheduleDetail.noRunsYet")}
-      </p>
+      </DetailShellNotice>
     );
   }
   return (

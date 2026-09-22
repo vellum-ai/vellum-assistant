@@ -41,10 +41,6 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { routes } from "@/utils/routes";
 import {
-  clearTakeoverAvatarStash,
-  readTakeoverAvatarStash,
-} from "@/lib/billing/takeover-avatar-stash";
-import {
   organizationsBillingPlansRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
@@ -630,8 +626,7 @@ beforeEach(() => {
   toastSuccessCalls.length = 0;
   toastInfoCalls.length = 0;
   takeoverResizeContext = undefined;
-  // The stash and the assistants store are module-level globals, so reset both.
-  clearTakeoverAvatarStash();
+  // The assistants store is a module-level global, so reset it.
   useResolvedAssistantsStore.setState({
     activeAssistantId: null,
     assistants: [],
@@ -966,9 +961,9 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     });
     await waitFor(() => expect(queryByText("Downgrade to Base?")).toBeNull());
     // The confirmation toast names the scheduled end date.
-    expect(
-      toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
-    ).toBe(true);
+    expect(toastInfoCalls.some((m) => m.startsWith("Pro plan canceled"))).toBe(
+      true,
+    );
     // Lands on the billing settings tab (where the pending cancellation is
     // shown) with no Stripe redirect, and never touches the
     // portal/package/checkout endpoints.
@@ -1165,8 +1160,6 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     });
     await waitFor(() => expect(openedUrl).toBe(CHECKOUT_URL));
     expect(changePackageCall).toBeNull();
-    // The redirect snapshots the avatar so the takeover can draw it on return.
-    expect(readTakeoverAvatarStash()?.assistantId).toBe("a1");
   });
 
   test("the confirm CTA is disabled while a switch is pending", async () => {

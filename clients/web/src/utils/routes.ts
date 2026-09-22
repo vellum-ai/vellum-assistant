@@ -258,8 +258,21 @@ export const routes = {
    */
   assistantInbox: r("/assistant/inbox"),
 
+  /**
+   * Contacts surface, a drill-down section under the assistant overview
+   * (`identity`). `detail` deep-links one contact. Path-based (not `?tab=`)
+   * so the open contact is bookmarkable and shareable; both paths render
+   * `ContactsPage`, which derives the selection from the URL.
+   *
+   * Contact ids are caller-supplied, so `detail` percent-encodes the id to
+   * keep it a single path segment: one carrying a slash would never match
+   * the `contacts/:contactId` route. React Router decodes route params, so
+   * `useParams()` in the page yields the original id unchanged.
+   */
   contacts: {
     root: r("/assistant/contacts"),
+    detail: (contactId: string) =>
+      dyn(r("/assistant/contacts"), encodeURIComponent(contactId)),
   },
 
   /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout
@@ -401,13 +414,28 @@ const BARE_ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.personality,
 ];
 
+/**
+ * Whether `pathname` names `path` itself, a single trailing slash tolerated:
+ * the router matches `/assistant/contacts/` to the same route as
+ * `/assistant/contacts`, so callers deciding "is this the route, or something
+ * under it" must treat both spellings alike. Sibling of {@link isPathWithin},
+ * which already tolerates the slash through its `${path}/` prefix.
+ */
+export function isPathExactly(pathname: string, path: string): boolean {
+  return pathname === path || pathname === `${path}/`;
+}
+
 const isPathWithin = (pathname: string, path: string): boolean =>
   pathname === path || pathname.startsWith(`${path}/`);
 
-/** The chrome section `pathname` falls inside, if any. */
+/**
+ * The chrome section `pathname` falls inside, if any. Typed as the registry
+ * entry itself, so a caller comparing `key` against a literal is checked
+ * against the keys that exist.
+ */
 export function aboutAssistantSectionForPath(
   pathname: string,
-): AboutAssistantSection | null {
+): (typeof ABOUT_ASSISTANT_SECTIONS)[number] | null {
   return (
     ABOUT_ASSISTANT_SECTIONS.find(({ to }) => isPathWithin(pathname, to)) ??
     null
@@ -432,7 +460,7 @@ export function isAboutAssistantPath(pathname: string): boolean {
 
 /** Whether `pathname` is the `/assistant` index, trailing slash tolerated. */
 function isAssistantIndexPath(pathname: string): boolean {
-  return pathname === routes.assistant || pathname === `${routes.assistant}/`;
+  return isPathExactly(pathname, routes.assistant);
 }
 
 /**

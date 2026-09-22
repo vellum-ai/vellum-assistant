@@ -2,12 +2,8 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
-import {
-  captureTakeoverAvatarStash,
-  clearTakeoverAvatarStash,
-} from "@/lib/billing/takeover-avatar-stash";
 import { organizationsBillingSubscriptionUpgradeCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
@@ -54,7 +50,6 @@ type CheckoutPhase = "idle" | "running" | "handed_off" | "settled";
  */
 function abandonCheckout() {
   clearCheckoutIntent();
-  clearTakeoverAvatarStash();
 }
 
 /**
@@ -142,7 +137,6 @@ function CheckoutPageContent() {
       ? t("checkoutPage.viewPlans")
       : t("checkoutPage.continueSetup");
 
-  const queryClient = useQueryClient();
   const { mutateAsync } = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
@@ -207,7 +201,6 @@ function CheckoutPageContent() {
               }
             : { kind: "package", packageKey },
         );
-        captureTakeoverAvatarStash(queryClient);
         setAwaitingReturn(returnTarget === "native");
         void openUrl(result.checkout_url);
         return;
@@ -236,14 +229,7 @@ function CheckoutPageContent() {
       phaseRef.current = "settled";
       setFailed(true);
     }
-  }, [
-    bailTarget,
-    customSelection,
-    mutateAsync,
-    navigate,
-    packageKey,
-    queryClient,
-  ]);
+  }, [bailTarget, customSelection, mutateAsync, navigate, packageKey]);
 
   // The retry the failure and hand-off UIs offer. A failed or abandoned attempt
   // re-runs the upgrade; a missing organization re-runs org resolution instead,

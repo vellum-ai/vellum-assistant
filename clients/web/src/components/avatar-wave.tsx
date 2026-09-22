@@ -8,7 +8,7 @@ import {
   type RelativeRibbonPoint,
   type RibbonPoint,
 } from "@/utils/avatar-wave-ribbon";
-import type { CharacterComponents } from "@/types/avatar";
+import { renderAvatarSprite } from "@/utils/avatar-sprite";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 /**
@@ -194,70 +194,6 @@ interface LiveItem {
 }
 
 /**
- * Draw one character to an offscreen canvas at its final size. Rasterizing
- * once per character keeps the per-frame cost to a `drawImage` each, which
- * is what lets the whole crowd run at frame rate.
- */
-function renderSprite(
-  components: CharacterComponents,
-  bodyIdx: number,
-  eyeIdx: number,
-  colorIdx: number,
-  px: number,
-): HTMLCanvasElement | null {
-  const body = components.bodyShapes[bodyIdx];
-  const eye = components.eyeStyles[eyeIdx];
-  const color = components.colors[colorIdx];
-  if (!body || !eye || !color) {
-    return null;
-  }
-
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const sprite = document.createElement("canvas");
-  sprite.width = Math.max(2, Math.ceil(px * dpr));
-  sprite.height = sprite.width;
-  const ctx = sprite.getContext("2d");
-  if (!ctx) {
-    return null;
-  }
-  ctx.scale(dpr, dpr);
-
-  const bodyBox = body.viewBox;
-  const bodyScale = Math.min(px / bodyBox.width, px / bodyBox.height);
-  const bodyTx = (px - bodyBox.width * bodyScale) / 2;
-  const bodyTy = (px - bodyBox.height * bodyScale) / 2;
-  ctx.save();
-  ctx.translate(bodyTx, bodyTy);
-  ctx.scale(bodyScale, bodyScale);
-  ctx.fillStyle = color.hex;
-  ctx.fill(new Path2D(body.svgPath));
-  ctx.restore();
-
-  const override = components.faceCenterOverrides.find(
-    (o) => o.bodyShape === body.id && o.eyeStyle === eye.id,
-  );
-  const faceCenter = override ? override.faceCenter : body.faceCenter;
-  const eyeBox = eye.sourceViewBox;
-  const remapScale = Math.min(
-    bodyBox.width / eyeBox.width,
-    bodyBox.height / eyeBox.height,
-  );
-  ctx.save();
-  ctx.translate(
-    bodyScale * (faceCenter.x - eye.eyeCenter.x * remapScale) + bodyTx,
-    bodyScale * (faceCenter.y - eye.eyeCenter.y * remapScale) + bodyTy,
-  );
-  ctx.scale(bodyScale * remapScale, bodyScale * remapScale);
-  for (const path of eye.paths) {
-    ctx.fillStyle = path.color;
-    ctx.fill(new Path2D(path.svgPath));
-  }
-  ctx.restore();
-
-  return sprite;
-}
-
-/**
  * Whether the entrance has already played somewhere in this session. The
  * wave sits behind a run of screens that each mount their own copy, and
  * replaying the pour on every step reads as the page restarting rather than
@@ -334,7 +270,13 @@ export function AvatarWave({
       if (hit !== undefined) {
         return hit;
       }
-      const made = renderSprite(components, bodyIdx, eyeIdx, colorIdx, bucket);
+      const made = renderAvatarSprite(
+        components,
+        bodyIdx,
+        eyeIdx,
+        colorIdx,
+        bucket,
+      );
       spriteCache.set(key, made);
       return made;
     };
@@ -385,7 +327,10 @@ export function AvatarWave({
       // always finishes arriving at the same moment, however many characters
       // the ribbon happens to pack.
       const gapWeight = (size: number) =>
-        Math.min(POUR_GAP_MAX, Math.max(POUR_GAP_MIN, POUR_GAP_NUMERATOR / size));
+        Math.min(
+          POUR_GAP_MAX,
+          Math.max(POUR_GAP_MIN, POUR_GAP_NUMERATOR / size),
+        );
       const weightTotal = placements.reduce(
         (sum, placed) => sum + gapWeight(placed.size),
         0,
@@ -395,36 +340,34 @@ export function AvatarWave({
       const rng = mulberry32(SEED + 1);
       let lastColor = -1;
       let pourDelay = 0;
-      items = placements.map(
-        (placed): LiveItem => {
-          let colorIdx = Math.floor(rng() * components.colors.length);
-          if (colorIdx === lastColor) {
-            colorIdx = (colorIdx + 1) % components.colors.length;
-          }
-          lastColor = colorIdx;
-          const bodyIdx = Math.floor(rng() * components.bodyShapes.length);
-          const eyeIdx = Math.floor(rng() * components.eyeStyles.length);
-          const px = placed.size * scale;
-          const item: LiveItem = {
-            hx: offsetX + placed.x * scale,
-            hy: offsetY + placed.y * scale,
-            px,
-            rotate: (placed.rotate * Math.PI) / 180,
-            phase: rng() * Math.PI * 2,
-            pourDelay,
-            dx: 0,
-            dy: 0,
-            vx: 0,
-            vy: 0,
-            disturbed: false,
-            flying: false,
-            fade: 1,
-            sprite: spriteFor(bodyIdx, eyeIdx, colorIdx, px),
-          };
-          pourDelay += gapWeight(placed.size) * pourRate;
-          return item;
-        },
-      );
+      items = placements.map((placed): LiveItem => {
+        let colorIdx = Math.floor(rng() * components.colors.length);
+        if (colorIdx === lastColor) {
+          colorIdx = (colorIdx + 1) % components.colors.length;
+        }
+        lastColor = colorIdx;
+        const bodyIdx = Math.floor(rng() * components.bodyShapes.length);
+        const eyeIdx = Math.floor(rng() * components.eyeStyles.length);
+        const px = placed.size * scale;
+        const item: LiveItem = {
+          hx: offsetX + placed.x * scale,
+          hy: offsetY + placed.y * scale,
+          px,
+          rotate: (placed.rotate * Math.PI) / 180,
+          phase: rng() * Math.PI * 2,
+          pourDelay,
+          dx: 0,
+          dy: 0,
+          vx: 0,
+          vy: 0,
+          disturbed: false,
+          flying: false,
+          fade: 1,
+          sprite: spriteFor(bodyIdx, eyeIdx, colorIdx, px),
+        };
+        pourDelay += gapWeight(placed.size) * pourRate;
+        return item;
+      });
       if (pourStart === 0) {
         pourStart = performance.now();
       }
@@ -579,10 +522,7 @@ export function AvatarWave({
         const size = item.px * revealScale;
 
         ctx.save();
-        ctx.translate(
-          item.hx + item.dx,
-          item.hy + item.dy + bob + revealDrop,
-        );
+        ctx.translate(item.hx + item.dx, item.hy + item.dy + bob + revealDrop);
         ctx.rotate(item.rotate + wobble);
         ctx.globalAlpha = item.fade * revealAlpha;
         ctx.drawImage(sprite, -size / 2, -size / 2, size, size);

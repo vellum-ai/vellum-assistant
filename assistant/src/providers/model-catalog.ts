@@ -1,7 +1,9 @@
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
-  "native-model" | "provider-request-option" | "unsupported";
+  | "native-model"
+  | "provider-request-option"
+  | "unsupported";
 
 export interface CatalogModelPricingTier {
   /**
@@ -241,6 +243,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           outputPer1mTokens: 50,
           cacheWritePer1mTokens: 12.5,
           cacheReadPer1mTokens: 1,
+        },
+      },
+      {
+        id: "claude-opus-5-5",
+        displayName: "Claude Opus 5.5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 4,
+          outputPer1mTokens: 20,
+          cacheWritePer1mTokens: 5,
+          cacheReadPer1mTokens: 0.2,
         },
       },
       {
@@ -1208,6 +1228,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-opus-5.5",
+        displayName: "Claude Opus 5.5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 4,
+          outputPer1mTokens: 20,
+          cacheWritePer1mTokens: 5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
         id: "anthropic/claude-opus-5",
         displayName: "Claude Opus 5",
         contextWindowTokens: 1000000,
@@ -2141,6 +2179,24 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
+        id: "anthropic/claude-opus-5.5",
+        displayName: "Claude Opus 5.5",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        adaptiveThinkingOnly: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 4,
+          outputPer1mTokens: 20,
+          cacheWritePer1mTokens: 5,
+          cacheReadPer1mTokens: 0.2,
+        },
+      },
+      {
         id: "anthropic/claude-opus-5",
         displayName: "Claude Opus 5",
         contextWindowTokens: 1000000,
@@ -2603,6 +2659,16 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
   }));
 
 /**
+ * Providers that are routing identities rather than catalog owners. Mirrors
+ * `ROUTING_IDENTITY_PROVIDERS` in `inference/auth.ts`, which cannot be
+ * imported here without a cycle.
+ */
+const ROUTING_IDENTITY_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  "vellum",
+  "chatgpt",
+]);
+
+/**
  * Whether a catalog model produces free-form chat text. Unlisted providers
  * and model ids default to true so custom endpoints and unknown snapshots
  * stay usable as conversation models.
@@ -2614,9 +2680,16 @@ export function catalogModelSupportsText(
   if (typeof provider !== "string" || typeof modelId !== "string") {
     return true;
   }
-  const model = PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
-    (m) => m.id === modelId,
-  );
+  // A routing identity ("vellum", "chatgpt") owns no catalog models of the
+  // upstream it dispatches to, so judge the model by its catalog owner: a
+  // managed Jev profile is `vellum` + `jev-latest`, and `jev-latest` opts out
+  // of text under `typesafe`.
+  const catalogProvider = ROUTING_IDENTITY_PROVIDER_IDS.has(provider)
+    ? (getCatalogProviderForModel(modelId) ?? provider)
+    : provider;
+  const model = PROVIDER_CATALOG.find(
+    (p) => p.id === catalogProvider,
+  )?.models.find((m) => m.id === modelId);
   return model?.supportsText !== false;
 }
 

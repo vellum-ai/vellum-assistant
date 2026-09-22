@@ -38,9 +38,22 @@ function phoneChannel(): ChannelInfo {
     icon: "phone",
     supportsVerification: true,
     setupMessages: {
-      guardian: "I'd like to verify my identity as your guardian for phone calls.",
+      guardian:
+        "I'd like to verify my identity as your guardian for phone calls.",
       contact: "",
     },
+  };
+}
+
+function slackChannel(): ChannelInfo {
+  return {
+    id: "slack",
+    source: "default",
+    label: "Slack",
+    subtitle: "Message your assistant from Slack",
+    icon: "hash",
+    supportsVerification: true,
+    setupMessages: { guardian: "", contact: "" },
   };
 }
 
@@ -179,5 +192,43 @@ describe("ContactChannelsSection plugin verify", () => {
     expect(onSetupChannel).toHaveBeenCalledTimes(1);
     expect(onSetupChannel.mock.calls[0]).toEqual(["phone"]);
     expect(document.querySelector('[data-slot="modal-content"]')).toBeNull();
+  });
+});
+
+/**
+ * One contact with a row in every action state, so each of the four actions
+ * is on screen at once: a verified plugin row (Revoke), an unverified phone
+ * row (Verify), and Slack with no row (Link account, Invite).
+ */
+function renderEveryAction(actionsDisabled?: boolean) {
+  render(
+    <ContactChannelsSection
+      contactChannels={[
+        row({ status: "verified" }),
+        row({ id: "ch-2", type: "phone", address: "+15555550100" }),
+      ]}
+      availableChannels={[pluginChannel(), phoneChannel(), slackChannel()]}
+      actionsDisabled={actionsDisabled}
+      onSetupChannel={() => {}}
+      onVerifyChannel={() => {}}
+      onRevokeChannel={() => {}}
+      onLinkAccount={() => {}}
+    />,
+  );
+}
+
+const ROW_ACTIONS = ["Revoke", "Verify", "Link account", "Invite"];
+
+describe("ContactChannelsSection row actions", () => {
+  test.each(ROW_ACTIONS)("offers %s while nothing is pending", (label) => {
+    renderEveryAction();
+    expect(getButton(label).disabled).toBe(false);
+  });
+
+  // A request that removes the contact is in flight. Link account is the
+  // damaging one: it upserts the id the server is deleting.
+  test.each(ROW_ACTIONS)("blocks %s while actions are disabled", (label) => {
+    renderEveryAction(true);
+    expect(getButton(label).disabled).toBe(true);
   });
 });

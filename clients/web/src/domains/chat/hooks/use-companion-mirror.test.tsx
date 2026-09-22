@@ -15,6 +15,7 @@ const clearWorkingMock = mock(() => undefined);
 const clearPopoverMock = mock(() => undefined);
 
 mock.module("@/runtime/companion-surface", () => ({
+  forwardUnplacedDictationOffer: () => true,
   setCompanionContext: (context: CompanionContext) => {
     published.push(context);
   },
@@ -88,7 +89,7 @@ const captureLanded = () => {
 };
 
 const { useTurnStore } = await import("@/domains/chat/turn-store");
-const { clearDictationOffer, setDictationOffer } =
+const { clearDictationOffer, setDictationOffer, setUnplacedDictationOffer } =
   await import("@/domains/chat/voice/dictation-offer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useChatSessionStore } =
@@ -332,6 +333,21 @@ describe("the dictation offer the companion mirror publishes", () => {
   test("says nothing while none stands", () => {
     render(<Mirror />);
     expect(latest().dictationOffer).toBeUndefined();
+  });
+
+  test("publishes recovery offers delivered to main and removes them on clear", async () => {
+    render(<Mirror />);
+    setUnplacedDictationOffer("make this friendlier", "paste-failed");
+    await waitFor(() => {
+      expect(latest().dictationOffer).toMatchObject({
+        reason: "paste-failed",
+        text: "make this friendlier",
+      });
+    });
+    clearDictationOffer();
+    await waitFor(() => {
+      expect(latest().dictationOffer).toBeUndefined();
+    });
   });
 
   test("carries the words and the other app's name while it stands", async () => {

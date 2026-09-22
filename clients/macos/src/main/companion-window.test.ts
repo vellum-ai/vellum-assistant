@@ -103,6 +103,7 @@ const mainSends: { channel: string; payload: unknown }[] = [];
 const mainWindow = {
   isDestroyed: () => false,
   isVisible: () => mainWindowVisible,
+  getBounds: () => ({ x: 120, y: 80, width: 1200, height: 760 }),
   get webContents() {
     return mainRenderer;
   },
@@ -750,7 +751,7 @@ const {
   glideProgress,
   introEndsOnSession,
   introOnAdvance,
-  openCompanionWindow,
+  openCompanionWindow: openCompanionWindowImpl,
   setCompanionSurfaceVisible,
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
@@ -929,6 +930,28 @@ const introStage = (): boolean => {
     throw new Error("No handler registered for vellum:companion:getIntroStage");
   }
   return pull([]) as boolean;
+};
+
+/** Whether the app should announce the due introduction before it begins. */
+const introAnnouncement = (): boolean => {
+  const pull = invocable.get("vellum:companion:getIntroAnnouncement");
+  if (!pull) {
+    throw new Error(
+      "No handler registered for vellum:companion:getIntroAnnouncement",
+    );
+  }
+  return pull([]) as boolean;
+};
+
+/** Accept the app announcement and begin the surface's introduction. */
+const acceptIntroAnnouncement = (): void => {
+  send("vellum:companion:answerIntroAnnouncement", "start");
+};
+
+/** Open the surface the way the installed app does after accepting its announcement. */
+const openCompanionWindow = (): void => {
+  openCompanionWindowImpl();
+  acceptIntroAnnouncement();
 };
 
 /** A context as the app's window publishes one. */
@@ -2584,6 +2607,56 @@ describe("introOnAdvance", () => {
   });
 });
 
+describe("the introduction announcement", () => {
+  const openDueAnnouncement = (): void => {
+    companionOpen = false;
+    introSeen = 0;
+    openCompanionWindowImpl();
+  };
+
+  afterEach(() => {
+    setCompanionSurfaceVisible(false);
+    mainSends.length = 0;
+  });
+
+  test("holds a due run until the app announces it", () => {
+    openDueAnnouncement();
+
+    expect(introAnnouncement()).toBe(true);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+  });
+
+  test("starts and stages the run after the user accepts", () => {
+    openDueAnnouncement();
+
+    acceptIntroAnnouncement();
+
+    expect(introAnnouncement()).toBe(false);
+    expect(state().intro).toBe("idle");
+    expect(introStage()).toBe(true);
+    expect(introSeen).toBe(0);
+  });
+
+  test("records a skipped announcement without exposing the run", () => {
+    openDueAnnouncement();
+
+    send("vellum:companion:answerIntroAnnouncement", "dismiss");
+
+    expect(introAnnouncement()).toBe(false);
+    expect(state().intro).toBeNull();
+    expect(introStage()).toBe(false);
+    expect(introSeen).toBe(COMPANION_INTRO_VERSION);
+  });
+
+  test("does not announce an introduction the install has seen", () => {
+    companionOpen = false;
+    openCompanionWindowImpl();
+
+    expect(introAnnouncement()).toBe(false);
+  });
+});
+
 /**
  * The last beat's press, which is the one beat that does the thing for real.
  *
@@ -3534,6 +3607,34 @@ describe("the offer of Vellum's dictation on the surface", () => {
       { kind: "answerDictationOffer", answer: "dismiss", offerId: "offer-2" },
     ]);
     expect(windowsRaised).toBe(0);
+  });
+
+  test("forwards pop-out recovery offers and clears to main without raising the app", () => {
+    const popout = new EventEmitter();
+    const offer = {
+      reason: "paste-failed" as const,
+      text: "make this friendlier",
+    };
+    sendFrom(popout, "vellum:companion:setUnplacedDictationOffer", offer);
+    sendFrom(popout, "vellum:companion:setUnplacedDictationOffer", null);
+    expect(dispatched).toEqual([
+      { kind: "setUnplacedDictationOffer", offer },
+      { kind: "setUnplacedDictationOffer", offer: null },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("rejects malformed recovery offers", () => {
+    for (const offer of [
+      { reason: "claimed", text: "words" },
+      { reason: "paste-failed" },
+      { reason: "paste-failed", text: "x".repeat(2001) },
+    ]) {
+      expect(() =>
+        send("vellum:companion:setUnplacedDictationOffer", offer),
+      ).toThrow();
+    }
+    expect(dispatched).toEqual([]);
   });
 
   /**

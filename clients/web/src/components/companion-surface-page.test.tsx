@@ -2437,7 +2437,7 @@ describe("prompts on the call's bar", () => {
   });
 });
 
-describe("the pickers on the call's bar", () => {
+describe("the microphone picker on the call's bar", () => {
   const chevronOf = (container: HTMLElement, label: string) =>
     Array.from(
       container.querySelectorAll<HTMLButtonElement>(
@@ -2445,7 +2445,7 @@ describe("the pickers on the call's bar", () => {
       ),
     ).find((button) => button.closest("[inert]") === null) ?? null;
 
-  test("a chevron opens its picker, and reads held while it is showing", async () => {
+  test("its chevron opens the picker and reads held while it is showing", async () => {
     Object.assign(STATE, { call: LISTENING_CALL, voicesPickable: true });
     const { container } = render(<CompanionSurfacePage />);
 
@@ -2457,8 +2457,7 @@ describe("the pickers on the call's bar", () => {
       return found;
     });
     fireEvent.click(mic);
-    fireEvent.click(chevronOf(container, "Choose voice")!);
-    expect(togglePickerMock.mock.calls).toEqual([["microphones"], ["voices"]]);
+    expect(togglePickerMock.mock.calls).toEqual([["microphones"]]);
     expect(mic.getAttribute("aria-pressed")).toBe("false");
 
     pushState({
@@ -2477,13 +2476,10 @@ describe("the pickers on the call's bar", () => {
     expect(
       chevronOf(container, "Choose microphone")!.getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(
-      chevronOf(container, "Choose voice")!.getAttribute("aria-pressed"),
-    ).toBe("false");
   });
 
-  test("draws no voice chevron when there are no voices to pick", async () => {
-    Object.assign(STATE, { call: LISTENING_CALL });
+  test("draws no voice picker even when voices are available", async () => {
+    Object.assign(STATE, { call: LISTENING_CALL, voicesPickable: true });
     const { container } = render(<CompanionSurfacePage />);
     await waitFor(() => {
       if (chevronOf(container, "Choose microphone") === null) {
@@ -2491,9 +2487,6 @@ describe("the pickers on the call's bar", () => {
       }
     });
     expect(chevronOf(container, "Choose voice")).toBeNull();
-
-    pushState({ ...STATE, call: LISTENING_CALL, voicesPickable: true });
-    expect(chevronOf(container, "Choose voice")).not.toBeNull();
   });
 
   test("is not drawn for a shell with nowhere to send the press", async () => {

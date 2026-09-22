@@ -15,6 +15,15 @@ describe("profileSupportsTextGeneration", () => {
     ).toBe(false);
   });
 
+  test("false for the managed Jev profile shape", () => {
+    expect(
+      profileSupportsTextGeneration(
+        { provider: "vellum", model: "jev-latest" },
+        {},
+      ),
+    ).toBe(false);
+  });
+
   test("true for a chat model and for unlisted custom ids", () => {
     expect(
       profileSupportsTextGeneration(

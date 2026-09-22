@@ -42,7 +42,7 @@ import {
   supportsHostProxy,
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getUserSelectableProfilesForProvider } from "../../config/default-profile-catalog.js";
+import { getConversationProfilesForProvider } from "../../config/default-profile-catalog.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { isModeSessionRecoveryHealthy } from "../../config/session-groups-gate.js";
@@ -1754,7 +1754,9 @@ export async function handleSendMessage(
   }
   if (requestedInferenceProfile !== undefined) {
     const { llm } = getConfig();
-    const profiles = getUserSelectableProfilesForProvider(
+    // The conversation view: a sticky pin runs the main agent's turns, so a
+    // profile whose model returns verdicts rather than text is not offered.
+    const profiles = getConversationProfilesForProvider(
       llm.profiles,
       llm.defaultProvider ?? null,
     );

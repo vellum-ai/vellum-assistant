@@ -68,6 +68,61 @@ export function isBackupProfileKey(value: string): value is BackupProfileKey {
 }
 
 /**
+ * Managed profile for the TypeSafe decision model (Jev). Deliberately NOT
+ * part of `DEFAULT_PROFILE_KEYS`: it has no BYOK column, because the
+ * platform serves Jev only through the managed route, and its model returns
+ * structured answers rather than chat text, so it can never be the active
+ * or conversation profile. It exists as a pin target for the call sites
+ * that consume a yes/no verdict (the voice judges, the memory selector).
+ */
+export const JEV_MANAGED_PROFILE_KEY = "jev-managed";
+
+/**
+ * Managed profile that picks one of the default profiles per message: the
+ * agent loop asks Jev which default fits the user's latest message and runs
+ * the turn on that profile (`daemon/auto-profile-router.ts`). Its own body
+ * is the managed Balanced body, so any path that dispatches the name
+ * directly, or a turn on which the router is unavailable, runs Balanced.
+ * Managed column only, because the router depends on the managed Jev route,
+ * and flag-gated: it exists only while the `auto-profile` feature flag has
+ * reconciled it into the workspace (see `sync-gated-profiles.ts`).
+ * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is a selection over
+ * those keys, not a fifth intent.
+ */
+export const AUTO_PROFILE_KEY = "auto";
+export const AUTO_PROFILE_FEATURE_FLAG_KEY = "auto-profile";
+
+/** The call site the automatic profile router asks Jev through. */
+export const AUTO_PROFILE_ROUTER_CALL_SITE = "autoProfileRouter";
+
+/**
+ * The call sites that consume a structured verdict and so may be pinned to
+ * the Jev profile. Every other site expects chat text or a tool call, which
+ * the decision model never produces.
+ */
+export const JEV_MANAGED_PROFILE_CALL_SITES = [
+  "voiceEscalationJudge",
+  "voiceContinuationJudge",
+  "memoryV3SelectL2",
+  AUTO_PROFILE_ROUTER_CALL_SITE,
+] as const;
+
+/**
+ * Keys whose profile exists on the managed (`vellum`) column only: the
+ * backups, the Jev profile, and the Auto profile. Under a BYOK or ChatGPT
+ * default provider these names have no body to resolve to.
+ */
+export const MANAGED_ONLY_PROFILE_KEYS = [
+  ...BACKUP_PROFILE_KEYS,
+  JEV_MANAGED_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
+] as const;
+
+export function isManagedOnlyProfileKey(value: string): boolean {
+  return (MANAGED_ONLY_PROFILE_KEYS as readonly string[]).includes(value);
+}
+
+/**
  * Flag-gated default profile: only available while the `os-beta` feature
  * flag has reconciled it into the workspace (see `sync-gated-profiles.ts`).
  * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is never
@@ -75,6 +130,20 @@ export function isBackupProfileKey(value: string): value is BackupProfileKey {
  * reference target.
  */
 export const OS_BETA_PROFILE_KEY = "os-beta";
+
+/**
+ * Managed profiles that resolve only while a workspace entry exists, because
+ * a feature flag reconciles that entry in and out. Never always-valid
+ * reference targets: a reference to one is valid only with the entry present.
+ */
+export const FLAG_GATED_PROFILE_KEYS = [
+  OS_BETA_PROFILE_KEY,
+  AUTO_PROFILE_KEY,
+] as const;
+
+export function isFlagGatedProfileKey(value: string): boolean {
+  return (FLAG_GATED_PROFILE_KEYS as readonly string[]).includes(value);
+}
 
 /**
  * The named columns of the intent × provider matrix. `vellum` is the

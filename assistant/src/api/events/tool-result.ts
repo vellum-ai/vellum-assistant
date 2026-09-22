@@ -112,6 +112,16 @@ export const WebFetchMetadataSchema = z.object({
   durationMs: z.number(),
   errorMessage: z.string().optional(),
   mayRequireJavaScript: z.boolean().optional(),
+  /**
+   * The requested `start_index` was past the end of the page, so nothing was
+   * read. Always set, true or false, by an assistant whose metadata carries
+   * every warning a reader acts on (this and `providerWarning` included); a
+   * record without it came from one that predates them, whose remaining
+   * warnings are only in the result text.
+   */
+  startIndexPastEnd: z.boolean().optional(),
+  /** A hosted provider's own warning about the fetch, verbatim. */
+  providerWarning: z.string().optional(),
 });
 
 export type WebFetchMetadata = z.infer<typeof WebFetchMetadataSchema>;

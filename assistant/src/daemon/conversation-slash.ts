@@ -1,5 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
-import { getUserSelectableProfilesForProvider } from "../config/default-profile-catalog.js";
+import { getConversationProfilesForProvider } from "../config/default-profile-catalog.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import {
@@ -148,7 +148,7 @@ async function resolveModelCommand(
   parse: ModelCommandParse,
 ): Promise<SlashResolution> {
   const config = getConfig();
-  const profiles = getUserSelectableProfilesForProvider(
+  const profiles = getConversationProfilesForProvider(
     config.llm.profiles,
     config.llm.defaultProvider ?? null,
   );

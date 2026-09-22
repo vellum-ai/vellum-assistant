@@ -34,8 +34,7 @@
     "screenshotAria": "Открыть снимок экрана: {activity}",
     "screenshotFallbackAria": "Открыть снимок экрана компьютера",
     "screenshotFallbackTitle": "Снимок экрана компьютера",
-    "screenshotTitle": "Снимок экрана: {activity}",
-    "thinkingTitle": "Размышление"
+    "screenshotTitle": "Снимок экрана: {activity}"
   },
   "computerUseScreenshotPreview": {
     "unavailable": "Последний снимок экрана недоступен.",
@@ -989,6 +988,9 @@
   },
   "tableSurface": {
     "table": "Таблица"
+  },
+  "thinkingDetail": {
+    "title": "Размышление"
   },
   "toolDefinitionsContent": {
     "defaultValue": "по умолчанию: {value}",

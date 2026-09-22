@@ -1,7 +1,6 @@
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Bolt,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -33,19 +32,16 @@ import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button, Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { DetailPanelStopButton } from "@/components/detail-panel-stop-button";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
-  deriveStepLabelFromName,
-  type IconName,
-} from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+  StepDetailGlyph,
+  useStepDetailTitle,
+} from "@/domains/chat/components/step-detail-header";
+import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import {
   ToolDetailBody,
   ToolDetailHeaderTitle,
-  toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
 import {
   findToolCall,
@@ -56,47 +52,7 @@ import {
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
-import type { ToolDetailPayload } from "@/stores/viewer-store";
 import { useTranslation } from "@/i18n";
-
-/**
- * The icon name for a nested step detail — the same glyph its timeline pill
- * shows: a globe for web search, a brain for a thinking segment, otherwise the
- * tool-type icon `deriveStepLabelFromName` resolves (e.g. code brackets for
- * bash). Resolved through the shared `ICON_MAP` so header and pills never drift.
- */
-function iconNameForDetail(detail: ToolDetailPayload): IconName {
-  if (detail.kind === "web_search") {
-    return "globe";
-  }
-  if (detail.kind === "thinking") {
-    return "brain";
-  }
-  return deriveStepLabelFromName(detail.toolName, detail.input).iconName;
-}
-
-/**
- * Leading glyph for the nested-detail header — replaces the subagent avatar: the
- * running indicator while the step is still in flight, otherwise the step's own
- * icon (matching the pill that opened it).
- */
-function NestedHeaderGlyph({ detail }: { detail: ToolDetailPayload }) {
-  if (detail.status === "running") {
-    return (
-      <ThreeDotIndicator
-        className="shrink-0"
-        data-testid="nested-detail-running"
-      />
-    );
-  }
-  const Glyph = ICON_MAP[iconNameForDetail(detail)] ?? Bolt;
-  return (
-    <Glyph
-      aria-hidden
-      className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-    />
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -258,10 +214,9 @@ export function SubagentDetailPanel({
   // Shared by the header Back button and the breadcrumb's subagent crumb.
   const handleBack = useCallback(() => setSelectedDetailKey(null), []);
 
-  // The nested step's label — the breadcrumb tail and the header title while a
-  // detail is open. Mirrors the main-chat tool detail panel's `activity ||
-  // title` precedence.
-  const detailTitle = activeDetail ? toolDetailHeaderTitle(activeDetail) : "";
+  // The nested step's label: the breadcrumb tail and the header title while a
+  // detail is open, read the same way every panel that opens a step reads it.
+  const detailTitle = useStepDetailTitle(activeDetail);
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
@@ -328,7 +283,10 @@ export function SubagentDetailPanel({
             />
           )}
           {activeDetail ? (
-            <NestedHeaderGlyph detail={activeDetail} />
+            <StepDetailGlyph
+              detail={activeDetail}
+              source={SNAPSHOT_TOOL_CALL_SOURCE}
+            />
           ) : components ? (
             <AvatarRenderer
               components={components}
@@ -378,14 +336,13 @@ export function SubagentDetailPanel({
           {activeDetail ? (
             <>
               {/* Navigation back to the timeline lives in the header (Back button)
-              and the breadcrumb; this body only renders the step's detail.
-              Thinking steps render their reasoning markdown statically, because
-              subagent detail is not a live chat-session source; every tool goes
-              through `ToolDetailBody`, which picks its renderer. */}
+              and the breadcrumb; this body only renders the step's detail. A
+              thinking step's payload names no chat message, so the shared body
+              renders its text as recorded; every tool goes through
+              `ToolDetailBody`, which picks its renderer. */}
               {activeDetail.kind === "thinking" ? (
-                <ChatMarkdownMessage
-                  content={activeDetail.thinkingText ?? ""}
-                  hardLineBreaks
+                <ThinkingDetailMarkdown
+                  detail={activeDetail}
                   assistantId={assistantId}
                 />
               ) : (
@@ -485,7 +442,7 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <DetailShellNotice>
+                  <DetailShellNotice placement="section">
                     {t("subagentDetailPanel.noEventsYet")}
                   </DetailShellNotice>
                 )}

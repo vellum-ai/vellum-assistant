@@ -137,6 +137,34 @@
     "searching": "Searching…"
   },
   "companionIntro": {
+    "announcement": {
+      "body": "I can now join you anywhere on your desktop.",
+      "cards": {
+        "context": {
+          "body": "Let me see what you see and help in context.",
+          "title": "Show and explain"
+        },
+        "flow": {
+          "body": "Reach me without leaving the app you’re in.",
+          "title": "Stay in your flow"
+        },
+        "together": {
+          "body": "Talk, point, and make progress together.",
+          "title": "Work side by side"
+        }
+      },
+      "close": "Close",
+      "confirm": {
+        "body": "It’ll take about a minute. I’m excited to show you what I can do from your desktop.",
+        "keep": "Take the tour",
+        "skip": "Skip for now",
+        "title": "Skip the tour?"
+      },
+      "previewLabel": "Your desktop companion",
+      "previewAssistantName": "Quill",
+      "start": "Start the tour",
+      "title": "Meet me where you work"
+    },
     "ariaLabel": "Introducing your companion",
     "back": "Back",
     "call": {
@@ -268,7 +296,6 @@
     "unmuteAssistantNamed": "Unmute {name}",
     "unmuteMicrophone": "Unmute microphone",
     "chooseMicrophone": "Choose microphone",
-    "chooseVoice": "Choose voice",
     "workCount": "{count, plural, =0 {Nothing running} one {# thing running} other {# things running}}",
     "workDone": "Done",
     "workStopped": "Stopped",
@@ -1012,6 +1039,7 @@
   },
   "detailShell": {
     "close": "Close",
-    "closePanel": "Close panel"
+    "closePanel": "Close panel",
+    "loading": "Loading…"
   }
 }

@@ -113,7 +113,7 @@ export function ChannelTranscriptPanelView({
       </Typography>
 
       {entries.length === 0 ? (
-        <DetailShellNotice>
+        <DetailShellNotice placement="panel">
           {channelReportsMessageProvenance(sidecarRef.channelId)
             ? t("channelTranscriptPanel.emptyThread", { channel: channelLabel })
             : t("channelTranscriptPanel.emptyNoMessageDetail", {

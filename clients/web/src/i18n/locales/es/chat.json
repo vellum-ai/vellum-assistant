@@ -81,7 +81,6 @@
     "screenshotFallbackAria": "Vista previa de la captura de pantalla del ordenador",
     "screenshotFallbackTitle": "Captura de pantalla del ordenador",
     "screenshotTitle": "Captura de pantalla de {activity}",
-    "thinkingTitle": "Pensando",
     "viewThinkingAria": "Ver razonamiento"
   },
   "computerUseScreenshotPreview": {
@@ -1789,6 +1788,9 @@
   "textSelectionPopover": {
     "reply": "Responder"
   },
+  "thinkingDetail": {
+    "title": "Pensando"
+  },
   "tiptapDocumentEditor": {
     "adding": "Añadiendo…",
     "comment": "Comentar",
@@ -1885,6 +1887,7 @@
     "seed": "Hola, acabo de iniciar una conversación de voz contigo. Este mensaje se envía automáticamente. Salúdame en una frase corta y luego pregúntame en qué quiero trabajar."
   },
   "voiceErrors": {
+    "selectionUnavailable": "No se pudo leer el texto seleccionado. No se pegó nada. Vuelve a seleccionar el texto e inténtalo de nuevo; puedes copiar tus palabras dictadas.",
     "nativeSttNoTranscript": "El dictado nativo de {clientName} no devolvió una transcripción. Revisa el reconocimiento de voz nativo en los ajustes del sistema e inténtalo de nuevo."
   },
   "voiceFirstRunCard": {
@@ -1966,8 +1969,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "La obtención falló.",
-    "fetching": "Obteniendo…",
-    "noContent": "No se extrajo contenido."
+    "mayRequireJavaScript": "Es posible que esta página necesite JavaScript para mostrarlo todo, así que puede faltar parte del contenido.",
+    "startIndexPastEnd": "La lectura empezó después del final de esta página, así que no se leyó nada.",
+    "truncated": "Solo se leyó parte de esta página."
   },
   "webSearchDetailView": {
     "noSources": "No se encontraron fuentes.",

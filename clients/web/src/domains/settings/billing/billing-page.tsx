@@ -24,6 +24,7 @@ import { PlanCard } from "@/domains/settings/components/plan-card";
 import { useSetupIntentReturn } from "@/domains/settings/hooks/use-setup-intent-return";
 import { replaceSearchParams } from "@/domains/settings/utils/replace-search-params";
 import { useAssistantDomains } from "@/domains/settings/billing/pro-onboarding/use-assistant-domains";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
@@ -238,6 +239,13 @@ function BillingTabContent() {
       { replace: true },
     );
   }, [setSearchParams]);
+  // With the Assistant Inbox on, email setup lives in the inbox's own card,
+  // and the wizard no longer carries a domain step to reopen on. The nudge
+  // is retired there rather than redirected: it reports the organisation's
+  // primary assistant, while the inbox belongs to the active one, and in a
+  // multi-assistant organisation the two can differ. The inbox's own rail
+  // entry is the nudge for whichever assistant is active.
+  const inboxEnabled = useClientFeatureFlagStore.use.assistantInbox();
 
   if (billingGate === "disabled") {
     return (
@@ -275,9 +283,7 @@ function BillingTabContent() {
   if (!isPlatformHosted && platformGate !== "gated") {
     return (
       <div className="space-y-4">
-        <Notice tone="warning">
-          {t("billingPage.billingUnavailable")}
-        </Notice>
+        <Notice tone="warning">{t("billingPage.billingUnavailable")}</Notice>
       </div>
     );
   }
@@ -289,7 +295,7 @@ function BillingTabContent() {
         <BillingPortalReturnHandler />
       </Suspense>
       {showPlanManagement && <GracePeriodBanner />}
-      {showPlanManagement && (
+      {showPlanManagement && !inboxEnabled && (
         <FinishProSetupNotice onFinishSetup={openProOnboarding} />
       )}
       {showPlanManagement && (

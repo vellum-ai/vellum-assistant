@@ -66,6 +66,7 @@ final class MacHelper: @unchecked Sendable {
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
     private var isModifierHoldDown = false
+    private var selectionReadSession = SelectionReadSession()
     /// The chord binding: the modifiers that must be held, and the keys that
     /// mean something with them. Its own binding rather than a mode of the
     /// hold's, because it is a different question about the keyboard: the hold
@@ -192,11 +193,11 @@ final class MacHelper: @unchecked Sendable {
         // What is highlighted in the application in front, read when the app
         // asks rather than on every press: a hold that has outlasted the
         // chords passing through it is the one worth reading for.
-        router.register("selection.read") { [weak self] _ in
+        router.register("selection.read") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
             }
-            return self.readFrontSelection()
+            return self.readFrontSelection(expectedHoldId: (params as? [String: Any])?["holdId"] as? Int)
         }
         // Which of the given applications are running, by bundle identifier.
         // The voice key asks before it arms Fn: another app watching the same
@@ -412,10 +413,12 @@ final class MacHelper: @unchecked Sendable {
         case .down:
             guard !isModifierHoldDown else { return }
             isModifierHoldDown = true
+            selectionReadSession.begin(processId: NSWorkspace.shared.frontmostApplication?.processIdentifier)
             params["state"] = "down"
         case .up(let reason):
             guard isModifierHoldDown else { return }
             isModifierHoldDown = false
+            selectionReadSession.end()
             params["state"] = "up"
             params["reason"] = reason.rawValue
         }
@@ -428,15 +431,23 @@ final class MacHelper: @unchecked Sendable {
     /// after the keys are up would sample whatever the user moved on to, and
     /// a hold over that is not the hold that was made. Character counts only
     /// in the log; the text itself is the user's.
-    private func readFrontSelection() -> [String: Any] {
-        guard isModifierHoldDown else {
-            log("front selection: skipped, no hold is open")
-            return [:]
+    private func readFrontSelection(expectedHoldId: Int?) -> [String: Any] {
+        guard let holdId = selectionReadSession.token(
+            processId: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            expected: expectedHoldId
+        ) else {
+            log("front selection: unavailable, hold or application changed")
+            return ["unavailable": true]
         }
         let readStarted = Date()
-        let outcome = FrontSelection.read()
+        let outcome = FrontSelection.read(activateChromium: expectedHoldId == nil)
         let readMs = Int(Date().timeIntervalSince(readStarted) * 1000)
         log("front selection: \(outcome.logLine) truncated=\(outcome.selection?.truncated ?? false) readMs=\(readMs)")
+        if outcome.unavailable {
+            return SelectionReadSession.unavailableResult(
+                holdId: holdId, trusted: outcome.trusted, chromium: outcome.chromium
+            )
+        }
         guard let selection = outcome.selection else {
             return [:]
         }

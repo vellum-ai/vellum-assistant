@@ -307,7 +307,7 @@ const CATALOG_RECORD: CatalogRecord = {
     id: "voiceEscalationJudge",
     displayName: "Voice Escalation Judge",
     description:
-      "Second opinion on the voice front door's escalate decision. Runs only when pinned to a TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
+      "Second opinion on the voice front door's escalate decision. Uses managed Jev when Vellum-managed inference is available, or an explicitly configured TypeSafe profile; a confident 'needs tools' verdict hands the turn to the escalated leg.",
     domain: "agentLoop",
   },
   voiceContinuationJudge: {
@@ -315,6 +315,13 @@ const CATALOG_RECORD: CatalogRecord = {
     displayName: "Voice Continuation Judge",
     description:
       "Decides from the caller's interruption whether a barged-in request should keep running in the background. Runs only when pinned to a TypeSafe profile.",
+    domain: "agentLoop",
+  },
+  autoProfileRouter: {
+    id: "autoProfileRouter",
+    displayName: "Auto Profile Router",
+    description:
+      "Picks which default profile answers a message when the conversation runs on the Auto profile. Asks managed Jev one choice question over the latest message; when unavailable the turn runs on Balanced.",
     domain: "agentLoop",
   },
   voiceContinuationLabel: {

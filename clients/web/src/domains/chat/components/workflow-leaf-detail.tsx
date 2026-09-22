@@ -6,6 +6,7 @@ import {
   AnimatedMetricCard,
   formatNumber,
 } from "@/domains/chat/components/metric-card";
+import { DetailShellNotice } from "@/components/detail-shell";
 import { SectionLabel } from "@/components/detail-primitives";
 import type { WorkflowLeaf } from "@/domains/chat/workflow-store";
 import { useTranslation } from "@/i18n";
@@ -32,13 +33,7 @@ function DetailSection({
           {body}
         </Typography>
       ) : (
-        <Typography
-          variant="body-medium-lighter"
-          as="p"
-          className="text-[var(--content-tertiary)]"
-        >
-          {emptyText}
-        </Typography>
+        <DetailShellNotice placement="section">{emptyText}</DetailShellNotice>
       )}
     </div>
   );

@@ -81,7 +81,6 @@
     "screenshotFallbackAria": "預覽電腦螢幕截圖",
     "screenshotFallbackTitle": "電腦螢幕截圖",
     "screenshotTitle": "來自「{activity}」的螢幕截圖",
-    "thinkingTitle": "思考中",
     "viewThinkingAria": "檢視思考過程"
   },
   "computerUseScreenshotPreview": {
@@ -1827,6 +1826,9 @@
   "textSelectionPopover": {
     "reply": "回覆"
   },
+  "thinkingDetail": {
+    "title": "思考中"
+  },
   "tiptapDocumentEditor": {
     "adding": "正在新增…",
     "comment": "註解",
@@ -2005,8 +2007,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "擷取失敗。",
-    "fetching": "正在擷取…",
-    "noContent": "未擷取到內容。"
+    "mayRequireJavaScript": "此頁面可能需要 JavaScript 才能完整顯示，因此部分內容可能缺失。",
+    "startIndexPastEnd": "讀取起點超出了此頁面的結尾，因此沒有讀取到任何內容。",
+    "truncated": "只讀取了此頁面的一部分。"
   },
   "webSearchDetailView": {
     "noSources": "找不到來源。",

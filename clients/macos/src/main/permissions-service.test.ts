@@ -48,6 +48,7 @@ class FakeElectronNotification {
 /** The helper launches and Settings opens, in the order they happened. */
 const helperCalls: string[] = [];
 let helperScreenStatus = "denied";
+let helperInputMonitoringStatus = "denied";
 
 mock.module("electron", () => ({
   app: {
@@ -103,7 +104,7 @@ mock.module("./appleScriptExecutor", () => ({
 
 mock.module("./hotkey-helper", () => ({
   queryFreshMacHelperPermission: async () => "granted",
-  queryMacHelperPermission: async () => "denied",
+  queryMacHelperPermission: async () => helperInputMonitoringStatus,
   requestMacHelperInputMonitoringPermission: async () => {
     helperCalls.push("request inputMonitoring");
   },
@@ -446,6 +447,7 @@ describe("permission setup", () => {
   beforeEach(() => {
     helperCalls.length = 0;
     helperScreenStatus = "denied";
+    helperInputMonitoringStatus = "denied";
   });
 
   test("reports the helper's grant, not the app's", async () => {
@@ -455,37 +457,52 @@ describe("permission setup", () => {
     expect(state.screen.requiresRestart).toBe(false);
   });
 
-  test.each([
-    ["screen", "ScreenCapture"],
-    ["inputMonitoring", "ListenEvent"],
-  ] as const)(
-    "yields for %s's native alert and a separate Settings visit",
-    async (kind, pane) => {
-      const stop = onPermissionPresentation(() => {
-        helperCalls.push("yield tour");
-      });
-      try {
-        const service = new PermissionsService();
-        const initial = await service.state();
-        expect(helperCalls).toEqual([]);
-        expect(initial[kind].canRequest).toBe(true);
-        const requested = await service.openSettings(kind);
-        expect(helperCalls).toEqual(["yield tour", `request ${kind}`]);
-        if (kind === "screen") {
-          expect(requested.canRequest).toBe(false);
-        }
-        await service.openSettings(kind);
-        expect(helperCalls).toEqual([
-          "yield tour",
-          `request ${kind}`,
-          "yield tour",
-          `open x-apple.systempreferences:com.apple.preference.security?Privacy_${pane}`,
-        ]);
-      } finally {
-        stop();
-      }
-    },
-  );
+  test("yields for Screen Recording's native alert and a separate Settings visit", async () => {
+    const stop = onPermissionPresentation(() => {
+      helperCalls.push("yield tour");
+    });
+    try {
+      const service = new PermissionsService();
+      const initial = await service.state();
+      expect(helperCalls).toEqual([]);
+      expect(initial.screen.canRequest).toBe(true);
+      const requested = await service.openSettings("screen");
+      expect(helperCalls).toEqual(["yield tour", "request screen"]);
+      expect(requested.canRequest).toBe(false);
+      await service.openSettings("screen");
+      expect(helperCalls).toEqual([
+        "yield tour",
+        "request screen",
+        "yield tour",
+        "open x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
+  test("opens Input Monitoring Settings immediately after a denial", async () => {
+    await new PermissionsService().openSettings("inputMonitoring");
+
+    expect(helperCalls).toEqual([
+      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+    ]);
+  });
+
+  test("requests Input Monitoring before opening Settings when it is not determined", async () => {
+    helperInputMonitoringStatus = "not-determined";
+    const service = new PermissionsService();
+
+    await service.openSettings("inputMonitoring");
+    expect(helperCalls).toEqual(["request inputMonitoring"]);
+
+    helperInputMonitoringStatus = "denied";
+    await service.openSettings("inputMonitoring");
+    expect(helperCalls).toEqual([
+      "request inputMonitoring",
+      "open x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+    ]);
+  });
 
   test("does not open Settings for a helper grant that already arrived", async () => {
     helperScreenStatus = "granted";

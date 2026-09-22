@@ -33,6 +33,7 @@ import type {
   SubscriptionPackage,
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import * as activeAssistantIdModule from "@/assistant/use-active-assistant-id";
 import * as platformGate from "@/hooks/use-platform-gate";
 import * as platformDetection from "@/runtime/platform-detection";
@@ -268,6 +269,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useClientFeatureFlagStore.setState({ assistantInbox: false });
 });
 
 describe("BillingTab on native Android", () => {
@@ -277,9 +279,7 @@ describe("BillingTab on native Android", () => {
 
     expect(getByTestId("plan-card-tier-upgraded")).toBeTruthy();
     expect(getByTestId("onboarding-modal")).toBeTruthy();
-    expect(
-      queryByText("Manage your subscription on our website."),
-    ).toBeNull();
+    expect(queryByText("Manage your subscription on our website.")).toBeNull();
   });
 });
 
@@ -389,6 +389,17 @@ describe("BillingTab tier-upgrade resize takeover", () => {
 });
 
 describe("Finish Pro setup nudge", () => {
+  test("with the Assistant Inbox on, the nudge is retired in favour of the inbox's rail entry", async () => {
+    // The nudge reports the primary assistant's missing domain, while the
+    // inbox is the active assistant's; sending one to the other could bind a
+    // handle to the wrong assistant in a multi-assistant organisation.
+    useClientFeatureFlagStore.setState({ assistantInbox: true });
+    const { getByTestId, queryByTestId } = renderPage();
+
+    await waitFor(() => expect(getByTestId("onboarding-modal")).toBeTruthy());
+    expect(queryByTestId("finish-pro-setup-notice")).toBeNull();
+  });
+
   test("stays hidden and skips the query chain until the org is ready", async () => {
     // Fresh login: the org store hasn't hydrated, so the header source has
     // no id yet. The nudge must not fire its subscription/onboarding chain

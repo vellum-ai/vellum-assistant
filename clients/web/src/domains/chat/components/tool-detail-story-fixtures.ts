@@ -915,6 +915,16 @@ export const thinkingDetail: ToolDetailPayload = payload({
  * status, any notices) above a `Content:` marker, which the fetch view parses
  * into a page-shaped summary instead of showing the envelope.
  */
+const AUTODOCS_URL = "https://storybook.js.org/docs/writing-docs/autodocs";
+
+const AUTODOCS_PAGE = [
+  "# Autodocs",
+  "",
+  "Storybook can automatically generate a documentation page from a set of",
+  "stories by adding the `autodocs` tag to a component's meta.",
+];
+
+/** `web_fetch` as the daemon records it now: the page plus its metadata. */
 export const webFetchDetail: ToolDetailPayload = payload({
   toolCallId: "tc-web-fetch-1",
   toolName: "web_fetch",
@@ -922,19 +932,160 @@ export const webFetchDetail: ToolDetailPayload = payload({
   activity: "Reading the autodocs page",
   input: {
     activity: "Reading the autodocs page",
-    url: "https://storybook.js.org/docs/writing-docs/autodocs",
+    url: AUTODOCS_URL,
     max_chars: 20000,
   },
   result: [
-    "Requested URL: https://storybook.js.org/docs/writing-docs/autodocs",
-    "Final URL: https://storybook.js.org/docs/writing-docs/autodocs",
+    `Requested URL: ${AUTODOCS_URL}`,
+    `Final URL: ${AUTODOCS_URL}`,
+    "Status: 200 OK",
+    "Content-Type: text/html; charset=utf-8",
+    "Content:",
+    ...AUTODOCS_PAGE,
+  ].join("\n"),
+  activityMetadata: {
+    webFetch: {
+      url: AUTODOCS_URL,
+      finalUrl: AUTODOCS_URL,
+      provider: "default",
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+      byteCount: 48210,
+      charCount: 214,
+      truncated: false,
+      title: "Autodocs | Storybook docs",
+      domain: "storybook.js.org",
+      redirectCount: 0,
+      durationMs: 640,
+      startIndexPastEnd: false,
+    },
+  },
+  riskLevel: "low",
+});
+
+/**
+ * A fetch recorded before the daemon sent metadata. The source card comes from
+ * the result's header lines instead, so old history reads as it always has.
+ */
+export const webFetchLegacyDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-2",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the autodocs page",
+  input: {
+    activity: "Reading the autodocs page",
+    url: AUTODOCS_URL,
+    max_chars: 20000,
+  },
+  result: [
+    `Requested URL: ${AUTODOCS_URL}`,
+    `Final URL: ${AUTODOCS_URL}`,
     "Status: 200",
     "Content:",
-    "# Autodocs",
-    "",
-    "Storybook can automatically generate a documentation page from a set of",
-    "stories by adding the `autodocs` tag to a component's meta.",
+    ...AUTODOCS_PAGE,
   ].join("\n"),
+  riskLevel: "low",
+});
+
+/**
+ * A page cut short that may also need JavaScript to render: both warnings the
+ * daemon flags in the metadata.
+ */
+export const webFetchNoticesDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-3",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the pricing page",
+  input: {
+    activity: "Reading the pricing page",
+    url: "https://example.com/pricing",
+    max_chars: 2000,
+  },
+  result: [
+    "Requested URL: https://example.com/pricing",
+    "Final URL: https://www.example.com/pricing",
+    "Status: 200 OK",
+    "Content-Type: text/html",
+    "Notices:",
+    "- Followed 1 redirect(s).",
+    "- Output truncated by max_chars=2000.",
+    "- Extracted only 1840 chars of text from 412300 bytes of HTML (0.4%). Content may be JavaScript-rendered.",
+    "Content:",
+    "# Pricing",
+    "",
+    "Plans start at $12 per seat per month, billed annually.",
+  ].join("\n"),
+  activityMetadata: {
+    webFetch: {
+      url: "https://example.com/pricing",
+      finalUrl: "https://www.example.com/pricing",
+      provider: "default",
+      status: 200,
+      contentType: "text/html",
+      byteCount: 412300,
+      charCount: 1840,
+      truncated: true,
+      title: "Pricing | Example",
+      domain: "www.example.com",
+      redirectCount: 1,
+      durationMs: 1210,
+      startIndexPastEnd: false,
+      mayRequireJavaScript: true,
+    },
+  },
+  riskLevel: "low",
+});
+
+/** A page that answered with an HTTP error. */
+export const webFetchErrorDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-4",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the changelog",
+  input: {
+    activity: "Reading the changelog",
+    url: "https://example.com/changelog",
+  },
+  result: [
+    "Error: HTTP 404",
+    "",
+    "Requested URL: https://example.com/changelog",
+    "Final URL: https://example.com/changelog",
+    "Status: 404 Not Found",
+    "Content-Type: text/html",
+    "Content:",
+    "# Page not found",
+  ].join("\n"),
+  status: "error",
+  activityMetadata: {
+    webFetch: {
+      url: "https://example.com/changelog",
+      finalUrl: "https://example.com/changelog",
+      provider: "default",
+      status: 404,
+      contentType: "text/html",
+      byteCount: 1320,
+      charCount: 16,
+      truncated: false,
+      title: "Page not found",
+      domain: "example.com",
+      redirectCount: 0,
+      durationMs: 310,
+      startIndexPastEnd: false,
+      errorMessage: "Error: HTTP 404",
+    },
+  },
+  riskLevel: "low",
+});
+
+/** A fetch still in flight: the url it asked for, and no page yet. */
+export const webFetchRunningDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-5",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the autodocs page",
+  input: { activity: "Reading the autodocs page", url: AUTODOCS_URL },
+  status: "running",
   riskLevel: "low",
 });
 

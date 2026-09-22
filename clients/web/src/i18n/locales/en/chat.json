@@ -81,7 +81,6 @@
     "screenshotFallbackAria": "Preview computer screenshot",
     "screenshotFallbackTitle": "Computer screenshot",
     "screenshotTitle": "Screenshot from {activity}",
-    "thinkingTitle": "Thinking",
     "viewThinkingAria": "View thinking"
   },
   "computerUseScreenshotPreview": {
@@ -1838,6 +1837,9 @@
   "textSelectionPopover": {
     "reply": "Reply"
   },
+  "thinkingDetail": {
+    "title": "Thinking"
+  },
   "tiptapDocumentEditor": {
     "adding": "Adding…",
     "comment": "Comment",
@@ -1934,6 +1936,7 @@
     "seed": "Hey, I just started a voice conversation with you. This message is sent automatically. Greet me in one short sentence, then ask what I'd like to work on."
   },
   "voiceErrors": {
+    "selectionUnavailable": "Couldn't read the selected text. Nothing was pasted. Select the text again and retry; your spoken words are available to copy.",
     "askUnavailable": "Your assistant can’t take a spoken question right now.",
     "nativeSttNoTranscript": "{clientName} Native Dictation didn’t return a transcript. Check native speech recognition in system settings, then try again."
   },
@@ -2016,8 +2019,9 @@
   },
   "webFetchDetailView": {
     "fetchFailed": "Fetch failed.",
-    "fetching": "Fetching…",
-    "noContent": "No content extracted."
+    "mayRequireJavaScript": "This page may need JavaScript to show everything, so some of it may be missing.",
+    "startIndexPastEnd": "The fetch started past the end of this page, so nothing was read.",
+    "truncated": "Only part of this page was read."
   },
   "webSearchDetailView": {
     "noSources": "No sources found.",

@@ -9,17 +9,15 @@
  * a preset set of args.
  *
  * How to drive it: `phase` picks the provisioning state. `change` picks the plan
- * move whose chips are drawn. `snag` supplies the captured reconcile failure
- * STALLED reads, and `avatar` swaps the seeded assistant between a bundled
- * creature, an uploaded image, and one nothing was seeded for. `landedMachine`,
- * `landedStorage`, `softWaiting`, and `escapeAvailable` drive the wait's own
- * progress and affordances. Each is a URL arg too, so a state links directly:
+ * move whose metrics are drawn. `snag` supplies the captured reconcile failure
+ * STALLED reads. `landedMachine`, `landedStorage`, `softWaiting`, and
+ * `escapeAvailable` drive the wait's own progress and affordances. Each is a
+ * URL arg too, so a state links directly:
  * `?args=phase:STALLED;snag:submissionFailed`.
  *
- * The decorators supply what the modal supplies: the plan catalog and avatar
- * reads in a story-local query cache, and the takeover frame (a black ground, a
- * viewport-tall box, `data-theme="dark"`, and the `--takeover-surface` custom
- * property). The frame is reproduced in flow rather than mounted through
+ * The decorators supply what the modal supplies: the plan catalog read in a
+ * story-local query cache, and the takeover frame (a viewport-tall box on
+ * white). The frame is reproduced in flow rather than mounted through
  * `Modal.Content`, whose overlay is `fixed`: one portaled overlay per story
  * would stack every story in this file on top of the others in the shared docs
  * iframe.
@@ -29,13 +27,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ProvisioningStateKind } from "./provisioning-machine";
 import { ProvisioningState } from "./provisioning-state";
 import {
-  TAKEOVER_AVATARS,
   TAKEOVER_CONSTANT_PROPS,
   TAKEOVER_SCENARIOS,
   TAKEOVER_SNAGS,
   takeoverFrameDecorator,
   takeoverQueryDecorator,
-  type TakeoverAvatarKey,
   type TakeoverScenario,
   type TakeoverScenarioKey,
   type TakeoverSnagKey,
@@ -45,7 +41,7 @@ import {
  * The playground's controls, which are not `ProvisioningState` props: each one
  * names a row in a fixture table the render expands.
  *
- * The three table-backed controls hold the row's name rather than the row, and
+ * The two table-backed controls hold the row's name rather than the row, and
  * the render looks it up. That keeps a story's `args` type-checked against the
  * options it may name, which an `argTypes` `mapping` cannot do, and it is the
  * name that reads well in a URL arg.
@@ -63,7 +59,6 @@ interface TakeoverPlaygroundArgs {
   softWaiting: boolean;
   escapeAvailable: boolean;
   snag: TakeoverSnagKey;
-  avatar: TakeoverAvatarKey;
 }
 
 const PHASES: ProvisioningStateKind[] = [
@@ -93,7 +88,6 @@ function renderTakeover(args: TakeoverPlaygroundArgs) {
       softWaiting={args.softWaiting}
       escapeAvailable={args.escapeAvailable}
       kickError={TAKEOVER_SNAGS[args.snag]}
-      assistantId={TAKEOVER_AVATARS[args.avatar]}
     />
   );
 }
@@ -120,11 +114,6 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
       control: "select",
       options: Object.keys(TAKEOVER_SNAGS),
     },
-    avatar: {
-      description: "Which seeded assistant the takeover draws.",
-      control: "radio",
-      options: Object.keys(TAKEOVER_AVATARS),
-    },
     landedMachine: {
       description: "The machine has finished rolling out, so its chip checks.",
       control: "boolean",
@@ -150,7 +139,6 @@ const meta: Meta<TakeoverPlaygroundArgs> = {
     softWaiting: false,
     escapeAvailable: false,
     snag: "none",
-    avatar: "creature",
   },
   render: renderTakeover,
   // Storybook applies decorators innermost first, so the frame and the takeover
@@ -163,9 +151,9 @@ type Story = StoryObj<TakeoverPlaygroundArgs>;
 
 /**
  * The whole surface, driven from the Controls panel. Opens on the rollout of a
- * base-to-Super upgrade: both dimensions are still moving, so both chips spin,
- * and the bundle applied the moment the subscription was accepted, so its chip
- * is already checked.
+ * base-to-Super upgrade: both dimensions are still moving, and the bundle
+ * applied the moment the subscription was accepted, so its column is already
+ * checked.
  */
 export const Playground: Story = {
   tags: ["!autodocs"],
@@ -203,9 +191,8 @@ export const Waiting: Story = {
 };
 
 /**
- * Everything landed. Every chip carries its check, the creature stands at its
- * grown size, and no control is offered: the wizard advances on its own once
- * the dwell elapses.
+ * Everything landed. Every column carries its check and no control is
+ * offered: the wizard advances on its own once the dwell elapses.
  */
 export const Done: Story = {
   args: {
