@@ -7,8 +7,10 @@
  * the tab) and none of the writing, formatting, or formula machinery a
  * spreadsheet library carries. Parts are inflated as a stream and abandoned
  * once a cap is met, so a 200 MB workbook costs about what a 5000-row one
- * does. A worksheet omits rows that are entirely blank and records where the
- * next one sits, so those gaps are refilled to keep the sheet's layout.
+ * does. Opening a workbook reads only its metadata; a sheet's own part waits
+ * for `WorkbookSheet.read`. A worksheet omits rows that are entirely blank and
+ * records where the next one sits, so those gaps are refilled to keep the
+ * sheet's layout.
  *
  * @see http://www.ecma-international.org/publications/standards/Ecma-376.htm
  */
@@ -25,7 +27,13 @@ import {
 export interface WorkbookSheet {
   /** Sheet name as the workbook spells it, which is also the tab label. */
   name: string;
-  grid: ParsedCsv;
+  /**
+   * This sheet's grid, read on first call and cached from then on, so repeat
+   * calls cost nothing and a failed read stays failed. Sheets are lazy because
+   * the preview shows one at a time: parsing every sheet when the workbook
+   * opens would multiply every cap by the sheet count.
+   */
+  read(): Promise<ParsedCsv>;
 }
 
 export interface ParsedWorkbook {
@@ -33,6 +41,10 @@ export interface ParsedWorkbook {
 }
 
 const MS_PER_DAY = 86_400_000;
+
+/** Namespace OOXML parts declare for their relationship attributes. */
+const RELATIONSHIP_NS =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /** Whether a built-in `numFmtId` renders a date or a time. */
 function isBuiltInDateFormat(id: number): boolean {
@@ -42,6 +54,53 @@ function isBuiltInDateFormat(id: number): boolean {
     (id >= 45 && id <= 47) ||
     (id >= 50 && id <= 58)
   );
+}
+
+/** Local part of a qualified name, so `rel:id` and `id` both read as `id`. */
+function localPart(name: string): string {
+  const colon = name.indexOf(":");
+  return colon === -1 ? name : name.slice(colon + 1);
+}
+
+/**
+ * Descendants of `parent` with this local name. A producer picks its own
+ * OOXML prefixes, so nothing can be matched by qualified name. The scan
+ * filters `getElementsByTagName("*")` rather than calling
+ * `getElementsByTagNameNS("*", name)` because happy-dom, which the tests run
+ * on, returns nothing for the wildcard namespace; filtering on `localName`
+ * behaves the same there and in browsers, and measures no slower.
+ */
+function childrenNamed(
+  parent: Document | Element,
+  localName: string,
+): Element[] {
+  return Array.from(parent.getElementsByTagName("*")).filter(
+    (element) => element.localName === localName,
+  );
+}
+
+/**
+ * An attribute's value by local name, whatever prefix carries it. When
+ * `namespaceUri` is given the attribute declared in that namespace wins, and a
+ * bare local-name match is the fallback: happy-dom reports no namespace on an
+ * attribute and leaves the prefix on its `localName`.
+ */
+function attributeNamed(
+  element: Element,
+  localName: string,
+  namespaceUri?: string,
+): string | null {
+  let fallback: string | null = null;
+  for (const attribute of Array.from(element.attributes)) {
+    if (localPart(attribute.localName) !== localName) {
+      continue;
+    }
+    if (namespaceUri === undefined || attribute.namespaceURI === namespaceUri) {
+      return attribute.value;
+    }
+    fallback ??= attribute.value;
+  }
+  return fallback;
 }
 
 /**
@@ -83,11 +142,23 @@ interface BoundedPart {
 
 interface BoundedRead {
   /**
-   * Element start tag the read cuts at, kept `limit` times. A read with no
-   * marker has nowhere safe to cut, so it rejects at the cap instead.
+   * Element start tag the read cuts at, kept `limit` times. The tag is the
+   * unprefixed spelling every writer emits, so a part that prefixes it is
+   * bounded by `maxChars` alone. A read with no marker has nowhere safe to
+   * cut, so it rejects at the cap instead.
    */
   marker?: { text: string; limit: number };
   maxChars: number;
+}
+
+/**
+ * Whether `character` ends an element's name, as the one after `<row` does in
+ * `<row>`, `<row/>`, and `<row r="1">`. Without this the marker would also
+ * count the `<rowBreaks>` section a worksheet writes after its rows, and cut
+ * the part after `</sheetData>` had already closed.
+ */
+function endsTagName(character: string): boolean {
+  return character === ">" || character === "/" || /\s/.test(character);
 }
 
 /**
@@ -139,9 +210,19 @@ function readBoundedPart(
             );
             break;
           }
+          const after = buffer[at + marker.text.length];
+          if (after === undefined) {
+            // The character that would settle this match has not arrived, so
+            // the next chunk decides it rather than this one guessing.
+            searchFrom = at;
+            break;
+          }
+          searchFrom = at + marker.text.length;
+          if (!endsTagName(after)) {
+            continue;
+          }
           seen += 1;
           lastMarkerAt = at;
-          searchFrom = at + marker.text.length;
           if (seen > marker.limit) {
             cutAt(at);
             return;
@@ -220,14 +301,14 @@ interface WorkbookStructure {
 
 function readWorkbookStructure(xml: string): WorkbookStructure {
   const doc = parseXml(xml, "xl/workbook.xml");
-  const dateMode = doc
-    .getElementsByTagName("workbookPr")[0]
-    ?.getAttribute("date1904");
-  const sheets = Array.from(doc.getElementsByTagName("sheet")).map((sheet) => {
+  const dateMode = childrenNamed(doc, "workbookPr")[0]?.getAttribute(
+    "date1904",
+  );
+  const sheets = childrenNamed(doc, "sheet").map((sheet) => {
     const state = sheet.getAttribute("state");
     return {
       name: sheet.getAttribute("name") ?? "",
-      relationshipId: sheet.getAttribute("r:id"),
+      relationshipId: attributeNamed(sheet, "id", RELATIONSHIP_NS),
       hidden: state === "hidden" || state === "veryHidden",
     };
   });
@@ -241,9 +322,7 @@ function readRelationshipTargets(xml: string | null): Map<string, string> {
     return targets;
   }
   const doc = parseXml(xml, "xl/_rels/workbook.xml.rels");
-  for (const relationship of Array.from(
-    doc.getElementsByTagName("Relationship"),
-  )) {
+  for (const relationship of childrenNamed(doc, "Relationship")) {
     const id = relationship.getAttribute("Id");
     const target = relationship.getAttribute("Target");
     if (id === null || target === null) {
@@ -275,18 +354,18 @@ function readDateStyles(xml: string | null): boolean[] {
   }
   const doc = parseXml(xml, "xl/styles.xml");
   const customFormats = new Map<number, string>();
-  for (const format of Array.from(doc.getElementsByTagName("numFmt"))) {
+  for (const format of childrenNamed(doc, "numFmt")) {
     const id = Number(format.getAttribute("numFmtId"));
     const code = format.getAttribute("formatCode");
     if (Number.isInteger(id) && code !== null) {
       customFormats.set(id, code);
     }
   }
-  const cellXfs = doc.getElementsByTagName("cellXfs")[0];
+  const cellXfs = childrenNamed(doc, "cellXfs")[0];
   if (cellXfs === undefined) {
     return [];
   }
-  return Array.from(cellXfs.getElementsByTagName("xf")).map((xf) => {
+  return childrenNamed(cellXfs, "xf").map((xf) => {
     const id = Number(xf.getAttribute("numFmtId") ?? "0");
     if (isBuiltInDateFormat(id)) {
       return true;
@@ -329,7 +408,7 @@ interface SharedStringRef {
 
 /**
  * A cell is either finished text or a pointer into the shared string table,
- * which is only read once every sheet has said how far into it they reach.
+ * which is read only as far as the sheet pointing into it reaches.
  */
 type RawCell = string | SharedStringRef;
 
@@ -339,7 +418,7 @@ function isSharedStringRef(cell: RawCell): cell is SharedStringRef {
 
 /** Text of the `<v>` child, or `null` when the cell holds no cached value. */
 function cachedValue(cell: Element): string | null {
-  const value = cell.getElementsByTagName("v")[0];
+  const value = childrenNamed(cell, "v")[0];
   return value === undefined ? null : (value.textContent ?? "");
 }
 
@@ -348,7 +427,7 @@ function joinTextRuns(element: Element | undefined): string {
   if (element === undefined) {
     return "";
   }
-  return Array.from(element.getElementsByTagName("t"))
+  return childrenNamed(element, "t")
     .map((run) => run.textContent ?? "")
     .join("");
 }
@@ -364,7 +443,7 @@ function readCell(
     return Number.isInteger(index) && index >= 0 ? { sharedIndex: index } : "";
   }
   if (type === "inlineStr") {
-    return joinTextRuns(cell.getElementsByTagName("is")[0]);
+    return joinTextRuns(childrenNamed(cell, "is")[0]);
   }
 
   const value = cachedValue(cell);
@@ -375,7 +454,7 @@ function readCell(
     // This runs before the typed branches because the cell's declared type
     // says nothing about whether it was evaluated, and showing the formula
     // beats showing a blank where the user knows there is data.
-    const formula = cell.getElementsByTagName("f")[0];
+    const formula = childrenNamed(cell, "f")[0];
     if (formula !== undefined) {
       return `=${formula.textContent ?? ""}`;
     }
@@ -435,7 +514,7 @@ function readSheetRows(
   let truncated = false;
   let highestSharedIndex = -1;
 
-  for (const row of Array.from(doc.getElementsByTagName("row"))) {
+  for (const row of childrenNamed(doc, "row")) {
     if (rows.length >= MAX_CSV_ROWS) {
       truncated = true;
       break;
@@ -455,7 +534,7 @@ function readSheetRows(
     }
     const cells: RawCell[] = [];
     let column = -1;
-    for (const cell of Array.from(row.getElementsByTagName("c"))) {
+    for (const cell of childrenNamed(row, "c")) {
       column = columnIndexFromRef(cell.getAttribute("r")) ?? column + 1;
       if (column >= MAX_CSV_COLUMNS) {
         truncated = true;
@@ -476,15 +555,23 @@ function readSheetRows(
   return { rows, truncated, highestSharedIndex };
 }
 
-/** The shared string table, read only as far as some sheet reaches into it. */
-async function readSharedStrings(
+interface SharedStringTable {
+  strings: string[];
+  /** Highest index this read was asked to cover. */
+  readUpTo: number;
+  /** True when the read took the whole part, so no later read can add to it. */
+  exhausted: boolean;
+}
+
+/** The shared string table, read only as far as a sheet reaches into it. */
+async function readSharedStringTable(
   zip: JSZip,
   highestIndex: number,
   maxPartChars: number,
-): Promise<string[]> {
+): Promise<SharedStringTable> {
   const entry = zip.file("xl/sharedStrings.xml");
   if (entry === null) {
-    return [];
+    return { strings: [], readUpTo: highestIndex, exhausted: true };
   }
   const part = await readBoundedPart(entry, {
     marker: { text: "<si", limit: highestIndex + 1 },
@@ -494,9 +581,45 @@ async function readSharedStrings(
     closeBoundedPart(part, "<sst/>", "</sst>"),
     "xl/sharedStrings.xml",
   );
-  return Array.from(doc.getElementsByTagName("si")).map((item) =>
-    joinTextRuns(item),
-  );
+  return {
+    strings: childrenNamed(doc, "si").map((item) => joinTextRuns(item)),
+    readUpTo: highestIndex,
+    exhausted: !part.truncated,
+  };
+}
+
+type SharedStringReader = (highestIndex: number) => Promise<string[]>;
+
+/**
+ * Reader over the one shared string table the whole workbook points into. It
+ * keeps what it has read, so a sheet reaching no further than an earlier one
+ * costs nothing, and a sheet reaching further re-reads the part to its own
+ * maximum. Reads are chained because two sheets resolving at once would
+ * otherwise inflate the same part twice.
+ */
+function createSharedStringReader(
+  zip: JSZip,
+  maxPartChars: number,
+): SharedStringReader {
+  let table: SharedStringTable | null = null;
+  let queue: Promise<void> = Promise.resolve();
+  return (highestIndex) => {
+    const read = queue.then(async () => {
+      if (
+        table === null ||
+        (!table.exhausted && table.readUpTo < highestIndex)
+      ) {
+        table = await readSharedStringTable(zip, highestIndex, maxPartChars);
+      }
+      return table.strings;
+    });
+    // A rejected read must not wedge the sheet that asks next.
+    queue = read.then(
+      () => undefined,
+      () => undefined,
+    );
+    return read;
+  };
 }
 
 /** Pad ragged rows to a common width and pick a header, as `parseCsv` does. */
@@ -520,10 +643,73 @@ function shapeGrid(records: string[][], truncated: boolean): ParsedCsv {
   };
 }
 
-interface CollectedSheet {
-  name: string;
-  rows: RawCell[][];
-  truncated: boolean;
+/** What every sheet of one workbook shares while it reads its own part. */
+interface WorkbookContext {
+  zip: JSZip;
+  isDateStyle: boolean[];
+  date1904: boolean;
+  maxPartChars: number;
+  sharedStrings: SharedStringReader;
+}
+
+async function readSheetGrid(
+  context: WorkbookContext,
+  name: string,
+  target: string | undefined,
+): Promise<ParsedCsv> {
+  const entry = target === undefined ? null : context.zip.file(target);
+  if (entry === null) {
+    throw new Error(`Sheet "${name}" points at no worksheet part`);
+  }
+  const part = await readBoundedPart(entry, {
+    marker: { text: "<row", limit: MAX_CSV_ROWS },
+    maxChars: context.maxPartChars,
+  });
+  const read = readSheetRows(
+    parseXml(
+      closeBoundedPart(part, "<worksheet/>", "</sheetData></worksheet>"),
+      entry.name,
+    ),
+    context.isDateStyle,
+    context.date1904,
+  );
+  const strings =
+    read.highestSharedIndex < 0
+      ? []
+      : await context.sharedStrings(read.highestSharedIndex);
+  // A shared string past a cut table reads as blank, which the sheet that
+  // pointed at it has to own up to.
+  let lostSharedString = false;
+  const records = read.rows.map((row) =>
+    row.map((cell) => {
+      if (!isSharedStringRef(cell)) {
+        return cell;
+      }
+      const text = strings[cell.sharedIndex];
+      if (text === undefined) {
+        lostSharedString = true;
+        return "";
+      }
+      return text;
+    }),
+  );
+  return shapeGrid(
+    records,
+    part.truncated || read.truncated || lostSharedString,
+  );
+}
+
+/** A sheet's `read`, holding the first call's promise for every later one. */
+function createSheetReader(
+  context: WorkbookContext,
+  name: string,
+  target: string | undefined,
+): () => Promise<ParsedCsv> {
+  let pending: Promise<ParsedCsv> | null = null;
+  return () => {
+    pending ??= readSheetGrid(context, name, target);
+    return pending;
+  };
 }
 
 export interface ParseWorkbookOptions {
@@ -532,9 +718,10 @@ export interface ParseWorkbookOptions {
 }
 
 /**
- * Read a workbook container into one grid per visible sheet. Rejects when the
- * blob is not a zip or carries no `xl/workbook.xml`, which the preview shows
- * as an unreadable file.
+ * Read a workbook container's metadata into one lazily read sheet per visible
+ * sheet. Rejects when the blob is not a zip or carries no `xl/workbook.xml`,
+ * which the preview shows as an unreadable file. A sheet whose own part is
+ * missing or malformed rejects from its `read`, leaving the rest readable.
  */
 export async function parseWorkbook(
   blob: Blob,
@@ -553,74 +740,30 @@ export async function parseWorkbook(
   const targets = readRelationshipTargets(
     await readPart(zip, "xl/_rels/workbook.xml.rels", maxPartChars),
   );
-  const isDateStyle = readDateStyles(
-    await readPart(zip, "xl/styles.xml", maxPartChars),
-  );
+  const context: WorkbookContext = {
+    zip,
+    isDateStyle: readDateStyles(
+      await readPart(zip, "xl/styles.xml", maxPartChars),
+    ),
+    date1904,
+    maxPartChars,
+    sharedStrings: createSharedStringReader(zip, maxPartChars),
+  };
 
   // A workbook whose sheets are every one hidden still has something to show.
   const visible = sheets.filter((sheet) => !sheet.hidden);
   const kept = visible.length > 0 ? visible : sheets;
 
-  const collected: CollectedSheet[] = [];
-  let highestSharedIndex = -1;
-  for (const sheet of kept) {
-    const target =
-      sheet.relationshipId === null
-        ? undefined
-        : targets.get(sheet.relationshipId);
-    const entry = target === undefined ? null : zip.file(target);
-    if (entry === null) {
-      collected.push({ name: sheet.name, rows: [], truncated: false });
-      continue;
-    }
-    // Sheets are read one at a time so only one part is ever inflated.
-    const part = await readBoundedPart(entry, {
-      marker: { text: "<row", limit: MAX_CSV_ROWS },
-      maxChars: maxPartChars,
-    });
-    const read = readSheetRows(
-      parseXml(
-        closeBoundedPart(part, "<worksheet/>", "</sheetData></worksheet>"),
-        entry.name,
-      ),
-      isDateStyle,
-      date1904,
-    );
-    highestSharedIndex = Math.max(highestSharedIndex, read.highestSharedIndex);
-    collected.push({
-      name: sheet.name,
-      rows: read.rows,
-      truncated: part.truncated || read.truncated,
-    });
-  }
-
-  const sharedStrings =
-    highestSharedIndex < 0
-      ? []
-      : await readSharedStrings(zip, highestSharedIndex, maxPartChars);
-
   return {
-    sheets: collected.map((sheet) => {
-      // A shared string past a cut table reads as blank, which the sheet that
-      // pointed at it has to own up to.
-      let lostSharedString = false;
-      const records = sheet.rows.map((row) =>
-        row.map((cell) => {
-          if (!isSharedStringRef(cell)) {
-            return cell;
-          }
-          const text = sharedStrings[cell.sharedIndex];
-          if (text === undefined) {
-            lostSharedString = true;
-            return "";
-          }
-          return text;
-        }),
-      );
-      return {
-        name: sheet.name,
-        grid: shapeGrid(records, sheet.truncated || lostSharedString),
-      };
-    }),
+    sheets: kept.map((sheet) => ({
+      name: sheet.name,
+      read: createSheetReader(
+        context,
+        sheet.name,
+        sheet.relationshipId === null
+          ? undefined
+          : targets.get(sheet.relationshipId),
+      ),
+    })),
   };
 }

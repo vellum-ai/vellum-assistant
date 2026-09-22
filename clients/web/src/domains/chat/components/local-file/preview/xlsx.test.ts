@@ -28,13 +28,26 @@ async function readOneSheet(
     await workbookBlob({ sheets: [{ name: "Sheet1", rows }], ...extras }),
     options,
   );
-  return parsed.sheets[0]!.grid;
+  return parsed.sheets[0]!.read();
 }
 
 /** The one sheet of a workbook, for a sheet that states its own raw XML. */
 async function readSheetSpec(sheet: SheetSpec): Promise<ParsedCsv> {
   const parsed = await parseWorkbook(await workbookBlob({ sheets: [sheet] }));
-  return parsed.sheets[0]!.grid;
+  return parsed.sheets[0]!.read();
+}
+
+/** A container holding exactly these parts, for a workbook the helper cannot state. */
+async function zipBlob(parts: Record<string, string>): Promise<Blob> {
+  const zip = new JSZip();
+  for (const [path, xml] of Object.entries(parts)) {
+    zip.file(path, xml);
+  }
+  const buffer = await zip.generateAsync({
+    type: "arraybuffer",
+    compression: "DEFLATE",
+  });
+  return new Blob([buffer]);
 }
 
 /** A date format code long enough to push `xl/styles.xml` past a small cap. */
@@ -43,6 +56,39 @@ const LONG_DATE_FORMAT = `yyyy-mm-dd${"0".repeat(50_000)}`;
 /** A row at `position` holding one inline string, as raw worksheet XML. */
 function rowXml(position: number, text: string): string {
   return `<row r="${position}"><c r="A${position}" t="inlineStr"><is><t>${text}</t></is></c></row>`;
+}
+
+/** The section a worksheet writes after its rows, whose name starts with `row`. */
+const ROW_BREAKS =
+  '<rowBreaks count="1" manualBreakCount="1"><brk id="10" max="16383" man="1"/></rowBreaks>';
+
+const MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const RELATIONSHIP_NS =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const PACKAGE_RELATIONSHIP_NS =
+  "http://schemas.openxmlformats.org/package/2006/relationships";
+
+/** Cells the prefixed and unprefixed fixtures both spell, as the helper states them. */
+const PREFIX_FIXTURE_ROW: CellInput[] = [
+  { t: "s", v: 0 },
+  "inline",
+  { v: 44927, s: 0 },
+  { f: "SUM(A1:A2)" },
+];
+
+/**
+ * The same workbook, written with a prefix on every element and on the
+ * relationship attribute. OOXML lets a producer pick its own prefixes, so
+ * nothing may be matched by qualified name.
+ */
+function prefixedWorkbookParts(): Record<string, string> {
+  return {
+    "xl/workbook.xml": `<x:workbook xmlns:x="${MAIN_NS}" xmlns:rel="${RELATIONSHIP_NS}"><x:sheets><x:sheet name="Data" sheetId="1" rel:id="rId1"/></x:sheets></x:workbook>`,
+    "xl/_rels/workbook.xml.rels": `<pkg:Relationships xmlns:pkg="${PACKAGE_RELATIONSHIP_NS}"><pkg:Relationship Id="rId1" Type="${RELATIONSHIP_NS}/worksheet" Target="worksheets/sheet1.xml"/></pkg:Relationships>`,
+    "xl/worksheets/sheet1.xml": `<x:worksheet xmlns:x="${MAIN_NS}"><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="B1" t="inlineStr"><x:is><x:t xml:space="preserve">inline</x:t></x:is></x:c><x:c r="C1" s="0"><x:v>44927</x:v></x:c><x:c r="D1"><x:f>SUM(A1:A2)</x:f></x:c></x:row></x:sheetData></x:worksheet>`,
+    "xl/sharedStrings.xml": `<x:sst xmlns:x="${MAIN_NS}" count="1" uniqueCount="1"><x:si><x:t xml:space="preserve">shared</x:t></x:si></x:sst>`,
+    "xl/styles.xml": `<x:styleSheet xmlns:x="${MAIN_NS}"><x:numFmts count="0"/><x:cellStyleXfs count="1"><x:xf numFmtId="0"/></x:cellStyleXfs><x:cellXfs count="1"><x:xf numFmtId="14"/></x:cellXfs></x:styleSheet>`,
+  };
 }
 
 describe("parseWorkbook", () => {
@@ -60,8 +106,8 @@ describe("parseWorkbook", () => {
       "Budget",
       "Notes",
     ]);
-    expect(parsed.sheets[0]!.grid.rows).toEqual([["alpha"]]);
-    expect(parsed.sheets[1]!.grid.rows).toEqual([["beta"]]);
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+    expect((await parsed.sheets[1]!.read()).rows).toEqual([["beta"]]);
   });
 
   test("skips hidden and very hidden sheets", async () => {
@@ -91,6 +137,47 @@ describe("parseWorkbook", () => {
     expect(parsed.sheets.map((sheet) => sheet.name)).toEqual(["One", "Two"]);
   });
 
+  test("leaves a sheet part unread until that sheet is asked for", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          { name: "Good", rows: [["alpha"]] },
+          { name: "Broken", trailing: "<row><c><v>1</v>" },
+        ],
+      }),
+    );
+
+    expect(parsed.sheets.map((sheet) => sheet.name)).toEqual([
+      "Good",
+      "Broken",
+    ]);
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["alpha"]]);
+    await expect(parsed.sheets[1]!.read()).rejects.toThrow("Malformed XML");
+  });
+
+  test("reads a sheet once however many times it is asked for", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({ sheets: [{ name: "Sheet1", rows: [["alpha"]] }] }),
+    );
+    const sheet = parsed.sheets[0]!;
+
+    const first = sheet.read();
+    const second = sheet.read();
+
+    expect(second).toBe(first);
+    expect((await second).rows).toEqual([["alpha"]]);
+  });
+
+  test("rejects the read of a sheet whose part is missing", async () => {
+    const parts = prefixedWorkbookParts();
+    delete parts["xl/worksheets/sheet1.xml"];
+
+    const parsed = await parseWorkbook(await zipBlob(parts));
+
+    expect(parsed.sheets.map((sheet) => sheet.name)).toEqual(["Data"]);
+    await expect(parsed.sheets[0]!.read()).rejects.toThrow("Data");
+  });
+
   test("reads shared, inline, and rich-run strings", async () => {
     const grid = await readOneSheet(
       [[{ t: "s", v: 1 }, "inline", { t: "s", v: 0 }]],
@@ -98,6 +185,26 @@ describe("parseWorkbook", () => {
     );
 
     expect(grid.rows).toEqual([["shared", "inline", "rich run"]]);
+  });
+
+  test("resolves shared strings for a sheet reaching further into the table", async () => {
+    const parsed = await parseWorkbook(
+      await workbookBlob({
+        sheets: [
+          { name: "Near", rows: [[{ t: "s", v: 0 }]] },
+          { name: "Far", rows: [[{ t: "s", v: 2 }]] },
+        ],
+        sharedStrings: ["alpha", "beta", "gamma"],
+      }),
+    );
+
+    const near = await parsed.sheets[0]!.read();
+    const far = await parsed.sheets[1]!.read();
+
+    expect(near.rows).toEqual([["alpha"]]);
+    expect(near.truncated).toBe(false);
+    expect(far.rows).toEqual([["gamma"]]);
+    expect(far.truncated).toBe(false);
   });
 
   test("reads numbers, booleans, errors, and formula cells", async () => {
@@ -294,6 +401,38 @@ describe("parseWorkbook", () => {
     expect(grid.truncated).toBe(true);
   });
 
+  test("keeps a sheet that fills the row cap and then declares row breaks", async () => {
+    const rows: CellInput[][] = Array.from(
+      { length: MAX_CSV_ROWS },
+      (_, index) => [index],
+    );
+
+    const grid = await readSheetSpec({
+      name: "Sheet1",
+      rows,
+      trailing: ROW_BREAKS,
+    });
+
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.truncated).toBe(false);
+  });
+
+  test("cuts a sheet past the row cap that also declares row breaks", async () => {
+    const rows: CellInput[][] = Array.from(
+      { length: MAX_CSV_ROWS + 1 },
+      (_, index) => [index],
+    );
+
+    const grid = await readSheetSpec({
+      name: "Sheet1",
+      rows,
+      trailing: ROW_BREAKS,
+    });
+
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.truncated).toBe(true);
+  });
+
   test("clamps a wide sheet to the column cap and says so", async () => {
     const wide: CellInput[] = Array.from(
       { length: MAX_CSV_COLUMNS + 3 },
@@ -321,7 +460,7 @@ describe("parseWorkbook", () => {
       await workbookBlob({ sheets: [{ name: "Sheet1" }] }),
     );
 
-    expect(parsed.sheets[0]!.grid).toEqual({
+    expect(await parsed.sheets[0]!.read()).toEqual({
       headers: null,
       rows: [],
       truncated: false,
@@ -340,9 +479,10 @@ describe("parseWorkbook", () => {
     });
 
     const parsed = await parseWorkbook(blob);
+    const grid = await parsed.sheets[0]!.read();
 
-    expect(parsed.sheets[0]!.grid.rows.length).toBe(MAX_CSV_ROWS);
-    expect(parsed.sheets[0]!.grid.truncated).toBe(true);
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.truncated).toBe(true);
   });
 
   test("abandons a huge sheet once the row cap is met", async () => {
@@ -355,10 +495,11 @@ describe("parseWorkbook", () => {
 
     const startedAt = performance.now();
     const parsed = await parseWorkbook(blob);
+    const grid = await parsed.sheets[0]!.read();
     const elapsed = performance.now() - startedAt;
 
-    expect(parsed.sheets[0]!.grid.rows.length).toBe(MAX_CSV_ROWS);
-    expect(parsed.sheets[0]!.grid.truncated).toBe(true);
+    expect(grid.rows.length).toBe(MAX_CSV_ROWS);
+    expect(grid.truncated).toBe(true);
     expect(elapsed).toBeLessThan(1000);
   });
 
@@ -419,7 +560,7 @@ describe("parseWorkbook", () => {
 
     const parsed = await parseWorkbook(blob);
 
-    expect(parsed.sheets[0]!.grid.rows).toEqual([["2023-01-01"]]);
+    expect((await parsed.sheets[0]!.read()).rows).toEqual([["2023-01-01"]]);
   });
 
   test("reads the same sheet whole under the default character cap", async () => {
@@ -429,6 +570,25 @@ describe("parseWorkbook", () => {
 
     expect(grid.rows).toEqual([["alpha"], [long]]);
     expect(grid.truncated).toBe(false);
+  });
+
+  test("reads a workbook whose parts carry a namespace prefix", async () => {
+    const prefixed = await parseWorkbook(
+      await zipBlob(prefixedWorkbookParts()),
+    );
+
+    const grid = await prefixed.sheets[0]!.read();
+
+    expect(prefixed.sheets.map((sheet) => sheet.name)).toEqual(["Data"]);
+    expect(grid.rows).toEqual([
+      ["shared", "inline", "2023-01-01", "=SUM(A1:A2)"],
+    ]);
+    expect(grid).toEqual(
+      await readOneSheet([PREFIX_FIXTURE_ROW], {
+        sharedStrings: ["shared"],
+        styles: [{ numFmtId: 14 }],
+      }),
+    );
   });
 
   test("rejects a blob that is not a zip", async () => {
