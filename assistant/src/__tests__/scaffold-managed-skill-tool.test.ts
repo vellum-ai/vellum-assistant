@@ -2094,7 +2094,7 @@ describe("background skill update notification", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("it falls back to the run conversation when fork lineage does not resolve", async () => {
+  test("an entry whose fork lineage does not resolve carries no source, never the run", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
     await executeScaffoldManagedSkill(
@@ -2111,10 +2111,10 @@ describe("background skill update notification", () => {
       { getConversation: () => null },
     );
 
-    // Still a real conversation id, so the entry's link resolves rather than
-    // falling through to an unrelated target.
+    // The run is an ephemeral fork; naming it as the source would have the
+    // receipt job drop the entry once the fork is garbage collected.
     expect(recordedUpdates).toHaveLength(1);
-    expect(recordedUpdates[0]?.sourceConversationId).toBe("retro-run-conv");
+    expect(recordedUpdates[0]).not.toHaveProperty("sourceConversationId");
   });
 
   test("a background CREATE gets the skill card instead, with no duplicate signal", async () => {

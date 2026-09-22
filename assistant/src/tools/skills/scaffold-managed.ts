@@ -120,10 +120,11 @@ const SKILL_UPDATE_RECEIPT_RECORD_FAILED_CHECK_NAME =
  *
  * `sourceConversationId` is the conversation the receipt's link resolves to
  * for this entry (see `home-updates-list.tsx`): the source conversation when
- * lineage resolved, else the run's own conversation, which is still a real
- * id so the link resolves rather than falling through to an unrelated
- * target (the client validates it by id and drops it once the fork is
- * garbage collected). `entryId` is the producing tool call's id, so a
+ * lineage resolved, else none. The run's own conversation is never used in
+ * its place: it is an ephemeral fork the next successful retrospective
+ * garbage-collects, and the receipt job leaves out any entry whose source
+ * is gone by the time it announces, so naming the fork would drop the
+ * entry rather than link it. `entryId` is the producing tool call's id, so a
  * re-executed call records nothing new. A context with no tool call id (a
  * direct caller) has no re-execution to guard against, so it gets a fresh
  * id: a stable key on the run and skill would drop a second rewrite of the
@@ -140,7 +141,7 @@ function recordBackgroundSkillUpdate(args: {
   name: string;
   changeSummary: string;
   runConversationId: string;
-  sourceConversationId: string;
+  sourceConversationId: string | undefined;
   toolUseId: string | undefined;
 }): void {
   const entryId = `${args.runConversationId}:${args.toolUseId ?? uuid()}`;
@@ -151,7 +152,9 @@ function recordBackgroundSkillUpdate(args: {
       name: args.name,
       changeSummary: args.changeSummary,
       runConversationId: args.runConversationId,
-      sourceConversationId: args.sourceConversationId,
+      ...(args.sourceConversationId
+        ? { sourceConversationId: args.sourceConversationId }
+        : {}),
     });
   } catch (err) {
     log.warn(
@@ -527,7 +530,7 @@ export async function executeScaffoldManagedSkill(
       name: normalizedName,
       changeSummary,
       runConversationId: retrospectiveConversationId,
-      sourceConversationId: sourceConversationId ?? retrospectiveConversationId,
+      sourceConversationId,
       toolUseId: context.toolUseId,
     });
   }
