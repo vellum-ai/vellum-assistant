@@ -82,6 +82,25 @@ describe("resolvePlatformAssistantId", () => {
     );
   });
 
+  test("takes the registered id off an injection failure", async () => {
+    const { PlatformIdentityInjectionError } = await import(
+      "@/lib/platform-identity-errors"
+    );
+    resolveLocalAssistantPlatformIdentityMock.mockImplementationOnce(
+      async () => {
+        throw new PlatformIdentityInjectionError(
+          PLATFORM_ASSISTANT_ID,
+          new Error("store unreadable"),
+        );
+      },
+    );
+
+    await expect(resolvePlatformAssistantId("local-slug")).resolves.toBe(
+      PLATFORM_ASSISTANT_ID,
+    );
+    expect(resolvePairedAssistantPlatformIdMock).not.toHaveBeenCalled();
+  });
+
   test("continues after a local-identity throw", async () => {
     resolveLocalAssistantPlatformIdentityMock.mockImplementationOnce(
       async () => {

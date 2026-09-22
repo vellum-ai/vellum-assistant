@@ -1,4 +1,5 @@
 import { remoteGatewayPublicBaseUrl } from "@/lib/auth/remote-gateway-session";
+import { PlatformIdentityInjectionError } from "@/lib/platform-identity-errors";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import {
   fetchPlatformStatus,
@@ -27,7 +28,14 @@ export async function resolvePlatformAssistantId(
     if (isUuid(resolved)) {
       return resolved;
     }
-  } catch {
+  } catch (error) {
+    // The registration exists even when the local side did not finish.
+    if (
+      error instanceof PlatformIdentityInjectionError &&
+      isUuid(error.platformAssistantId)
+    ) {
+      return error.platformAssistantId;
+    }
     // A missing lockfile entry or unsigned-in host is not fatal; try
     // the paired and remote-gateway lookups next.
   }

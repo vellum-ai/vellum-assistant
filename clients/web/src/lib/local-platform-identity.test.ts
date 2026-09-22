@@ -532,6 +532,29 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     expect(requestNames()).toEqual(["status", "ensure-registration"]);
   });
 
+  test("a registered assistant whose daemon could not read its store fails with its id", async () => {
+    statusBody = {
+      assistantId: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: null,
+      clientInstallationId: HOST_INSTALLATION_ID,
+    };
+
+    const failure = await resolveLocalAssistantPlatformIdentity(
+      RUNTIME_ASSISTANT_ID,
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(PlatformIdentityInjectionError);
+    expect(
+      (failure as PlatformIdentityInjectionError).platformAssistantId,
+    ).toBe(PLATFORM_ASSISTANT_ID);
+    expect(requestNames()).toEqual(["status"]);
+  });
+
   test("resolution alone never rotates a stored key", async () => {
     statusBody = {
       assistantId: PLATFORM_ASSISTANT_ID,
@@ -805,6 +828,44 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
       name: "vellum:assistant_api_key",
       value: "reprovisioned-key",
     });
+  });
+
+  test("a bootstrap keeps retrying through an unreadable store and stores the pending key", async () => {
+    simulateDaemonRestartWithMissingApiKey();
+    ensureRegistrationBody = {
+      assistant: { id: PLATFORM_ASSISTANT_ID },
+      assistant_api_key: null,
+    };
+    setBootstrapRetryDelaysForTesting([20, 20]);
+    const onError = mock((_error: unknown) => {});
+
+    bootstrapLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID, { onError });
+    await flushAsyncWork();
+    expect(
+      requestNames().filter((name) => name === "reprovision-api-key"),
+    ).toHaveLength(1);
+
+    // The daemon comes back but cannot read its store yet.
+    statusBody = {
+      ...(statusBody as Record<string, unknown>),
+      hasAssistantApiKey: null,
+    };
+    secretsUnavailable = false;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(storedSecrets).not.toContain("vellum:assistant_api_key");
+
+    // Then it can, and still holds no key.
+    statusBody = {
+      ...(statusBody as Record<string, unknown>),
+      hasAssistantApiKey: false,
+    };
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(
+      requestNames().filter((name) => name === "reprovision-api-key"),
+    ).toHaveLength(1);
+    expect(storedSecrets).toContain("vellum:assistant_api_key");
   });
 
   test("invokes onError only after the retry schedule is exhausted", async () => {

@@ -474,6 +474,18 @@ async function ensureLocalAssistantPlatformIdentity(
         organizationId: statusOrganizationId,
       });
     }
+    // The registration is known but the daemon could not read its store, so
+    // whether it holds a key is not. Settling here would end a bootstrap that
+    // may still have a provisioned key to store, so this fails with the id
+    // and the bootstrap retries once the store answers.
+    if (status.hasAssistantApiKey === null) {
+      throw new PlatformIdentityInjectionError(
+        statusPlatformAssistantId,
+        new Error(
+          "The local assistant could not read its credential store, so nothing was provisioned.",
+        ),
+      );
+    }
     return statusPlatformAssistantId;
   }
 
