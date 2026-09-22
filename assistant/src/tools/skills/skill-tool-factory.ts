@@ -95,7 +95,7 @@ export function createSkillTool(
         return {
           content:
             misuse ??
-            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Load the owning skill with skill_load for its current instructions, then retry with arguments matching this schema.\n\n${formatSkillInputSchema(entry.input_schema)}`,
+            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. If skill_load is available, load the owning skill for its current instructions. Retry with arguments matching this schema.\n\n${formatSkillInputSchema(entry.input_schema)}`,
           isError: true,
         };
       }
