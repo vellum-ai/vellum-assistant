@@ -9,7 +9,6 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `experiment-activation-checklist-2026-09-10` | not opened; default off (control) |
 | `assistant-inbox` | not opened; default off; scope client |
 | `assistant-reply-push` | not opened; default on |
-| `auto-profile` | [vellum-assistant-platform #10679](https://github.com/vellum-ai/vellum-assistant-platform/pull/10679); default off |
 | `channel-trust-floors` | not opened; default on |
 | `figma-oauth` | not opened; default off |
 | `inline-assistant-intermediates` | deferred; local opt-out only |
