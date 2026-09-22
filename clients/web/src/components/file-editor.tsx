@@ -24,6 +24,7 @@ export function ContentActionBar({
   showEdit,
   isEditing,
   onToggleEdit,
+  leading,
   extraActions,
 }: {
   content: string;
@@ -33,6 +34,12 @@ export function ContentActionBar({
   showEdit?: boolean;
   isEditing: boolean;
   onToggleEdit?: () => void;
+  /**
+   * A control that decides what the surface shows, rather than acting on it:
+   * formatted or source. It sits ahead of the actions, behind a divider, so
+   * the two groups do not read as one row of buttons.
+   */
+  leading?: ReactNode;
   extraActions?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -53,6 +60,15 @@ export function ContentActionBar({
 
   return (
     <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md bg-[var(--surface-lift)] shadow-sm">
+      {leading && (
+        <>
+          {leading}
+          <span
+            aria-hidden
+            className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]"
+          />
+        </>
+      )}
       {showEdit && onToggleEdit && (
         <Button
           variant="ghost"

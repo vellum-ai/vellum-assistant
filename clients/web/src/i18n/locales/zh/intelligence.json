@@ -291,18 +291,15 @@
     "backToConversationAriaLabel": "返回对话",
     "backToSkillsAriaLabel": "返回技能",
     "filesTab": "文件",
-    "fileViewModeAriaLabel": "文件查看模式",
     "historyTab": "历史记录",
     "install": "安装",
     "noFilesAvailable": "无可用文件。",
     "openInWorkspaceAriaLabel": "在工作区中打开",
     "pendingAriaLabel": "待处理",
-    "preview": "预览",
     "remove": "移除",
     "saveFailed": "保存失败",
     "selectAFile": "选择文件",
-    "selectFilePrompt": "选择一个文件以查看其内容。",
-    "source": "来源"
+    "selectFilePrompt": "选择一个文件以查看其内容。"
   },
   "skillDetailPage": {
     "backToConversation": "返回对话",

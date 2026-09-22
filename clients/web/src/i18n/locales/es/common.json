@@ -443,6 +443,11 @@
     "save": "Guardar",
     "saving": "Guardando…"
   },
+  "fileViewMode": {
+    "formatted": "Con formato",
+    "modeAria": "Cómo mostrar este archivo",
+    "source": "Fuente"
+  },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "Copiar enlace de invitación",
     "createFailed": "No se pudo crear el enlace de invitación. Asegúrate de que A2A esté habilitado para tu asistente.",

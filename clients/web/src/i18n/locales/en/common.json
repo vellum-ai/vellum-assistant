@@ -445,6 +445,11 @@
     "save": "Save",
     "saving": "Saving…"
   },
+  "fileViewMode": {
+    "formatted": "Formatted",
+    "modeAria": "How to show this file",
+    "source": "Source"
+  },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "Copy invite link",
     "createFailed": "Failed to create invite link. Make sure A2A is enabled for your assistant.",

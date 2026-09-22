@@ -443,6 +443,11 @@
     "save": "保存",
     "saving": "正在保存…"
   },
+  "fileViewMode": {
+    "formatted": "格式化",
+    "modeAria": "如何显示此文件",
+    "source": "源码"
+  },
   "generateInviteLinkDialog": {
     "copyAriaLabel": "复制邀请链接",
     "createFailed": "创建邀请链接失败。请确保您的助手已启用 A2A。",

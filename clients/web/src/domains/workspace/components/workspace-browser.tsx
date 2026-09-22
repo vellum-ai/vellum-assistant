@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useSearchParams } from "react-router";
 
+import type { FileViewMode } from "@/components/file-view-mode";
 import { SideListDrawer, SideListTrigger } from "@/components/side-list-drawer";
 import { useSideListRoom } from "@/hooks/use-side-list-room";
 import { useTranslation } from "@/i18n";
@@ -15,8 +16,6 @@ import {
   WorkspaceTree,
   type WorkspaceSortMode,
 } from "@/domains/workspace/components/workspace-tree";
-
-export type WorkspaceViewMode = "preview" | "source";
 
 /**
  * Returns the set of ancestor directory paths that must be expanded to reveal
@@ -47,7 +46,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
     searchParams.get("sort") === "size" ? "size" : "name",
   );
-  const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
+  const [viewMode, setViewMode] = useState<FileViewMode>("formatted");
 
   // Apply ?file= deep links (initial mount and later in-page navigations),
   // then strip the param so tree selection owns the state again.
